@@ -219,6 +219,13 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr =
+                std::make_shared<TestFunctionExpr>(_expr_name, data_type(), node_type(), _opcode);
+        return Status::OK();
+    }
+
     Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
                                ColumnPtr&) const override {
         return Status::NotSupported("TestFunctionExpr is only used for ColumnMapper analysis");
@@ -241,6 +248,49 @@ VExprSPtr struct_element(const VExprSPtr& parent, DataTypePtr child_type,
     auto expr = std::make_shared<TestFunctionExpr>("struct_element", child_type);
     expr->add_child(parent);
     expr->add_child(literal(str(), Field::create_field<TYPE_STRING>(child_name)));
+    return expr;
+}
+
+VExprSPtr element_at(const VExprSPtr& parent, DataTypePtr child_type,
+                     const std::string& child_name) {
+    auto expr = std::make_shared<TestFunctionExpr>("element_at", std::move(child_type));
+    expr->add_child(parent);
+    expr->add_child(literal(str(), Field::create_field<TYPE_STRING>(child_name)));
+    return expr;
+}
+
+VExprSPtr array_element_at(const VExprSPtr& parent, DataTypePtr child_type, int64_t ordinal) {
+    auto expr = std::make_shared<TestFunctionExpr>("element_at", std::move(child_type));
+    expr->add_child(parent);
+    expr->add_child(literal(i64(), Field::create_field<TYPE_BIGINT>(ordinal)));
+    return expr;
+}
+
+VExprSPtr map_values(const VExprSPtr& parent, DataTypePtr value_type) {
+    auto expr = std::make_shared<TestFunctionExpr>(
+            "map_values", std::make_shared<DataTypeArray>(std::move(value_type)));
+    expr->add_child(parent);
+    return expr;
+}
+
+VExprSPtr map_keys(const VExprSPtr& parent, DataTypePtr key_type) {
+    auto expr = std::make_shared<TestFunctionExpr>(
+            "map_keys", std::make_shared<DataTypeArray>(std::move(key_type)));
+    expr->add_child(parent);
+    return expr;
+}
+
+VExprSPtr array_contains(const VExprSPtr& array, const VExprSPtr& value) {
+    auto expr = std::make_shared<TestFunctionExpr>("array_contains", u8());
+    expr->add_child(array);
+    expr->add_child(value);
+    return expr;
+}
+
+VExprSPtr like_expr(const VExprSPtr& left, const std::string& pattern) {
+    auto expr = std::make_shared<TestFunctionExpr>("like", u8());
+    expr->add_child(left);
+    expr->add_child(literal(str(), Field::create_field<TYPE_STRING>(pattern)));
     return expr;
 }
 
@@ -979,6 +1029,156 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForNestedSchemaEvolutio
     EXPECT_EQ(*value_mapping.child_mappings[1].file_local_id, 1);
 }
 
+// Scenario: SELECT * can carry only the full complex DataType without expanded nested
+// ColumnDefinitions. When an old file has map value STRUCT<age, name> and the table type is
+// STRUCT<age, full_name, gender>, the mapper must still build child mappings instead of letting
+// TableReader cast between incompatible struct shapes.
+TEST(ColumnMapperCreateMappingTest, SynthesizesMissingMapValueStructChildrenFromType) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    const auto table_value_type = std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, string_type, string_type}, Strings {"age", "full_name", "gender"});
+    const auto file_value_type = std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type},
+                                                                  Strings {"age", "name"});
+
+    auto table_map = name_col("new_map_column",
+                              std::make_shared<DataTypeMap>(string_type, table_value_type));
+    table_map.name_mapping = {"map_column"};
+    set_name_identifiers(&table_map, -1);
+
+    auto file_age = name_col("age", int_type, 0);
+    auto file_name = name_col("name", string_type, 1);
+    auto file_value = struct_name_col("value", {file_age, file_name}, 1);
+    auto file_key = name_col("key", string_type, 0);
+    auto file_map =
+            map_col("map_column", -1, {file_key, file_value}, string_type, file_value_type, 5);
+    set_name_identifiers(&file_map, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto& map_mapping = mapper.mappings()[0];
+    ASSERT_EQ(map_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(map_mapping.child_mappings[0].table_column_name, "key");
+    EXPECT_EQ(map_mapping.child_mappings[0].file_column_name, "key");
+    EXPECT_EQ(*map_mapping.child_mappings[0].file_local_id, 0);
+
+    const auto& value_mapping = map_mapping.child_mappings[1];
+    EXPECT_EQ(value_mapping.table_column_name, "value");
+    EXPECT_EQ(value_mapping.file_column_name, "value");
+    EXPECT_EQ(*value_mapping.file_local_id, 1);
+    ASSERT_EQ(value_mapping.child_mappings.size(), 3);
+    EXPECT_EQ(value_mapping.child_mappings[0].table_column_name, "age");
+    EXPECT_EQ(value_mapping.child_mappings[0].file_column_name, "age");
+    EXPECT_EQ(*value_mapping.child_mappings[0].file_local_id, 0);
+    EXPECT_EQ(value_mapping.child_mappings[1].table_column_name, "full_name");
+    EXPECT_EQ(value_mapping.child_mappings[1].file_column_name, "name");
+    EXPECT_EQ(*value_mapping.child_mappings[1].file_local_id, 1);
+    EXPECT_EQ(value_mapping.child_mappings[2].table_column_name, "gender");
+    expect_missing(value_mapping.child_mappings[2]);
+    EXPECT_FALSE(value_mapping.is_trivial);
+}
+
+// Scenario: MAP_KEYS(new_map_column) may build a key-only nested projection, while SELECT * still
+// needs the whole map root. The mapper must add a synthetic value child and recursively map the old
+// value struct instead of treating Struct(name, age) as a leaf to CAST into the table value struct.
+TEST(ColumnMapperCreateMappingTest, KeyOnlyMapProjectionStillMapsEvolvedValueStruct) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    const auto table_value_type = std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, string_type, string_type}, Strings {"age", "full_name", "gender"});
+    const auto file_value_type = std::make_shared<DataTypeStruct>(DataTypes {string_type, int_type},
+                                                                  Strings {"name", "age"});
+
+    auto table_key = name_col("key", string_type);
+    auto table_map = map_col("new_map_column", -1, {table_key}, string_type, table_value_type);
+    table_map.name_mapping = {"map_column"};
+    set_name_identifiers(&table_map, -1);
+
+    auto file_key = name_col("key", string_type, 0);
+    auto file_name = name_col("name", string_type, 0);
+    auto file_age = name_col("age", int_type, 1);
+    auto file_value = struct_name_col("value", {file_name, file_age}, 1);
+    auto file_map =
+            map_col("map_column", -1, {file_key, file_value}, string_type, file_value_type, 5);
+    set_name_identifiers(&file_map, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto& map_mapping = mapper.mappings()[0];
+    ASSERT_EQ(map_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(map_mapping.child_mappings[0].table_column_name, "key");
+    EXPECT_EQ(map_mapping.child_mappings[0].file_column_name, "key");
+    EXPECT_EQ(*map_mapping.child_mappings[0].file_local_id, 0);
+
+    const auto& value_mapping = map_mapping.child_mappings[1];
+    EXPECT_EQ(value_mapping.table_column_name, "value");
+    EXPECT_EQ(value_mapping.file_column_name, "value");
+    EXPECT_EQ(*value_mapping.file_local_id, 1);
+    ASSERT_EQ(value_mapping.child_mappings.size(), 3);
+    EXPECT_EQ(value_mapping.child_mappings[0].table_column_name, "age");
+    EXPECT_EQ(value_mapping.child_mappings[0].file_column_name, "age");
+    EXPECT_EQ(*value_mapping.child_mappings[0].file_local_id, 1);
+    EXPECT_EQ(value_mapping.child_mappings[1].table_column_name, "full_name");
+    EXPECT_EQ(value_mapping.child_mappings[1].file_column_name, "name");
+    EXPECT_EQ(*value_mapping.child_mappings[1].file_local_id, 0);
+    EXPECT_EQ(value_mapping.child_mappings[2].table_column_name, "gender");
+    expect_missing(value_mapping.child_mappings[2]);
+    EXPECT_FALSE(value_mapping.is_trivial);
+}
+
+// Scenario: Iceberg uses field-id mapping, but a key-only map projection may force the mapper to
+// synthesize the missing value struct from DataType names, which do not carry field ids. The mapper
+// must name-match synthesized children before ordinal fallback, otherwise `age` would read old
+// file child `name` and the later materialization would build the value struct incorrectly.
+TEST(ColumnMapperCreateMappingTest,
+     KeyOnlyMapProjectionSynthesizedValueStructNameMatchesBeforeOrdinalFallback) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    const auto table_value_type = std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, string_type, string_type}, Strings {"age", "full_name", "gender"});
+    const auto file_value_type = std::make_shared<DataTypeStruct>(DataTypes {string_type, int_type},
+                                                                  Strings {"name", "age"});
+
+    auto table_key = field_id_col("key", 10, string_type, 0);
+    auto table_map = map_col("new_map_column", 2, {table_key}, string_type, table_value_type);
+
+    auto file_key = field_id_col("key", 10, string_type, 0);
+    auto file_name = field_id_col("name", 7, string_type, 0);
+    auto file_age = field_id_col("age", 8, int_type, 1);
+    auto file_value = struct_col("value", 11, {file_name, file_age}, 1);
+    auto file_map =
+            map_col("new_map_column", 2, {file_key, file_value}, string_type, file_value_type, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto& map_mapping = mapper.mappings()[0];
+    ASSERT_EQ(map_mapping.child_mappings.size(), 2);
+    EXPECT_EQ(map_mapping.child_mappings[0].table_column_name, "key");
+    EXPECT_EQ(map_mapping.child_mappings[0].file_column_name, "key");
+    EXPECT_EQ(*map_mapping.child_mappings[0].file_local_id, 0);
+
+    const auto& value_mapping = map_mapping.child_mappings[1];
+    EXPECT_EQ(value_mapping.table_column_name, "value");
+    EXPECT_EQ(value_mapping.file_column_name, "value");
+    EXPECT_EQ(*value_mapping.file_local_id, 1);
+    ASSERT_EQ(value_mapping.child_mappings.size(), 3);
+    EXPECT_EQ(value_mapping.child_mappings[0].table_column_name, "age");
+    EXPECT_EQ(value_mapping.child_mappings[0].file_column_name, "age");
+    EXPECT_EQ(*value_mapping.child_mappings[0].file_local_id, 1);
+    EXPECT_EQ(value_mapping.child_mappings[1].table_column_name, "full_name");
+    EXPECT_EQ(value_mapping.child_mappings[1].file_column_name, "name");
+    EXPECT_EQ(*value_mapping.child_mappings[1].file_local_id, 0);
+    EXPECT_EQ(value_mapping.child_mappings[2].table_column_name, "gender");
+    expect_missing(value_mapping.child_mappings[2]);
+    EXPECT_FALSE(value_mapping.is_trivial);
+}
+
 TEST(ColumnMapperCreateMappingTest, ByFieldIdDoesNotFallbackToNameAndUsesFirstDuplicate) {
     const auto int_type = i32();
     const std::vector<ColumnDefinition> table_schema = {
@@ -1583,7 +1783,7 @@ TEST(ColumnMapperLocalizeFiltersTest, NestedFilterOnlyChildMergesIntoPredicatePr
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
-    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({1, 0}));
+    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
     ASSERT_EQ(request.local_positions.size(), 1);
     EXPECT_EQ(request.local_positions.at(LocalColumnId(5)), LocalIndex(0));
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_local());
@@ -1722,7 +1922,7 @@ TEST(ColumnMapperScanRequestTest, StructOutputAndFilterOnlyChildAreMerged) {
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
-    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({1, 0}));
+    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
     EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
               std::vector<int32_t>({0}));
@@ -1874,7 +2074,7 @@ TEST(ColumnMapperScanRequestTest, UnsafeCastDoesNotBuildNestedPredicateFilter) {
     EXPECT_TRUE(request.column_predicate_filters.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
-    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({1, 0}));
+    EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
 }
 
 TEST(ColumnMapperScanRequestTest, DeepNestedPredicateTargetsLeafPath) {
@@ -2000,6 +2200,603 @@ TEST(ColumnMapperScanRequestTest, MapValueStructProjectionPrunesValueChildren) {
             assert_cast<const DataTypeStruct*>(remove_nullable(mapped_map->get_value_type()).get());
     ASSERT_EQ(mapped_value->get_elements().size(), 1);
     EXPECT_EQ(mapped_value->get_element_name(0), "b");
+}
+
+// Scenario: a table struct projects only child `b`, while the file struct stores `a,b`.
+// BY_NAME mapping should read only the physical child `b` and rebuild the mapped file type to the
+// projected struct shape.
+TEST(ColumnMapperScanRequestTest, StructProjectionPrunesChildrenByName) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_b = name_col("b", string_type);
+    auto table_struct = struct_name_col("s", {table_b});
+    set_name_identifiers(&table_struct, 0);
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", string_type, 1);
+    auto file_struct = struct_name_col("s", {file_a, file_b}, 0);
+    set_name_identifiers(&file_struct, 0);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& projection = request.non_predicate_columns[0];
+    EXPECT_EQ(projection.column_id(), LocalColumnId(0));
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto* projected_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(mapper.mappings()[0].file_type).get());
+    ASSERT_EQ(projected_type->get_elements().size(), 1);
+    EXPECT_EQ(projected_type->get_element_name(0), "b");
+}
+
+// Scenario: a row filter reaches a struct child through an array wrapper
+// (`items.item.a > 5`). The nested predicate filter path only supports direct struct paths, so
+// the mapper keeps this as a row predicate and reads the full array root for predicate evaluation.
+TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", string_type, 1);
+    auto file_element = struct_name_col("item", {file_a, file_b}, 0);
+    auto file_array = array_col("items", -1, file_element, 0);
+    set_name_identifiers(&file_array, 0);
+
+    auto table_array = file_array;
+
+    const auto item_type = file_element.type;
+    auto item_expr = struct_element(table_slot(0, 0, table_array.type, "items"), item_type, "item");
+    auto filter_expr = int_gt(struct_element(item_expr, int_type, "a"), 5);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_array}, &request).ok());
+
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(0));
+    EXPECT_TRUE(request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.predicate_columns[0].children.empty());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+// Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.
+// The filter is too complex to become a file-local nested predicate, but the predicate projection
+// must replace the output projection for the same map root and contain both physical value children.
+TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProjection) {
+    const auto key_type = i32();
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_value_b = name_col("b", string_type);
+    auto table_value = struct_name_col("value", {table_value_b});
+    auto table_map = map_col("m", -1, {table_value}, key_type, table_value.type);
+    set_name_identifiers(&table_map, 0);
+
+    auto file_key = name_col("key", key_type, 0);
+    auto file_value_a = name_col("a", int_type, 0);
+    auto file_value_b = name_col("b", string_type, 1);
+    auto file_value = struct_name_col("value", {file_value_a, file_value_b}, 1);
+    auto file_map = map_col("m", -1, {file_key, file_value}, key_type, file_value.type, 0);
+    set_name_identifiers(&file_map, 0);
+
+    auto full_value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    auto full_map_type = std::make_shared<DataTypeMap>(key_type, full_value_type);
+    auto value_expr =
+            struct_element(table_slot(0, 0, full_map_type, "m"), full_value_type, "value");
+    auto filter_expr = int_gt(struct_element(value_expr, int_type, "a"), 5);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_map}, &request).ok());
+
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& projection = request.predicate_columns[0];
+    EXPECT_EQ(projection.column_id(), LocalColumnId(0));
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+    EXPECT_EQ(projection_ids(projection.children[0].children), std::vector<int32_t>({0, 1}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+// Scenario: when projected struct children are an in-order prefix of the file struct, the mapper can
+// read those physical children directly without rebuilding the file-side complex type.
+TEST(ColumnMapperScanRequestTest, MatchingProjectedStructDoesNotNeedComplexRematerialize) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_a = field_id_col("a", 1, int_type);
+    auto table_b = field_id_col("b", 2, string_type);
+    auto table_struct = struct_col("s", 10, {table_a, table_b});
+
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, string_type, 1);
+    auto file_c = field_id_col("c", 3, int_type, 2);
+    auto file_struct = struct_col("s", 10, {file_a, file_b, file_c}, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& projection = request.non_predicate_columns[0];
+    EXPECT_FALSE(projection.project_all_children);
+    EXPECT_EQ(projection_ids(projection.children), std::vector<int32_t>({0, 1}));
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
+// Scenario: Iceberg field-id mapping sees a renamed struct child, but the physical child order and
+// types still match, so projection remains a full physical read instead of rebuilding a new type.
+TEST(ColumnMapperScanRequestTest, RenameOnlyProjectedStructDoesNotRebuildFileProjection) {
+    const auto int_type = i32();
+
+    auto table_a = field_id_col("a", 1, int_type);
+    auto table_renamed_b = field_id_col("renamed_b", 2, int_type);
+    auto table_struct = struct_col("s", 10, {table_a, table_renamed_b});
+
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, int_type, 1);
+    auto file_struct = struct_col("s", 10, {file_a, file_b}, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+    EXPECT_EQ(mapper.mappings()[0].projected_file_children.size(),
+              mapper.mappings()[0].original_file_children.size());
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[1].table_column_name, "renamed_b");
+    EXPECT_EQ(mapper.mappings()[0].child_mappings[1].file_column_name, "b");
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+}
+
+// Scenario: a row filter references an unprojected struct child, so the predicate projection is
+// merged with the output projection and the mapper rebuilds the projected file struct type.
+TEST(ColumnMapperScanRequestTest, PredicateProjectionRebuildsProjectedStructFileType) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_a = field_id_col("a", 1, int_type);
+    auto table_b = field_id_col("b", 2, string_type);
+    auto table_struct = struct_col("s", 10, {table_a, table_b});
+    auto full_table_c = field_id_col("c", 3, int_type);
+    auto full_table_struct = struct_col("s", 10, {table_a, table_b, full_table_c});
+
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, string_type, 1);
+    auto file_c = field_id_col("c", 3, int_type, 2);
+    auto file_struct = struct_col("s", 10, {file_a, file_b, file_c}, 5);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto filter_expr =
+            int_gt(struct_element(table_slot(0, 0, full_table_struct.type, "s"), int_type, "c"), 0);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    const auto& projection = request.predicate_columns[0];
+    EXPECT_FALSE(projection.project_all_children);
+    EXPECT_EQ(projection_ids(projection.children), std::vector<int32_t>({0, 1, 2}));
+
+    const auto* mapped_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(mapper.mappings()[0].file_type).get());
+    ASSERT_EQ(mapped_type->get_elements().size(), 3);
+    EXPECT_EQ(mapped_type->get_element_name(0), "a");
+    EXPECT_EQ(mapped_type->get_element_name(1), "b");
+    EXPECT_EQ(mapped_type->get_element_name(2), "c");
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+}
+
+// Scenario: a filter references a top-level column that is not projected by the query; the mapper
+// creates a hidden filter mapping without adding that hidden column to visible table mappings.
+TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) {
+    const auto int_type = i32();
+
+    auto table_id = field_id_col("id", 0, int_type);
+    auto table_c = field_id_col("c", 11, int_type);
+    auto table_struct = struct_col("s", 10, {table_c});
+
+    auto file_id = field_id_col("id", 0, int_type, 0);
+    auto file_c = field_id_col("c", 11, int_type, 0);
+    auto file_struct = struct_col("s", 10, {file_c}, 10);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_id}, {}, {file_id, file_struct}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
+
+    auto filter_expr =
+            int_gt(struct_element(table_slot(7, 1, table_struct.type, "s"), int_type, "c"), 0);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(1)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_id}, &request).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(10));
+    EXPECT_TRUE(request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.predicate_columns[0].children.empty());
+
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    ASSERT_EQ(request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(10));
+    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
+              std::vector<int32_t>({0}));
+}
+
+// Scenario: a nested predicate targets a table-side renamed struct field; both predicate pruning and
+// scan projection must resolve that field to the old physical file child.
+TEST(ColumnMapperScanRequestTest, NestedPredicateProjectionUsesMappedRenamedChild) {
+    const auto int_type = i32();
+
+    auto table_a = field_id_col("a", 1, int_type);
+    auto table_renamed_b = field_id_col("renamed_b", 2, int_type);
+    auto table_struct = struct_col("s", 10, {table_a, table_renamed_b});
+
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, int_type, 1);
+    auto file_struct = struct_col("s", 10, {file_a, file_b}, 10);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto filter_expr = int_gt(
+            struct_element(table_slot(0, 0, table_struct.type, "s"), int_type, "renamed_b"), 0);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.column_predicate_filters.size(), 1);
+    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(10));
+    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
+              std::vector<int32_t>({1}));
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_TRUE(request.predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.predicate_columns[0].children.empty());
+}
+
+// Scenario: element_at(struct, 'table_name') in a row filter is localized to the physical file
+// child name, matching the struct_element rewrite and nested predicate filter resolution paths.
+TEST(ColumnMapperScanRequestTest,
+     FileLocalElementAtConjunctUsesFileChildNameForRenamedStructField) {
+    const auto int_type = i32();
+
+    auto table_a = field_id_col("a", 1, int_type);
+    auto table_renamed_b = field_id_col("renamed_b", 2, int_type);
+    auto table_struct = struct_col("s", 10, {table_a, table_renamed_b});
+
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, int_type, 1);
+    auto file_struct = struct_col("s", 10, {file_a, file_b}, 10);
+
+    auto child_expr = element_at(table_slot(0, 0, table_struct.type, table_struct.name), int_type,
+                                 "renamed_b");
+    auto filter_expr = int_gt(child_expr, 0);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    const auto& localized_child = request.conjuncts[0]->root()->children()[0];
+    EXPECT_EQ(localized_child->expr_name(), "element_at");
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_child->children()[0].get());
+    EXPECT_EQ(localized_slot->column_name(), "s");
+    EXPECT_EQ(localized_slot->column_id(), 0);
+
+    const auto* localized_literal =
+            assert_cast<const VLiteral*>(localized_child->children()[1].get());
+    Field localized_field;
+    localized_literal->get_column_ptr()->get(0, localized_field);
+    ASSERT_EQ(localized_field.get_type(), TYPE_STRING);
+    EXPECT_EQ(std::string(localized_field.as_string_view()), "b");
+}
+
+// Scenario: nested element_at(struct, name) localization rewrites both selector names and
+// intermediate return types. The outer selector must be prepared against the projected file child
+// struct, not the table child struct or the full historical file child struct.
+TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesFileChildTypeForRenamedLeaf) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_new_aa = field_id_col("new_aa", 23, int_type);
+    auto table_bb = field_id_col("bb", 24, string_type);
+    auto table_new_a = struct_col("new_a", 20, {table_new_aa, table_bb});
+    auto table_struct = struct_col("struct_column2", 19, {table_new_a});
+
+    auto file_aa = field_id_col("aa", 23, int_type, 0);
+    auto file_bb = field_id_col("bb", 24, string_type, 1);
+    auto file_new_a = struct_col("new_a", 20, {file_aa, file_bb}, 0);
+    auto file_struct = struct_col("struct_column2", 19, {file_new_a}, 10);
+
+    const auto table_slot_expr = table_slot(0, 0, table_struct.type, "struct_column2");
+    const auto table_parent_expr = element_at(table_slot_expr, table_new_a.type, "new_a");
+    const auto table_leaf_expr = element_at(table_parent_expr, int_type, "new_aa");
+    auto filter_expr = binary_predicate(TExprOpcode::EQ, table_leaf_expr,
+                                        literal(int_type, Field::create_field<TYPE_INT>(50)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+    ASSERT_EQ(request.conjuncts.size(), 1);
+
+    const auto& localized_leaf = request.conjuncts[0]->root()->children()[0];
+    ASSERT_EQ(localized_leaf->expr_name(), "element_at");
+    const auto& localized_parent = localized_leaf->children()[0];
+    ASSERT_EQ(localized_parent->expr_name(), "element_at");
+
+    const auto* localized_leaf_selector =
+            assert_cast<const VLiteral*>(localized_leaf->children()[1].get());
+    Field localized_leaf_field;
+    localized_leaf_selector->get_column_ptr()->get(0, localized_leaf_field);
+    ASSERT_EQ(localized_leaf_field.get_type(), TYPE_STRING);
+    EXPECT_EQ(std::string(localized_leaf_field.as_string_view()), "aa");
+
+    const auto* localized_parent_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(localized_parent->data_type()).get());
+    ASSERT_EQ(localized_parent_type->get_elements().size(), 2);
+    EXPECT_EQ(localized_parent_type->get_element_name(0), "aa");
+    EXPECT_EQ(localized_parent_type->get_element_name(1), "bb");
+}
+
+// Scenario: output projection reads one struct child while the row filter reads a different nested
+// struct child. File-local conjunct rewrite must use the merged scan projection type. In the SQL
+// shape below, `SELECT element_at(s, 'c') WHERE element_at(element_at(s, 'b'), 'cc') LIKE ...`
+// reads file children `b.cc` and `c`; the localized inner `element_at(s, 'b')` returns
+// `Struct(cc)`, not the full old file child `Struct(cc, new_dd)`.
+TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesMergedScanProjectionChildType) {
+    const auto string_type = str();
+    const auto int_type = i32();
+
+    auto table_cc = field_id_col("cc", 23, string_type);
+    auto table_new_dd = field_id_col("new_dd", 24, int_type);
+    auto table_b = struct_col("b", 20, {table_cc, table_new_dd});
+    auto table_c = field_id_col("c", 25, string_type);
+    auto full_table_struct = struct_col("struct_column2", 19, {table_b, table_c});
+    auto projected_table_struct = struct_col("struct_column2", 19, {table_c});
+
+    auto file_cc = field_id_col("cc", 23, string_type, 0);
+    auto file_new_dd = field_id_col("new_dd", 24, int_type, 1);
+    auto file_b = struct_col("b", 20, {file_cc, file_new_dd}, 0);
+    auto file_c = field_id_col("c", 25, string_type, 1);
+    auto file_struct = struct_col("new_struct_column", 19, {file_b, file_c}, 10);
+
+    const auto table_slot_expr = table_slot(0, 0, full_table_struct.type, "struct_column2");
+    const auto table_parent_expr = element_at(table_slot_expr, table_b.type, "b");
+    const auto table_leaf_expr = element_at(table_parent_expr, string_type, "cc");
+    auto filter_expr = like_expr(table_leaf_expr, "NestedC%");
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {projected_table_struct}, &request).ok());
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(10));
+    const auto position_it = request.local_positions.find(LocalColumnId(10));
+    ASSERT_NE(position_it, request.local_positions.end());
+    EXPECT_EQ(position_it->second, LocalIndex(0));
+
+    const auto& localized_leaf = request.conjuncts[0]->root()->children()[0];
+    ASSERT_EQ(localized_leaf->expr_name(), "element_at");
+    const auto& localized_parent = localized_leaf->children()[0];
+    ASSERT_EQ(localized_parent->expr_name(), "element_at");
+
+    const auto* localized_slot = assert_cast<const VSlotRef*>(localized_parent->children()[0].get());
+    EXPECT_EQ(localized_slot->column_name(), "new_struct_column");
+    EXPECT_EQ(localized_slot->column_id(), position_it->second.value());
+
+    const auto* localized_parent_type = assert_cast<const DataTypeStruct*>(
+            remove_nullable(localized_parent->data_type()).get());
+    ASSERT_EQ(localized_parent_type->get_elements().size(), 1);
+    EXPECT_EQ(localized_parent_type->get_element_name(0), "cc");
+}
+
+// Scenario: struct child access through a computed map/array parent is not localized as a file
+// conjunct, because the projected value struct can have a different physical child order.
+TEST(ColumnMapperScanRequestTest, MapValuesStructChildConjunctStaysTableLevel) {
+    const auto key_type = str();
+    const auto string_type = str();
+    const auto int_type = i32();
+
+    auto table_gender = field_id_col("gender", 17, string_type);
+    auto table_full_name = field_id_col("full_name", 7, string_type);
+    auto table_value = struct_col("value", 6, {table_gender, table_full_name});
+    auto table_map = map_col("new_map_column", 2, {table_value}, key_type, table_value.type);
+
+    auto file_key = field_id_col("key", 5, key_type, 0);
+    auto file_age = field_id_col("age", 8, int_type, 0);
+    auto file_full_name = field_id_col("full_name", 7, string_type, 1);
+    auto file_gender = field_id_col("gender", 17, string_type, 2);
+    auto file_value = struct_col("value", 6, {file_age, file_full_name, file_gender}, 1);
+    auto file_map =
+            map_col("new_map_column", 2, {file_key, file_value}, key_type, file_value.type, 1);
+
+    const auto map_slot = table_slot(0, 0, table_map.type, "new_map_column");
+    const auto values_expr = map_values(map_slot, table_value.type);
+    const auto first_value = array_element_at(values_expr, table_value.type, 1);
+    const auto full_name_expr = element_at(first_value, string_type, "full_name");
+    auto filter_expr = like_expr(full_name_expr, "J%");
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_map}, &request).ok());
+
+    EXPECT_TRUE(request.conjuncts.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
+    ASSERT_FALSE(request.predicate_columns[0].project_all_children);
+    ASSERT_EQ(request.predicate_columns[0].children.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].children[0].local_id(), 1);
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+// Scenario: MAP_KEYS only reads map keys, but localizing it by wrapping the evolved file map slot
+// in CAST(file_map AS table_map) would still cast the old value struct to the new value struct.
+// Keep the conjunct table-level when the map value schema changed.
+TEST(ColumnMapperScanRequestTest, MapKeysConjunctWithEvolvedValueStructStaysTableLevel) {
+    const auto key_type = str();
+    const auto string_type = str();
+    const auto int_type = i32();
+
+    auto table_age = field_id_col("age", 8, int_type);
+    auto table_full_name = field_id_col("full_name", 7, string_type);
+    auto table_gender = field_id_col("gender", 17, string_type);
+    auto table_value = struct_col("value", 6, {table_age, table_full_name, table_gender});
+    auto table_key = field_id_col("key", 5, key_type);
+    auto table_map =
+            map_col("new_map_column", 2, {table_key, table_value}, key_type, table_value.type);
+
+    auto file_key = field_id_col("key", 5, key_type, 0);
+    auto file_name = field_id_col("name", 18, string_type, 0);
+    auto file_age = field_id_col("age", 8, int_type, 1);
+    auto file_value = struct_col("value", 6, {file_name, file_age}, 1);
+    auto file_map = map_col("map_column", 2, {file_key, file_value}, key_type, file_value.type, 1);
+
+    const auto map_slot = table_slot(0, 0, table_map.type, "new_map_column");
+    const auto keys_expr = map_keys(map_slot, key_type);
+    auto filter_expr = array_contains(
+            keys_expr, literal(key_type, Field::create_field<TYPE_STRING>("person5")));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_map}, &request).ok());
+
+    EXPECT_TRUE(request.conjuncts.empty());
+    EXPECT_TRUE(request.non_predicate_columns.empty());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+// Scenario: an array element struct projection only contains missing/default children; the mapper
+// falls back to reading the full physical element so the reader never gets an empty projection.
+TEST(ColumnMapperScanRequestTest, ArrayStructOnlyMissingElementChildUsesFullFileProjection) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, int_type, 1);
+    auto file_element = struct_col("element", 0, {file_a, file_b}, 0);
+    auto file_array = array_col("xs", 10, file_element, 10);
+
+    auto missing_child = field_id_col("missing_child", 99, string_type);
+    auto table_element = struct_col("element", 0, {missing_child});
+    auto table_array = array_col("xs", 10, table_element);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_array}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(10));
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
+}
+
+// Scenario: a map value struct projection only contains missing/default children; the mapper keeps
+// the map key/value shape and reads the full physical value struct instead of an empty value child.
+TEST(ColumnMapperScanRequestTest, MapValueStructOnlyMissingChildUsesFullValueProjection) {
+    const auto key_type = i32();
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto file_key = field_id_col("key", 0, key_type, 0);
+    auto file_a = field_id_col("a", 1, int_type, 0);
+    auto file_b = field_id_col("b", 2, int_type, 1);
+    auto file_value = struct_col("value", 1, {file_a, file_b}, 1);
+    auto file_map = map_col("m", 10, {file_key, file_value}, key_type, file_value.type, 10);
+
+    auto missing_child = field_id_col("missing_child", 99, string_type);
+    auto table_value = struct_col("value", 1, {missing_child});
+    auto table_map = map_col("m", 10, {table_value}, key_type, table_value.type);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_map}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& projection = request.non_predicate_columns[0];
+    EXPECT_EQ(projection.column_id(), LocalColumnId(10));
+    ASSERT_FALSE(projection.project_all_children);
+    ASSERT_EQ(projection.children.size(), 1);
+    EXPECT_EQ(projection.children[0].local_id(), 1);
+    EXPECT_TRUE(projection.children[0].project_all_children);
+    EXPECT_TRUE(projection.children[0].children.empty());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_FALSE(mapper.mappings()[0].is_trivial);
 }
 
 // ----------------------------------------------------------------------

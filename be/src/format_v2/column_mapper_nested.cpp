@@ -324,26 +324,33 @@ static const ColumnMapping* resolve_mapped_child(const ColumnMapping& mapping,
     return nullptr;
 }
 
+enum class NestedProjectionResolveResult {
+    RESOLVED,
+    NOT_REPRESENTED,
+    MISSING_FILE_CHILD,
+};
+
 // Resolve a table-side nested struct path through the existing ColumnMapping tree and build the
 // corresponding file-local projection. For example, if table column `s` has children
 // `{a, renamed_b}` and file column `s` has children `{a, b}`, the filter path
 // `struct_element(s, 'renamed_b')` is resolved to the file projection `s -> b` by following the
-// child mapping instead of matching the table child name against the file schema. Return false when
-// the path is not represented in child_mappings, so callers can fall back to original file schema
-// for predicate-only children that were not part of the output projection.
-static bool resolve_nested_projection_with_mapping(const NestedStructPath& path,
-                                                   const std::vector<ColumnMapping>& mappings,
-                                                   LocalColumnIndex* root_projection) {
+// child mapping instead of matching the table child name against the file schema. Return
+// MISSING_FILE_CHILD when ColumnMapping explicitly says a table child is absent from this file; in
+// that case callers must not fall back to schema-name lookup, because Iceberg can drop a field and
+// later add a different field with the same name.
+static NestedProjectionResolveResult resolve_nested_projection_with_mapping(
+        const NestedStructPath& path, const std::vector<ColumnMapping>& mappings,
+        LocalColumnIndex* root_projection) {
     DORIS_CHECK(root_projection != nullptr);
     *root_projection = {};
     if (path.selectors.empty()) {
-        return false;
+        return NestedProjectionResolveResult::NOT_REPRESENTED;
     }
     const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
         return mapping.global_index == path.root_global_index;
     });
     if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value()) {
-        return false;
+        return NestedProjectionResolveResult::NOT_REPRESENTED;
     }
 
     *root_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
@@ -351,19 +358,24 @@ static bool resolve_nested_projection_with_mapping(const NestedStructPath& path,
     const auto* current_mapping = &*mapping_it;
 
     // Traverse the ColumnMapping tree according to the table-side struct selectors and emit the
-    // corresponding file-local child ids. If the path is not fully represented in child_mappings,
-    // return false so callers can choose the file-schema fallback for filter-only children.
+    // corresponding file-local child ids. A missing child mapping means this predicate-only path
+    // may need schema fallback; an existing child mapping without a file id means the table child
+    // is genuinely absent from this file and must stay above the file reader.
     for (size_t selector_idx = 0; selector_idx < path.selectors.size(); ++selector_idx) {
         const auto global_child_index =
                 struct_child_index(*current_mapping, path.selectors[selector_idx]);
         if (!global_child_index.has_value()) {
             *root_projection = {};
-            return false;
+            return NestedProjectionResolveResult::NOT_REPRESENTED;
         }
         const auto* child_mapping = resolve_mapped_child(*current_mapping, *global_child_index);
-        if (child_mapping == nullptr || !child_mapping->file_local_id.has_value()) {
+        if (child_mapping == nullptr) {
             *root_projection = {};
-            return false;
+            return NestedProjectionResolveResult::NOT_REPRESENTED;
+        }
+        if (!child_mapping->file_local_id.has_value()) {
+            *root_projection = {};
+            return NestedProjectionResolveResult::MISSING_FILE_CHILD;
         }
 
         auto child_projection = LocalColumnIndex::partial_local(*child_mapping->file_local_id);
@@ -372,11 +384,16 @@ static bool resolve_nested_projection_with_mapping(const NestedStructPath& path,
         current_projection = &current_projection->children.back();
         current_mapping = child_mapping;
     }
-    return true;
+    return NestedProjectionResolveResult::RESOLVED;
 }
 
 static bool table_root_is_struct(const ColumnMapping& mapping) {
     return struct_type_or_null(mapping.table_type) != nullptr;
+}
+
+static const std::vector<ColumnDefinition>& scan_file_children(const ColumnMapping& mapping) {
+    return !mapping.projected_file_children.empty() ? mapping.projected_file_children
+                                                    : mapping.original_file_children;
 }
 
 static const ColumnDefinition* resolve_file_leaf_from_projection(
@@ -394,6 +411,30 @@ static const ColumnDefinition* resolve_file_leaf_from_projection(
         return nullptr;
     }
     return resolve_file_leaf_from_projection(child_it->children, projection.children[0]);
+}
+
+static bool collect_file_child_names_from_projection(const std::vector<ColumnDefinition>& children,
+                                                     const LocalColumnIndex& projection,
+                                                     std::vector<std::string>* file_child_names,
+                                                     std::vector<DataTypePtr>* file_child_types) {
+    DORIS_CHECK(file_child_names != nullptr);
+    DORIS_CHECK(file_child_types != nullptr);
+    const auto child_it = std::ranges::find_if(children, [&](const ColumnDefinition& child) {
+        return child.file_local_id() == projection.local_id();
+    });
+    if (child_it == children.end()) {
+        return false;
+    }
+    file_child_names->push_back(child_it->name);
+    file_child_types->push_back(child_it->type);
+    if (projection.children.empty()) {
+        return true;
+    }
+    if (projection.children.size() != 1) {
+        return false;
+    }
+    return collect_file_child_names_from_projection(child_it->children, projection.children[0],
+                                                    file_child_names, file_child_types);
 }
 
 struct NestedPredicateTarget {
@@ -446,45 +487,19 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
                                             const std::vector<ColumnMapping>& mappings,
                                             NestedPredicateTarget* target) {
     DORIS_CHECK(target != nullptr);
+    ResolvedNestedStructPath resolved;
+    if (!resolve_nested_struct_path_for_file(path, mappings, &resolved)) {
+        return false;
+    }
+
     const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
         return mapping.global_index == path.root_global_index;
     });
-    if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value() ||
-        path.selectors.empty()) {
+    if (mapping_it == mappings.end() || resolved.file_projection.children.size() != 1) {
         return false;
     }
-
-    if (resolve_nested_projection_with_mapping(path, mappings, &target->file_projection)) {
-        DORIS_CHECK(target->file_projection.children.size() == 1);
-        const auto* file_leaf = resolve_file_leaf_from_projection(
-                mapping_it->original_file_children, target->file_projection.children[0]);
-        if (file_leaf == nullptr || file_leaf->type == nullptr) {
-            return false;
-        }
-        target->leaf_type = remove_nullable(file_leaf->type);
-        if (is_complex_type(target->leaf_type->get_primitive_type())) {
-            return false;
-        }
-        target->leaf_name = file_leaf->name;
-        if (!build_struct_predicate_target(*mapping_it, target->file_projection,
-                                           &target->file_target)) {
-            return false;
-        }
-        return true;
-    }
-
-    if (!table_root_is_struct(*mapping_it)) {
-        return false;
-    }
-    LocalColumnIndex child_projection;
-    if (!build_file_child_projection_from_schema(mapping_it->original_file_children, path.selectors,
-                                                 &child_projection)
-                 .ok() ||
-        child_projection.local_id() < 0) {
-        return false;
-    }
-    const auto* file_leaf =
-            resolve_file_leaf_from_projection(mapping_it->original_file_children, child_projection);
+    const auto* file_leaf = resolve_file_leaf_from_projection(mapping_it->original_file_children,
+                                                              resolved.file_projection.children[0]);
     if (file_leaf == nullptr || file_leaf->type == nullptr) {
         return false;
     }
@@ -493,8 +508,7 @@ static bool resolve_nested_predicate_target(const NestedStructPath& path,
         return false;
     }
     target->leaf_name = file_leaf->name;
-    target->file_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
-    target->file_projection.children.push_back(std::move(child_projection));
+    target->file_projection = std::move(resolved.file_projection);
     if (!build_struct_predicate_target(*mapping_it, target->file_projection,
                                        &target->file_target)) {
         return false;
@@ -810,8 +824,19 @@ GlobalIndex slot_ref_global_index(const VSlotRef& slot_ref) {
 }
 
 bool is_struct_element_expr(const VExprSPtr& expr) {
-    return expr != nullptr && expr->get_num_children() == 2 &&
-           expr->fn().name.function_name == "struct_element";
+    if (expr == nullptr || expr->get_num_children() != 2) {
+        return false;
+    }
+    const auto& function_name = expr->fn().name.function_name;
+    if (function_name == "struct_element") {
+        return true;
+    }
+    if (function_name != "element_at") {
+        return false;
+    }
+    const auto& parent_type = expr->children()[0]->data_type();
+    return parent_type != nullptr &&
+           remove_nullable(parent_type)->get_primitive_type() == TYPE_STRUCT;
 }
 
 Field literal_field(const VExprSPtr& literal_expr) {
@@ -822,6 +847,82 @@ Field literal_field(const VExprSPtr& literal_expr) {
     Field field;
     literal->get_column_ptr()->get(0, field);
     return field;
+}
+
+bool resolve_nested_struct_path_for_file(const NestedStructPath& path,
+                                         const std::vector<ColumnMapping>& mappings,
+                                         ResolvedNestedStructPath* resolved,
+                                         bool require_scan_projection) {
+    DORIS_CHECK(resolved != nullptr);
+    *resolved = {};
+    const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
+        return mapping.global_index == path.root_global_index;
+    });
+    if (mapping_it == mappings.end() || !mapping_it->file_local_id.has_value() ||
+        path.selectors.empty()) {
+        return false;
+    }
+
+    // Prefer ColumnMapping over schema-name lookup. This is the only path that can correctly
+    // localize renamed Iceberg fields: a table filter `element_at(s, 'renamed_b')` must become a
+    // file filter on physical child `b`, even if the old file type is `STRUCT<b ...>`.
+    const auto mapping_result =
+            resolve_nested_projection_with_mapping(path, mappings, &resolved->file_projection);
+    if (mapping_result == NestedProjectionResolveResult::MISSING_FILE_CHILD) {
+        return false;
+    }
+    if (mapping_result == NestedProjectionResolveResult::NOT_REPRESENTED) {
+        if (!table_root_is_struct(*mapping_it)) {
+            return false;
+        }
+        LocalColumnIndex child_projection;
+        if (!build_file_child_projection_from_schema(mapping_it->original_file_children,
+                                                     path.selectors, &child_projection)
+                     .ok() ||
+            child_projection.local_id() < 0) {
+            return false;
+        }
+        resolved->file_projection = LocalColumnIndex::partial_local(*mapping_it->file_local_id);
+        resolved->file_projection.children.push_back(std::move(child_projection));
+    }
+
+    if (resolved->file_projection.children.size() != 1) {
+        *resolved = {};
+        return false;
+    }
+    // When rewriting the final localized element_at chain, it executes on the file column produced
+    // by this scan, so the intermediate return types must match the projected file shape, not the
+    // full historical file schema. Example:
+    //   SELECT s.c WHERE element_at(element_at(s, 'b'), 'cc') LIKE 'NestedC%'
+    // reads only b.cc and c; the inner element_at(s, 'b') returns Struct(cc), not
+    // Struct(cc, new_dd).
+    //
+    // Earlier projection collection also calls this resolver before filter-only children have been
+    // merged into the scan projection. That phase only needs the file path, so it still resolves
+    // names/types from the original file schema.
+    const auto& child_source = require_scan_projection ? scan_file_children(*mapping_it)
+                                                       : mapping_it->original_file_children;
+    if (!collect_file_child_names_from_projection(
+                child_source, resolved->file_projection.children[0], &resolved->file_child_names,
+                &resolved->file_child_types) ||
+        resolved->file_child_names.size() != path.selectors.size() ||
+        resolved->file_child_types.size() != path.selectors.size()) {
+        *resolved = {};
+        return false;
+    }
+    return true;
+}
+
+bool resolve_nested_struct_expr_for_file(const VExprSPtr& expr,
+                                         const std::vector<ColumnMapping>& mappings,
+                                         ResolvedNestedStructPath* resolved) {
+    DORIS_CHECK(resolved != nullptr);
+    NestedStructPath path;
+    if (!extract_nested_struct_path(expr, &path)) {
+        *resolved = {};
+        return false;
+    }
+    return resolve_nested_struct_path_for_file(path, mappings, resolved, true);
 }
 
 // Collect nested struct leaf references that can be turned into file-reader projections and
