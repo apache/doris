@@ -32,6 +32,8 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -67,6 +69,17 @@ public class CreateTableTest extends TestWithFeService {
         OlapTable rowStoreOnlyTable = (OlapTable) db.getTableOrDdlException("row_store_only_valid");
         Assert.assertTrue(rowStoreOnlyTable.storeRowColumn());
         Assert.assertTrue(rowStoreOnlyTable.rowStoreOnly());
+
+        List<String> createTableStmt = new ArrayList<>();
+        Env.getDdlStmt(null, "test", rowStoreOnlyTable, createTableStmt, null, null, false, true, false, -1L,
+                false, false);
+        Assert.assertEquals(1, createTableStmt.size());
+        String createSql = createTableStmt.get(0);
+        Assert.assertTrue(createSql.contains("\"row_store_only\" = \"true\""));
+        createTable(createSql.replace("`row_store_only_valid`", "`row_store_only_replay`"));
+        OlapTable replayTable = (OlapTable) db.getTableOrDdlException("row_store_only_replay");
+        Assert.assertTrue(replayTable.storeRowColumn());
+        Assert.assertTrue(replayTable.rowStoreOnly());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "row_store_columns must be empty when row_store_only is true",
