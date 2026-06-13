@@ -661,8 +661,8 @@ TEST(FileScannerV2Test, BuildNestedChildrenExpandsFullProjectionFromSchemaColumn
             .type = pruned_struct_type,
     };
     std::vector<TColumnAccessPath> pruned_struct_paths {data_access_path({"a_struct"})};
-    status = FileScannerV2::TEST_build_nested_children_from_access_paths(
-            &pruned_struct_column, pruned_struct_paths);
+    status = FileScannerV2::TEST_build_nested_children_from_access_paths(&pruned_struct_column,
+                                                                         pruned_struct_paths);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(pruned_struct_column.children.size(), 1);
     EXPECT_EQ(pruned_struct_column.children[0].name, "drop_and_add");

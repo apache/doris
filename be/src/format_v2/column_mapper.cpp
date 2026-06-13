@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/short_circuit_evaluation_expr.h"
 #include "exprs/vcase_expr.h"
 #include "exprs/vcast_expr.h"
@@ -775,6 +776,21 @@ static VExprSPtr rewrite_table_expr_to_file_expr(
     }
     DORIS_CHECK(rewrite_context != nullptr);
     DORIS_CHECK(can_localize != nullptr);
+    if (auto* runtime_filter = dynamic_cast<RuntimeFilterExpr*>(expr.get());
+        runtime_filter != nullptr) {
+        auto impl = runtime_filter->get_impl();
+        if (impl == nullptr) {
+            *can_localize = false;
+            return expr;
+        }
+        auto localized_impl = rewrite_table_expr_to_file_expr(
+                impl, global_to_file_slot, filter_mappings, rewrite_context, can_localize);
+        if (!*can_localize) {
+            return expr;
+        }
+        runtime_filter->set_impl(std::move(localized_impl));
+        return expr;
+    }
     if (rewrite_binary_slot_literal_predicate(expr, global_to_file_slot, rewrite_context)) {
         return expr;
     }
