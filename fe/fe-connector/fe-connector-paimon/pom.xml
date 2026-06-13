@@ -118,13 +118,17 @@ under the License.
              from the parent 'app' loader while FileSystem resolved from the child ChildFirstClassLoader, so
              FileSystem.createFileSystem's cast threw "OBSFileSystem cannot be cast to FileSystem"
              (FIX-PAIMON-OBS-SELFCONTAINED, CI 968994 paimon_base_filesystem). Bundling it child-first
-             co-locates OBSFileSystem with the plugin's own FileSystem so the cast succeeds. Version + scope
-             (compile) + jackson-databind exclusion inherited from fe-core dependencyManagement
-             (${huaweiobs.version}); the esdk-obs SDK rides transitively. hadoop-common stays the plugin's
-             own direct (depth-1) copy via Maven mediation, so no duplicate FileSystem is introduced. -->
+             co-locates OBSFileSystem with the plugin's own FileSystem so the cast succeeds. runtime scope
+             (mirrors fe-core: OBSFileSystem is loaded reflectively via the Hadoop FileSystem SPI, not
+             referenced at compile time) — still bundled by plugin-zip.xml, which packs the runtime closure.
+             The -hw-46 jar is a fat jar self-containing the esdk-obs SDK (com/obs/*); hadoop-common stays the
+             plugin's own direct (depth-1) copy via Maven mediation, so no duplicate FileSystem is introduced.
+             NOTE: the -hw-46 artifact is NOT in Maven Central — it lives in the huawei-obs-sdk repo declared
+             in <repositories> below (fe-core declares the same repo for the same dep). -->
         <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- AWS SDK v2 for the child-bundled hadoop-aws S3AFileSystem (RC-3, completes
@@ -190,6 +194,18 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!-- FIX-PAIMON-OBS-SELFCONTAINED (CI 968994): com.huaweicloud:hadoop-huaweicloud:3.1.1-hw-46 is NOT
+         published to Maven Central / the Apache repos, so a connector-module build resolves only against
+         central+apache-snapshots and fails ("hadoop-huaweicloud ... was not found in repo.maven.apache.org").
+         fe-core declares this exact repo to resolve the same dep; the connector module does not inherit it
+         (fe-connector / fe declare no repositories), so it must be declared here too. -->
+    <repositories>
+        <repository>
+            <id>huawei-obs-sdk</id>
+            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>doris-fe-connector-paimon</finalName>
