@@ -701,10 +701,19 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 upperOutput.add(pulledUpExpr);
                 upperOutputExprIds.add(pulledUpExpr.getExprId());
             } else {
+                Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
+                if (currentSlot != null) {
+                    if (!passThroughOutputExprIds.contains(currentSlot.getExprId())) {
+                        upperOutput.add(currentSlot);
+                        upperOutputExprIds.add(currentSlot.getExprId());
+                    }
+                    continue;
+                }
                 // origSlot may map to a pulled-up expression via chain:
                 //   v1#4 → SlotRef#10 → ElementAt(sa#1, 'fa')
                 // Create a synthetic Alias to compute the expression
-                // in the upper project (above TopN).
+                // in the upper project (above TopN), but only when the
+                // rewritten TopN no longer produces origSlot directly.
                 Expression chainedExpr = getPullUpReplaceExpression(origSlot, context);
                 if (chainedExpr != null && !(chainedExpr instanceof Slot)
                         && !upperOutputExprIds.contains(origSlot.getExprId())) {
@@ -714,28 +723,20 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                     upperOutputExprIds.add(synthetic.getExprId());
                     continue;
                 }
-                Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
-                if (currentSlot != null) {
-                    if (!passThroughOutputExprIds.contains(currentSlot.getExprId())) {
-                        upperOutput.add(currentSlot);
-                        upperOutputExprIds.add(currentSlot.getExprId());
-                    }
+                NamedExpression passThroughExpr = info.passThroughExprByDeduplicatedExpr.get(origSlot.getExprId());
+                if (passThroughExpr != null) {
+                    List<Slot> passThroughSlots = resolveInputSlots(passThroughExpr, context, currentOutputExprIds);
+                    addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
+                            currentOutputByExprId, passThroughSlots);
                 } else {
-                    NamedExpression passThroughExpr = info.passThroughExprByDeduplicatedExpr.get(origSlot.getExprId());
-                    if (passThroughExpr != null) {
-                        List<Slot> passThroughSlots = resolveInputSlots(passThroughExpr, context, currentOutputExprIds);
-                        addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
-                                currentOutputByExprId, passThroughSlots);
-                    } else {
-                        // When NestedColumnPruning has run before this rule, the
-                        // originalTopNOutput may contain intermediate expression
-                        // slots (element_at results) that were simplified away by
-                        // simplifyProject. These slots are no longer produced by
-                        // the rewritten TopN's child and would cause CheckAfterRewrite
-                        // failures if passed through. Skip them — the corresponding
-                        // computation is already covered by the pulled-up Aliases
-                        // or by the base slots added during simplification.
-                    }
+                    // When NestedColumnPruning has run before this rule, the
+                    // originalTopNOutput may contain intermediate expression
+                    // slots (element_at results) that were simplified away by
+                    // simplifyProject. These slots are no longer produced by
+                    // the rewritten TopN's child and would cause CheckAfterRewrite
+                    // failures if passed through. Skip them — the corresponding
+                    // computation is already covered by the pulled-up Aliases
+                    // or by the base slots added during simplification.
                 }
             }
         }
