@@ -22,23 +22,32 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.lang.reflect.Method;
 
 public class CheckAnalysisTest {
     private CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
@@ -72,5 +81,23 @@ public class CheckAnalysisTest {
         CheckAnalysis checkAnalysis = new CheckAnalysis(true);
         Assertions.assertThrows(AnalysisException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
+    }
+
+    @Test
+    public void testRowStoreOnlyCountStarWhitelist() throws Exception {
+        SlotReference valueSlot = new SlotReference("v", IntegerType.INSTANCE, true);
+
+        Assertions.assertTrue(isCountStarOnly(new Alias(new Count(), "count_star")));
+        Assertions.assertFalse(isCountStarOnly(new Alias(new Add(new Count(), new Sum(valueSlot)), "complex_count")));
+        Assertions.assertFalse(isCountStarOnly(new Alias(new Count(valueSlot), "count_value")));
+        Assertions.assertFalse(isCountStarOnly(new Alias(new Count(new IntegerLiteral(1)), "count_one")));
+    }
+
+    private boolean isCountStarOnly(NamedExpression outputExpression) throws Exception {
+        Method method = CheckAfterRewrite.class.getDeclaredMethod("isCountStarOnly", LogicalAggregate.class);
+        method.setAccessible(true);
+        LogicalAggregate<GroupPlan> aggregate = new LogicalAggregate<>(
+                ImmutableList.of(), ImmutableList.of(outputExpression), groupPlan);
+        return (boolean) method.invoke(new CheckAfterRewrite(), aggregate);
     }
 }

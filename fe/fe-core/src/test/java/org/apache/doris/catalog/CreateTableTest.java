@@ -52,6 +52,47 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testRowStoreOnlyCreateTable() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.row_store_only_valid\n"
+                + "(k1 int not null, v1 int, v2 varchar(20) default 'x')\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num'='1',\n"
+                + "'enable_unique_key_merge_on_write'='true',\n"
+                + "'light_schema_change'='true',\n"
+                + "'store_row_column'='true',\n"
+                + "'row_store_only'='true');"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable rowStoreOnlyTable = (OlapTable) db.getTableOrDdlException("row_store_only_valid");
+        Assert.assertTrue(rowStoreOnlyTable.storeRowColumn());
+        Assert.assertTrue(rowStoreOnlyTable.rowStoreOnly());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "row_store_columns must be empty when row_store_only is true",
+                () -> createTable("create table test.row_store_only_with_subset\n"
+                        + "(k1 int not null, v1 int, v2 int)\n"
+                        + "unique key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num'='1',\n"
+                        + "'enable_unique_key_merge_on_write'='true',\n"
+                        + "'light_schema_change'='true',\n"
+                        + "'store_row_column'='true',\n"
+                        + "'row_store_only'='true',\n"
+                        + "'row_store_columns'='k1,v1');"));
+
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.row_store_subset_valid\n"
+                + "(k1 int not null, v1 int, v2 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num'='1',\n"
+                + "'enable_unique_key_merge_on_write'='true',\n"
+                + "'store_row_column'='true',\n"
+                + "'row_store_columns'='k1,v1');"));
+
+    }
+
+    @Test
     public void testDuplicateCreateTable() throws Exception {
         // test
         Env env = Env.getCurrentEnv();

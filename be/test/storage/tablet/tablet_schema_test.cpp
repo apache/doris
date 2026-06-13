@@ -23,7 +23,9 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <string>
 
+#include "common/consts.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -928,6 +930,51 @@ TEST_F(TabletSchemaTest, to_schema_pb_v2_skips_legacy_flags) {
     EXPECT_FALSE(out.integer_type_default_use_plain_encoding());
     EXPECT_NE(BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2,
               out.binary_plain_encoding_default_impl());
+}
+
+TEST_F(TabletSchemaTest, row_store_only_schema_persists_only_row_store_column) {
+    TabletSchemaPB in;
+    in.set_keys_type(UNIQUE_KEYS);
+    in.set_num_short_key_columns(1);
+    in.set_num_rows_per_row_block(1024);
+    in.set_next_column_unique_id(4);
+    in.set_store_row_column(true);
+    in.set_row_store_only(true);
+
+    auto add_column = [](TabletSchemaPB* schema, int32_t unique_id, const std::string& name,
+                         const std::string& type, bool is_key) {
+        ColumnPB* column = schema->add_column();
+        column->set_unique_id(unique_id);
+        column->set_name(name);
+        column->set_type(type);
+        column->set_is_key(is_key);
+        column->set_is_nullable(!is_key);
+        column->set_length(type == "INT" ? 4 : 65535);
+        column->set_aggregation("NONE");
+        column->set_visible(true);
+    };
+    add_column(&in, 1, "k1", "INT", true);
+    add_column(&in, 2, "v1", "INT", false);
+    add_column(&in, 3, BeConsts::ROW_STORE_COL, "STRING", false);
+
+    TabletSchema schema;
+    schema.init_from_pb(in);
+
+    ASSERT_EQ(3, schema.num_columns());
+    EXPECT_TRUE(schema.has_row_store_for_all_columns());
+    EXPECT_TRUE(schema.row_store_only());
+    EXPECT_FALSE(schema.should_persist_column(0));
+    EXPECT_FALSE(schema.should_persist_column(1));
+    EXPECT_TRUE(schema.should_persist_column(2));
+    EXPECT_FALSE(schema.is_row_store_only_derived_column(0));
+    EXPECT_TRUE(schema.is_row_store_only_derived_column(2));
+
+    TabletSchemaPB out;
+    schema.to_schema_pb(&out);
+    EXPECT_TRUE(out.store_row_column());
+    EXPECT_TRUE(out.row_store_only());
+    ASSERT_EQ(3, out.column_size());
+    EXPECT_EQ(BeConsts::ROW_STORE_COL, out.column(2).name());
 }
 
 } // namespace doris
