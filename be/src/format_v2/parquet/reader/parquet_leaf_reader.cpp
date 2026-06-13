@@ -302,6 +302,7 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
 
     {
         SCOPED_TIMER(_profile.materialization_time);
+        // TODO(gabriel): top-level column is always nullable in current parquet reader implementation but nested column may not be.
         if (!_type->is_nullable()) {
             if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column);
                 nullable_column != nullptr) {

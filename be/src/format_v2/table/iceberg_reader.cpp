@@ -134,9 +134,9 @@ Status IcebergTableReader::PositionDeleteRowsCollector::collect(const Block& blo
         return Status::OK();
     }
     const auto& file_path_column = assert_cast<const ColumnString&>(
-            *block.get_by_position(ICEBERG_FILE_PATH_BLOCK_POSITION).column);
+            *remove_nullable((block.get_by_position(ICEBERG_FILE_PATH_BLOCK_POSITION).column)));
     const auto& pos_column = assert_cast<const ColumnInt64&>(
-            *block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column);
+            *remove_nullable(block.get_by_position(ICEBERG_ROW_POS_BLOCK_POSITION).column));
     for (size_t row = 0; row < read_rows; ++row) {
         const auto file_path = file_path_column.get_data_at(row).to_string();
         if (file_path == _data_file_path) {

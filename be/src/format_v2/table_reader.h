@@ -20,10 +20,12 @@
 #include <bvar/status.h>
 
 #include <algorithm>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -199,8 +201,15 @@ public:
             }
             DCHECK_EQ(_data_reader.block_template.columns(), _data_reader.file_block_layout.size())
                     << _data_reader.block_template.dump_structure();
+#ifndef NDEBUG
+            RETURN_IF_ERROR(_check_file_block_columns("after file reader get_block", current_rows));
+#endif
             DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
+#ifndef NDEBUG
+            RETURN_IF_ERROR(
+                    _check_table_block_columns("after finalize_chunk", block, current_rows));
+#endif
             if (current_eof) {
                 RETURN_IF_ERROR(close_current_reader());
             }
@@ -561,6 +570,136 @@ protected:
     // Materialize virtual columns in table block, such as _row_id and _last_updated_sequence_number in Iceberg. This is called after finalize_chunk, so the virtual column can be referenced in finalize_expr.
     virtual Status materialize_virtual_columns(Block* table_block) { return Status::OK(); }
 
+#ifndef NDEBUG
+    Status _check_file_block_columns(std::string_view stage, size_t rows) {
+        DORIS_CHECK(_data_reader.block_template.columns() == _data_reader.file_block_layout.size());
+        for (size_t idx = 0; idx < _data_reader.block_template.columns(); ++idx) {
+            const auto& file_block_column = _data_reader.file_block_layout[idx];
+            const auto& column_with_type = _data_reader.block_template.get_by_position(idx);
+            const auto* column = column_with_type.column.get();
+            try {
+                if (column == nullptr) {
+                    auto st = Status::InternalError(
+                            "Invalid file block column {} at {}: file_column_id={}, name='{}', "
+                            "type={}, column=null, expected_rows={}, reader={}",
+                            idx, stage, file_block_column.file_column_id.value(),
+                            file_block_column.name,
+                            file_block_column.type == nullptr ? "null"
+                                                              : file_block_column.type->get_name(),
+                            rows, debug_string());
+                    LOG(WARNING) << st;
+                    return st;
+                }
+                column->sanity_check();
+                auto st = column_with_type.check_type_and_column_match();
+                if (!st.ok()) {
+                    auto contextual_status = Status::InternalError(
+                            "Invalid file block column {} at {}: file_column_id={}, name='{}', "
+                            "type={}, column={}, column_size={}, expected_rows={}, error={}, "
+                            "reader={}",
+                            idx, stage, file_block_column.file_column_id.value(),
+                            file_block_column.name,
+                            file_block_column.type == nullptr ? "null"
+                                                              : file_block_column.type->get_name(),
+                            column->get_name(), column->size(), rows, st.to_string(),
+                            debug_string());
+                    LOG(WARNING) << contextual_status;
+                    return contextual_status;
+                }
+            } catch (const Exception& e) {
+                auto st = Status::InternalError(
+                        "Invalid file block column {} at {}: file_column_id={}, name='{}', "
+                        "type={}, column={}, column_size={}, expected_rows={}, error={}, "
+                        "reader={}",
+                        idx, stage, file_block_column.file_column_id.value(),
+                        file_block_column.name,
+                        file_block_column.type == nullptr ? "null"
+                                                          : file_block_column.type->get_name(),
+                        column == nullptr ? "null" : column->get_name(),
+                        column == nullptr ? 0 : column->size(), rows, e.to_string(),
+                        debug_string());
+                LOG(WARNING) << st;
+                return st;
+            } catch (const std::exception& e) {
+                auto st = Status::InternalError(
+                        "Invalid file block column {} at {}: file_column_id={}, name='{}', "
+                        "type={}, column={}, column_size={}, expected_rows={}, error={}, "
+                        "reader={}",
+                        idx, stage, file_block_column.file_column_id.value(),
+                        file_block_column.name,
+                        file_block_column.type == nullptr ? "null"
+                                                          : file_block_column.type->get_name(),
+                        column == nullptr ? "null" : column->get_name(),
+                        column == nullptr ? 0 : column->size(), rows, e.what(), debug_string());
+                LOG(WARNING) << st;
+                return st;
+            }
+        }
+        return Status::OK();
+    }
+
+    Status _check_table_block_columns(std::string_view stage, const Block* block, size_t rows) {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
+        for (size_t idx = 0; idx < block->columns(); ++idx) {
+            const auto& mapping = _data_reader.column_mapper.mappings()[idx];
+            const auto& column_with_type = block->get_by_position(idx);
+            const auto* column = column_with_type.column.get();
+            try {
+                if (column == nullptr) {
+                    auto st = Status::InternalError(
+                            "Invalid table block column {} at {}: table_column='{}', "
+                            "global_index={}, type={}, column=null, expected_rows={}, mapping={}",
+                            idx, stage, mapping.table_column_name, mapping.global_index.value(),
+                            mapping.table_type == nullptr ? "null" : mapping.table_type->get_name(),
+                            rows, mapping.debug_string());
+                    LOG(WARNING) << st;
+                    return st;
+                }
+                column->sanity_check();
+                auto st = column_with_type.check_type_and_column_match();
+                if (!st.ok()) {
+                    auto contextual_status = Status::InternalError(
+                            "Invalid table block column {} at {}: table_column='{}', "
+                            "global_index={}, type={}, column={}, column_size={}, "
+                            "expected_rows={}, error={}, mapping={}",
+                            idx, stage, mapping.table_column_name, mapping.global_index.value(),
+                            mapping.table_type == nullptr ? "null" : mapping.table_type->get_name(),
+                            column->get_name(), column->size(), rows, st.to_string(),
+                            mapping.debug_string());
+                    LOG(WARNING) << contextual_status;
+                    return contextual_status;
+                }
+            } catch (const Exception& e) {
+                auto st = Status::InternalError(
+                        "Invalid table block column {} at {}: table_column='{}', global_index={}, "
+                        "type={}, column={}, column_size={}, expected_rows={}, error={}, "
+                        "mapping={}",
+                        idx, stage, mapping.table_column_name, mapping.global_index.value(),
+                        mapping.table_type == nullptr ? "null" : mapping.table_type->get_name(),
+                        column == nullptr ? "null" : column->get_name(),
+                        column == nullptr ? 0 : column->size(), rows, e.to_string(),
+                        mapping.debug_string());
+                LOG(WARNING) << st;
+                return st;
+            } catch (const std::exception& e) {
+                auto st = Status::InternalError(
+                        "Invalid table block column {} at {}: table_column='{}', global_index={}, "
+                        "type={}, column={}, column_size={}, expected_rows={}, error={}, "
+                        "mapping={}",
+                        idx, stage, mapping.table_column_name, mapping.global_index.value(),
+                        mapping.table_type == nullptr ? "null" : mapping.table_type->get_name(),
+                        column == nullptr ? "null" : column->get_name(),
+                        column == nullptr ? 0 : column->size(), rows, e.what(),
+                        mapping.debug_string());
+                LOG(WARNING) << st;
+                return st;
+            }
+        }
+        return Status::OK();
+    }
+#endif
+
     Status _truncate_char_or_varchar_columns(Block* block) {
         DORIS_CHECK(block != nullptr);
         if (_runtime_state == nullptr ||
@@ -855,7 +994,14 @@ protected:
             !mapping.child_mappings.empty()) {
             DCHECK(mapping.projection != nullptr);
             int res_id;
-            RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
+            auto st = mapping.projection->execute(current_block, &res_id);
+            if (!st.ok()) {
+                return Status::InternalError(
+                        "Failed to execute complex mapping projection for table column '{}' "
+                        "(global_index={}, file_local_id={}, rows={}): {}, mapping={}",
+                        mapping.table_column_name, mapping.global_index.value(),
+                        *mapping.file_local_id, rows, st.to_string(), mapping.debug_string());
+            }
             ColumnPtr result_column = current_block->get_by_position(res_id).column;
             RETURN_IF_ERROR(
                     _materialize_complex_mapping_column(mapping, result_column, rows, column));
@@ -863,7 +1009,18 @@ protected:
         }
         if (mapping.projection != nullptr) {
             int res_id;
-            RETURN_IF_ERROR(mapping.projection->execute(current_block, &res_id));
+            auto st = mapping.projection->execute(current_block, &res_id);
+            if (!st.ok()) {
+                std::string file_local_id = "null";
+                if (mapping.file_local_id.has_value()) {
+                    file_local_id = std::to_string(*mapping.file_local_id);
+                }
+                return Status::InternalError(
+                        "Failed to execute mapping projection for table column '{}' "
+                        "(global_index={}, file_local_id={}, rows={}): {}, mapping={}",
+                        mapping.table_column_name, mapping.global_index.value(), file_local_id,
+                        rows, st.to_string(), mapping.debug_string());
+            }
             ColumnPtr result_column = current_block->get_by_position(res_id).column;
             *column = _detach_column(std::move(result_column));
             return Status::OK();
@@ -953,6 +1110,23 @@ protected:
         return static_cast<size_t>(std::distance(file_ordered_children.begin(), child_it));
     }
 
+    static std::vector<const ColumnMapping*> _child_mappings_in_table_type_order(
+            const ColumnMapping& mapping, const DataTypeStruct& table_type) {
+        std::vector<const ColumnMapping*> result;
+        result.reserve(mapping.child_mappings.size());
+        for (size_t child_idx = 0; child_idx < table_type.get_elements().size(); ++child_idx) {
+            const auto& child_name = table_type.get_element_name(child_idx);
+            const auto child_it = std::ranges::find_if(
+                    mapping.child_mappings, [&](const ColumnMapping& child_mapping) {
+                        return child_mapping.table_column_name == child_name;
+                    });
+            DORIS_CHECK(child_it != mapping.child_mappings.end())
+                    << mapping.debug_string() << ", table_child_name=" << child_name;
+            result.push_back(&*child_it);
+        }
+        return result;
+    }
+
     static const IColumn* _nested_column_if_nullable(const ColumnPtr& column,
                                                      const NullMap** null_map) {
         DORIS_CHECK(column.get() != nullptr);
@@ -982,18 +1156,21 @@ protected:
         child_columns.reserve(mapping.child_mappings.size());
         const auto file_ordered_children =
                 _present_child_mappings_in_file_order(mapping.child_mappings);
-        for (const auto& child_mapping : mapping.child_mappings) {
-            if (!child_mapping.file_local_id.has_value()) {
+        const auto table_ordered_children =
+                _child_mappings_in_table_type_order(mapping, *table_type);
+        for (const auto* child_mapping : table_ordered_children) {
+            DORIS_CHECK(child_mapping != nullptr);
+            if (!child_mapping->file_local_id.has_value()) {
                 child_columns.push_back(
-                        child_mapping.table_type->create_column_const_with_default_value(rows)
+                        child_mapping->table_type->create_column_const_with_default_value(rows)
                                 ->convert_to_full_column_if_const());
                 continue;
             }
             const auto file_child_idx =
-                    _file_child_ordinal_for_mapping(mapping, child_mapping, file_ordered_children);
+                    _file_child_ordinal_for_mapping(mapping, *child_mapping, file_ordered_children);
             DORIS_CHECK(file_child_idx < file_struct->get_columns().size());
             ColumnPtr child_column = file_struct->get_column_ptr(file_child_idx);
-            RETURN_IF_ERROR(_materialize_present_child_mapping_column(child_mapping, child_column,
+            RETURN_IF_ERROR(_materialize_present_child_mapping_column(*child_mapping, child_column,
                                                                       rows, &child_column));
             child_columns.push_back(std::move(child_column));
         }
