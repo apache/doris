@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.Collections;
 import java.util.List;
@@ -294,6 +295,21 @@ public interface ConnectorScanPlanProvider {
     default void appendExplainInfo(StringBuilder output,
             String prefix, Map<String, String> nodeProperties) {
         // Default: no extra EXPLAIN info
+    }
+
+    /**
+     * Returns the delete-file paths carried by one scan range's table-format descriptor, for the
+     * VERBOSE per-backend EXPLAIN block ({@code deleteFileNum}/{@code deleteSplitNum}).
+     *
+     * <p>The default returns an empty list, so connectors without merge-on-read deletes contribute
+     * nothing. A connector that threads delete files onto its per-range thrift (e.g. Paimon's
+     * deletion vectors) overrides this to read them back from {@code tableFormatParams}.</p>
+     *
+     * @param tableFormatParams the per-range table-format descriptor (may be {@code null})
+     * @return the delete-file paths for this range (default: empty)
+     */
+    default List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
+        return Collections.emptyList();
     }
 
     /**

@@ -114,6 +114,31 @@ public interface ConnectorScanRange extends Serializable {
     }
 
     /**
+     * Returns the precomputed pushed-down COUNT(*) row count this range carries, or {@code -1} when
+     * the range carries no precomputed count.
+     *
+     * <p>When a no-grouping {@code COUNT(*)} is pushed down, a connector that can produce a precomputed
+     * row count (e.g. Paimon's collapsed count range) surfaces the summed total here so the scan node
+     * can render the EXPLAIN {@code pushdown agg=COUNT (n)} line. Ranges with no precomputed count keep
+     * the {@code -1} default, which renders as the {@code (-1)} sentinel.</p>
+     */
+    default long getPushDownRowCount() {
+        return -1;
+    }
+
+    /**
+     * Whether this range is read by BE's NATIVE (ORC/Parquet) reader rather than the JNI scanner.
+     *
+     * <p>Used by a connector that distinguishes native vs JNI sub-splits (e.g. Paimon) so the scan
+     * node can accumulate the native/total split counts for the EXPLAIN
+     * {@code paimonNativeReadSplits=<native>/<total>} line. The default is {@code false} (JNI), so
+     * connectors without a native read path are unaffected.</p>
+     */
+    default boolean isNativeReadRange() {
+        return false;
+    }
+
+    /**
      * Populates per-range Thrift params from this scan range's data.
      *
      * <p>Connectors that need typed Thrift structs (e.g., Hudi, Paimon)

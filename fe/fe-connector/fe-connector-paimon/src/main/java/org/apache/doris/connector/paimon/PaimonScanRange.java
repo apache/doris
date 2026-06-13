@@ -140,6 +140,32 @@ public class PaimonScanRange implements ConnectorScanRange {
         return properties;
     }
 
+    /**
+     * The precomputed COUNT(*) row count carried by this range (the {@code paimon.row_count} prop set
+     * by the count-pushdown collapse), or {@code -1} when absent. Drives the EXPLAIN
+     * {@code pushdown agg=COUNT (n)} line via {@code PluginDrivenScanNode}. Only the single collapsed
+     * count range carries it; every other range returns {@code -1}, preserving the {@code (-1)}
+     * no-precomputed-count sentinel (e.g. deletion-vector tables).
+     */
+    @Override
+    public long getPushDownRowCount() {
+        String rowCountStr = properties.get("paimon.row_count");
+        return rowCountStr != null ? Long.parseLong(rowCountStr) : -1;
+    }
+
+    /**
+     * Whether this range takes BE's native (ORC/Parquet) reader: true iff it is NOT a JNI split
+     * (no {@code paimon.split} property — that property gates the JNI path in
+     * {@link #populateRangeParams}) AND it has a data-file path. Drives the native/total split
+     * accounting for the EXPLAIN {@code paimonNativeReadSplits=<native>/<total>} line. Under
+     * {@code force_jni_scanner=true} every range carries {@code paimon.split}, so all return false
+     * &rarr; native count 0.
+     */
+    @Override
+    public boolean isNativeReadRange() {
+        return !properties.containsKey("paimon.split") && path != null;
+    }
+
     public long getSelfSplitWeight() {
         return selfSplitWeight;
     }

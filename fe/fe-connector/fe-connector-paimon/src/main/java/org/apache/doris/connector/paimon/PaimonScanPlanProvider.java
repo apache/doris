@@ -26,7 +26,10 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPaimonDeletionFileDesc;
+import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.schema.external.TArrayField;
 import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
@@ -164,6 +167,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // Legacy parity: current_schema_id is the -1 sentinel ("latest"); the current/target schema is
     // also pushed into history_schema_info under this key (PaimonScanNode.doInitialize -> -1L).
     private static final long CURRENT_SCHEMA_ID = -1L;
+
+    // FIX-E (explain gap): synthetic node-property keys the generic PluginDrivenScanNode injects into
+    // the props map it passes to appendExplainInfo, carrying the per-scan native/total split counts it
+    // accumulated from ConnectorScanRange.isNativeReadRange(). They are NOT real connector properties
+    // (never sent to BE) — only this provider's appendExplainInfo reads them, to re-emit the legacy
+    // PaimonScanNode "paimonNativeReadSplits=<raw>/<total>" line. Keys are byte-identical to the
+    // PluginDrivenScanNode constants so the inject/consume sides stay in lockstep.
+    private static final String NATIVE_READ_SPLITS_KEY = "__native_read_splits";
+    private static final String TOTAL_READ_SPLITS_KEY = "__total_read_splits";
 
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
@@ -1013,6 +1025,52 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (schemaEvolution != null && !schemaEvolution.isEmpty()) {
             applySchemaEvolutionParam(params, schemaEvolution);
         }
+    }
+
+    /**
+     * FIX-E (explain gap): re-emits the legacy {@code PaimonScanNode} EXPLAIN line
+     * {@code paimonNativeReadSplits=<raw>/<total>} (native ORC/Parquet sub-splits over all splits).
+     * The generic {@code PluginDrivenScanNode} accumulates the counts from
+     * {@link ConnectorScanRange#isNativeReadRange()} in {@code getSplits} and injects them into the
+     * props map via the {@link #NATIVE_READ_SPLITS_KEY}/{@link #TOTAL_READ_SPLITS_KEY} synthetic keys,
+     * so this connector owns the paimon-specific string without an SPI signature change. Skipped when
+     * the keys are absent (e.g. EXPLAIN rendered before any split accounting, or another connector's
+     * props map) so the line never prints {@code 0/0} spuriously.
+     */
+    @Override
+    public void appendExplainInfo(StringBuilder output, String prefix,
+            Map<String, String> nodeProperties) {
+        String nativeSplits = nodeProperties.get(NATIVE_READ_SPLITS_KEY);
+        String totalSplits = nodeProperties.get(TOTAL_READ_SPLITS_KEY);
+        if (nativeSplits != null && totalSplits != null) {
+            output.append(prefix).append("paimonNativeReadSplits=")
+                    .append(nativeSplits).append("/").append(totalSplits).append("\n");
+        }
+    }
+
+    /**
+     * FIX-E (explain gap): reads the deletion-vector file path carried by one scan range's
+     * {@link TPaimonFileDesc}, for the VERBOSE per-backend EXPLAIN block
+     * ({@code deleteFileNum}/{@code deleteSplitNum}). Verbatim port of legacy
+     * {@code PaimonScanNode.getDeleteFiles} (reading {@code getPaimonParams().getDeletionFile()
+     * .getPath()}); the generic {@code PluginDrivenScanNode.getDeleteFiles(TFileRangeDesc)} delegates
+     * here. Returns empty when the range carries no paimon params or no deletion file.
+     */
+    @Override
+    public List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (tableFormatParams == null || !tableFormatParams.isSetPaimonParams()) {
+            return deleteFiles;
+        }
+        TPaimonFileDesc paimonParams = tableFormatParams.getPaimonParams();
+        if (paimonParams == null || !paimonParams.isSetDeletionFile()) {
+            return deleteFiles;
+        }
+        TPaimonDeletionFileDesc deletionFile = paimonParams.getDeletionFile();
+        if (deletionFile != null && deletionFile.isSetPath()) {
+            deleteFiles.add(deletionFile.getPath());
+        }
+        return deleteFiles;
     }
 
     /**

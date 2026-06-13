@@ -104,6 +104,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private static final String PROP_LOCATION_PREFIX = "location.";
     private static final String PROP_HIVE_TEXT_PREFIX = "hive.text.";
 
+    // FIX-E (explain gap): synthetic node-property keys threaded into the props map passed to the
+    // connector's appendExplainInfo, carrying the native/total split counts this node accumulated from
+    // ConnectorScanRange.isNativeReadRange() in getSplits(). They are NOT real connector properties
+    // (never reach BE) — only a connector that surfaces a native/JNI split distinction (paimon) reads
+    // them to emit its "paimonNativeReadSplits=<raw>/<total>" line. Byte-identical to the keys
+    // PaimonScanPlanProvider consumes, so the inject/consume sides stay in lockstep. Connector-agnostic:
+    // injected for every plugin connector but consumed only by the one that opts in.
+    private static final String NATIVE_READ_SPLITS_KEY = "__native_read_splits";
+    private static final String TOTAL_READ_SPLITS_KEY = "__total_read_splits";
+
     private final Connector connector;
     private final ConnectorSession connectorSession;
 
@@ -118,6 +128,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
     // keep the decision stable across reads (mirrors IcebergScanNode).
     private Boolean isBatchModeCache;
+
+    // FIX-E (explain gap): native (ORC/Parquet) vs total scan-range counts accumulated in getSplits()
+    // from ConnectorScanRange.isNativeReadRange(), surfaced to the connector's appendExplainInfo for the
+    // "paimonNativeReadSplits=<raw>/<total>" line. Default 0/0 (no native splits) before getSplits runs.
+    private int nativeReadSplitNum;
+    private int totalReadSplitNum;
 
     // Populated from ConnectorScanPlanProvider.getScanNodePropertiesResult()
     private ScanNodePropertiesResult cachedPropertiesResult;
@@ -258,11 +274,39 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // getSplits()/startSplit() (see setSelectedPartitions).
             output.append(prefix).append("partition=").append(selectedPartitionNum)
                     .append("/").append(totalPartitionNum).append("\n");
-            // Delegate connector-specific EXPLAIN info to the SPI
+            // FIX-E (explain gap): the VERBOSE per-backend block (dataFileNum/deleteFileNum/
+            // deleteSplitNum) lives in the parent FileScanNode but this override does not call super,
+            // so re-emit it under the same VERBOSE && !isBatchMode() gate. GATED to paimon (the only
+            // connector with merge-on-read delete files surfaced via getDeleteFiles) so es/jdbc/
+            // max_compute VERBOSE output stays byte-unchanged. Emitted before the connector explain so
+            // the block ordering matches the legacy PaimonScanNode (FileScanNode body, then paimon's).
+            if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()
+                    && "paimon".equals(
+                            desc.getTable().getDatabase().getCatalog().getType())) {
+                appendBackendScanRangeDetail(output, prefix);
+            }
+            // Delegate connector-specific EXPLAIN info to the SPI. Thread the native/total split counts
+            // (FIX-E) the node accumulated in getSplits() into a copy of the props map via the synthetic
+            // keys, so a connector that distinguishes native/JNI reads (paimon) can emit its
+            // "paimonNativeReadSplits=<raw>/<total>" line without an SPI signature change. The copy keeps
+            // the cached scanNodeProperties unpolluted; non-paimon providers ignore the extra keys.
             ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
             if (scanProvider != null) {
-                scanProvider.appendExplainInfo(output, prefix, props);
+                Map<String, String> explainProps = new HashMap<>(props);
+                explainProps.put(NATIVE_READ_SPLITS_KEY, String.valueOf(nativeReadSplitNum));
+                explainProps.put(TOTAL_READ_SPLITS_KEY, String.valueOf(totalReadSplitNum));
+                scanProvider.appendExplainInfo(output, prefix, explainProps);
             }
+            // FIX-E (explain gap): the "pushdown agg=<op> (n)" line lives in the parent FileScanNode
+            // but this override does not call super. Re-emit it for ALL plugin connectors (universally
+            // correct — its absence on plugin nodes is itself an inconsistency vs every other
+            // FileScanNode). When a no-grouping COUNT(*) is pushed down, tableLevelRowCount is set in
+            // getSplits() from the connector's precomputed count (or stays -1 -> the (-1) sentinel).
+            output.append(prefix).append(String.format("pushdown agg=%s", getPushDownAggNoGroupingOp()));
+            if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
+                output.append(" (").append(tableLevelRowCount).append(")");
+            }
+            output.append("\n");
             // Show ES terminate_after optimization when limit is pushed to ES
             if (limit > 0 && conjuncts.isEmpty()
                     && "es_http".equals(props.get(PROP_FILE_FORMAT_TYPE))) {
@@ -302,6 +346,24 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected TableIf getTargetTable() throws UserException {
         return desc.getTable();
+    }
+
+    /**
+     * FIX-E (explain gap): delegates the VERBOSE per-backend block's delete-file lookup to the
+     * connector SPI. The parent {@link FileScanNode#getDeleteFiles} returns empty; a connector that
+     * threads delete files onto its per-range thrift (paimon's deletion vectors) overrides
+     * {@link ConnectorScanPlanProvider#getDeleteFiles(TTableFormatFileDesc)} to read them back. Reads
+     * the table-format params off the range (null-guarded, mirroring legacy
+     * {@code PaimonScanNode.getDeleteFiles}); connectors without delete files return empty, so the
+     * {@code deleteFileNum} count stays 0.
+     */
+    @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        if (scanProvider == null || rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return Collections.emptyList();
+        }
+        return scanProvider.getDeleteFiles(rangeDesc.getTableFormatParams());
     }
 
     @Override
@@ -577,7 +639,57 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         for (ConnectorScanRange range : ranges) {
             splits.add(new PluginDrivenSplit(range));
         }
+        // FIX-E (explain gap): accumulate the native/total scan-range counts (for the connector
+        // EXPLAIN line paimonNativeReadSplits) and, under COUNT(*) pushdown, the precomputed merged row
+        // count (for FileScanNode's "pushdown agg=COUNT (n)" line). Both come from generic
+        // ConnectorScanRange getters (default false / -1), so non-paimon connectors are unaffected.
+        this.nativeReadSplitNum = countNativeReadRanges(ranges);
+        this.totalReadSplitNum = ranges.size();
+        long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
+        if (pushDownRowCount >= 0) {
+            // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count
+            // range). Deletion-vector tables emit no count range, so tableLevelRowCount stays -1 and the
+            // line renders the (-1) sentinel — the correctness-critical no-precomputed-count case.
+            setPushDownCount(pushDownRowCount);
+        }
         return splits;
+    }
+
+    /**
+     * Counts the scan ranges read by BE's native (ORC/Parquet) reader (vs JNI), via the generic
+     * {@link ConnectorScanRange#isNativeReadRange()} (default false). Drives the EXPLAIN
+     * {@code paimonNativeReadSplits=<native>/<total>} numerator. Pure static so the accounting is
+     * unit-testable without driving a full {@code planScan}.
+     */
+    static int countNativeReadRanges(List<ConnectorScanRange> ranges) {
+        int nativeCount = 0;
+        for (ConnectorScanRange range : ranges) {
+            if (range.isNativeReadRange()) {
+                nativeCount++;
+            }
+        }
+        return nativeCount;
+    }
+
+    /**
+     * Resolves the pushed-down COUNT(*) row count to surface on the EXPLAIN
+     * {@code pushdown agg=COUNT (n)} line: the first range carrying a precomputed count
+     * ({@link ConnectorScanRange#getPushDownRowCount()} {@code >= 0}) when count pushdown is active,
+     * else {@code -1}. The {@code -1} return is load-bearing (Rule 9): a deletion-vector table emits
+     * NO count range, so the sentinel must survive and render as {@code (-1)} — BE then counts by
+     * reading. Returns {@code -1} immediately when count pushdown is not active (a non-COUNT scan must
+     * never pick up a stray precomputed count). Pure static so the sentinel survival is unit-testable.
+     */
+    static long resolvePushDownRowCount(boolean countPushdown, List<ConnectorScanRange> ranges) {
+        if (!countPushdown) {
+            return -1;
+        }
+        for (ConnectorScanRange range : ranges) {
+            if (range.getPushDownRowCount() >= 0) {
+                return range.getPushDownRowCount();
+            }
+        }
+        return -1;
     }
 
     /**
