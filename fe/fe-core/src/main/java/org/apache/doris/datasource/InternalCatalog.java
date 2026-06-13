@@ -2763,6 +2763,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.setStoreRowColumn(storeRowColumn);
             boolean rowStoreOnly = PropertyAnalyzer.analyzeRowStoreOnly(properties);
             if (rowStoreOnly) {
+                if (Config.isCloudMode()) {
+                    throw new DdlException("row_store_only is not supported in cloud mode");
+                }
                 if (keysType != KeysType.UNIQUE_KEYS || !enableUniqueKeyMergeOnWrite) {
                     throw new DdlException(PropertyAnalyzer.PROPERTIES_ROW_STORE_ONLY
                             + " property is only supported for unique merge-on-write table");
@@ -2775,6 +2778,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (OlapTable.getClusterKeyUids(baseSchema) != null) {
                     throw new DdlException(PropertyAnalyzer.PROPERTIES_ROW_STORE_ONLY
                             + " table does not support cluster key");
+                }
+                String rowStoreColumnsProperty = properties.get(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS);
+                if (rowStoreColumnsProperty != null && !rowStoreColumnsProperty.trim().isEmpty()) {
+                    throw new DdlException(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS
+                            + " must be empty when " + PropertyAnalyzer.PROPERTIES_ROW_STORE_ONLY
+                            + " is true");
                 }
             }
             olapTable.setRowStoreOnly(rowStoreOnly);

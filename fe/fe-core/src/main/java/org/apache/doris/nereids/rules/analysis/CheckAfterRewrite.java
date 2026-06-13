@@ -113,8 +113,14 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             return false;
         }
         return aggregate.getOutputExpressions().size() == 1
-                && aggregate.getOutputExpressions().get(0)
-                        .anyMatch(expr -> expr instanceof Count && ((Count) expr).isStar());
+                && isCountStarExpression(aggregate.getOutputExpressions().get(0));
+    }
+
+    private boolean isCountStarExpression(Expression expression) {
+        if (expression instanceof Alias) {
+            return isCountStarExpression(((Alias) expression).child());
+        }
+        return expression instanceof Count && ((Count) expression).isStar();
     }
 
     private void checkUnexpectedExpression(Plan plan) {

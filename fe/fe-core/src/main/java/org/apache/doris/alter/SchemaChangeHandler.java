@@ -1780,6 +1780,11 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+        if (olapTable.rowStoreOnly() && rsColumns != null && !rsColumns.isEmpty()) {
+            throw new DdlException(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS
+                    + " must be empty when " + PropertyAnalyzer.PROPERTIES_ROW_STORE_ONLY
+                    + " is true");
+        }
 
         boolean hasRowStoreChanged = false;
         if (storeRowColumn || rsColumns != null) {

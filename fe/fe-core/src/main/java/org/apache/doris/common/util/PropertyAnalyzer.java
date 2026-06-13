@@ -879,9 +879,6 @@ public class PropertyAnalyzer {
             return null;
         }
         properties.remove(PROPERTIES_ROW_STORE_COLUMNS);
-        if (!value.trim().isEmpty()) {
-            throw new AnalysisException(PROPERTIES_ROW_STORE_COLUMNS + " is temporarily disabled");
-        }
         String[] rsColumnArr = value.split(COMMA_SEPARATOR);
         rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
         if (rowStoreColumns.isEmpty()) {
