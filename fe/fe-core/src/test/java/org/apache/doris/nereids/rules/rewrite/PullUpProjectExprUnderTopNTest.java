@@ -1166,22 +1166,22 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     /**
-     * Simulates e.sql: JOIN with chained element_at-like expressions pulled up
-     * through TopN. The lower projects compute non-trivial expressions (v1 from a,
-     * v3 from b), an intermediate project forwards them as Slots, and the TopN
-     * has both a pass-through and a blocked (ORDER BY) expression.
+     * Simulates e.sql: JOIN with chained element_at-like expressions below TopN.
+     * The lower projects compute non-trivial expressions (v1 from a, v3 from b),
+     * an intermediate project forwards them as Slots, and the TopN has both a
+     * pass-through expression and a blocked ORDER BY expression.
      *
      * Before pullup:
      *   TopN(order by id_a, v2)
-     *     Project(v1#slot, v2, v3#slot, ...)   ← wraps intermediate Slots
+     *     Project(v1#slot, (v1+1) as v2, v3#slot, ...)   ← wraps intermediate Slots
      *       Join
      *         Project(id_a, v1, v3')            ← computes v1=a+1, v3=b+1
      *           Scan(ta: id_a, a, b)
      *
      * After pullup:
-     *   Project(v1=..., v3=..., ...)            ← upper (pulled above TopN)
+     *   Project(v1#slot, v2#slot, v3=..., ...)  ← upper: only v3 is pulled up
      *     TopN
-     *       Project(a, v2, b, id_a)             ← base slots only (no duplicates)
+     *       Project(v1#slot, v2, b, id_a)       ← v1 kept for blocked v2
      *         Join (simplified children)
      */
     @Test
@@ -1216,7 +1216,7 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
         LogicalProject<LogicalPlan> midProject = new LogicalProject<>(
                 ImmutableList.of(v1.toSlot(), v2, v3.toSlot(), idA, idB), join);
 
-        // TopN with v2 in ORDER BY (blocks v2 pull-up, but v1/v3 should still be pulled)
+        // TopN with v2 in ORDER BY. v2 is blocked, and its dependency v1 is blocked too.
         LogicalTopN<LogicalProject<LogicalPlan>> topN = new LogicalTopN<>(
                 ImmutableList.of(
                         new OrderKey(idA, false, false),
@@ -1233,30 +1233,41 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
                 "Root should be LogicalProject (upper project above TopN)");
         LogicalProject<?> upperProject = (LogicalProject<?>) rewritten;
 
-        // Upper project must contain pulled-up Aliases: v1 and v3
+        // Upper project must contain v1 as pass-through and v3 as a pulled-up Alias.
         Assertions.assertTrue(upperProject.getProjects().stream()
-                .anyMatch(e -> "v1".equals(e.getName())),
-                "v1 should be pulled above TopN");
+                .anyMatch(e -> e.getExprId().equals(v1.getExprId())),
+                "v1 should pass through TopN because v2 depends on it");
         Assertions.assertTrue(upperProject.getProjects().stream()
                 .anyMatch(e -> "v3".equals(e.getName())),
                 "v3 should be pulled above TopN");
+        Assertions.assertTrue(upperProject.getProjects().stream()
+                .filter(e -> "v3".equals(e.getName()))
+                .anyMatch(e -> e.getInputSlots().stream()
+                        .anyMatch(s -> s.getExprId().equals(c.getExprId()))),
+                "Pulled-up v3 should reference its base slot");
 
         // TopN is child of upper project
         Assertions.assertTrue(upperProject.child(0) instanceof LogicalTopN);
         LogicalTopN<?> rewrittenTopN = (LogicalTopN<?>) upperProject.child(0);
 
-        // Below TopN: the lower project must contain base slot a (for v1)
-        // and must NOT contain duplicate v1 or v3 Aliases
+        // Below TopN: v1 must stay because v2 (an order key) depends on it.
+        // v3 should be removed and replaced by its base slot c for lazy materialization.
         LogicalProject<?> lowerProject = (LogicalProject<?>) rewrittenTopN.child(0);
         Assertions.assertTrue(lowerProject.getProjects().stream()
-                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
-                "Lower project must contain base slot a (for lazy mat)");
-        Assertions.assertFalse(lowerProject.getProjects().stream()
-                .anyMatch(e -> "v1".equals(e.getName())),
-                "Lower project must NOT contain duplicate v1");
+                .anyMatch(e -> e.getExprId().equals(v1.getExprId())),
+                "Lower project must contain v1 because order key v2 depends on it");
+        Assertions.assertTrue(lowerProject.getProjects().stream()
+                .anyMatch(e -> "v2".equals(e.getName())),
+                "Lower project must contain v2 for TopN order key");
+        Assertions.assertTrue(lowerProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(c.getExprId())),
+                "Lower project must contain base slot c for pulled-up v3");
         Assertions.assertFalse(lowerProject.getProjects().stream()
                 .anyMatch(e -> "v3".equals(e.getName())),
-                "Lower project must NOT contain duplicate v3");
+                "Lower project must NOT contain v3 because it is pulled above TopN");
+        Assertions.assertFalse(lowerProject.getProjects().stream()
+                .anyMatch(e -> e.getExprId().equals(a.getExprId())),
+                "Lower project should not expose base slot a when v1 is blocked");
     }
 
     /**
