@@ -1034,7 +1034,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                         partitionData, partitionSpec, sessionVariable.getTimeZone()));
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         partitionData, k -> IcebergUtils.getIdentityPartitionInfoMapForCache(
-                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                                partitionData, partitionSpec, sessionVariable.getTimeZone()));
                 // Only set partition values if all partitions are identity transform. For non-identity
                 // partitions, getIdentityPartitionInfoMapForCache returns null.
                 if (partitionInfoMap != null) {

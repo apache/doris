@@ -452,11 +452,8 @@ public class IcebergUtilsTest {
         partitionData.set(0, "2026-03-19");
         partitionData.set(1, "cn");
 
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMapForCache(
-                partitionData, partitionSpec, table, "UTC");
+                partitionData, partitionSpec, "UTC");
 
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("dt", "2026-03-19");
@@ -479,11 +476,8 @@ public class IcebergUtilsTest {
         partitionData.set(0, "2026-03-19");
         partitionData.set(1, 20531);
 
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.schema()).thenReturn(schema);
-
         Assert.assertNull(IcebergUtils.getIdentityPartitionInfoMapForCache(
-                partitionData, partitionSpec, table, "UTC"));
+                partitionData, partitionSpec, "UTC"));
     }
 
     @Test

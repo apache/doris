@@ -784,7 +784,7 @@ public class IcebergUtils {
     }
 
     public static Map<String, String> getIdentityPartitionInfoMapForCache(PartitionData partitionData,
-            PartitionSpec partitionSpec, Table table, String timeZone) {
+            PartitionSpec partitionSpec, String timeZone) {
         Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -801,7 +801,7 @@ public class IcebergUtils {
             if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
                 return null;
             }
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName = partitionSpec.schema().findColumnName(partitionField.sourceId());
             if (columnName == null) {
                 return null;
             }
