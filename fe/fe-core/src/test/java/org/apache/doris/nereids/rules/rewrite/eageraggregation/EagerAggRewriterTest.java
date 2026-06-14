@@ -392,7 +392,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             PlanChecker.from(connectContext)
                     .analyze(sql)
                     .rewrite()
-                    .matches(logicalJoin(logicalProject(logicalAggregate()), logicalProject(logicalAggregate())))
+                    .matches(logicalJoin(logicalAggregate(), logicalAggregate()))
                     .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
