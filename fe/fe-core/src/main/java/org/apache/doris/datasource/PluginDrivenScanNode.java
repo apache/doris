@@ -267,6 +267,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                         .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
                         .append("\n");
             }
+            // FIX-E (explain gap): the parent FileScanNode emits an
+            // "inputSplitNum=N, totalFileSize=X, scanRanges=Y" line that this override drops by not
+            // calling super (legacy PaimonScanNode inherited it via super.getNodeExplainString;
+            // test_paimon_predict asserts inputSplitNum=N). Re-emit it byte-for-byte (incl. the
+            // (approximate) batch prefix) from the same selectedSplitNum/totalFileSize/scanRangeLocations
+            // the parent populates in createScanRangeLocations, immediately before partition=N/M to match
+            // FileScanNode ordering. Emitted UNCONDITIONALLY for every plugin connector — like the sibling
+            // partition=N/M (below) and pushdown agg= lines — since it is universal FileScanNode info, not
+            // connector-specific (no source-type branch in this generic node).
+            output.append(prefix);
+            if (isBatchMode()) {
+                output.append("(approximate)");
+            }
+            output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
+                    .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size())
+                    .append("\n");
             // Partition-pruning summary (selected/total), mirroring the parent
             // FileScanNode.getNodeExplainString()'s `partition=N/M` line. This override replaces the
             // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
