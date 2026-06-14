@@ -356,8 +356,8 @@ Status FSFileCacheStorage::list_duplicate_key_dirs(
             expirations.erase(std::unique(expirations.begin(), expirations.end()),
                               expirations.end());
             if (expirations.size() > 1) {
-                duplicate_key_dirs->push_back(
-                        DuplicateKeyDirs {.hash = hash, .expiration_times = std::move(expirations)});
+                duplicate_key_dirs->push_back(DuplicateKeyDirs {
+                        .hash = hash, .expiration_times = std::move(expirations)});
             }
         }
         return Status::OK();

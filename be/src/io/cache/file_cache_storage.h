@@ -66,9 +66,7 @@ public:
     // remove all directories for the same hash, including unloaded hash_* dirs
     virtual Status remove_all_by_hash(const UInt128Wrapper& hash) { return Status::OK(); }
     // remove one storage directory for a hash
-    virtual Status remove_key_dir(const UInt128Wrapper&, uint64_t) {
-        return Status::OK();
-    }
+    virtual Status remove_key_dir(const UInt128Wrapper&, uint64_t) { return Status::OK(); }
     // find hashes that have more than one storage directory on disk
     virtual Status list_duplicate_key_dirs(std::vector<DuplicateKeyDirs>*,
                                            const std::function<bool()>&) {

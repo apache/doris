@@ -6241,9 +6241,8 @@ TEST_F(BlockFileCacheTest, ttl_repair_checker_skips_when_cleanup_queue_backlogge
 
     int64_t old_gc_interval = config::file_cache_background_gc_interval_ms;
     config::file_cache_background_gc_interval_ms = 3600000;
-    Defer defer {[old_gc_interval] {
-        config::file_cache_background_gc_interval_ms = old_gc_interval;
-    }};
+    Defer defer {
+            [old_gc_interval] { config::file_cache_background_gc_interval_ms = old_gc_interval; }};
 
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
