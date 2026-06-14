@@ -52,6 +52,7 @@ import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -620,7 +621,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // session forces JNI (force_jni_scanner) — in both cases every split goes JNI and never consults
         // the dict (FIX-FORCE-JNI-SCANNER: honor the same session escape hatch the native router uses).
         if (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session)) {
-            buildSchemaEvolutionParam(table).ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+            buildSchemaEvolutionParam(table, columns).ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
         }
 
         return props;
@@ -1084,17 +1085,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * {@link #applySchemaEvolutionParam} only has to copy the two fields back.</p>
      *
      * <p>Parity with legacy {@code PaimonScanNode}: {@code current_schema_id = -1} and the current/target
-     * schema is pushed under that sentinel. Crucially it is built from {@code table.schema()} — the
-     * resolved (snapshot-PINNED) schema, the SAME schema the query's tuple slots use — so a time-travel
-     * read keys BE's table-side {@code StructNode} by the pinned column names (legacy built the -1 entry
-     * from {@code getTargetTable().getColumns()}, also snapshot-aware; {@code schemaManager().latest()}
-     * would wrongly use the absolute latest schema). Per-schema historical entries are added for every
-     * committed schema id ({@link SchemaManager#listAllIds()}) so any native file's {@code schema_id} is
-     * covered (BE fails loud — {@code "miss table/file schema info"} — if a referenced id is absent).
-     * Schema reads that throw are allowed to propagate (fail loud, mirroring legacy
-     * {@code putHistorySchemaInfo}).</p>
+     * schema is pushed under that sentinel. Crucially the -1 entry's top-level field set is built from the
+     * REQUESTED {@code columns} — the authoritative Doris slot list fe-core also turns into BE's
+     * {@code base_ctx->column_names} — NOT from an independent paimon-SDK schema read. This restores the
+     * legacy invariant ({@code PaimonScanNode.doInitialize} -> {@code ExternalUtil.initSchemaInfo(-1,
+     * getTargetTable().getColumns())}): the -1 entry's names == the scan-slot names BY CONSTRUCTION, so
+     * BE's {@code by_table_field_id} / {@code children_column_exists} lookup
+     * ({@code table_schema_change_helper.h:166}) can never miss when the FE-cached schema and the
+     * scan-time paimon schema skew. (CI 969249: a column added after the last snapshot was present in the
+     * FE slots but absent from the resolved {@code table.schema()} read, so the old "build the -1 entry
+     * from {@code table.schema()}" tripped the BE DCHECK and aborted the whole BE.) Each column's field id
+     * and nested type are matched BY NAME against the resolved (snapshot-pinned for time-travel, latest
+     * for plain) schema, with the fresh latest schema as a fallback (see
+     * {@link #resolveCurrentSchemaFields}). Per-schema historical entries are added for every committed
+     * schema id ({@link SchemaManager#listAllIds()}) so any native file's {@code schema_id} is covered (BE
+     * fails loud — {@code "miss table/file schema info"} — if a referenced id is absent). Schema reads
+     * that throw are allowed to propagate (fail loud, mirroring legacy {@code putHistorySchemaInfo}).</p>
      */
-    private Optional<String> buildSchemaEvolutionParam(Table table) {
+    private Optional<String> buildSchemaEvolutionParam(Table table, List<ConnectorColumnHandle> columns) {
         if (!(table instanceof FileStoreTable)) {
             return Optional.empty();
         }
@@ -1102,16 +1110,77 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         SchemaManager schemaManager = fileStoreTable.schemaManager();
 
         List<TSchema> history = new ArrayList<>();
-        // Current/target schema under the -1 sentinel, from the resolved (snapshot-pinned) schema. Its
+        // Current/target schema under the -1 sentinel, keyed off the REQUESTED columns (see javadoc). Its
         // top-level names are lowercased: BE keys the table-side StructNode by these names VERBATIM and the
         // native reader looks them up by the lowercase Doris slot name (legacy ExternalUtil/parseSchema
         // parity). Nested + historical names stay paimon-cased (legacy PaimonUtil.getSchemaInfo).
-        history.add(buildSchemaInfo(CURRENT_SCHEMA_ID, fileStoreTable.schema().fields(), true));
+        history.add(buildSchemaInfo(CURRENT_SCHEMA_ID,
+                resolveCurrentSchemaFields(fileStoreTable, schemaManager, columns), true));
         // One entry per committed schema id so every native file's schema_id resolves.
         for (Long schemaId : schemaManager.listAllIds()) {
             history.add(buildSchemaInfo(schemaId, schemaManager.schema(schemaId).fields(), false));
         }
         return Optional.of(encodeSchemaEvolution(CURRENT_SCHEMA_ID, history));
+    }
+
+    /**
+     * Resolves the current/target (-1 entry) field list from the requested {@code columns}, matching each
+     * to a paimon {@link DataField} BY NAME (case-insensitive). The resolved (snapshot-pinned) schema wins
+     * on a name collision so a time-travel read keys the pinned column names (and a renamed column resolves
+     * its pinned id before ever reaching the fallback); the fresh latest schema is consulted as a fallback
+     * so a column added after the last snapshot — present in the FE slots but lagging the resolved table
+     * instance (CI 969249) — is still carried with its real field id (an add-only column is then absent
+     * from older files and BE fills it NULL, the correct result). Keying off the requested columns rather
+     * than a paimon schema read is what guarantees the -1 entry's names equal BE's scan-slot names, the
+     * legacy invariant the field-id matcher relies on. When {@code columns} is empty (e.g. a count-only
+     * scan with no projected slots) there is nothing to mismatch, so it falls back to the resolved
+     * schema's fields. Fails loud if a requested column is in neither schema (a genuine FE/connector
+     * inconsistency) rather than silently dropping it.
+     */
+    private static List<DataField> resolveCurrentSchemaFields(FileStoreTable table,
+            SchemaManager schemaManager, List<ConnectorColumnHandle> columns) {
+        List<String> columnNames = new ArrayList<>(columns == null ? 0 : columns.size());
+        if (columns != null) {
+            for (ConnectorColumnHandle handle : columns) {
+                columnNames.add(((PaimonColumnHandle) handle).getName());
+            }
+        }
+        List<DataField> latestFields = schemaManager.latest()
+                .map(TableSchema::fields).orElse(Collections.emptyList());
+        return selectCurrentSchemaFields(table.schema().fields(), latestFields, columnNames);
+    }
+
+    /**
+     * Pure field-selection core of {@link #resolveCurrentSchemaFields} (package-private for unit testing).
+     * Returns one {@link DataField} per requested {@code columnNames}, matched case-insensitively against
+     * {@code resolvedFields} first (so the snapshot-pinned schema wins, keeping time-travel + rename
+     * correct) then {@code latestFields} (so an add-column-after-snapshot column the resolved instance lags
+     * is still carried with its real field id). Empty {@code columnNames} (count-only scan) -> the resolved
+     * fields unchanged. Throws if a requested column is in neither schema (fail loud, not silent drop).
+     */
+    static List<DataField> selectCurrentSchemaFields(List<DataField> resolvedFields,
+            List<DataField> latestFields, List<String> columnNames) {
+        if (columnNames == null || columnNames.isEmpty()) {
+            return resolvedFields;
+        }
+        Map<String, DataField> byName = new HashMap<>();
+        // Latest first, resolved second so the resolved (snapshot-pinned) field wins on a name collision.
+        for (DataField f : latestFields) {
+            byName.put(f.name().toLowerCase(Locale.ROOT), f);
+        }
+        for (DataField f : resolvedFields) {
+            byName.put(f.name().toLowerCase(Locale.ROOT), f);
+        }
+        List<DataField> currentFields = new ArrayList<>(columnNames.size());
+        for (String name : columnNames) {
+            DataField field = byName.get(name.toLowerCase(Locale.ROOT));
+            if (field == null) {
+                throw new RuntimeException("paimon schema-evolution: requested column '" + name
+                        + "' not found in the resolved or latest schema");
+            }
+            currentFields.add(field);
+        }
+        return currentFields;
     }
 
     /**

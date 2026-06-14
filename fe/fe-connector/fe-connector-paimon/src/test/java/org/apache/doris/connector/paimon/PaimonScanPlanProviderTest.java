@@ -1530,6 +1530,73 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void selectCurrentSchemaFieldsCarriesAddColumnAfterSnapshot() {
+        // WHY (CI 969249 crash): the -1/current entry MUST contain every requested scan slot, or BE's
+        // children_column_exists (table_schema_change_helper.h:166) DCHECK-aborts the whole BE. A paimon
+        // ALTER TABLE ADD COLUMN bumps the table schema WITHOUT a new snapshot, so the resolved
+        // (snapshot-pinned) table.schema() can lag the latest schema the FE slots come from. Building the
+        // -1 entry from the resolved schema alone (the old code) dropped the added column -> crash. Keying
+        // off the requested columns + a fresh-latest fallback carries it with its REAL field id (so newer
+        // files that DO have it still read data; older files fill NULL). MUTATION: drop the latest fallback
+        // -> "name" missing from the result -> the production DCHECK abort.
+        List<DataField> resolved = Arrays.asList(new DataField(0, "id", DataTypes.INT()));
+        List<DataField> latest = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "name", DataTypes.STRING()));
+
+        List<DataField> current = PaimonScanPlanProvider.selectCurrentSchemaFields(
+                resolved, latest, Arrays.asList("id", "name"));
+
+        Assertions.assertEquals(2, current.size());
+        Assertions.assertEquals("id", current.get(0).name());
+        Assertions.assertEquals(0, current.get(0).id());
+        Assertions.assertEquals("name", current.get(1).name(), "added column must be present (no crash)");
+        Assertions.assertEquals(1, current.get(1).id(), "added column carries its real latest field id");
+    }
+
+    @Test
+    public void selectCurrentSchemaFieldsResolvedWinsOnNameCollisionForTimeTravelRename() {
+        // WHY: a time-travel read pins an OLD snapshot whose schema has the pre-rename name; the FE slots
+        // use that pinned name. The -1 entry must key by the pinned name + pinned field id so BE matches
+        // the file's field id. The resolved (pinned) schema must therefore WIN over the latest (renamed)
+        // schema on a name collision, and the pinned old name must resolve in the pinned schema BEFORE the
+        // latest fallback is consulted. MUTATION: prefer latest -> "full_name" keyed -> the pinned-name
+        // slot "fullname" misses children -> crash / NULL.
+        List<DataField> pinned = Arrays.asList(new DataField(5, "fullname", DataTypes.STRING()));
+        List<DataField> latest = Arrays.asList(new DataField(5, "full_name", DataTypes.STRING()));
+
+        List<DataField> current = PaimonScanPlanProvider.selectCurrentSchemaFields(
+                pinned, latest, Arrays.asList("fullname"));
+
+        Assertions.assertEquals(1, current.size());
+        Assertions.assertEquals("fullname", current.get(0).name(), "pinned name wins for time travel");
+        Assertions.assertEquals(5, current.get(0).id());
+    }
+
+    @Test
+    public void selectCurrentSchemaFieldsFailsLoudOnUnknownRequestedColumn() {
+        // WHY (Rule 12 / fail loud): a requested slot absent from BOTH the resolved and latest schema is a
+        // genuine FE/connector inconsistency; surface it as a clean per-query failure rather than silently
+        // dropping it (which would re-create the BE children mismatch). MUTATION: silent skip -> crash.
+        List<DataField> resolved = Arrays.asList(new DataField(0, "id", DataTypes.INT()));
+        Assertions.assertThrows(RuntimeException.class, () ->
+                PaimonScanPlanProvider.selectCurrentSchemaFields(
+                        resolved, Collections.emptyList(), Arrays.asList("id", "ghost")));
+    }
+
+    @Test
+    public void selectCurrentSchemaFieldsEmptyColumnsReturnsResolved() {
+        // WHY: a count-only scan projects no slots, so there is nothing to mismatch; fall back to the
+        // resolved schema's fields verbatim (no behavior change for that path).
+        List<DataField> resolved = Arrays.asList(
+                new DataField(0, "id", DataTypes.INT()),
+                new DataField(1, "name", DataTypes.STRING()));
+
+        Assertions.assertSame(resolved, PaimonScanPlanProvider.selectCurrentSchemaFields(
+                resolved, Collections.emptyList(), Collections.emptyList()));
+    }
+
+    @Test
     public void getScanNodePropertiesSkipsSchemaEvolutionForNonFileStoreTable() {
         // WHY: only paimon FileStoreTables take the native path; sys-tables / fakes read via JNI and never
         // consult history_schema_info. The FileStoreTable guard must skip them (and not NPE / CCE).
