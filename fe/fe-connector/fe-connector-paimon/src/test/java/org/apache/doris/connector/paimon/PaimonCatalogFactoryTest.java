@@ -1015,6 +1015,83 @@ public class PaimonCatalogFactoryTest {
     }
 
     // ---------------------------------------------------------------------
+    // FIX-PAIMON-MINIO-STORAGE — canonical minio.* alias translation
+    // (ported legacy MinioProperties: S3A-compatible, schema "s3")
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHadoopConfigurationTranslatesCanonicalMinioCredentials() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "s3://warehouse/wh",
+                "minio.endpoint", "http://10.0.0.1:9000",
+                "minio.access_key", "admin",
+                "minio.secret_key", "password"));
+
+        // WHY (the reported bug): a filesystem paimon catalog created with the documented minio.* keys
+        // (test_paimon_minio.groovy) must reach the S3A FileIO over s3://. Before this fix applyStorageConfig
+        // recognized only s3.*/oss.*/cos.*/obs.*/raw fs.* keys, so EVERY minio.* alias resolved null,
+        // applyCanonicalS3Config early-returned, and fs.s3.impl was never set -> Paimon FileIO.get threw
+        // "Could not find a file io implementation for scheme 's3'". The load-bearing assertion is fs.s3.impl
+        // (the missing registration); the credentials/endpoint follow from the same S3A base. MUTATION:
+        // dropping the minio block leaves fs.s3.impl / fs.s3a.access.key null -> red.
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.s3.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", conf.get("fs.s3a.impl"));
+        Assertions.assertEquals("http://10.0.0.1:9000", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("admin", conf.get("fs.s3a.access.key"));
+        Assertions.assertEquals("password", conf.get("fs.s3a.secret.key"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+                conf.get("fs.s3a.aws.credentials.provider"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationMinioDefaultsRegionAndObjectStoreTuning() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "s3://warehouse/wh",
+                "minio.endpoint", "http://10.0.0.1:9000",
+                "minio.access_key", "admin",
+                "minio.secret_key", "password"));
+
+        // WHY (parity with legacy MinioProperties defaults): MinioProperties defaults region to us-east-1 and
+        // the connection tuning to 100/10000/10000 (NOT the S3Properties 50/3000/1000). A dedicated MinIO block
+        // is required precisely so these defaults are not silently taken from the S3 block. MUTATION: routing
+        // minio.* through the S3 block's defaults -> region absent + maxConn 50 -> red.
+        Assertions.assertEquals("us-east-1", conf.get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("100", conf.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", conf.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", conf.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationMinioExplicitRegionWins() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "s3://warehouse/wh",
+                "minio.endpoint", "http://10.0.0.1:9000",
+                "minio.access_key", "admin",
+                "minio.secret_key", "password",
+                "minio.region", "us-west-2"));
+
+        // WHY: an explicit minio.region must override the us-east-1 default (the test_paimon_minio
+        // *_with_region catalogs depend on this). MUTATION: hardcoding the default region -> red.
+        Assertions.assertEquals("us-west-2", conf.get("fs.s3a.endpoint.region"));
+    }
+
+    @Test
+    public void buildHadoopConfigurationPlainS3DoesNotTriggerMinioDefaults() {
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(
+                "warehouse", "s3://bucket/wh",
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk",
+                "s3.endpoint", "s3.us-east-1.amazonaws.com"));
+
+        // WHY (negative parity): a pure s3.* catalog (no minio. key) must NOT trip the minio block, which would
+        // clobber the S3 tuning defaults (50/3000/1000) with the object-store ones (100/10000/10000). MUTATION:
+        // a minio gate that fires on shared s3.* keys -> fs.s3a.connection.maximum 100 -> red.
+        Assertions.assertEquals("50", conf.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("3000", conf.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("1000", conf.get("fs.s3a.connection.timeout"));
+    }
+
+    // ---------------------------------------------------------------------
     // FIX-FECONF-STORAGE-PARITY — HMS username alias (P8-4)
     // ---------------------------------------------------------------------
 

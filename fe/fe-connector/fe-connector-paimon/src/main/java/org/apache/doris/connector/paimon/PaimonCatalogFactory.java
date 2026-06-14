@@ -159,6 +159,32 @@ public final class PaimonCatalogFactory {
     private static final String[] OBS_PATH_STYLE_ALIASES = {
             "obs.use_path_style", "use_path_style", "s3.path-style-access"};
 
+    // MinIO aliases (ported from MinioProperties @ConnectorProperty names, in legacy priority order). MinIO is
+    // S3A-compatible (legacy MinioProperties extends AbstractS3CompatibleProperties, schema "s3"), so — unlike
+    // COS/OBS — it emits ONLY the shared S3A base block (fs.s3a.* + fs.s3.impl), no MinIO-specific impl keys:
+    // a MinIO bucket is reached as an ordinary S3A instance over s3://. The value lists include the shared
+    // s3.*/AWS_* fallbacks legacy MinioProperties accepts; detection keys off the dedicated minio.* prefix only
+    // (see applyCanonicalMinioConfig). Tuning defaults match MinioProperties (100/10000/10000, = OBJ_STORE_*);
+    // the region defaults to us-east-1 (MinioProperties.region default).
+    private static final String[] MINIO_ACCESS_KEY_ALIASES = {
+            "minio.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "s3.access_key"};
+    private static final String[] MINIO_SECRET_KEY_ALIASES = {
+            "minio.secret_key", "s3.secret-access-key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"};
+    private static final String[] MINIO_SESSION_TOKEN_ALIASES = {
+            "minio.session_token", "s3.session-token", "s3.session_token", "session_token"};
+    private static final String[] MINIO_ENDPOINT_ALIASES = {
+            "minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"};
+    private static final String[] MINIO_REGION_ALIASES = {
+            "minio.region", "s3.region", "AWS_REGION", "region", "REGION"};
+    private static final String[] MINIO_MAX_CONN_ALIASES = {"minio.connection.maximum", "s3.connection.maximum"};
+    private static final String[] MINIO_REQ_TIMEOUT_ALIASES = {
+            "minio.connection.request.timeout", "s3.connection.request.timeout"};
+    private static final String[] MINIO_CONN_TIMEOUT_ALIASES = {"minio.connection.timeout", "s3.connection.timeout"};
+    private static final String[] MINIO_PATH_STYLE_ALIASES = {
+            "minio.use_path_style", "use_path_style", "s3.path-style-access"};
+    // Legacy MinioProperties.region default (S3Properties has none; emitting one shared default would mis-set it).
+    private static final String MINIO_DEFAULT_REGION = "us-east-1";
+
     // Per-backend tuning defaults (legacy *Properties field defaults).
     private static final String S3_DEFAULT_MAX_CONN = "50";
     private static final String S3_DEFAULT_REQ_TIMEOUT = "3000";
@@ -484,6 +510,7 @@ public final class PaimonCatalogFactory {
      */
     private static void applyStorageConfig(Map<String, String> props, BiConsumer<String, String> setter) {
         applyCanonicalS3Config(props, setter);
+        applyCanonicalMinioConfig(props, setter);
         applyCanonicalOssConfig(props, setter);
         applyCanonicalCosConfig(props, setter);
         applyCanonicalObsConfig(props, setter);
@@ -565,6 +592,33 @@ public final class PaimonCatalogFactory {
         setter.accept("fs.s3a.connection.request.timeout", requestTimeoutMs);
         setter.accept("fs.s3a.connection.timeout", connectionTimeoutMs);
         setter.accept("fs.s3a.path.style.access", usePathStyle);
+    }
+
+    /**
+     * Translates the canonical {@code minio.*} (plus the shared {@code s3.*}/{@code AWS_*}) aliases into the
+     * {@code fs.s3a.*} keys the live S3A FileIO reads. Port of legacy {@code MinioProperties}, which extends
+     * {@code AbstractS3CompatibleProperties} (schema {@code s3}) and therefore emits ONLY the S3A base block via
+     * {@link #applyS3aBaseConfig} — no MinIO-specific impl keys (a MinIO bucket is reached as an ordinary S3A
+     * instance over {@code s3://}; this is what registers {@code fs.s3.impl} so Paimon's FileIO resolves the
+     * {@code s3} scheme). Detection mirrors legacy {@code MinioProperties.guessIsMe} narrowly: fire only when a
+     * dedicated {@code minio.*} key is present, so a pure-{@code s3.*} catalog (no {@code minio.} key) is left to
+     * {@link #applyCanonicalS3Config} and keeps its own S3 tuning defaults. The region defaults to
+     * {@code us-east-1} and the connection tuning to 100/10000/10000, both per legacy {@code MinioProperties}.
+     */
+    private static void applyCanonicalMinioConfig(Map<String, String> props, BiConsumer<String, String> setter) {
+        if (!anyKeyStartsWith(props, "minio.")) {
+            return;
+        }
+        String ak = firstNonBlank(props, MINIO_ACCESS_KEY_ALIASES);
+        String sk = firstNonBlank(props, MINIO_SECRET_KEY_ALIASES);
+        String endpoint = firstNonBlank(props, MINIO_ENDPOINT_ALIASES);
+        String region = firstNonBlankOrDefault(props, MINIO_DEFAULT_REGION, MINIO_REGION_ALIASES);
+        String token = firstNonBlank(props, MINIO_SESSION_TOKEN_ALIASES);
+        applyS3aBaseConfig(setter, ak, sk, token, endpoint, region,
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_MAX_CONN, MINIO_MAX_CONN_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_REQ_TIMEOUT, MINIO_REQ_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, OBJ_STORE_DEFAULT_CONN_TIMEOUT, MINIO_CONN_TIMEOUT_ALIASES),
+                firstNonBlankOrDefault(props, DEFAULT_PATH_STYLE, MINIO_PATH_STYLE_ALIASES));
     }
 
     /**
