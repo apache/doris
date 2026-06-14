@@ -94,10 +94,41 @@ under the License.
             <artifactId>hadoop-common</artifactId>
         </dependency>
 
-        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem, the ONLY Hadoop FileSystem impl
-             missing from the plugin jar (the transitively-bundled hadoop-client-api already carries
-             FileSystem / hdfs DistributedFileSystem / SecurityUtil / DNSDomainNameResolver). The plugin
-             runs child-first (org.apache.hadoop is not parent-first); bundling hadoop-common/client-api
+        <!-- hadoop-hdfs-client supplies org.apache.hadoop.hdfs.DistributedFileSystem AND its
+             META-INF/services/org.apache.hadoop.fs.FileSystem 'hdfs' registration — the ONLY Hadoop
+             FileSystem impl needed for filesystem-metastore paimon catalogs over hdfs:// warehouses, and
+             the one that went MISSING from the plugin closure when FIX-PAIMON-HMS-THRIFT-SHADE made
+             hive-common <optional> in fe-connector-paimon-hive-shade (maven-shade dropped it + its
+             transitive hadoop-client-api, the prior carrier of DistributedFileSystem). Without it,
+             filesystem-flavor hdfs catalog creation threw 'No FileSystem for scheme "hdfs"', swallowed by
+             ExternalCatalog.buildDbForInit into a misleading 'Unknown database' (CI 969249
+             test_paimon_catalog_varbinary / test_catalog_upgrade_test). SAME self-contained child-first
+             reasoning as hadoop-aws/hadoop-huaweicloud: co-locate the FS impl with the plugin's own
+             hadoop-common FileSystem so the SPI cast succeeds. runtime scope (DistributedFileSystem is
+             loaded reflectively via the Hadoop FileSystem SPI, not referenced at compile time); still
+             bundled by plugin-zip.xml. NOT in fe/pom.xml dependencyManagement, so the version is pinned
+             explicitly to ${hadoop.version}. hadoop-common is excluded so the plugin keeps a SINGLE
+             FileSystem/Configuration copy (the direct hadoop-common above) — no cross-loader split. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for s3a:// warehouses. (The base
+             org.apache.hadoop.fs.FileSystem / SecurityUtil / DNSDomainNameResolver come from hadoop-common
+             above; hdfs DistributedFileSystem comes from hadoop-hdfs-client below. NOTE: hadoop-client-api
+             is NOT in the plugin closure — FIX-PAIMON-HMS-THRIFT-SHADE made hive-common <optional> in
+             fe-connector-paimon-hive-shade, and maven-shade then dropped it + its transitive
+             hadoop-client-api, which had been the only carrier of DistributedFileSystem.) The plugin
+             runs child-first (org.apache.hadoop is not parent-first); bundling hadoop-common
              WITHOUT hadoop-aws left FileSystem in the child loader while S3AFileSystem resolved from the
              parent 'app' loader — a cross-classloader split that threw 'S3AFileSystem cannot be cast to
              FileSystem' and poisoned SecurityUtil (FIX-PAIMON-HADOOP-CLASSLOADER). Self-containing the
