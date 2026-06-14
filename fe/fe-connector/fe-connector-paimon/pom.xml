@@ -224,6 +224,22 @@ under the License.
             <artifactId>paimon-format</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- TEST ONLY: the buildRealDataSplit-based tests (count-pushdown / native sub-split /
+             cpp-reader serde) write a REAL local-filesystem paimon table to produce a real DataSplit;
+             paimon's writer/commit path references org.apache.hadoop.mapreduce.lib.input.FileInputFormat
+             (hadoop-mapreduce-client-core). That artifact used to reach this module transitively via
+             hive-common, which FIX-PAIMON-HMS-THRIFT-SHADE (5ac8c302596) made <optional> in
+             fe-connector-paimon-hive-shade — severing it from the test classpath and leaving those tests
+             with NoClassDefFoundError: FileInputFormat. The PRODUCTION read/planScan path does NOT touch
+             it (paimon reads in CI 969249 succeeded without it, and it is absent from the assembled
+             plugin zip), so this is test-scope only — NOT bundled into the plugin. Version from
+             dependencyManagement (${hadoop.version}). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <!-- FIX-PAIMON-OBS-SELFCONTAINED (CI 968994): com.huaweicloud:hadoop-huaweicloud:3.1.1-hw-46 is NOT
