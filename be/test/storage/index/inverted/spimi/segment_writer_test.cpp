@@ -412,16 +412,15 @@ TEST(SegmentWriterTest, CompactDirectEmitMatchesRecordsPathV4Inline) {
                         /*use_windowed=*/true, /*inline_small_terms=*/true);
         w.Emit(buffer, /*field=*/0);
         w.Close();
-        return SegmentBytes {.tis = tis.bytes(),
-                             .tii = tii.bytes(),
-                             .frq = frq.bytes(),
-                             .prx = prx.bytes()};
+        return SegmentBytes {
+                .tis = tis.bytes(), .tii = tii.bytes(), .frq = frq.bytes(), .prx = prx.bytes()};
     };
     // (docs, per_doc) pairs: docs=3/per_doc=16 keeps every block under the
     // inline threshold (covers AddInline on chain-copied bytes) while still
     // crossing the 512-record compact-mode activation; 511 is the slim df
     // boundary; 600 crosses into windowed terms.
-    constexpr std::pair<uint32_t, uint32_t> kCases[] = {{3U, 16U}, {100U, 2U}, {511U, 2U}, {600U, 2U}};
+    constexpr std::pair<uint32_t, uint32_t> kCases[] = {
+            {3U, 16U}, {100U, 2U}, {511U, 2U}, {600U, 2U}};
     for (const auto& [docs, per_doc] : kCases) {
         SpimiPostingBuffer direct;
         SpimiPostingBuffer records;
