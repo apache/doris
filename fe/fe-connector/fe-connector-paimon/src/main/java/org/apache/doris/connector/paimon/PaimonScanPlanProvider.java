@@ -178,6 +178,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // PluginDrivenScanNode constants so the inject/consume sides stay in lockstep.
     private static final String NATIVE_READ_SPLITS_KEY = "__native_read_splits";
     private static final String TOTAL_READ_SPLITS_KEY = "__total_read_splits";
+    // FIX-E (explain gap): present (="true") only when the generic PluginDrivenScanNode renders a VERBOSE
+    // EXPLAIN. Gates the per-split "PaimonSplitStats:" block below to VERBOSE, mirroring the legacy
+    // PaimonScanNode (which emitted the block only under TExplainLevel.VERBOSE). Byte-identical to the
+    // PluginDrivenScanNode constant so the inject/consume sides stay in lockstep.
+    private static final String VERBOSE_EXPLAIN_KEY = "__explain_verbose";
 
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
@@ -1100,7 +1105,41 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (nativeSplits != null && totalSplits != null) {
             output.append(prefix).append("paimonNativeReadSplits=")
                     .append(nativeSplits).append("/").append(totalSplits).append("\n");
+            if (nodeProperties.containsKey(VERBOSE_EXPLAIN_KEY)) {
+                appendSplitStats(output, prefix,
+                        Integer.parseInt(nativeSplits), Integer.parseInt(totalSplits));
+            }
         }
+    }
+
+    /**
+     * FIX-E (explain gap): re-emits the legacy {@code PaimonScanNode} VERBOSE {@code PaimonSplitStats:}
+     * block — one {@code SplitStat [type=NATIVE|JNI]} line per split. The generic
+     * {@code PluginDrivenScanNode} retains only the native/total counts (not the per-split objects), and
+     * native files are re-split into multiple ranges on the SPI path, so exact per-{@code DataSplit}
+     * parity (rowCount/mergedRowCount/hasDeletionVector) is not reconstructible; the split TYPE is, which
+     * is what {@code paimon_data_system_table}'s assertNativePath/assertJniPath check. Lines are grouped
+     * NATIVE-first ({@code [0, native)} NATIVE, {@code [native, total)} JNI). Truncates beyond 4 splits
+     * exactly like legacy (first 3 + "... other N ..." + last) so VERBOSE output stays bounded.
+     */
+    private void appendSplitStats(StringBuilder output, String prefix, int nativeCount, int total) {
+        output.append(prefix).append("PaimonSplitStats: \n");
+        if (total <= 4) {
+            for (int i = 0; i < total; i++) {
+                output.append(prefix).append("  ").append(splitStatLine(i, nativeCount)).append("\n");
+            }
+        } else {
+            for (int i = 0; i < 3; i++) {
+                output.append(prefix).append("  ").append(splitStatLine(i, nativeCount)).append("\n");
+            }
+            output.append(prefix).append("  ... other ").append(total - 4)
+                    .append(" paimon split stats ...\n");
+            output.append(prefix).append("  ").append(splitStatLine(total - 1, nativeCount)).append("\n");
+        }
+    }
+
+    private static String splitStatLine(int index, int nativeCount) {
+        return "SplitStat [type=" + (index < nativeCount ? "NATIVE" : "JNI") + "]";
     }
 
     /**

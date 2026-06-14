@@ -85,6 +85,83 @@ public class PaimonScanExplainTest {
         Assertions.assertEquals("", out.toString());
     }
 
+    // ==================== appendExplainInfo: PaimonSplitStats block (VERBOSE) ====================
+
+    @Test
+    public void appendExplainInfoEmitsJniSplitStatsBlockWhenVerbose() {
+        // WHY: the legacy PaimonScanNode emitted a per-split "PaimonSplitStats:" block under VERBOSE;
+        // the SPI path dropped it, breaking paimon_data_system_table's assertJniPath
+        // (contains "SplitStat [type=JNI"). Under force_jni_scanner every range is JNI: 0 native of 2
+        // total -> two JNI SplitStat lines. MUTATION: dropping the block, or mistyping the lines as
+        // NATIVE, makes this red.
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "0");
+        props.put("__total_read_splits", "2");
+        props.put("__explain_verbose", "true");
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "", props);
+
+        Assertions.assertEquals(
+                "paimonNativeReadSplits=0/2\n"
+                        + "PaimonSplitStats: \n"
+                        + "  SplitStat [type=JNI]\n"
+                        + "  SplitStat [type=JNI]\n",
+                out.toString());
+    }
+
+    @Test
+    public void appendExplainInfoOmitsSplitStatsBlockWhenNotVerbose() {
+        // WHY: legacy gated the block on VERBOSE; a plain (non-verbose) EXPLAIN must show only the
+        // paimonNativeReadSplits line, never the per-split block. Pins the verbose gate (no
+        // __explain_verbose key -> no block). MUTATION: emitting the block unconditionally is killed.
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "0");
+        props.put("__total_read_splits", "2");
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "", props);
+
+        Assertions.assertEquals("paimonNativeReadSplits=0/2\n", out.toString());
+    }
+
+    @Test
+    public void appendExplainInfoEmitsBothTypesForMixedNativeJniScan() {
+        // A mixed scan: 1 native of 2 total -> one NATIVE and one JNI SplitStat line (assertNativePath
+        // checks "SplitStat [type=NATIVE", assertJniPath checks "SplitStat [type=JNI"). Pins that the
+        // native numerator splits the lines NATIVE-first.
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "1");
+        props.put("__total_read_splits", "2");
+        props.put("__explain_verbose", "true");
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "", props);
+
+        String text = out.toString();
+        Assertions.assertTrue(text.contains("SplitStat [type=NATIVE]"), text);
+        Assertions.assertTrue(text.contains("SplitStat [type=JNI]"), text);
+    }
+
+    @Test
+    public void appendExplainInfoTruncatesSplitStatsBeyondFour() {
+        // Legacy truncation parity: > 4 splits -> first 3 + "... other N paimon split stats ..." + last.
+        // 0 native of 6 -> "... other 2 paimon split stats ...". Pins the truncation so VERBOSE output
+        // stays bounded for large scans.
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "0");
+        props.put("__total_read_splits", "6");
+        props.put("__explain_verbose", "true");
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "", props);
+
+        String text = out.toString();
+        Assertions.assertTrue(text.contains("... other 2 paimon split stats ..."), text);
+        // first 3 + truncation marker + last = 5 SplitStat/marker rows, not 6 raw lines
+        Assertions.assertEquals(4, text.split("SplitStat \\[type=").length - 1, text);
+    }
+
     // ==================== getDeleteFiles: deletion-vector path ====================
 
     /** Builds a real per-range thrift carrying a paimon deletion file at {@code path}. */

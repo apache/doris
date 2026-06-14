@@ -113,6 +113,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // injected for every plugin connector but consumed only by the one that opts in.
     private static final String NATIVE_READ_SPLITS_KEY = "__native_read_splits";
     private static final String TOTAL_READ_SPLITS_KEY = "__total_read_splits";
+    // FIX-E (explain gap): injected (="true") into the connector's appendExplainInfo props ONLY when this
+    // node renders a VERBOSE EXPLAIN, so a connector can gate VERBOSE-only output (paimon's per-split
+    // "PaimonSplitStats:" block) without an SPI signature change. Connector-agnostic: injected for every
+    // plugin connector but consumed only by the one that opts in. Byte-identical to the key
+    // PaimonScanPlanProvider consumes.
+    private static final String VERBOSE_EXPLAIN_KEY = "__explain_verbose";
 
     private final Connector connector;
     private final ConnectorSession connectorSession;
@@ -311,6 +317,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 Map<String, String> explainProps = new HashMap<>(props);
                 explainProps.put(NATIVE_READ_SPLITS_KEY, String.valueOf(nativeReadSplitNum));
                 explainProps.put(TOTAL_READ_SPLITS_KEY, String.valueOf(totalReadSplitNum));
+                if (detailLevel == TExplainLevel.VERBOSE) {
+                    explainProps.put(VERBOSE_EXPLAIN_KEY, "true");
+                }
                 scanProvider.appendExplainInfo(output, prefix, explainProps);
             }
             // FIX-E (explain gap): the "pushdown agg=<op> (n)" line lives in the parent FileScanNode
