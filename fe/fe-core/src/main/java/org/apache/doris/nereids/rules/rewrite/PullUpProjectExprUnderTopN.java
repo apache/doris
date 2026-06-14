@@ -341,20 +341,30 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     }
 
     /**
-     * Remove pulled-up expressions from this Project and add the input slots that still need to pass through TopN.
+     * Remove pulled-up expressions from this Project and expose their base input slots.
      *
-     * <p>For example, after pulling up {@code x = a + 1}:
+     * <p>For example, pulling up {@code x = a + 1} from cascaded Projects:
      *
      * <pre>
-     * TopN
-     *   Project(id, x)                  -- forwards x from its child
-     *     Project(id, a + 1 as x)
-     *       Scan(id, a)
-     * </pre>
+     * Before:
+     *   TopN
+     *     Project(id, x)                -- forwards x from child
+     *       Project(id, a + 1 AS x)
+     *         Scan(id, a)
      *
-     * <p>The lower Project should become {@code Project(id, a)}, because {@code x} is restored above TopN.
-     * The upper Project must also become {@code Project(id, a)} instead of keeping {@code Project(id, x)},
-     * since its child no longer outputs {@code x}.
+     * After simplifyProject (both Projects lose x, gain a):
+     *   TopN
+     *     Project(id, a)                -- x removed because child no longer outputs it
+     *       Project(id, a)              -- a+1 removed, base slot a exposed
+     *         Scan(id, a)
+     *
+     * {@code addUpperProject} then restores the computation above TopN:
+     *   Project(id, a + 1 AS x)         -- new upper Project
+     *     TopN
+     *       Project(id, a)
+     *         Project(id, a)
+     *           Scan(id, a)
+     * </pre>
      */
     private static LogicalProject<? extends Plan> simplifyProject(
             LogicalProject<? extends Plan> project,
@@ -374,11 +384,13 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         List<NamedExpression> simplified = new ArrayList<>();
         Set<ExprId> existingExprIds = new HashSet<>();
         for (NamedExpression ne : project.getProjects()) {
-            if (!pulledUpExprIds.contains(ne.getExprId())
-                    && !isUnavailablePullUpExpression(ne, info, childOutputExprIds)) {
-                NamedExpression resolved = resolveAliasChildIfNeeded(ne, info, childOutputExprIds);
-                simplified.add(resolved);
-                existingExprIds.add(resolved.getExprId());
+            if (!pulledUpExprIds.contains(ne.getExprId())) {
+                Expression replaceExpr = getPullUpReplaceExpression(ne.toSlot(), info);
+                if (replaceExpr == null || !isUnavailableExpression(ne, childOutputExprIds)) {
+                    NamedExpression resolved = resolveAliasChildIfNeeded(ne, info, childOutputExprIds);
+                    simplified.add(resolved);
+                    existingExprIds.add(resolved.getExprId());
+                }
             }
         }
 
@@ -409,43 +421,34 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             LogicalProject<? extends Plan> project, PullUpInfo info, Set<ExprId> childOutputExprIds) {
         List<Expression> passThroughExprs = new ArrayList<>();
         for (NamedExpression ne : project.getProjects()) {
-            if (isUnavailablePullUpExpression(ne, info, childOutputExprIds)) {
-                passThroughExprs.add(getPullUpReplaceExpression(ne.toSlot(), info));
+            Expression replaceExpr = getPullUpReplaceExpression(ne.toSlot(), info);
+            if (replaceExpr != null && isUnavailableExpression(ne, childOutputExprIds)) {
+                passThroughExprs.add(replaceExpr);
             }
         }
         return passThroughExprs;
     }
 
-    private static boolean isUnavailablePullUpExpression(
-            NamedExpression ne, PullUpInfo info, Set<ExprId> childOutputExprIds) {
+    /** Check the non-replaceExpr conditions for unavailability.
+     *  Caller must have already verified {@code getPullUpReplaceExpression(ne.toSlot()) != null}. */
+    private static boolean isUnavailableExpression(NamedExpression ne, Set<ExprId> childOutputExprIds) {
         if (ne instanceof Slot) {
-            return !childOutputExprIds.contains(ne.getExprId())
-                    && getPullUpReplaceExpression((Slot) ne, info) != null;
+            return !childOutputExprIds.contains(ne.getExprId());
         }
         return ne instanceof Alias
-                && getPullUpReplaceExpression(ne.toSlot(), info) != null
                 && ne.getInputSlots().stream().anyMatch(slot -> !childOutputExprIds.contains(slot.getExprId()));
     }
 
     private static Expression getPullUpReplaceExpression(Slot slot, PullUpInfo info) {
-        Expression expression = getDirectPullUpReplaceExpression(slot, info);
+        Expression expression = info.pullUpExprReplaceMap.get(slot);
         while (expression instanceof Slot) {
-            Expression next = getDirectPullUpReplaceExpression((Slot) expression, info);
+            Expression next = info.pullUpExprReplaceMap.get((Slot) expression);
             if (next == null) {
                 return expression;
             }
             expression = next;
         }
         return expression;
-    }
-
-    private static Expression getDirectPullUpReplaceExpression(Slot slot, PullUpInfo info) {
-        for (Map.Entry<Slot, Expression> entry : info.pullUpExprReplaceMap.entrySet()) {
-            if (entry.getKey().getExprId().equals(slot.getExprId())) {
-                return entry.getValue();
-            }
-        }
-        return null;
     }
 
     /** Create a new Project above the TopN that restores pulled-up expressions. */
@@ -456,13 +459,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             pulledUpBySlotExprId.put(e.toSlot().getExprId(), resolveAliasChildIfNeeded(e, info, currentOutputExprIds));
         }
 
-        // Use the current rewritten TopN output so pass-through slots keep
-        // the ExprIds produced by the simplified child.
-        List<Slot> currentOutput = topN.getOutput();
-        Map<ExprId, Slot> currentOutputByExprId = new HashMap<>();
-        for (Slot slot : currentOutput) {
-            currentOutputByExprId.put(slot.getExprId(), slot);
-        }
         List<NamedExpression> upperOutput = new ArrayList<>();
         Set<ExprId> upperOutputExprIds = new HashSet<>();
         for (int i = 0; i < info.originalTopNOutput.size(); i++) {
@@ -471,26 +467,13 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             if (pulledUpExpr != null) {
                 upperOutput.add(pulledUpExpr);
                 upperOutputExprIds.add(pulledUpExpr.getExprId());
+            } else if (currentOutputExprIds.contains(origSlot.getExprId())) {
+                upperOutput.add(origSlot);
+                upperOutputExprIds.add(origSlot.getExprId());
             } else {
-                Slot currentSlot = currentOutputByExprId.get(origSlot.getExprId());
-                if (currentSlot != null) {
-                    upperOutput.add(currentSlot);
-                    upperOutputExprIds.add(currentSlot.getExprId());
-                } else {
-                    Expression chainedExpr = getPullUpReplaceExpression(origSlot, info);
-                    if (chainedExpr != null) {
-                        Expression resolvedExpr = resolveExpression(chainedExpr, info, currentOutputExprIds);
-                        upperOutput.add(new Alias(origSlot.getExprId(), resolvedExpr, origSlot.getName()));
-                        upperOutputExprIds.add(origSlot.getExprId());
-                    } else {
-                        // Slot was lost during simplifyProject — pass through directly.
-                        // TopN is a pass-through node; the computation for this slot
-                        // exists below the TopN even if the intermediate project lost it.
-                        if (upperOutputExprIds.add(origSlot.getExprId())) {
-                            upperOutput.add(origSlot);
-                        }
-                    }
-                }
+                Expression resolvedExpr = resolveExpression(origSlot, info, currentOutputExprIds);
+                upperOutput.add(new Alias(origSlot.getExprId(), resolvedExpr, origSlot.getName()));
+                upperOutputExprIds.add(origSlot.getExprId());
             }
         }
 
