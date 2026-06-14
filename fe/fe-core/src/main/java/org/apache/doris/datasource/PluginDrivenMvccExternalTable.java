@@ -186,7 +186,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
-            values.add(new PartitionValue(partitionValue, false));
+            // A value equal to the Doris-canonical null sentinel marks a genuine NULL partition.
+            // Connectors normalize their own sentinel (e.g. paimon's partition.default-name) to this
+            // in the rendered partition name, mirroring TablePartitionValues.toListPartitionItem so
+            // that `col IS NULL` prunes to the null partition instead of pruning it away.
+            values.add(new PartitionValue(partitionValue,
+                    TablePartitionValues.HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         return new ListPartitionItem(Lists.newArrayList(key));

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;
@@ -194,6 +195,106 @@ public class PaimonConnectorMetadataPartitionTest {
         Assertions.assertEquals(
                 Collections.singletonList(Arrays.asList("cn", String.valueOf(DT_EPOCH_DAY))),
                 values);
+    }
+
+    /** Single STRING partition column {@code category}. */
+    private static RowType categoryRowType() {
+        return RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("category", DataTypes.STRING())
+                .build();
+    }
+
+    private static PaimonTableHandle categoryHandle(FakePaimonTable table) {
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.singletonList("category"), Collections.emptyList());
+        handle.setPaimonTable(table);
+        return handle;
+    }
+
+    @Test
+    public void nullPartitionValueRendersHiveDefaultSentinel() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", categoryRowType(), Collections.singletonList("category"), Collections.emptyList());
+        // No partition.default-name override -> Paimon's default sentinel.
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "true"));
+        ops.table = table;
+        Map<String, String> spec = new LinkedHashMap<>();
+        // Paimon stores a genuine NULL partition value as its partition.default-name sentinel.
+        spec.put("category", "__DEFAULT_PARTITION__");
+        ops.partitions = Collections.singletonList(partition(spec, 1L, 729L, 1700000000000L));
+
+        List<String> names = metadataWith(ops).listPartitionNames(null, categoryHandle(table));
+
+        // WHY: Paimon renders a genuine NULL partition value as "__DEFAULT_PARTITION__". The display
+        // name MUST normalize it to the Doris-canonical null sentinel so the FE prune bridge marks the
+        // partition isNull and `category IS NULL` selects it (otherwise it is catalogued as the literal
+        // string "__DEFAULT_PARTITION__" and IS NULL prunes it away -> empty result, the bug this fixes).
+        // MUTATION: appending the raw spec value "__DEFAULT_PARTITION__" -> name diverges -> red.
+        Assertions.assertEquals(
+                Collections.singletonList("category=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION),
+                names);
+    }
+
+    @Test
+    public void customDefaultPartitionNameIsHonoredAndOtherValuesUntouched() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", categoryRowType(), Collections.singletonList("category"), Collections.emptyList());
+        Map<String, String> opts = new LinkedHashMap<>();
+        opts.put("partition.legacy-name", "true");
+        opts.put("partition.default-name", "__MY_NULL__");
+        table.setOptions(opts);
+        ops.table = table;
+        Map<String, String> nullSpec = new LinkedHashMap<>();
+        nullSpec.put("category", "__MY_NULL__");
+        Map<String, String> literalSpec = new LinkedHashMap<>();
+        // A literal value equal to Paimon's DEFAULT sentinel — but NOT this table's configured
+        // default-name — is real data and must pass through unchanged.
+        literalSpec.put("category", "__DEFAULT_PARTITION__");
+        ops.partitions = Arrays.asList(
+                partition(nullSpec, 1L, 1L, 1L),
+                partition(literalSpec, 1L, 1L, 1L));
+
+        List<String> names = metadataWith(ops).listPartitionNames(null, categoryHandle(table));
+
+        // WHY: the null sentinel is read from THIS table's partition.default-name option (mirroring how
+        // partition.legacy-name is read), not hardcoded. The configured "__MY_NULL__" maps to the null
+        // sentinel; a literal "__DEFAULT_PARTITION__" (not this table's default) stays verbatim.
+        // MUTATION: hardcoding "__DEFAULT_PARTITION__" as the sentinel -> the two rows swap which one is
+        // treated as null -> red.
+        Assertions.assertEquals(
+                Arrays.asList(
+                        "category=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION,
+                        "category=__DEFAULT_PARTITION__"),
+                names);
+    }
+
+    @Test
+    public void nullDatePartitionRendersSentinelInsteadOfCrashing() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", dtRegionRowType(), Arrays.asList("dt", "region"), Collections.emptyList());
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "true"));
+        ops.table = table;
+        Map<String, String> spec = new LinkedHashMap<>();
+        // A genuine NULL value for a DATE partition column is ALSO the default-name sentinel, NOT an
+        // epoch-day integer.
+        spec.put("dt", "__DEFAULT_PARTITION__");
+        spec.put("region", "cn");
+        ops.partitions = Collections.singletonList(partition(spec, 1L, 1L, 1L));
+
+        List<String> names = metadataWith(ops).listPartitionNames(null, dtRegionHandle(table));
+
+        // WHY: the default-name check must run BEFORE the legacy DATE-render branch, or a null DATE
+        // partition hits DateTimeUtils.formatDate(Integer.parseInt("__DEFAULT_PARTITION__")) and throws
+        // NumberFormatException, failing the whole listPartitions call. MUTATION: ordering the DATE
+        // branch first -> NumberFormatException -> red.
+        Assertions.assertEquals(
+                Collections.singletonList(
+                        "dt=" + ConnectorPartitionValues.HIVE_DEFAULT_PARTITION + "/region=cn"),
+                names);
     }
 
     @Test

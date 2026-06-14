@@ -31,6 +31,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -952,6 +953,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         boolean legacyName = Boolean.parseBoolean(
                 table.options().getOrDefault("partition.legacy-name", "true"));
 
+        // Paimon renders a genuine NULL partition value as its partition.default-name sentinel
+        // (CoreOptions.PARTITION_DEFAULT_NAME, default "__DEFAULT_PARTITION__"). Read it the same way
+        // as partition.legacy-name above so a table that overrides it is still honored.
+        String defaultPartitionName = table.options()
+                .getOrDefault("partition.default-name", "__DEFAULT_PARTITION__");
+
         // Connector cannot import Doris Type: detect DATE partition columns straight from the
         // Paimon RowType (DataTypeRoot.DATE) instead of the legacy columnNameToType.isDateV2().
         Set<String> partitionKeyNames = new HashSet<>(partitionKeys);
@@ -969,13 +976,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
-                // When partition.legacy-name = true (default), Paimon stores DATE as days since
-                // 1970-01-01 (epoch integer), so render it via the Paimon SDK formatDate; when
-                // false the value is already a human-readable date string.
-                if (legacyName && dateColumns.contains(entry.getKey())) {
-                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
+                String value = entry.getValue();
+                if (defaultPartitionName.equals(value)) {
+                    // Genuine NULL partition value. Normalize the paimon sentinel to the Doris-canonical
+                    // null sentinel so the FE prune bridge (PluginDrivenMvccExternalTable.toListPartitionItem)
+                    // marks the partition isNull and `col IS NULL` selects it — aligning prune with the
+                    // native scan path, which already materializes it as SQL NULL from the typed Java-null.
+                    // Handled before the DATE branch so a null DATE partition renders the sentinel instead
+                    // of crashing on Integer.parseInt("__DEFAULT_PARTITION__").
+                    sb.append(ConnectorPartitionValues.HIVE_DEFAULT_PARTITION).append("/");
+                } else if (legacyName && dateColumns.contains(entry.getKey())) {
+                    // When partition.legacy-name = true (default), Paimon stores DATE as days since
+                    // 1970-01-01 (epoch integer), so render it via the Paimon SDK formatDate; when
+                    // false the value is already a human-readable date string.
+                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(value))).append("/");
                 } else {
-                    sb.append(entry.getValue()).append("/");
+                    sb.append(value).append("/");
                 }
             }
             if (sb.length() > 0) {

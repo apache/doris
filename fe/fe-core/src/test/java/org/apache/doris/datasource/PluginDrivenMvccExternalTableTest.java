@@ -135,6 +135,27 @@ public class PluginDrivenMvccExternalTableTest {
                 "partition key must be built from the RENDERED date name, not a raw epoch");
     }
 
+    @Test
+    public void testHiveDefaultSentinelBuildsNullPartitionKey() {
+        // The connector normalizes a genuine NULL partition value (e.g. paimon's partition.default-name
+        // "__DEFAULT_PARTITION__") to the Doris-canonical sentinel in the rendered partition name.
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)));
+        Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+
+        Assertions.assertEquals(1, items.size());
+        PartitionItem item = items.get("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION);
+        Assertions.assertTrue(item instanceof ListPartitionItem, "expected a ListPartitionItem");
+        PartitionKey key = ((ListPartitionItem) item).getItems().get(0);
+        // WHY: a value equal to the canonical null sentinel must build a NULL partition key (isNull) so
+        // `dt IS NULL` prunes TO this partition. Before the fix toListPartitionItem hardcoded isNull=false,
+        // so the key was a non-null literal "__HIVE_DEFAULT_PARTITION__", IS NULL matched nothing, and the
+        // null partition was pruned away (empty result — the bug this fixes). MUTATION: reverting to
+        // new PartitionValue(value, false) -> the key is a non-null literal -> isNullLiteral() false -> red.
+        Assertions.assertTrue(key.getKeys().get(0).isNullLiteral(),
+                "a __HIVE_DEFAULT_PARTITION__ partition value must build a NULL (isNull) partition key");
+    }
+
     // ==================== single-pin invariant: no re-query when pin supplied ====================
 
     @Test
