@@ -61,6 +61,7 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
@@ -621,10 +622,63 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // session forces JNI (force_jni_scanner) — in both cases every split goes JNI and never consults
         // the dict (FIX-FORCE-JNI-SCANNER: honor the same session escape hatch the native router uses).
         if (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session)) {
-            buildSchemaEvolutionParam(table, columns).ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+            // The schema dict must be built from a FileStoreTable. A normal data table IS one; a $ro
+            // (read-optimized) system table is a ReadOptimizedTable that WRAPS a FileStoreTable and reads
+            // its data files with its field ids, so resolve the underlying base FileStoreTable here.
+            Table schemaDictTable = resolveSchemaDictTable(table, paimonHandle);
+            if (schemaDictTable != null) {
+                buildSchemaEvolutionParam(schemaDictTable, columns)
+                        .ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
+            }
         }
 
         return props;
+    }
+
+    /**
+     * Resolves the {@link FileStoreTable} whose schema dictionary BE needs to field-id-match the native
+     * data files for {@code table}. A normal data table IS the FileStoreTable. A read-optimized system
+     * table ({@code $ro} &rarr; {@link ReadOptimizedTable}) is NOT a {@code FileStoreTable} (it wraps one)
+     * but reads the BASE table's data files with the BASE field ids, so its dict must come from the base
+     * FileStoreTable, reloaded here via the 2-arg base {@link Identifier}.
+     *
+     * <p>Restores legacy {@code PaimonScanNode} parity: legacy set {@code history_schema_info} for ANY
+     * paimon table (incl. {@code $ro}) in {@code doInitialize}, so BE always took the field-id path. The
+     * SPI connector had gated the dict on {@code instanceof FileStoreTable} and so emitted nothing for
+     * {@code $ro}; with no {@code history_schema_info} BE's {@code gen_table_info_node_by_field_id} fell
+     * into the legacy name-matching branch {@code by_parquet_name(tuple_descriptor, ...)} and dereferenced
+     * a still-null tuple descriptor ({@code table_schema_change_helper.cpp:94}) &rarr; a SIGSEGV that
+     * aborted the whole BE.
+     *
+     * <p>Returns {@code null} for a table with no native data files (metadata system tables take the JNI
+     * path and never consult the dict), preserving the prior "emit nothing" behavior for those.
+     */
+    private Table resolveSchemaDictTable(Table table, PaimonTableHandle handle) {
+        if (table instanceof FileStoreTable) {
+            return table;
+        }
+        if (table instanceof ReadOptimizedTable) {
+            return reloadBaseTable(handle);
+        }
+        return null;
+    }
+
+    /**
+     * Reloads the BASE data table for a system handle via the 2-arg base {@link Identifier}, under the
+     * FE-injected authenticator (D-052) when a context is present — mirroring {@link #resolveTable}'s
+     * reload. Used to obtain the underlying {@link FileStoreTable} of a {@code $ro} read so its schema
+     * dictionary can be emitted.
+     */
+    private Table reloadBaseTable(PaimonTableHandle handle) {
+        Identifier baseId = Identifier.create(handle.getDatabaseName(), handle.getTableName());
+        try {
+            if (context == null) {
+                return catalogOps.getTable(baseId);
+            }
+            return context.executeAuthenticated(() -> catalogOps.getTable(baseId));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Paimon base table for schema dict: " + baseId, e);
+        }
     }
 
     /**

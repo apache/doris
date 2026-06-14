@@ -34,6 +34,7 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
@@ -43,6 +44,7 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
@@ -537,6 +539,66 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals("dt", props.get("path_partition_keys"),
                     "a partitioned paimon table must declare its partition columns as path_partition_keys "
                             + "so the BE excludes them from the file decode set (else double-fill -> crash)");
+        }
+    }
+
+    @Test
+    public void getScanNodePropertiesEmitsSchemaEvolutionForReadOptimizedSysTable(@TempDir Path warehouse)
+            throws Exception {
+        // RC (BE SIGSEGV, CI 4b983431bda): a native read of a paimon $ro (read-optimized) system table
+        // must STILL emit the paimon.schema_evolution dict, so BE sets history_schema_info and matches
+        // file<->table columns BY FIELD ID. A $ro table resolves to a paimon ReadOptimizedTable, which
+        // is NOT an instanceof FileStoreTable (it WRAPS one), so buildSchemaEvolutionParam used to skip
+        // it and emit nothing. With no history_schema_info, BE's gen_table_info_node_by_field_id falls
+        // into the legacy name-matching branch by_parquet_name(tuple_descriptor, ...), where the paimon
+        // reader passes a still-null _tuple_descriptor (get_tuple_descriptor() is only populated later in
+        // _do_init_reader, after on_before_init_reader) and dereferences it
+        // (table_schema_change_helper.cpp:94) -> SIGSEGV that aborts the whole BE. Legacy PaimonScanNode
+        // set history_schema_info for ANY paimon table (incl. $ro) in doInitialize; this restores that
+        // parity by building the dict from the BASE FileStoreTable that $ro reads.
+        // MUTATION: reverting resolveSchemaDictTable to pass the $ro table straight to
+        // buildSchemaEvolutionParam (its instanceof FileStoreTable guard returns empty) -> the key is
+        // absent -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("name", DataTypes.STRING())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable base = (FileStoreTable) catalog.getTable(id);
+            // $ro resolves to a ReadOptimizedTable wrapping the base FileStoreTable.
+            ReadOptimizedTable roTable = new ReadOptimizedTable(base);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            // The sys reload (4-arg sys Identifier) serves the $ro table; the base reload the fix issues
+            // for the schema dict (2-arg base Identifier) serves the base FileStoreTable.
+            ops.sysTable = roTable;
+            ops.table = base;
+            // A deserialized $ro handle: sysTableName="ro", forceJni=false (only binlog/audit_log force
+            // JNI), transient Table lost so resolveScanTable reloads the ReadOptimizedTable.
+            PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            Map<String, String> props = provider.getScanNodeProperties(
+                    null, handle, Collections.emptyList(), Optional.empty());
+
+            String encoded = props.get("paimon.schema_evolution");
+            Assertions.assertNotNull(encoded,
+                    "a native $ro read must emit paimon.schema_evolution so BE sets history_schema_info "
+                            + "and uses field-id matching; without it BE falls into the name-matching "
+                            + "branch and dereferences a null tuple descriptor -> BE SIGSEGV");
+            // Decodes to current_schema_id = -1 (latest sentinel) and a non-empty history dictionary,
+            // exactly what BE's field-id matcher consumes.
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(params, encoded);
+            Assertions.assertTrue(params.isSetHistorySchemaInfo() && !params.getHistorySchemaInfo().isEmpty(),
+                    "the $ro schema dict must carry history_schema_info entries");
+            Assertions.assertEquals(-1L, params.getCurrentSchemaId(),
+                    "the current/target schema id must be the -1 sentinel (legacy parity)");
         }
     }
 
