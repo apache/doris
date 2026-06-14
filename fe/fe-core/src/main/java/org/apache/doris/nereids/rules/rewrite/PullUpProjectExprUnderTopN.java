@@ -112,6 +112,31 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         final Map<LogicalProject<? extends Plan>, List<NamedExpression>> projectToPulledUpExprs
                 = new LinkedHashMap<>();
         final Map<ExprId, List<Slot>> baseSlotsByExpr = new HashMap<>();
+        /**
+         * Pulled-up expressions removed from this TopN by deduplicatePullUps because
+         * an outer TopN already owns the same Project expression. The inner TopN
+         * should not restore the expression itself, but it may still need to pass
+         * the expression's input slots through so the outer TopN can restore it.
+         *
+         * <p>Example before deduplication:
+         * <pre>
+         * TopN outer
+         *   Project(x)
+         *     TopN inner
+         *       Project(x = a + 1, id)
+         *         Scan(a, id)
+         * </pre>
+         *
+         * <p>Both TopNs collect {@code x = a + 1} from the same Project. Dedup keeps
+         * it in the outer TopN's {@code allPulledUpExprs}, and records it in the
+         * inner TopN as:
+         * <pre>
+         * passThroughExprByDeduplicatedExpr[x.exprId] = (x = a + 1)
+         * </pre>
+         *
+         * <p>The inner TopN can then pass {@code a} through instead of producing
+         * {@code x}, and the outer TopN restores {@code x = a + 1} above itself.
+         */
         final Map<ExprId, NamedExpression> passThroughExprByDeduplicatedExpr = new HashMap<>();
 
         PullUpInfo(LogicalTopN topN) {
