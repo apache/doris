@@ -209,7 +209,13 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     // i.e. support_phrase off) can never be scored, so its per-doc norms are pure
     // dead weight on disk -- the SPIMI/V4 path omits them unconditionally. Keep
     // norms only for analyzed fields that still carry freq+positions.
-    if (_should_analyzer && !omit_term_freq_and_positions) {
+    //
+    // inverted_index_v2_omit_norms forces norms off even for phrase-on analyzed
+    // fields: Doris fulltext MATCH never scores with BM25, so the .nrm stream is
+    // dead weight here too. Gating it makes V2 idx sizes apples-to-apples with V4
+    // (which always omits norms) without changing the default production layout.
+    if (_should_analyzer && !omit_term_freq_and_positions &&
+        !config::inverted_index_v2_omit_norms) {
         (*field)->setOmitNorms(false);
     }
 

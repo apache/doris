@@ -515,6 +515,21 @@ inline void ensure_env_inited() {
         if (const char* z = std::getenv("SPIMI_PRX_ZSTD")) {
             config::inverted_index_spimi_prx_zstd_enable = (std::string_view(z) != "0");
         }
+        // RAM-dir off (SPIMI_RAM_DIR=0) must reach BOTH the bench's per-write
+        // can_use_ram_dir flag AND the config the V4 SPIMI path reads, so the
+        // whole index streams to a real on-disk directory — apples-to-apples
+        // with the E2E cluster (be.conf inverted_index_ram_dir_enable=false) and
+        // free of the RAM directory's in-memory peak that inflates VmHWM.
+        if (const char* r = std::getenv("SPIMI_RAM_DIR")) {
+            config::inverted_index_ram_dir_enable = (std::string_view(r) != "0");
+        }
+        // V2/CLucene norm (.nrm) suppression for fair idx-size comparison:
+        // SPIMI_OMIT_NORMS=1 sets the config the V2 write path checks so phrase-on
+        // analyzed fields also drop norms (V4 already omits them). Matches the E2E
+        // cluster's be.conf inverted_index_v2_omit_norms=true.
+        if (const char* n = std::getenv("SPIMI_OMIT_NORMS")) {
+            config::inverted_index_v2_omit_norms = (std::string_view(n) != "0");
+        }
         // Write-time searcher-cache warmup: BE default is false, but CI and
         // E2E cluster confs enable it, adding a per-segment searcher build
         // (V2 = CLucene open, V4 = SPIMI open — asymmetric cost) inside
@@ -563,6 +578,7 @@ inline void ensure_env_inited() {
                   << " ram_dir_bench="
                   << !(std::getenv("SPIMI_RAM_DIR") &&
                        std::string_view(std::getenv("SPIMI_RAM_DIR")) == "0")
+                  << " v2_omit_norms=" << config::inverted_index_v2_omit_norms
                   << " track_mem=" << track_mem
                   << " warmup_cache=" << config::enable_write_index_searcher_cache
                   << " batch=" << bench_batch_size();

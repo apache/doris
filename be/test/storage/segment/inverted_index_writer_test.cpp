@@ -50,6 +50,7 @@
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -2444,6 +2445,41 @@ TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
             << "Expected .nrm file to NOT exist when tokenization is disabled (parser=none) "
             << "because setOmitNorms(false) is not called. This validates the fix in "
             << "inverted_index_writer.cpp where .nrm file creation depends on _should_analyzer.";
+}
+
+// Test the inverted_index_v2_omit_norms config path: when ON, norms are dropped
+// even for an analyzed field WITH phrase support -- the one shape that retains
+// .nrm by default. Doris fulltext MATCH never consumes BM25 norms, so the config
+// lets V2 idx sizes be apples-to-apples with V4 (which omits norms unconditionally).
+TEST_F(InvertedIndexWriterTest, NormsOmittedWhenV2OmitNormsConfigOn) {
+    // mBool is a process-global; save and restore so this case never pollutes
+    // others running in the same binary.
+    const bool saved = config::inverted_index_v2_omit_norms;
+    config::inverted_index_v2_omit_norms = true;
+    DEFER(config::inverted_index_v2_omit_norms = saved);
+
+    // analyzed (parser=standard) WITH phrase support: without the config this is
+    // exactly the case that keeps .nrm (see NormsFileCreationWithTokenization
+    // test case 1). With the config ON, norms must be omitted.
+    create_tokenized_index("test_v2_omit_norms_on", 3, true, /*support_phrase=*/true);
+
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+    (*index_meta_pb->mutable_properties())["parser"] = "standard";
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_v2_omit_norms_on", 3))};
+
+    EXPECT_FALSE(check_norms_file_exists(index_path_prefix, &idx_meta))
+            << "inverted_index_v2_omit_norms=true must drop .nrm even for an analyzed "
+            << "field WITH support_phrase (MATCH never scores, so norms are dead weight).";
 }
 
 namespace {

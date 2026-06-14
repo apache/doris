@@ -1346,6 +1346,10 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// When true, the V2/CLucene write path omits per-doc norms (.nrm) even for
+// analyzed phrase-on fields. See config.h for the fairness rationale; default
+// false keeps the historical production V2 layout.
+DEFINE_mBool(inverted_index_v2_omit_norms, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
