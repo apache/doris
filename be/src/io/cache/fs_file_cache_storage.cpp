@@ -1117,9 +1117,6 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     load_blocks_from_dir_unlocked(
             mgr, key.hash, KeyDir {.expiration_time = key.meta.expiration_time, .path = key_path},
             &key, cache_lock);
-    if (mgr->get_cell(key.hash, key.offset, cache_lock) != nullptr) {
-        return;
-    }
 
     auto key_dirs = list_key_dirs(key.hash);
     for (const auto& key_dir : key_dirs) {

@@ -1023,26 +1023,38 @@ CacheContext BlockFileCache::make_cell_context(
         result.storage_expiration_time = result.expiration_time;
     }
 
+    auto ttl_it = _key_to_time.find(hash);
+    const FileBlock* storage_binding = nullptr;
+    const FileBlock* ttl_binding = nullptr;
+    auto file_it = _files.find(hash);
+    if (file_it != _files.end() && !file_it->second.empty()) {
+        for (const auto& [_, cell] : file_it->second) {
+            const auto* file_block = cell.file_block.get();
+            if (storage_binding == nullptr) {
+                storage_binding = file_block;
+            }
+            if (ttl_binding == nullptr &&
+                (file_block->cache_type() == FileCacheType::TTL ||
+                 file_block->storage_cache_type() == FileCacheType::TTL)) {
+                ttl_binding = file_block;
+            }
+        }
+    }
+
+    if (ttl_binding != nullptr) {
+        storage_binding = ttl_binding;
+    }
+    if (context.storage_expiration_time < 0 && storage_binding != nullptr) {
+        result.storage_expiration_time = storage_binding->storage_expiration_time();
+    }
+
     if (context.cache_type != FileCacheType::TTL) {
         return result;
     }
 
-    auto ttl_it = _key_to_time.find(hash);
-    auto file_it = _files.find(hash);
-    if (file_it != _files.end() && !file_it->second.empty()) {
-        for (const auto& [_, cell] : file_it->second) {
-            const auto& file_block = cell.file_block;
-            if (file_block->cache_type() != FileCacheType::TTL &&
-                file_block->storage_cache_type() != FileCacheType::TTL) {
-                continue;
-            }
-            result.cache_type = file_block->cache_type();
-            result.expiration_time = file_block->expiration_time();
-            if (context.storage_expiration_time < 0) {
-                result.storage_expiration_time = file_block->storage_expiration_time();
-            }
-            break;
-        }
+    if (ttl_binding != nullptr) {
+        result.cache_type = ttl_binding->cache_type();
+        result.expiration_time = ttl_binding->expiration_time();
     }
 
     if (ttl_it != _key_to_time.end()) {
