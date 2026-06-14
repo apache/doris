@@ -432,7 +432,7 @@ public class FileGroupInfo {
         }
         rangeDesc.setModificationTime(fileStatus.getModificationTime());
         List<TPartitionKeyValue> partitionKeyValues =
-                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath);
+                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath, columnsFromPathIsNull);
         FileScanNode.fillTablePartitionContext(rangeDesc, targetTable, partitionKeyValues);
         return rangeDesc;
     }

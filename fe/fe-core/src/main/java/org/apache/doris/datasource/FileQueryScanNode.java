@@ -584,7 +584,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         List<TPartitionKeyValue> partitionKeyValues =
-                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath);
+                FileScanNode.buildPartitionKeyValues(columnsFromPathKeys, columnsFromPath, columnsFromPathIsNull);
         FileScanNode.fillPathPartitionContext(rangeDesc, desc.getTable(), partitionKeyValues);
         return rangeDesc;
     }

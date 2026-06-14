@@ -121,15 +121,23 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public static List<TPartitionKeyValue> buildPartitionKeyValues(
             List<String> partitionKeys, List<String> partitionValues) {
+        return buildPartitionKeyValues(partitionKeys, partitionValues, null);
+    }
+
+    public static List<TPartitionKeyValue> buildPartitionKeyValues(
+            List<String> partitionKeys, List<String> partitionValues, List<Boolean> partitionValueIsNull) {
         if (partitionKeys == null || partitionValues == null) {
             return Collections.emptyList();
         }
-        if (partitionKeys.isEmpty() || partitionKeys.size() != partitionValues.size()) {
+        if (partitionKeys.isEmpty() || partitionKeys.size() != partitionValues.size()
+                || (partitionValueIsNull != null && partitionKeys.size() != partitionValueIsNull.size())) {
             return Collections.emptyList();
         }
         List<TPartitionKeyValue> partitionKeyValues = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (int i = 0; i < partitionKeys.size(); i++) {
-            partitionKeyValues.add(buildPartitionKeyValue(partitionKeys.get(i), partitionValues.get(i)));
+            boolean isNull = partitionValueIsNull != null && Boolean.TRUE.equals(partitionValueIsNull.get(i));
+            partitionKeyValues.add(buildPartitionKeyValue(
+                    partitionKeys.get(i), isNull ? null : partitionValues.get(i)));
         }
         return partitionKeyValues;
     }

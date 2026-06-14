@@ -450,7 +450,7 @@ public class NereidsFileGroupInfo {
         rangeDesc.setModificationTime(fileStatus.getModificationTime());
         List<TPartitionKeyValue> partitionKeyValues =
                 org.apache.doris.datasource.FileScanNode.buildPartitionKeyValues(
-                        columnsFromPathKeys, columnsFromPath);
+                        columnsFromPathKeys, columnsFromPath, columnsFromPathIsNull);
         org.apache.doris.datasource.FileScanNode.fillTablePartitionContext(
                 rangeDesc, targetTable, partitionKeyValues);
         return rangeDesc;

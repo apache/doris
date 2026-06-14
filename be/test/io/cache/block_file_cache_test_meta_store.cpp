@@ -35,6 +35,8 @@
 #pragma clang diagnostic pop
 #endif
 
+#include <atomic>
+
 namespace doris::io {
 
 namespace {
@@ -671,6 +673,124 @@ TEST_F(BlockFileCacheTest, change_cache_type_preserves_context_id) {
             std::chrono::seconds(2)));
     EXPECT_EQ(meta->ttl, 0);
     EXPECT_EQ(meta->size, 100000);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, direct_load_preserves_context_id_before_change_cache_type) {
+    config::enable_evict_file_cache_in_advance = false;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    constexpr int64_t kTabletId = 27182;
+    const auto key = io::BlockFileCache::hash("direct_load_context_key");
+    const BlockMetaKey mkey(kTabletId, key, 0);
+    uint64_t context_id = 0;
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        ASSERT_TRUE(wait_for_condition([&cache]() { return cache.get_async_open_success(); },
+                                       std::chrono::seconds(2)));
+
+        io::CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
+        context.cache_type = io::FileCacheType::NORMAL;
+        context.tablet_id = kTabletId;
+        context.table_name = "ctl.db.tbl";
+        context.partition_name = "partition_direct";
+
+        auto holder = cache.get_or_set(key, 0, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+
+        auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+        ASSERT_NE(fs_storage, nullptr)
+                << "Expected FSFileCacheStorage but got different storage type";
+        auto& meta_store = fs_storage->_meta_store;
+        std::optional<BlockMeta> meta;
+        ASSERT_TRUE(wait_for_condition(
+                [&]() {
+                    meta = meta_store->get(mkey);
+                    return meta.has_value() && meta->context_id != 0;
+                },
+                std::chrono::seconds(2)));
+        context_id = meta->context_id;
+    }
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::atomic_bool unblock_async_load {false};
+    std::atomic_bool async_load_blocked {false};
+    std::unique_ptr<io::BlockFileCache> cache;
+    SyncPoint::CallbackGuard guard;
+    Defer sync_point_defer {[&] {
+        unblock_async_load.store(true, std::memory_order_release);
+        sp->disable_processing();
+    }};
+    sp->set_call_back(
+            "BlockFileCache::TmpFile1",
+            [&](auto&&) {
+                async_load_blocked.store(true, std::memory_order_release);
+                while (!unblock_async_load.load(std::memory_order_acquire)) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            },
+            &guard);
+
+    cache = std::make_unique<io::BlockFileCache>(cache_base_path, settings);
+    ASSERT_TRUE(cache->initialize());
+    ASSERT_TRUE(
+            wait_for_condition([&]() { return async_load_blocked.load(std::memory_order_acquire); },
+                               std::chrono::seconds(2)));
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    context.tablet_id = kTabletId;
+
+    auto holder = cache->get_or_set(key, 0, 100000, context);
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    EXPECT_EQ(blocks[0]->_key.meta.context_id, context_id);
+
+    ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::TTL));
+
+    auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(cache->_storage.get());
+    ASSERT_NE(fs_storage, nullptr) << "Expected FSFileCacheStorage but got different storage type";
+    auto& meta_store = fs_storage->_meta_store;
+    std::optional<BlockMeta> meta;
+    ASSERT_TRUE(wait_for_condition(
+            [&]() {
+                meta = meta_store->get(mkey);
+                return meta.has_value() && meta->type == io::FileCacheType::TTL &&
+                       meta->context_id == context_id;
+            },
+            std::chrono::seconds(2)));
+
+    unblock_async_load.store(true, std::memory_order_release);
+    ASSERT_TRUE(wait_for_condition([&cache]() { return cache->get_async_open_success(); },
+                                   std::chrono::seconds(2)));
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);

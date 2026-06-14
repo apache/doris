@@ -440,6 +440,53 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testGetIdentityPartitionInfoMapForCacheUsesSourceColumnNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "dt", Types.StringType.get()),
+                Types.NestedField.required(2, "country", Types.StringType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("dt", "partition_dt")
+                .identity("country", "partition_country")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2026-03-19");
+        partitionData.set(1, "cn");
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMapForCache(
+                partitionData, partitionSpec, table, "UTC");
+
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("dt", "2026-03-19");
+        expected.put("country", "cn");
+        Assert.assertEquals(expected, partitionInfoMap);
+        Assert.assertFalse(partitionInfoMap.containsKey("partition_dt"));
+        Assert.assertFalse(partitionInfoMap.containsKey("partition_country"));
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapForCacheRejectsTransformPartitions() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "dt", Types.StringType.get()),
+                Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("dt")
+                .day("ts")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2026-03-19");
+        partitionData.set(1, 20531);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Assert.assertNull(IcebergUtils.getIdentityPartitionInfoMapForCache(
+                partitionData, partitionSpec, table, "UTC"));
+    }
+
+    @Test
     public void testGetIdentityPartitionInfoMapSupportsFloatingPointPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "float_partition", Types.FloatType.get()),

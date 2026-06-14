@@ -1195,6 +1195,13 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     context_original.expiration_time = block_meta->ttl;
     context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
+    context_original.context_id = block_meta->context_id;
+    if (block_meta->context_id != 0) {
+        if (auto context = _meta_store->get_context(block_meta->context_id); context) {
+            context_original.table_name = context->first;
+            context_original.partition_name = context->second;
+        }
+    }
 
     if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,
                                     cache_lock)) {
