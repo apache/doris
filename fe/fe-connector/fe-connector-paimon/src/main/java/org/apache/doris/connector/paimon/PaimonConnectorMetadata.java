@@ -1062,13 +1062,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             // Legacy DESC parity: PaimonExternalTable/PaimonSysExternalTable built every column (base AND
             // system table) with isKey=true (3rd positional Column arg), so DESC shows Key=true for all
             // paimon columns. The 5-arg ConnectorColumn ctor defaults isKey=false; pass true explicitly.
-            columns.add(new ConnectorColumn(
+            ConnectorColumn column = new ConnectorColumn(
                     field.name().toLowerCase(),
                     connectorType,
                     comment,
                     nullable,
                     null,
-                    true));
+                    true);
+            // Legacy DESC parity (PaimonExternalTable.initSchema:356 / PaimonSysExternalTable:270): a
+            // TIMESTAMP_WITH_LOCAL_TIME_ZONE column carries the WITH_TIMEZONE "Extra" marker via
+            // Column.setWithTZExtraInfo(). Mark it here so fe-core's ConnectorColumnConverter re-applies it.
+            // The mark is driven by the SOURCE paimon type root, not the mapped Doris type, so it survives
+            // whether enable.mapping.timestamp_tz maps the column to TIMESTAMPTZ (on) or DATETIMEV2 (off).
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column = column.withTimeZone();
+            }
+            columns.add(column);
         }
         return columns;
     }

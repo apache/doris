@@ -186,8 +186,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
         for (ConnectorColumn col : tableSchema.getColumns()) {
             String mappedName = metadata.fromRemoteColumnName(session, dbName, tableName, col.getName());
             if (!mappedName.equals(col.getName())) {
-                mappedColumns.add(new ConnectorColumn(mappedName, col.getType(),
-                        col.getComment(), col.isNullable(), col.getDefaultValue(), col.isKey()));
+                ConnectorColumn remapped = new ConnectorColumn(mappedName, col.getType(),
+                        col.getComment(), col.isNullable(), col.getDefaultValue(), col.isKey());
+                // Preserve the WITH_TIMEZONE marker across the name remap (the 6-arg ctor defaults it off)
+                // so DESC still shows the Extra marker for renamed/explicitly-mapped TZ columns.
+                if (col.isWithTimeZone()) {
+                    remapped = remapped.withTimeZone();
+                }
+                mappedColumns.add(remapped);
             } else {
                 mappedColumns.add(col);
             }

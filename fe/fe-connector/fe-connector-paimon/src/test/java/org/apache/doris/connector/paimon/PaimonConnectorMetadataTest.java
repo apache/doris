@@ -363,4 +363,36 @@ public class PaimonConnectorMetadataTest {
         Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
                 "absent enable.mapping.timestamp_tz must leave Paimon LTZ as DATETIMEV2 (default off)");
     }
+
+    @Test
+    public void getTableSchemaMarksLtzColumnsWithTimeZoneRegardlessOfMapping() {
+        // Legacy parity (test_paimon_catalog_timestamp_tz desc_1/desc_2): PaimonExternalTable.initSchema
+        // and PaimonSysExternalTable.buildFullSchema call column.setWithTZExtraInfo() whenever the SOURCE
+        // paimon type root is TIMESTAMP_WITH_LOCAL_TIME_ZONE — independent of enable.mapping.timestamp_tz.
+        // That marker becomes the DESC "Extra" column = WITH_TIMEZONE (IndexSchemaProcNode reads
+        // Column.getExtraInfo()). Because the connector maps an LTZ field to TIMESTAMPTZ when mapping is on
+        // but to a plain DATETIMEV2 when off, the marker cannot be recovered from the mapped Doris type
+        // alone; mapFields must carry it explicitly via ConnectorColumn.withTimeZone() in BOTH states so
+        // fe-core's ConnectorColumnConverter can re-apply setWithTZExtraInfo().
+        // MUTATION: dropping the withTimeZone() mark in mapFields -> isWithTimeZone()==false -> the
+        // converter never sets the extra info -> DESC Extra goes blank -> red.
+        for (Map<String, String> props : Arrays.asList(
+                Collections.<String, String>emptyMap(),
+                Collections.singletonMap("enable.mapping.timestamp_tz", "true"))) {
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = new FakePaimonTable(
+                    "t1", binaryAndLtzRowType(), Collections.emptyList(), Collections.emptyList());
+            PaimonConnectorMetadata metadata =
+                    new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+
+            ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
+            ConnectorTableSchema schema = metadata.getTableSchema(null, handle);
+
+            Assertions.assertFalse(schema.getColumns().get(0).isWithTimeZone(),
+                    "non-LTZ (BINARY) column must not carry the WITH_TIMEZONE marker; mapping props=" + props);
+            Assertions.assertTrue(schema.getColumns().get(1).isWithTimeZone(),
+                    "Paimon LTZ column must carry the WITH_TIMEZONE marker regardless of mapping; props="
+                            + props);
+        }
+    }
 }
