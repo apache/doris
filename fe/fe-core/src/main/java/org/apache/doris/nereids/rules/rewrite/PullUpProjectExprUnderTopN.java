@@ -586,38 +586,42 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         for (NamedExpression ne : project.getProjects()) {
             if (!pulledUpExprIds.contains(ne.getExprId())
                     && !isUnavailablePullUpSlot(ne, context, childOutputExprIds)) {
-                NamedExpression resolved = resolveNamedExpression(ne, context, childOutputExprIds);
+                NamedExpression resolved = resolveAliasChildIfNeeded(ne, context, childOutputExprIds);
 
-                // This rule pulls up non-trivial expressions from below TopN
-                // to above TopN, so that only base columns flow through the
-                // TopN operator (enabling lazy materialization).
+                // This rule pulls non-trivial expressions above TopN so the
+                // TopN only carries the slots needed to restore them later.
                 //
-                // When adjacent Projects below a TopN form a chain — an
-                // upper Project renames a slot produced by a lower Project's
-                // pulled-up expression — the Collector pass records each
-                // link in pullUpExprReplaceMap so that getPullUpReplaceExpression
-                // can follow the chain to its end.
-                //
-                // Example plan tree that produces the chain v1#4 → SlotRef#10
-                // → ElementAt(sa#1, 'fa'):
+                // A common shape after nested-column or variant rewrites is a
+                // chain of adjacent Projects:
                 //
                 //   TopN (output: id#0, v1#4)
-                //     Project (id#0, slotref#10 as v1#4)          ← Alias(Slot):
-                //     │                                                 map[v1#4] = slotref#10
-                //     Project (id#0, element_at(sa#1,'fa') as slotref#10)  ← pull-up expr:
-                //       Scan (id#0, sa#1)                                   map[slotref#10] = element_at(...)
+                //     Project1(id#0, slotref#10 AS v1#4)
+                //       Project2(id#0, element_at(sa#1, 'fa') AS slotref#10)
+                //         Scan(id#0, sa#1)
                 //
-                // getPullUpReplaceExpression(Slot(v1#4)):
-                //   v1#4 → SlotRef#10 (is Slot → recurse)
-                //        → ElementAt(sa#1, 'fa') (not Slot → return)
+                // Project1 is only a rename, while Project2 contains the
+                // expression that can be restored above TopN.
+                // During collection, we record both links:
                 //
-                // Here, if the resolved expression differs from the original
-                // (meaning chain resolution kicked in) and the final
-                // replacement is a non-Slot expression, then the upper
-                // project (added above TopN by addUpperProject) will already
-                // compute it. We therefore skip the full expression in this
-                // lower project to avoid duplicate computation, and only
-                // retain its base input slots so they can pass through TopN.
+                //   v1#4      -> slotref#10
+                //   slotref#10 -> element_at(sa#1, 'fa')
+                // after pullup, the expected plan is
+                //
+                //  ProjectUpper(id#0, element_at(sa#1, 'fa') AS v1#4)
+                //      TopN (output: id#0, sa#1)
+                //          Project1'(id#0, sa#1)
+                //              Project2'(id#0, sa#1)
+                //                  Scan(id#0, sa#1)
+                //
+                // If Project1 is being simplified after the expression in
+                // Project2 was pulled up, Project1 should no longer compute
+                // v1#4 itself. The upper Project added by addUpperProject will
+                // compute element_at(sa#1, 'fa') AS v1#4 above TopN instead.
+                // Project1 must therefore output the input slot sa#1, not
+                // element_at(sa#1, 'fa') AS v1#4. Otherwise TopN would output
+                // v1#4 but not sa#1, and the upper Project would fail the plan
+                // validity check because its input slot sa#1 is not produced by
+                // its child.
                 boolean pulledAbove = false;
                 if (resolved != ne) {
                     Expression replaceExpr = getPullUpReplaceExpression(
@@ -646,7 +650,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         }
 
         for (NamedExpression pulledUpExpr : pulledUpExprs) {
-            for (Slot baseSlot : resolveInputSlots(pulledUpExpr, context, childOutputExprIds)) {
+            for (Slot baseSlot : resolveInputSlots(pulledUpExpr.child(0), context, childOutputExprIds)) {
                 if (!existingExprIds.contains(baseSlot.getExprId())) {
                     simplified.add(baseSlot);
                     existingExprIds.add(baseSlot.getExprId());
@@ -689,7 +693,15 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
     private static Expression getPullUpReplaceExpression(Slot slot, CollectorContext context) {
         Expression result = context.pullUpExprReplaceMap.get(slot);
 
-        // Resolve one-level chain: Slot(v1#4) → Slot(element_at#10) → ElementAt(sa#1,'fa')
+        // Follow Slot-to-Slot rename chains recorded from adjacent Projects:
+        //   v1#4      -> slotref#10
+        //   slotref#10 -> element_at(sa#1, 'fa')
+        //
+        // getPullUpReplaceExpression(v1#4) returns element_at(sa#1, 'fa').
+        // It only recurses while the whole replacement is a Slot. It does not
+        // rewrite slots inside a non-Slot replacement. For example, even if
+        // another mapping has sa#1 -> raw#0, this function returns
+        // element_at(sa#1, 'fa'), not element_at(raw#0, 'fa').
         if (result instanceof Slot) {
             Expression chained = getPullUpReplaceExpression((Slot) result, context);
             if (chained != null) {
@@ -705,7 +717,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         Map<ExprId, NamedExpression> pulledUpBySlotExprId = new HashMap<>();
         Set<ExprId> currentOutputExprIds = topN.getOutputExprIdSet();
         for (NamedExpression e : info.allPulledUpExprs) {
-            pulledUpBySlotExprId.put(e.toSlot().getExprId(), resolvePulledUpExpr(e, context, currentOutputExprIds));
+            pulledUpBySlotExprId.put(e.toSlot().getExprId(),
+                    resolveAliasChildIfNeeded(e, context, currentOutputExprIds));
         }
 
         // Use the current (possibly rewritten) TopN's output so that slots
@@ -734,11 +747,28 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                     }
                     continue;
                 }
-                // origSlot may map to a pulled-up expression via chain:
-                //   v1#4 → SlotRef#10 → ElementAt(sa#1, 'fa')
-                // Create a synthetic Alias to compute the expression
-                // in the upper project (above TopN), but only when the
-                // rewritten TopN no longer produces origSlot directly.
+                // The original TopN output may be a rename whose child was
+                // removed when a lower Project was simplified. For example:
+                //
+                //   Before rewrite:
+                //     TopN (output: id#0, v1#4)
+                //       Project(id#0, slotref#10 AS v1#4)
+                //         Project(id#0, element_at(sa#1, 'fa') AS slotref#10)
+                //           Scan(id#0, sa#1)
+                //
+                //   After simplifying Projects below TopN:
+                //     TopN (output: id#0, sa#1)
+                //       Project(id#0, sa#1)
+                //         Scan(id#0, sa#1)
+                //
+                // The rewritten TopN no longer produces v1#4, but the final
+                // query still expects v1#4. In that case, use the recorded
+                // chain v1#4 -> slotref#10 -> element_at(sa#1, 'fa') and add
+                // a synthetic Alias above TopN to restore v1#4. If the
+                // rewritten TopN still produces origSlot directly, the earlier
+                // currentSlot branch must pass it through instead of expanding
+                // the chain; otherwise a still-available forwarding slot such
+                // as d2 can be incorrectly expanded to dt['b'] above TopN.
                 Expression chainedExpr = getPullUpReplaceExpression(origSlot, context);
                 if (chainedExpr != null && !(chainedExpr instanceof Slot)
                         && !upperOutputExprIds.contains(origSlot.getExprId())) {
@@ -750,7 +780,8 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
                 }
                 NamedExpression passThroughExpr = info.passThroughExprByDeduplicatedExpr.get(origSlot.getExprId());
                 if (passThroughExpr != null) {
-                    List<Slot> passThroughSlots = resolveInputSlots(passThroughExpr, context, currentOutputExprIds);
+                    List<Slot> passThroughSlots = resolveInputSlots(
+                            passThroughExpr.child(0), context, currentOutputExprIds);
                     addPassThroughSlots(upperOutput, upperOutputExprIds, passThroughOutputExprIds,
                             currentOutputByExprId, passThroughSlots);
                 } else {
@@ -780,7 +811,7 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
         return new LogicalProject<>(ImmutableList.copyOf(upperOutput), topN);
     }
 
-    private static NamedExpression resolveNamedExpression(NamedExpression expr, CollectorContext context,
+    private static NamedExpression resolveAliasChildIfNeeded(NamedExpression expr, CollectorContext context,
             Set<ExprId> availableExprIds) {
         if (!(expr instanceof Alias)) {
             return expr;
@@ -790,19 +821,6 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             return expr;
         }
         return new Alias(expr.getExprId(), resolvedChild, expr.getName());
-    }
-
-    private static NamedExpression resolvePulledUpExpr(NamedExpression expr, CollectorContext context,
-            Set<ExprId> availableExprIds) {
-        if (!(expr instanceof Alias)) {
-            return expr;
-        }
-        return new Alias(expr.getExprId(), resolveExpression(expr.child(0), context, availableExprIds), expr.getName());
-    }
-
-    private static List<Slot> resolveInputSlots(NamedExpression expr, CollectorContext context,
-            Set<ExprId> availableExprIds) {
-        return ImmutableList.copyOf(resolveExpression(expr.child(0), context, availableExprIds).getInputSlots());
     }
 
     private static List<Slot> resolveInputSlots(Expression expr, CollectorContext context,
