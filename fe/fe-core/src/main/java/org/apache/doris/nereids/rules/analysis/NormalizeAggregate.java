@@ -299,61 +299,70 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 }
             }
             if (!missingSlotsInAggregate.isEmpty()) {
-                if (SqlModeHelper.hasOnlyFullGroupBy()) {
-                    // Under only_full_group_by, a non-aggregated output expression is allowed only when it
-                    // has a single value for every input row of the aggregate. This matches MySQL, which
-                    // accepts such expressions by functional dependency, e.g.
-                    //   SELECT a AS b, b AS c FROM (SELECT 1 AS a, 2 AS b) t GROUP BY b, c
-                    // where 'a' is a constant column of the derived table.
-                    //
-                    // Two guards keep this relaxation correct:
-                    // 1. isUniformAndNotNull (not plain isUniform): a uniform slot may come from the nullable
-                    //    side of an outer join (see DataTrait.addUniformSlotForOuterJoinNullableSide), where it
-                    //    holds the uniform value on matched rows but NULL on unmatched rows of the same group,
-                    //    so any_value() would be ambiguous.
-                    // 2. no constant group-by key: a constant key is removed by eliminateGroupByConstant below
-                    //    and the all-constant aggregate is later collapsed, which does not preserve the
-                    //    any_value() aliases we would add here. In that case keep the original rejection (this
-                    //    matches the behavior before this relaxation).
-                    boolean hasConstantGroupByKey = groupingByExprs.stream().anyMatch(Expression::isConstant);
+                // Under only_full_group_by, a non-grouped, non-aggregated output column that is constant for
+                // every input row (uniform and not null) is valid (MySQL functional dependency), e.g.
+                //   SELECT a AS b, b AS c FROM (SELECT 1 AS a, 2 AS b) t GROUP BY b, c
+                // where 'a' is a constant column of the derived table. We add such a column to the group-by
+                // keys rather than wrapping it in any_value(): grouping by a constant does not change the
+                // grouping, makes the column a valid output, and changes no exprId, so references in ancestors
+                // (e.g. the result sink) stay valid -- any_value() would need a new exprId that this rule
+                // cannot propagate upward. The redundant uniform key is later removed by
+                // EliminateGroupByKeyByUniform. Only done when the aggregate already has group-by keys; for a
+                // global aggregate adding a key would change empty-input semantics. isUniformAndNotNull (not
+                // isUniform) excludes the nullable side of an outer join, which holds the uniform value on
+                // matched rows but NULL on unmatched rows of the same group.
+                Set<Slot> constantMissingSlots = new HashSet<>();
+                if (SqlModeHelper.hasOnlyFullGroupBy() && !normalizedGroupExprs.isEmpty()) {
                     DataTrait childTrait = aggregate.child().getLogicalProperties().getTrait();
-                    List<String> invalidMissingSlots = new ArrayList<>();
                     for (Slot slot : missingSlotsInAggregate) {
-                        if (hasConstantGroupByKey || !childTrait.isUniformAndNotNull(slot)) {
-                            invalidMissingSlots.add("'" + slot.getName() + "'");
+                        if (childTrait.isUniformAndNotNull(slot)) {
+                            constantMissingSlots.add(slot);
                         }
                     }
-                    if (!invalidMissingSlots.isEmpty()) {
+                }
+                if (!constantMissingSlots.isEmpty()) {
+                    bottomProjects = Sets.union(bottomProjects, constantMissingSlots);
+                    normalizedGroupExprs = ImmutableList.<Expression>builder()
+                            .addAll(normalizedGroupExprs).addAll(constantMissingSlots).build();
+                    for (Slot slot : constantMissingSlots) {
+                        normalizedAggOutputBuilder.add(slot);
+                    }
+                    missingSlotsInAggregate.removeAll(constantMissingSlots);
+                }
+                if (!missingSlotsInAggregate.isEmpty()) {
+                    if (SqlModeHelper.hasOnlyFullGroupBy()) {
+                        List<String> invalidSlotNames = new ArrayList<>();
+                        for (Slot slot : missingSlotsInAggregate) {
+                            invalidSlotNames.add("'" + slot.getName() + "'");
+                        }
                         throw new AnalysisException(String.format("PROJECT expression %s must appear in the GROUP BY"
-                                + " clause or be used in an aggregate function",
-                                String.join(", ", invalidMissingSlots)));
+                                + " clause or be used in an aggregate function", String.join(", ", invalidSlotNames)));
                     }
-                }
-                // For any slots missing in aggregate's output, we add an any_value(slot) into aggregate's
-                // output list and the slot itself into the bottom project's output list. When
-                // only_full_group_by is enabled, all remaining missing slots are constant (checked above).
-                bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
-                Map<Expression, Expression> replaceMap = Maps.newHashMap();
-                Map<String, Alias> normalizedAggExistingAlias = Maps.newHashMap();
-                for (NamedExpression output : normalizedAggOutputBuilder.build()) {
-                    if (output instanceof Alias) {
-                        normalizedAggExistingAlias.put(output.getName(), (Alias) output);
+                    // only_full_group_by disabled: for the remaining missing slots add an any_value(slot) into
+                    // the aggregate's output and the slot itself into the bottom project's output.
+                    bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
+                    Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                    Map<String, Alias> normalizedAggExistingAlias = Maps.newHashMap();
+                    for (NamedExpression output : normalizedAggOutputBuilder.build()) {
+                        if (output instanceof Alias) {
+                            normalizedAggExistingAlias.put(output.getName(), (Alias) output);
+                        }
                     }
-                }
-                for (Slot slot : missingSlotsInAggregate) {
-                    AnyValue anyValue = new AnyValue(false, normalizedGroupExprs.isEmpty(), slot);
-                    Alias exisitingAlias = normalizedAggExistingAlias.get(slot.getName());
-                    if (exisitingAlias != null && anyValue.equals(exisitingAlias.child())) {
-                        replaceMap.put(slot, exisitingAlias.toSlot());
-                    } else {
-                        Alias anyValueAlias = new Alias(anyValue, slot.getName());
-                        replaceMap.put(slot, anyValueAlias.toSlot());
-                        normalizedAggOutputBuilder.add(anyValueAlias);
+                    for (Slot slot : missingSlotsInAggregate) {
+                        AnyValue anyValue = new AnyValue(false, normalizedGroupExprs.isEmpty(), slot);
+                        Alias exisitingAlias = normalizedAggExistingAlias.get(slot.getName());
+                        if (exisitingAlias != null && anyValue.equals(exisitingAlias.child())) {
+                            replaceMap.put(slot, exisitingAlias.toSlot());
+                        } else {
+                            Alias anyValueAlias = new Alias(anyValue, slot.getName());
+                            replaceMap.put(slot, anyValueAlias.toSlot());
+                            normalizedAggOutputBuilder.add(anyValueAlias);
+                        }
                     }
+                    upperProjects = upperProjects.stream()
+                            .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
+                            .collect(ImmutableList.toImmutableList());
                 }
-                upperProjects = upperProjects.stream()
-                        .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
-                        .collect(ImmutableList.toImmutableList());
             }
         }
         // create normalized plan
@@ -368,9 +377,9 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         LogicalAggregate<?> newAggregate =
                 aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutputBuilder.build(), bottomPlan);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
-        // Use the current aggregate output (newAggregate already contains any any_value aliases added for
-        // missing constant slots above), not the stale normalizedAggOutput snapshot, so constant group-key
-        // elimination does not drop those aliases and leave dangling references in upperProjects.
+        // Use the current aggregate output (newAggregate already contains the constant group-key slots added
+        // for missing slots above), not the stale normalizedAggOutput snapshot, so constant group-key
+        // elimination keeps those outputs and does not leave dangling references in upperProjects.
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
                 normalizedGroupExprs, newAggregate.getOutputExpressions(), bottomProjects, aggregate,
                 upperProjects, newAggregate);

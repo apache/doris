@@ -24,8 +24,11 @@ suite("test_group_by_constant_output") {
     // every input row it is accepted (MySQL functional-dependency behavior), and the query returns (1, 2).
     qt_const_alias_collision "SELECT a as b, b as c FROM (SELECT 1 as a, 2 as b) t1 GROUP BY b, c"
 
-    // A constant column not present in GROUP BY is allowed even though it is neither grouped nor aggregated.
+    // A constant column that is a bare output and not in GROUP BY is allowed.
     qt_const_not_in_groupby "SELECT a, b FROM (SELECT 1 as a, 2 as b) t1 GROUP BY a"
+
+    // A constant group-by key is eliminated, and the constant outputs stay valid.
+    qt_const_group_key "SELECT a, b FROM (SELECT 1 as a, 2 as b) t1 GROUP BY 'g'"
 
     // The same shape over a real table leaves a non-constant column ungrouped, which is still rejected
     // (matching MySQL, where only constant / functionally-dependent columns are allowed).

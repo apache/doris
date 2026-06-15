@@ -5,3 +5,6 @@
 -- !const_not_in_groupby --
 1	2
 
+-- !const_group_key --
+1	2
+
