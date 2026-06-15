@@ -18,8 +18,9 @@
 #include "util/cpu_usage_info.h"
 
 #include <glog/logging.h>
-#include <cstdio>
 #include <unistd.h>
+
+#include <cstdio>
 
 #include "util/cpu_info.h"
 #include "util/time.h"
@@ -28,7 +29,8 @@ namespace doris {
 
 int64_t CpuUsageRecorder::SECOND_CLOCK_TICK = sysconf(_SC_CLK_TCK);
 
-CpuUsageRecorder::CpuUsageRecorder() : _timestamp{0, MonotonicNanos()}, _proc_time{0, _get_proc_time()} {
+CpuUsageRecorder::CpuUsageRecorder()
+        : _timestamp {0, MonotonicNanos()}, _proc_time {0, _get_proc_time()} {
     update_interval();
 }
 
@@ -50,8 +52,8 @@ int CpuUsageRecorder::cpu_used_permille() const {
     }
     int prev_idx = (_curr_idx + 1) % 2;
     return static_cast<int>((_proc_time[_curr_idx] - _proc_time[prev_idx]) * 1000'000'000L /
-           SECOND_CLOCK_TICK * 1000 / CpuInfo::num_cores() /
-           (_timestamp[_curr_idx] - _timestamp[prev_idx]));
+                            SECOND_CLOCK_TICK * 1000 / CpuInfo::num_cores() /
+                            (_timestamp[_curr_idx] - _timestamp[prev_idx]));
 }
 
 uint64_t CpuUsageRecorder::_get_proc_time() {
@@ -71,7 +73,8 @@ uint64_t CpuUsageRecorder::_get_proc_time() {
 
     uint64_t utime = 0;
     uint64_t stime = 0;
-    sscanf(_line_ptr, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime, &stime);
+    sscanf(_line_ptr, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime,
+           &stime);
     fclose(fp);
     return utime + stime;
 }
