@@ -89,7 +89,7 @@ suite('scanner_profile') {
     // Verify actualRows is backfilled onto the scan node. The exact value is
     // unstable because 9 INT keys hash-distribute into 10 buckets and a few
     // tablets may be pruned at runtime, so only assert it is in [1, 9].
-    def matcher = (profileWithFilter.toString() =~ /PhysicalOlapScan\[scanner_profile\][^\n]*actualRows=(\d+)/)
+    def matcher = (profileWithFilter.toString() =~ /PhysicalOlapScan[^\n]*scanner_profile[^\n]*actualRows=(\d+)/)
     assertTrue(matcher.find(), "actualRows not found on PhysicalOlapScan[scanner_profile] in profile")
     int actualRows = matcher.group(1) as int
     assertTrue(actualRows >= 1 && actualRows <= 9,
