@@ -18,13 +18,47 @@
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
 
 #include <arrow/builder.h>
+#include <cctz/time_zone.h>
 
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
 namespace doris {
+
+namespace {
+
+void append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
+                                             int64_t timestamp_micros) {
+    static constexpr int64_t MICROS_PER_SECOND = 1000000;
+    static const auto UTC = cctz::utc_time_zone();
+
+    int64_t epoch_seconds = timestamp_micros / MICROS_PER_SECOND;
+    int64_t micros_of_second = timestamp_micros % MICROS_PER_SECOND;
+    if (micros_of_second < 0) {
+        micros_of_second += MICROS_PER_SECOND;
+        --epoch_seconds;
+    }
+
+    TimestampTzValue timestamp_tz;
+    timestamp_tz.from_unixtime(epoch_seconds, UTC);
+    timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    data.push_back(timestamp_tz);
+}
+
+int64_t decoded_timestamp_micros(const DecodedColumnView& view, int64_t value) {
+    if (view.time_unit == DecodedTimeUnit::MILLIS) {
+        return value * 1000;
+    }
+    if (view.time_unit == DecodedTimeUnit::NANOS) {
+        return value / 1000;
+    }
+    return value;
+}
+
+} // namespace
 
 // The implementation of these functions mainly refers to data_type_datetimev2_serde.cpp
 
@@ -243,6 +277,30 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
     }
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT64) {
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("TIMESTAMPTZ decoded reader expects INT64 source"));
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+
+    auto& data = assert_cast<ColumnTimeStampTz&>(column).get_data();
+    const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(TimestampTzValue());
+            continue;
+        }
+        append_timestamptz_from_utc_epoch_micros(data,
+                                                 decoded_timestamp_micros(view, values[row]));
+    }
     return Status::OK();
 }
 

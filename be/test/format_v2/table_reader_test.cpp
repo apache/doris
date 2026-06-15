@@ -49,6 +49,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vliteral.h"
@@ -268,6 +269,14 @@ VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t valu
     return expr;
 }
 
+VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::SLOT_REF);
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_num_children(1);
+    return RuntimeFilterExpr::create_shared(node, std::move(impl), 0, false, /*filter_id=*/1);
+}
+
 VExprSPtr table_nullable_int64_binary_predicate(const std::string& function_name,
                                                 TExprOpcode::type opcode, int slot_id,
                                                 int column_id, const std::string& column_name,
@@ -362,6 +371,14 @@ private:
     std::unique_ptr<TQueryGlobals> _query_globals;
     std::unique_ptr<RuntimeState> _state;
     DeleteRows _delete_rows_storage;
+};
+
+class IcebergTableReaderMappingModeTestHelper final : public doris::iceberg::IcebergTableReader {
+public:
+    TableColumnMappingMode mapping_mode_for_schema(std::vector<ColumnDefinition> file_schema) {
+        _data_reader.file_schema = std::move(file_schema);
+        return mapping_mode();
+    }
 };
 
 class TableReaderMaterializeTestHelper final : public TableReader {
@@ -3496,6 +3513,52 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
     std::filesystem::remove_all(test_dir);
 }
 
+TEST(TableReaderTest, RuntimeFilterOnConstantPartitionIsNotPreExecuted) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_table_reader_constant_runtime_filter";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    write_parquet_file(file_path, 1, "one");
+
+    std::vector<ColumnDefinition> projected_columns;
+    auto partition_column = make_table_column(0, "part", std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    projected_columns.push_back(std::move(partition_column));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    set_name_identifiers(&projected_columns);
+    TableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, runtime_filter_wrapper_expr(
+                                                            table_int32_greater_than_expr(0, 0, 1)))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_FALSE(eos);
+    expect_int32_column_values(*block.get_by_position(0).column, {7});
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
 TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_virtual_columns_test";
@@ -4169,6 +4232,37 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+// Covers TopN lazy materialization on Iceberg schema-evolution tables. The first-phase scan adds a
+// synthesized GLOBAL_ROWID column to the file schema. That virtual column must not make Iceberg
+// fall back from field-id mapping to name mapping, otherwise renamed columns are read as defaults
+// from old files.
+TEST(TableReaderTest, IcebergMappingModeIgnoresGlobalRowIdVirtualColumn) {
+    IcebergTableReaderMappingModeTestHelper reader;
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(1, "id", std::make_shared<DataTypeInt32>()),
+            make_file_column(2, "name", std::make_shared<DataTypeString>()),
+            global_rowid_column_definition(),
+    };
+
+    EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema)),
+              TableColumnMappingMode::BY_FIELD_ID);
+}
+
+// Covers the fallback side of the previous case. Only synthesized columns are ignored; a real data
+// column without an Iceberg field id still disables field-id mapping.
+TEST(TableReaderTest, IcebergMappingModeRequiresFieldIdsForDataColumns) {
+    IcebergTableReaderMappingModeTestHelper reader;
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(1, "id", std::make_shared<DataTypeInt32>()),
+            make_file_column(2, "name", std::make_shared<DataTypeString>()),
+            global_rowid_column_definition(),
+    };
+    file_schema[1].identifier = Field {};
+
+    EXPECT_EQ(reader.mapping_mode_for_schema(std::move(file_schema)),
+              TableColumnMappingMode::BY_NAME);
 }
 
 TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDelete) {

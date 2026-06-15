@@ -27,7 +27,11 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_scan.h"
@@ -45,6 +49,70 @@ struct ParquetReaderScanState {
     const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
 };
+
+DataTypePtr nullable_like_original(const DataTypePtr& type, DataTypePtr nested_type) {
+    return type != nullptr && type->is_nullable() ? make_nullable(nested_type) : nested_type;
+}
+
+int timestamp_tz_scale(const ParquetTypeDescriptor& type_descriptor) {
+    switch (type_descriptor.time_unit) {
+    case ParquetTimeUnit::MILLIS:
+        return 3;
+    case ParquetTimeUnit::MICROS:
+    case ParquetTimeUnit::UNKNOWN:
+    default:
+        return 6;
+    }
+}
+
+bool should_map_to_timestamp_tz(const ParquetColumnSchema& column_schema) {
+    const auto& type_descriptor = column_schema.type_descriptor;
+    return type_descriptor.is_timestamp && type_descriptor.timestamp_is_adjusted_to_utc;
+}
+
+DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {
+    DORIS_CHECK(column_schema != nullptr);
+    if (column_schema->kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        if (should_map_to_timestamp_tz(*column_schema)) {
+            const bool nullable =
+                    column_schema->type != nullptr && column_schema->type->is_nullable();
+            const auto scale = timestamp_tz_scale(column_schema->type_descriptor);
+            column_schema->type = DataTypeFactory::instance().create_data_type(
+                    TYPE_TIMESTAMPTZ, nullable, 0, scale);
+            column_schema->type_descriptor.doris_type = column_schema->type;
+        }
+        return column_schema->type;
+    }
+
+    std::vector<DataTypePtr> child_types;
+    child_types.reserve(column_schema->children.size());
+    for (auto& child : column_schema->children) {
+        child_types.push_back(apply_timestamp_tz_mapping(child.get()));
+    }
+
+    if (column_schema->kind == ParquetColumnSchemaKind::LIST) {
+        DORIS_CHECK(child_types.size() == 1);
+        column_schema->type =
+                nullable_like_original(column_schema->type,
+                                       std::make_shared<DataTypeArray>(child_types[0]));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::MAP) {
+        DORIS_CHECK(child_types.size() == 2);
+        column_schema->type =
+                nullable_like_original(column_schema->type,
+                                       std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
+                                                                     make_nullable(child_types[1])));
+    } else if (column_schema->kind == ParquetColumnSchemaKind::STRUCT) {
+        Strings child_names;
+        child_names.reserve(column_schema->children.size());
+        for (const auto& child : column_schema->children) {
+            child_names.push_back(child->name);
+        }
+        column_schema->type =
+                nullable_like_original(column_schema->type,
+                                       std::make_shared<DataTypeStruct>(child_types, child_names));
+    }
+    return column_schema->type;
+}
 
 static Status find_projected_minmax_leaf(const ParquetColumnSchema& column_schema,
                                          const format::LocalColumnIndex& projection,
@@ -105,9 +173,11 @@ void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_sc
 ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
-                             std::optional<format::GlobalRowIdContext> global_rowid_context)
+                             std::optional<format::GlobalRowIdContext> global_rowid_context,
+                             bool enable_mapping_timestamp_tz)
         : FileReader(system_properties, file_description, io_ctx, profile),
-          _global_rowid_context(global_rowid_context) {}
+          _global_rowid_context(global_rowid_context),
+          _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -132,6 +202,11 @@ Status ParquetReader::init(RuntimeState* state) {
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     RETURN_IF_ERROR(
             build_parquet_column_schema(*_state->file_context.schema, &_state->file_schema));
+    if (_enable_mapping_timestamp_tz) {
+        for (auto& column_schema : _state->file_schema) {
+            apply_timestamp_tz_mapping(column_schema.get());
+        }
+    }
     return Status::OK();
 }
 

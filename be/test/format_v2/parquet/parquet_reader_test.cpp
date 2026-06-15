@@ -29,6 +29,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -212,6 +213,15 @@ std::shared_ptr<arrow::Array> build_string_array(const std::vector<std::string>&
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_timestamp_array(const std::shared_ptr<arrow::DataType>& type,
+                                                    const std::vector<int64_t>& values) {
+    arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
+    for (const auto value : values) {
+        EXPECT_TRUE(builder.Append(value).ok());
+    }
+    return finish_array(&builder);
+}
+
 std::shared_ptr<arrow::Array> build_struct_array(const std::vector<int32_t>& ids,
                                                  const std::vector<std::string>& names) {
     auto struct_type = arrow::struct_({arrow::field("id", arrow::int32(), false),
@@ -252,6 +262,28 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_int96_timestamp_parquet_file(const std::string& file_path) {
+    auto field = arrow::field("ts_tz", arrow::timestamp(arrow::TimeUnit::MICRO), true);
+    auto array = build_timestamp_array(
+            arrow::timestamp(arrow::TimeUnit::MICRO),
+            {1735660800000000LL, 1735660800123456LL, 1735689600000000LL});
+    auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(
+            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, ROW_COUNT,
+                                         writer_builder.build(), arrow_builder.build()));
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group_size = ROW_COUNT) {
@@ -709,9 +741,9 @@ protected:
 
     void TearDown() override { std::filesystem::remove_all(_test_dir); }
 
-    std::unique_ptr<parquet::ParquetReader> create_reader(int64_t range_start_offset = 0,
-                                                          int64_t range_size = -1,
-                                                          RuntimeProfile* profile = nullptr) const {
+    std::unique_ptr<parquet::ParquetReader> create_reader(
+            int64_t range_start_offset = 0, int64_t range_size = -1,
+            RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -720,7 +752,8 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         return std::make_unique<parquet::ParquetReader>(system_properties, file_description,
-                                                        nullptr, profile);
+                                                        nullptr, profile, std::nullopt,
+                                                        enable_mapping_timestamp_tz);
     }
 
     std::filesystem::path _test_dir;
@@ -769,6 +802,21 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
     ASSERT_EQ(struct_type->get_elements().size(), 2);
     EXPECT_TRUE(struct_type->get_element(0)->is_nullable());
     EXPECT_TRUE(struct_type->get_element(1)->is_nullable());
+}
+
+TEST_F(NewParquetReaderTest, GetSchemaKeepsInt96AsDateTimeV2WhenTimestampTzMappingEnabled) {
+    write_int96_timestamp_parquet_file(_file_path);
+    auto reader = create_reader(0, -1, nullptr, true);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    EXPECT_EQ(schema[0].name, "ts_tz");
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_scale(), 6);
 }
 
 TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {

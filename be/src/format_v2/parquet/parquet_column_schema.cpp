@@ -252,6 +252,18 @@ Status resolve_map_entry_group(const ::parquet::schema::GroupNode& map_group,
         return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
                                     map_group.name());
     }
+    // The Parquet logical MAP spec requires key to be REQUIRED. Some legacy/Hive-written files
+    // still mark the key field OPTIONAL even when all actual keys are non-null, for example:
+    //
+    //   optional group t_map_varchar (MAP) {
+    //     repeated group key_value {
+    //       optional binary key (STRING);
+    //       optional binary value (STRING);
+    //     }
+    //   }
+    //
+    // Accept that schema here so compatible files can be read. MapColumnReader validates the
+    // materialized key column and rejects data that really contains null map keys.
     result->entry_group = &entry_group;
     result->entry_context = child_context(map_context, entry_node, 0);
     return Status::OK();
