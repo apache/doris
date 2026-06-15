@@ -114,6 +114,62 @@ public class CreateFunctionTest {
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
                 "concat(left(CAST(CAST(k1 as BIGINT) AS VARCHAR(65533)), 3), '****',"
                         + " right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+
+        String pythonUdfSql = "create function db1.py_stable(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2', 'volatility'='stable');";
+        createFunction(pythonUdfSql, ctx);
+        Assert.assertEquals(2, db.getFunctions().size());
+        Function pythonFn = findFunction(db, "py_stable");
+        Assert.assertEquals(FunctionVolatility.STABLE, pythonFn.getVolatility());
+        String pythonFnSql = pythonFn.toSql(false);
+        Assert.assertTrue(pythonFnSql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assert.assertTrue(pythonFnSql.contains("\"VOLATILITY\"=\"stable\""));
+
+        String defaultVolatileSql = "create function db1.py_default(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');";
+        createFunction(defaultVolatileSql, ctx);
+        Assert.assertEquals(FunctionVolatility.VOLATILE, findFunction(db, "py_default").getVolatility());
+
+        String defaultImmutableUdafSql = "create aggregate function db1.py_agg_default(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='Agg', 'runtime_version'='3.10.2');";
+        createFunction(defaultImmutableUdafSql, ctx);
+        Assert.assertEquals(FunctionVolatility.IMMUTABLE, findFunction(db, "py_agg_default").getVolatility());
+
+        String stableUdtfSql = "create tables function db1.py_table_stable(int) returns array<int> "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2', "
+                + "'volatility'='stable');";
+        createFunction(stableUdtfSql, ctx);
+        Assert.assertEquals(FunctionVolatility.STABLE, findFunction(db, "py_table_stable").getVolatility());
+    }
+
+    @Test
+    public void testCreatePythonFunctionRejectsObjectTypes() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database py_obj_type_db;");
+        dorisAssert = new DorisAssert(ctx);
+        dorisAssert.useDatabase("py_obj_type_db");
+
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_bitmap_arg(bitmap) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support argument 1 type bitmap");
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.j_bitmap_arg(bitmap) returns int "
+                + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                "JAVA_UDF does not support argument 1 type bitmap");
+        assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_hll_ret(int) returns hll "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support return type hll");
+        assertCreateFunctionAnalysisException(ctx, "create aggregate function py_obj_type_db.py_quantile_arg"
+                + "(quantile_state) returns int properties('type'='PYTHON_UDF', 'symbol'='Agg', "
+                + "'runtime_version'='3.10.2');",
+                "PYTHON_UDF does not support argument 1 type quantile_state");
+        assertCreateFunctionAnalysisException(ctx, "create aggregate function py_obj_type_db.j_quantile_arg"
+                + "(quantile_state) returns int properties('type'='JAVA_UDF', 'symbol'='Agg');",
+                "JAVA_UDF does not support argument 1 type quantile_state");
+        assertCreateFunctionAnalysisException(ctx, "create tables function py_obj_type_db.py_bitmap_table(int) "
+                + "returns array<bitmap> properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2');",
+                "ARRAY unsupported sub-type: bitmap");
     }
 
     @Test
@@ -201,7 +257,22 @@ public class CreateFunctionTest {
         }
     }
 
+    private void assertCreateFunctionAnalysisException(ConnectContext ctx, String sql, String message) {
+        Exception exception = Assert.assertThrows(Exception.class, () -> createFunction(sql, ctx));
+        Assert.assertTrue("Expected error to contain: " + message + ", actual: " + exception.getMessage(),
+                exception.getMessage().contains(message));
+    }
+
     private boolean containsIgnoreCase(String str, String sub) {
         return str.toLowerCase().contains(sub.toLowerCase());
+    }
+
+    private Function findFunction(Database db, String functionName) {
+        for (Function function : db.getFunctions()) {
+            if (functionName.equals(function.functionName())) {
+                return function;
+            }
+        }
+        throw new AssertionError("function not found: " + functionName);
     }
 }

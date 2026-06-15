@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Function;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -39,27 +40,27 @@ public class ShowGlobalFunctionsCommandTest extends TestWithFeService {
     void testGetFunctions() throws AnalysisException {
         // test for not global
         ShowFunctionsCommand sf = new ShowFunctionsCommand(false, null, false);
-        ShowFunctionsCommand finalSf = sf;
-        Assertions.assertThrows(AnalysisException.class, () -> finalSf.getFunctions(connectContext));
+        List<Function> nonGlobal = sf.getFunctions(connectContext);
+        Assertions.assertTrue(nonGlobal.isEmpty());
 
         // test for verbose
         connectContext.setDatabase("test");
         sf = new ShowFunctionsCommand(true, null, true);
-        List<String> re1 = sf.getFunctions(connectContext);
+        List<Function> re1 = sf.getFunctions(connectContext);
         Assertions.assertEquals(1, re1.size());
-        Assertions.assertEquals("test_for_create_function", re1.get(0));
+        Assertions.assertEquals("test_for_create_function", re1.get(0).functionName());
 
         // test for no verbose
         sf = new ShowFunctionsCommand(false, null, true);
-        List<String> re2 = sf.getFunctions(connectContext);
+        List<Function> re2 = sf.getFunctions(connectContext);
         Assertions.assertEquals(1, re2.size());
-        Assertions.assertEquals("test_for_create_function", re2.get(0));
+        Assertions.assertEquals("test_for_create_function", re2.get(0).functionName());
 
         // test for like condition
         sf = new ShowFunctionsCommand(false, "test_for_create%", true);
-        List<String> re3 = sf.getFunctions(connectContext);
+        List<Function> re3 = sf.getFunctions(connectContext);
         Assertions.assertEquals(1, re3.size());
-        Assertions.assertEquals("test_for_create_function", re3.get(0));
+        Assertions.assertEquals("test_for_create_function", re3.get(0).functionName());
     }
 
     @Test
@@ -67,17 +68,18 @@ public class ShowGlobalFunctionsCommandTest extends TestWithFeService {
         connectContext.setDatabase("test");
         // test for verbose
         ShowFunctionsCommand sf = new ShowFunctionsCommand(true, null, true);
-        List<String> func3 = sf.getFunctions(connectContext);
+        List<Function> func3 = sf.getFunctions(connectContext);
         List<List<String>> re3 = sf.getResultRowSetByFunctions(func3);
         Assertions.assertEquals(1, re3.size());
-        Assertions.assertEquals("", re3.get(0).get(1));
-        Assertions.assertEquals("", re3.get(0).get(2));
-        Assertions.assertEquals("", re3.get(0).get(3));
-        Assertions.assertEquals("", re3.get(0).get(4));
+        Assertions.assertEquals(5, re3.get(0).size());
+        Assertions.assertTrue(re3.get(0).get(0).startsWith("test_for_create_function"));
+        Assertions.assertFalse(re3.get(0).get(1).isEmpty());
+        Assertions.assertFalse(re3.get(0).get(2).isEmpty());
+        Assertions.assertFalse(re3.get(0).get(4).isEmpty());
 
         // test for not verbose
         sf = new ShowFunctionsCommand(false, null, true);
-        List<String> func4 = sf.getFunctions(connectContext);
+        List<Function> func4 = sf.getFunctions(connectContext);
         List<List<String>> re4 = sf.getResultRowSetByFunctions(func4);
         Assertions.assertEquals(1, re4.get(0).size());
         Assertions.assertEquals("test_for_create_function", re4.get(0).get(0));
@@ -85,13 +87,12 @@ public class ShowGlobalFunctionsCommandTest extends TestWithFeService {
         // test for like condition
         String where = "test_for_create_function%";
         sf = new ShowFunctionsCommand(true, where, true);
-        List<String> func5 = sf.getFunctions(connectContext);
+        List<Function> func5 = sf.getFunctions(connectContext);
         List<List<String>> re5 = sf.getResultRowSetByFunctions(func5);
         Assertions.assertEquals(5, re5.get(0).size());
-        Assertions.assertEquals("test_for_create_function", re5.get(0).get(0));
-        Assertions.assertEquals("", re5.get(0).get(1));
-        Assertions.assertEquals("", re5.get(0).get(2));
-        Assertions.assertEquals("", re5.get(0).get(3));
-        Assertions.assertEquals("", re5.get(0).get(4));
+        Assertions.assertTrue(re5.get(0).get(0).startsWith("test_for_create_function"));
+        Assertions.assertFalse(re5.get(0).get(1).isEmpty());
+        Assertions.assertFalse(re5.get(0).get(2).isEmpty());
+        Assertions.assertFalse(re5.get(0).get(4).isEmpty());
     }
 }

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -382,8 +381,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 && ((SlotReference) this).getOriginalColumn().get().isKey();
     }
 
-    public boolean containsUniqueFunction() {
-        return containsType(UniqueFunction.class);
+    public boolean containsVolatileExpression() {
+        return anyMatch(expr -> expr instanceof VolatileExpression
+                && ((VolatileExpression) expr).isVolatile());
     }
 
     /** containsNullLiteralChildren */

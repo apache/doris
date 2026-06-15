@@ -86,6 +86,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
+    private static final ThreadLocal<Boolean> SKIP_REGISTER_NEREIDS_FUNCTIONS = new ThreadLocal<>();
 
     @SerializedName(value = "id")
     private long id;
@@ -682,10 +683,28 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public static Database read(DataInput in) throws IOException {
+        return read(in, false);
+    }
+
+    public static Database readForRecycleBin(DataInput in) throws IOException {
+        return read(in, true);
+    }
+
+    private static Database read(DataInput in, boolean skipRegisterNereidsFunctions) throws IOException {
         LOG.info("read db from journal {}", in);
-        Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-        db.readTables(in);
-        return db;
+        Boolean previous = SKIP_REGISTER_NEREIDS_FUNCTIONS.get();
+        SKIP_REGISTER_NEREIDS_FUNCTIONS.set(skipRegisterNereidsFunctions);
+        try {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.readTables(in);
+            return db;
+        } finally {
+            if (previous == null) {
+                SKIP_REGISTER_NEREIDS_FUNCTIONS.remove();
+            } else {
+                SKIP_REGISTER_NEREIDS_FUNCTIONS.set(previous);
+            }
+        }
     }
 
     private void writeTables(DataOutput out) throws IOException {
@@ -717,12 +736,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         transactionQuotaSize = Long.parseLong(txnQuotaStr);
         binlogConfig = dbProperties.getBinlogConfig();
 
-        for (ImmutableList<Function> functions : name2Function.values()) {
-            for (Function function : functions) {
-                try {
-                    FunctionUtil.translateToNereids(this.getFullName(), function);
-                } catch (Exception e) {
-                    LOG.warn("Nereids add function failed", e);
+        if (!Boolean.TRUE.equals(SKIP_REGISTER_NEREIDS_FUNCTIONS.get())) {
+            for (ImmutableList<Function> functions : name2Function.values()) {
+                for (Function function : functions) {
+                    try {
+                        FunctionUtil.translateToNereids(this.getFullName(), function);
+                    } catch (Exception e) {
+                        LOG.warn("Nereids add function failed", e);
+                    }
                 }
             }
         }

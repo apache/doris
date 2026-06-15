@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 
 /**
  * visitor function for all table generating function.
@@ -155,6 +156,10 @@ public interface TableGeneratingFunctionVisitor<R, C> {
     }
 
     default R visitJavaUdtf(JavaUdtf udtf, C context) {
+        return visitTableGeneratingFunction(udtf, context);
+    }
+
+    default R visitPythonUdtf(PythonUdtf udtf, C context) {
         return visitTableGeneratingFunction(udtf, context);
     }
 

@@ -413,7 +413,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public void computeUnique(DataTrait.Builder builder) {
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 
@@ -452,7 +452,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 
