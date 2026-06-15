@@ -19,14 +19,44 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "storage/tablet_info.h"
 #include "util/bitmap.h"
+#include "util/uid_util.h"
 
 namespace doris {
+
+class AdaptiveRandomBucketState {
+public:
+    explicit AdaptiveRandomBucketState(UniqueId load_id) : _load_id(load_id) {}
+
+    void init_partition(int32_t sender_id, int64_t partition_id,
+                        const std::vector<int64_t>& tablets,
+                        const std::vector<int32_t>& bucket_seqs, int32_t start_tablet_idx);
+    int64_t current_tablet(int32_t sender_id, int64_t partition_id);
+    void rotate_by_tablet(int32_t sender_id, int64_t partition_id, int64_t tablet_id);
+
+private:
+    struct PartitionState {
+        int64_t partition_id = -1;
+        std::vector<int64_t> tablets;
+        std::vector<int32_t> bucket_seqs;
+        int32_t tablet_pos = 0;
+        int64_t current_tablet_id = -1;
+    };
+
+    std::mutex _mutex;
+    UniqueId _load_id;
+    std::unordered_map<int32_t, std::unordered_map<int64_t, PartitionState>>
+            _sender_partition_states;
+};
 
 class OlapTabletFinder {
 public:
@@ -37,7 +67,13 @@ public:
     // FIND_TABLET_EVERY_SINK is used for random distribution info when load_to_single_tablet set to true,
     // which indicates that we should only compute tablet index in the corresponding partition once for the
     // whole time in olap table sink
-    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
+    // FIND_TABLET_RANDOM_BUCKET is used for V1 receiver-side random bucket mode.
+    enum FindTabletMode {
+        FIND_TABLET_EVERY_ROW,
+        FIND_TABLET_EVERY_BATCH,
+        FIND_TABLET_EVERY_SINK,
+        FIND_TABLET_RANDOM_BUCKET
+    };
 
     OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode)
             : _vpartition(vpartition), _find_tablet_mode(mode), _filter_bitmap(1024) {};
@@ -51,7 +87,14 @@ public:
         return _find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_SINK;
     }
 
-    bool is_single_tablet() { return _partition_to_tablet_map.size() == 1; }
+    bool is_adaptive_random_bucket() const {
+        return _find_tablet_mode == FindTabletMode::FIND_TABLET_RANDOM_BUCKET;
+    }
+
+    bool is_single_tablet() {
+        return _find_tablet_mode != FindTabletMode::FIND_TABLET_RANDOM_BUCKET &&
+               _partition_to_tablet_map.size() == 1;
+    }
 
     // all partitions for multi find-processes of its relative writer.
     const flat_hash_set<int64_t>& partition_ids() { return _partition_ids; }

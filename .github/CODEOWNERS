@@ -50,15 +50,16 @@ be/src/load/memtable                                         @liaoxin01 @gavinch
 be/src/load/routine_load                                     @liaoxin01 @gavinchou
 be/src/load/stream_load                                      @liaoxin01 @gavinchou
 be/src/storage                                               @gavinchou
+be/src/storage/olap_common.h                                 @gavinchou @yiguolei
 be/src/storage/cache                                         @liaoxin01 @gavinchou
 be/src/storage/compaction                                    @luwei16 @gavinchou
 be/src/storage/delete                                        @luwei16 @gavinchou
-be/src/storage/index                                         @airbone12
+be/src/storage/index                                         @airborne12
 be/src/storage/iterator                                      @yiguolei @gavinchou
 be/src/storage/predicate                                     @yiguolei @gavinchou
 be/src/storage/rowset                                        @gavinchou
 be/src/storage/schema_change                                 @luwei16 @gavinchou
-be/src/storage/segment                                       @yiguolei @liaoxin01 @gavinchou
+be/src/storage/segment                                       @yiguolei @liaoxin01 @gavinchou @eldenmoon @csun5285 @airborne12
 be/src/storage/snapshot                                      @deardeng @luwei16 @gavinchou
 be/src/storage/tablet                                        @gavinchou
 be/src/storage/task                                          @deardeng @gavinchou
@@ -78,12 +79,12 @@ be/test/storage                                              @gavinchou
 be/test/storage/cache                                        @liaoxin01 @gavinchou
 be/test/storage/compaction                                   @luwei16 @gavinchou
 be/test/storage/delete                                       @gavinchou
-be/test/storage/index                                        @airbone12
+be/test/storage/index                                        @airborne12
 be/test/storage/iterator                                     @yiguolei @gavinchou
 be/test/storage/predicate                                    @yiguolei @gavinchou
 be/test/storage/rowset                                       @gavinchou
 be/test/storage/schema_change                                @luwei16 @gavinchou
-be/test/storage/segment                                      @yiguolei @gavinchou
+be/test/storage/segment                                      @yiguolei @gavinchou @eldenmoon @csun5285 @airborne12
 be/test/storage/snapshot                                     @deardeng @luwei16 @gavinchou
 be/test/storage/tablet                                       @gavinchou
 be/test/storage/txn                                          @liaoxin01 @gavinchou
@@ -96,7 +97,7 @@ fe/fe-core/src/main/java/org/apache/doris/cloud/alter        @luwei16 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/backup       @luwei16 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/catalog      @morningman @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/common       @gavinchou
-fe/fe-core/src/main/java/org/apache/doris/cloud/datasource   @mingyuchen @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/datasource   @morningman @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/load         @liaoxin01 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/master       @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/persist      @gavinchou
@@ -156,4 +157,4 @@ cloud/test                                                   @liaoxin01 @luwei16
 gensrc/proto/cloud.proto                                     @luwei16 @gavinchou
 gensrc/proto/file_cache.proto                                @liaoxin01 @gavinchou
 gensrc/proto/olap_file.proto                                 @yiguolei @liaoxin01 @gavinchou
-gensrc/proto/segment_v2.proto                                @yiguolei @liaoxin01 @gavinchou
+gensrc/proto/segment_v2.proto                                @yiguolei @liaoxin01 @gavinchou @eldenmoon @csun5285 @airborne12

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -2109,6 +2110,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
+
+        if (tableProperty != null && tableProperty.hasInvalidDynamicPartition()) {
+            LOG.warn("Table [{}-{}] has incomplete dynamic partition properties {}, "
+                    + "treat it as a non-dynamic-partition table.",
+                    name, id, tableProperty.getOriginDynamicPartitionProperty());
+        }
     }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
@@ -2802,18 +2809,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return baseIndexMeta.getSchemaVersion();
     }
 
-    public void setEnableTso(boolean enableTso) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
-                Boolean.valueOf(enableTso).toString());
-        tableProperty.buildEnableTso();
-    }
-
+    /**
+     * Returns whether table-level TSO is enabled by row binlog format.
+     */
     public Boolean enableTso() {
         if (tableProperty != null) {
-            return tableProperty.enableTso();
+            return getBinlogConfig().isRowFormat();
         }
         return false;
     }
@@ -4148,5 +4149,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void versionWriteUnlock() {
         versionLock.writeLock().unlock();
+    }
+
+    public void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        if (!needRowBinlog()) {
+            throw new DdlException("Base Olap table " + getQualifiedName()
+                    + " need to enable row binlog for table stream");
+        }
+        if (streamScanType.equals(BaseTableStream.StreamScanType.MIN_DELTA)
+                && (getKeysType().equals(KeysType.PRIMARY_KEYS)
+                || (getKeysType().equals(KeysType.UNIQUE_KEYS)))
+                && (!getBinlogConfig().getNeedHistoricalValue() || !isUniqKeyMergeOnWrite())) {
+            throw new DdlException("MIN_DELTA table stream requires base mow table to enable "
+                    + "binlog.need_historical_value=true. Table " + getQualifiedName()
+                    + " doesn't enable historical value in row binlog.");
+        }
     }
 }

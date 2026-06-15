@@ -23,6 +23,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -60,6 +61,7 @@ import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -96,6 +98,7 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
@@ -105,6 +108,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -116,6 +120,7 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
@@ -127,6 +132,9 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -155,6 +163,7 @@ import org.joda.time.DateTime;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -165,6 +174,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -331,6 +341,12 @@ public class Coordinator implements CoordInterface {
             StatsErrorEstimator statsErrorEstimator) {
         this(context, planner);
         this.statsErrorEstimator = statsErrorEstimator;
+    }
+
+    public Coordinator(ConnectContext context, Planner planner,
+            StatsErrorEstimator statsErrorEstimator, long jobId) {
+        this(context, planner, statsErrorEstimator);
+        this.jobId = jobId;
     }
 
     // Used for query/insert/test
@@ -527,6 +543,95 @@ public class Coordinator implements CoordInterface {
         return result;
     }
 
+    public static final class AdaptiveRandomBucketSinkContext {
+        private final List<Long> sinkBackendIds;
+        private final int planFragmentNum;
+
+        private AdaptiveRandomBucketSinkContext(List<Long> sinkBackendIds, int planFragmentNum) {
+            this.sinkBackendIds = sinkBackendIds;
+            this.planFragmentNum = planFragmentNum;
+        }
+
+        public List<Long> getSinkBackendIds() {
+            return sinkBackendIds;
+        }
+
+        public int getPlanFragmentNum() {
+            return planFragmentNum;
+        }
+    }
+
+    public Optional<AdaptiveRandomBucketSinkContext> getAdaptiveRandomBucketSinkContext() {
+        Set<Long> sinkBackendIds = new TreeSet<>();
+        int planFragmentNum = 0;
+        for (PipelineExecContext context : pipelineExecContexts.values()) {
+            TPipelineFragmentParams params = context.rpcParams;
+            if (params.getFragment().getOutputSink() == null
+                    || params.getFragment().getOutputSink().getType() != TDataSinkType.OLAP_TABLE_SINK) {
+                continue;
+            }
+            TOlapTableSink sink = params.getFragment().getOutputSink().getOlapTableSink();
+            if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+                continue;
+            }
+            sinkBackendIds.add(params.getBackendId());
+            planFragmentNum += params.getLocalParamsSize();
+        }
+        if (sinkBackendIds.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new AdaptiveRandomBucketSinkContext(
+                new ArrayList<>(sinkBackendIds), Math.max(planFragmentNum, 1)));
+    }
+
+    private static void assignAdaptiveRandomBucketForFragment(
+            Collection<TPipelineFragmentParams> fragmentParamsList) {
+        List<TPipelineFragmentParams> sinkParams = fragmentParamsList.stream()
+                .filter(param -> param.getFragment().getOutputSink() != null
+                        && param.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK)
+                .collect(Collectors.toList());
+        if (sinkParams.isEmpty()) {
+            return;
+        }
+        TOlapTableSink sink = sinkParams.get(0).getFragment().getOutputSink().getOlapTableSink();
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        List<Long> sinkBackendIds = sinkParams.stream()
+                .map(TPipelineFragmentParams::getBackendId)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        int planFragmentNum = sinkParams.stream()
+                .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
+                .sum();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket planning in legacy fragment={}, sinkBackendIds={}, "
+                            + "planFragmentNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, planFragmentNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), planFragmentNum);
+        for (TPipelineFragmentParams sinkParam : sinkParams) {
+            Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
+                    assignments.get(sinkParam.getBackendId());
+            if (partitionAssignments == null) {
+                continue;
+            }
+            TOlapTableSink copiedSink = deepCopyOlapTableSinkForCurrentBackend(sinkParam);
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    copiedSink.getPartition().getPartitions(),
+                    partitionAssignments);
+        }
+    }
+
+    private static TOlapTableSink deepCopyOlapTableSinkForCurrentBackend(TPipelineFragmentParams sinkParam) {
+        TDataSink copiedOutputSink = sinkParam.getFragment().getOutputSink().deepCopy();
+        sinkParam.getFragment().setOutputSink(copiedOutputSink);
+        return copiedOutputSink.getOlapTableSink();
+    }
+
     // Initialize
     protected void prepare() throws UserException {
         for (PlanFragment fragment : fragments) {
@@ -617,6 +722,102 @@ public class Coordinator implements CoordInterface {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(sb.toString());
             }
+        }
+    }
+
+    protected static void waitForTimeBasedReadTransactionsVisible(ConnectContext context, List<ScanNode> scanNodes,
+                                                           TQueryGlobals queryGlobals) throws Exception {
+        if (context == null) {
+            return;
+        }
+        SessionVariable sessionVariable = context.getSessionVariable();
+        if (sessionVariable == null || sessionVariable.isEnableEventualConsistentChange()) {
+            return;
+        }
+
+        // Collect (dbId, tableId) -> max(endTSO)
+        Map<Pair<Long, Long>, Long> tableEndTSO = new HashMap<>();
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                if (olapScanNode.isChangeScan()) {
+                    long endTsMs = olapScanNode.getIncrementalScanEndTime();
+                    if (endTsMs <= 0) {
+                        endTsMs = queryGlobals.getTimestampMs();
+                    }
+                    long endTSO = TSOTimestamp.composeFullTimestamp(endTsMs);
+                    addTableEndTimestamp(tableEndTSO, olapScanNode.getOlapTable(), endTSO);
+                }
+            }
+        }
+        if (tableEndTSO.isEmpty()) {
+            return;
+        }
+
+        long deadlineMs = System.currentTimeMillis() + sessionVariable.getChangeVisibleTimeoutMs();
+        for (Map.Entry<Pair<Long, Long>, Long> entry : tableEndTSO.entrySet()) {
+            long dbId = entry.getKey().first;
+            long tableId = entry.getKey().second;
+            long endTSO = entry.getValue();
+
+            List<TransactionState> committedTxns;
+            try {
+                committedTxns = Env.getCurrentGlobalTransactionMgr().getCommittedTransactions(dbId);
+            } catch (Exception e) {
+                throw new UserException("get committed transactions failed. dbId=" + dbId, e);
+            }
+
+            for (TransactionState txn : committedTxns) {
+                if (txn == null
+                        || txn.getTransactionStatus() != TransactionStatus.COMMITTED
+                        || txn.getTableIdList() == null
+                        || !txn.getTableIdList().contains(tableId)) {
+                    continue;
+                }
+
+                if (txn.getCommitTSO() < 0 || txn.getCommitTSO() > endTSO) {
+                    continue;
+                }
+
+                long remainingMs = deadlineMs - System.currentTimeMillis();
+                if (remainingMs <= 0) {
+                    throw new UserException(String.format(
+                            "timeout waiting committed transactions become visible for time-based read, "
+                                    + "dbId=%d tableId=%d endTSO=%d",
+                            dbId, tableId, endTSO));
+                }
+
+                while (txn.getTransactionStatus() == TransactionStatus.COMMITTED
+                        && remainingMs > 0) {
+                    try {
+                        txn.waitTransactionVisible(remainingMs);
+                    } catch (InterruptedException ignored) {
+                        // ignore
+                    }
+                    remainingMs = deadlineMs - System.currentTimeMillis();
+                }
+
+                if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                    throw new UserException(String.format(
+                            "timeout waiting transaction become visible for time-based read, "
+                                    + "txnId=%d dbId=%d tableId=%d endTSO=%d",
+                            txn.getTransactionId(), dbId, tableId, endTSO));
+                }
+            }
+        }
+    }
+
+    private static void addTableEndTimestamp(Map<Pair<Long, Long>, Long> tableEndTimestampMs,
+                                             OlapTable table, long endTimestampMs) {
+        if (table == null || table.getDatabase() == null) {
+            return;
+        }
+        long dbId = table.getDatabase().getId();
+        long tableId = table.getId();
+        Pair<Long, Long> key = Pair.of(dbId, tableId);
+        Long oldEnd = tableEndTimestampMs.get(key);
+        if (oldEnd == null || oldEnd < endTimestampMs) {
+            tableEndTimestampMs.put(key, endTimestampMs);
         }
     }
 
@@ -729,6 +930,7 @@ public class Coordinator implements CoordInterface {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
+        waitForTimeBasedReadTransactionsVisible(context, scanNodes, queryGlobals);
         processFragmentAssignmentAndParams();
 
         traceInstance();
@@ -887,6 +1089,7 @@ public class Coordinator implements CoordInterface {
                     }
                     ++backendIdx;
                 }
+                assignAdaptiveRandomBucketForFragment(tParams.values());
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()
@@ -3284,6 +3487,13 @@ public class Coordinator implements CoordInterface {
                     params.setLocalParams(Lists.newArrayList());
                     if (tWorkloadGroups != null) {
                         params.setWorkloadGroups(tWorkloadGroups);
+                    }
+
+                    if (context != null && context.getCurrentUserIdentity() != null) {
+                        TResourceInfo resourceInfo = new TResourceInfo();
+                        resourceInfo.setUser(context.getCurrentUserIdentity().getQualifiedUser());
+                        resourceInfo.setGroup("");
+                        params.setResourceInfo(resourceInfo);
                     }
 
                     params.setFileScanParams(fileScanRangeParamsMap);

@@ -66,7 +66,7 @@ suite("test_ik_analyzer", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         // Testing ik smart mode
         println "Testing ik smart mode:"

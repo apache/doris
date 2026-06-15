@@ -50,10 +50,6 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 Status SpillSortLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    if (_opened) {
-        return Status::OK();
-    }
-
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
     return Base::open(state);
 }

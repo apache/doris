@@ -23,6 +23,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -89,6 +90,23 @@ TEST_F(DataStreamRecvrTest, TestCreateSenderQueue) {
             EXPECT_EQ(queue->_num_remaining_senders, 1);
         }
     }
+}
+
+TEST_F(DataStreamRecvrTest, CpuTimeCounterNamesAreMarked) {
+    create_recvr(1, false);
+
+    EXPECT_NE(_mock_profile->get_counter("MaxFindRecvrCpuTime(NS)"), nullptr);
+    EXPECT_EQ(_mock_profile->get_counter("MaxFindRecvrTime(NS)"), nullptr);
+    EXPECT_EQ(_mock_profile->get_counter("MaxFindRecvrTime(NS) (Cpu Time)"), nullptr);
+
+    std::stringstream ss;
+    _mock_profile->pretty_print(&ss);
+    const auto profile_text = ss.str();
+    EXPECT_NE(profile_text.find("- MaxFindRecvrCpuTime(NS):"), std::string::npos);
+    EXPECT_EQ(profile_text.find("- MaxFindRecvrTime(NS):"), std::string::npos);
+    EXPECT_EQ(profile_text.find("- MaxFindRecvrTime(NS) (Cpu Time):"), std::string::npos);
+
+    recvr->close();
 }
 
 TEST_F(DataStreamRecvrTest, TestSender) {

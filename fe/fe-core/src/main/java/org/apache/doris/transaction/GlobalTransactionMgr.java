@@ -448,6 +448,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         return transactionStateList;
     }
 
+    @Override
+    public List<TransactionState> getCommittedTransactions(long dbId) throws AnalysisException {
+        return getDatabaseTransactionMgr(dbId).getCommittedTxnList();
+    }
+
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId) {
         DatabaseTransactionMgr dbTransactionMgr = dbIdToDatabaseTransactionMgrs.get(dbId);
         if (tableId == null && partitionId == null) {

@@ -104,7 +104,6 @@ inline constexpr char SPILL_WRITE_ROWS[] = "SpillWriteRows";
 inline constexpr char SPILL_WRITE_FILE_BYTES[] = "SpillWriteFileBytes";
 inline constexpr char SPILL_WRITE_FILE_TOTAL_COUNT[] = "SpillWriteFileTotalCount";
 inline constexpr char SPILL_WRITE_FILE_CURRENT_BYTES[] = "SpillWriteFileCurrentBytes";
-inline constexpr char SPILL_WRITE_FILE_CURRENT_COUNT[] = "SpillWriteFileCurrentCount";
 
 // ============================================================
 // Spill read counters (Source-only)

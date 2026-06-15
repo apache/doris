@@ -64,6 +64,25 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         return Status::OK();
     }
 
+    if (request.is_receiver_side_random_bucket()) {
+        std::unordered_map<int64_t, DorisVector<uint32_t>> partition_to_rowidxs;
+        RETURN_IF_ERROR(_build_partition_to_rowidxs_for_receiver_side_random_bucket(
+                request, &partition_to_rowidxs));
+        if (!partition_to_rowidxs.empty()) {
+            std::unordered_set<int64_t> partition_ids;
+            partition_ids.reserve(partition_to_rowidxs.size());
+            for (const auto& [partition_id, _] : partition_to_rowidxs) {
+                partition_ids.insert(partition_id);
+            }
+            {
+                std::lock_guard<std::mutex> l(_tablet_writers_lock);
+                RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
+            }
+        }
+        return _write_block_data_for_receiver_side_random_bucket(request, cur_seq,
+                                                                 partition_to_rowidxs, response);
+    }
+
     std::unordered_map<int64_t, DorisVector<uint32_t>> tablet_to_rowidxs;
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 

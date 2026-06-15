@@ -1,6 +1,21 @@
 name: Code Review Runner
 
 on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       pr_number:
@@ -32,16 +47,16 @@ jobs:
         with:
           ref: ${{ inputs.head_sha }}
 
-      - name: Install runner utilities
+      - name: Install ripgrep
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep unzip
+          sudo apt-get install -y ripgrep
 
-      - name: Install OpenCode
+      - name: Install Codex
         run: |
           for attempt in 1 2 3; do
-            if curl -fsSL https://opencode.ai/install | bash; then
-              echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+            if npm install -g @openai/codex; then
+              codex --version
               exit 0
             fi
             echo "Install attempt $attempt failed, retrying in 10s..."
@@ -58,22 +73,73 @@ jobs:
           unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
-      - name: Configure OpenCode auth
-        id: configure-auth
+      - name: Configure Codex auth
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/codex-home"
+          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_AUTH_OBJECT" "$RUNNER_TEMP/codex-home/auth.json"
+          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
+          test -s "$RUNNER_TEMP/codex-home/auth.json"
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
+
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
+          cli_auth_credentials_store = "file"
+          approval_policy = "never"
+
+          [features]
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
+          [shell_environment_policy]
+          inherit = "all"
+
+          [otel]
+          environment = "github-actions"
+          exporter = "none"
+          metrics_exporter = "none"
+          trace_exporter = "none"
+          EOF
+          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
+          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
+
+      - name: Sync Codex memories from OSS
+        continue-on-error: true
         run: |
-          mkdir -p ~/.local/share/opencode
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_AUTH_OBJECT" ~/.local/share/opencode/auth.json
-          chmod 600 ~/.local/share/opencode/auth.json
-          test -s ~/.local/share/opencode/auth.json
+          install -m 700 -d "$CODEX_HOME/memories"
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+
+          if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_MEMORIES_OBJECT" "$archive"; then
+            tar -tzf "$archive" | awk '
+              $0 != "memories" && $0 !~ /^memories\// { bad = 1 }
+              END { exit bad }
+            '
+            tar -xzf "$archive" -C "$CODEX_HOME"
+            install -m 700 -d "$CODEX_HOME/memories"
+            chmod -R go-rwx "$CODEX_HOME/memories" || true
+          else
+            echo "No Codex memories archive could be downloaded; continuing with empty memories."
+          fi
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
 
       - name: Prepare review context directory
         run: |
-          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.opencode-review.XXXXXX")"
+          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.code-review.XXXXXX")"
           review_context_rel="$(basename "$review_context_dir")"
           printf 'REVIEW_CONTEXT_DIR=%s\n' "$review_context_dir" >> "$GITHUB_ENV"
           printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
@@ -148,10 +214,34 @@ jobs:
             printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
           fi
 
+      - name: Prepare required AGENTS guides
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+        run: |
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
+
+          helper="$RUNNER_TEMP/prepare_review_agents.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/prepare_review_agents.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --changed-files "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
+            --required-agents "$REVIEW_CONTEXT_DIR/required_agents.txt" \
+            --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt"
+
+          echo "Required AGENTS.md files for this review:"
+          sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
+
       - name: Prepare review prompt
         run: |
           cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
-          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. 
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
           The current directory is the code repository for the PR to be reviewed.
           You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
           You can comment on the pull request.
@@ -165,8 +255,13 @@ jobs:
           - Existing inline review threads: PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md
           - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
           - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
+          - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
+          - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
 
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
+          Required AGENTS.md files for this PR:
+          PLACEHOLDER_REQUIRED_AGENTS_BLOCK
           Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
           Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
           Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
@@ -192,6 +287,16 @@ jobs:
           sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
+          import sys
+          from pathlib import Path
+
+          prompt_path = Path(sys.argv[1])
+          required_agents_path = Path(sys.argv[2])
+          prompt = prompt_path.read_text()
+          required_agents = required_agents_path.read_text().rstrip()
+          prompt_path.write_text(prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents))
+          PY
         env:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
@@ -204,24 +309,70 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASONING_EFFORT: xhigh
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
         run: |
           PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
+          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           set +e
-          opencode run "$PROMPT" -m "openai/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
-          status=${PIPESTATUS[0]}
+          # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
+          # Codex uses bubblewrap for that mode and uid maps can be unavailable.
+          codex exec "$PROMPT" \
+            --cd "$GITHUB_WORKSPACE" \
+            --model "gpt-5.5" \
+            --config "model_reasoning_effort=\"${REASONING_EFFORT}\"" \
+            --sandbox danger-full-access \
+            --color never \
+            --json \
+            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+          status=$?
           set -e
 
-          last_log_line=$(
-            awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log" \
-              | perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g'
-          )
-
           failure_reason=""
-          if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
-            failure_reason="$last_log_line"
-          elif [ "$status" -ne 0 ]; then
-            failure_reason="OpenCode exited with status $status"
+          if [ "$status" -ne 0 ]; then
+            if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+              failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              if [ -z "$failure_reason" ]; then
+                failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              fi
+            fi
+            if [ -z "$failure_reason" ] && [ -s "$REVIEW_CONTEXT_DIR/codex-stderr.log" ]; then
+              failure_reason="$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/codex-stderr.log")"
+            fi
+            if [ -z "$failure_reason" ]; then
+              failure_reason="Codex exited with status $status"
+            fi
+          fi
+
+          if [ -z "$failure_reason" ]; then
+            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            reviews_api_ok=false
+            review_verified=false
+            for attempt in 1 2 3 4 5 6; do
+              if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
+                reviews_api_ok=true
+                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                  (add // [])
+                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | length > 0
+                ' "$reviews_file" >/dev/null; then
+                  review_verified=true
+                  break
+                fi
+              fi
+              sleep 5
+            done
+
+            if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
+              failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
+            elif [ "$review_verified" != "true" ]; then
+              failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
+            fi
           fi
 
           if [ -n "$failure_reason" ]; then
@@ -233,22 +384,91 @@ jobs:
             exit 1
           fi
 
-      - name: Persist OpenCode auth
-        if: ${{ always() && steps.configure-auth.outcome == 'success' }}
+      - name: Record review I/O to Litefuse
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+          REASONING_EFFORT: xhigh
+        run: |
+          if [ ! -s "$REVIEW_CONTEXT_DIR/review_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+            echo "Review prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
+            exit 0
+          fi
+
+          helper="$RUNNER_TEMP/emit_litefuse_otel_io.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/emit_litefuse_otel_io.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --input-file "$REVIEW_CONTEXT_DIR/review_prompt.txt" \
+            --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            --output-file "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            --trace-name "doris-ai-review" \
+            --session-id "$GITHUB_RUN_ID" \
+            --repository "$REPO" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --model "gpt-5.5" \
+            --reasoning-effort "$REASONING_EFFORT" \
+            --environment "github-actions" \
+            --max-payload-bytes 4000000 \
+            --min-observations 4 \
+            --min-step-observations 2 \
+            --verify-attempts 24 \
+            --verify-sleep-seconds 5 \
+            --verify
+
+      - name: Sync Codex memories back to OSS
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          if [ ! -d "$CODEX_HOME/memories" ]; then
+            echo "No Codex memories directory found; skipping memories sync."
+            exit 0
+          fi
+
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+          tar -C "$CODEX_HOME" -czf "$archive" memories
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$archive" "$OSS_CODEX_MEMORIES_OBJECT"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
+
+      - name: Sync Codex auth back to OSS
+        if: ${{ always() }}
         run: |
-          if [ ! -s ~/.local/share/opencode/auth.json ]; then
-            echo "::warning::OpenCode auth file is missing or empty; skip OSS auth persistence."
+          if [ ! -s "$CODEX_HOME/auth.json" ]; then
+            echo "No Codex auth file found; skipping OSS auth sync."
             exit 0
           fi
 
-          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f ~/.local/share/opencode/auth.json "$OSS_AUTH_OBJECT"; then
-            echo "::warning::Failed to persist OpenCode auth to OSS; continue because review already finished."
-          fi
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$CODEX_HOME/auth.json" >/dev/null
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$OSS_CODEX_AUTH_OBJECT"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Comment PR on review failure
         if: ${{ always() && steps.review.outcome != 'success' }}
@@ -260,7 +480,7 @@ jobs:
         run: |
           error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
-          OpenCode automated review failed and did not complete.
+          Codex automated review failed and did not complete.
 
           Error: ${error_msg}
           Workflow run: ${RUN_URL}
@@ -276,5 +496,5 @@ jobs:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
           error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
-          echo "OpenCode automated review failed: ${error_msg}"
+          echo "Codex automated review failed: ${error_msg}"
           exit 1

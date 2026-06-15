@@ -730,9 +730,9 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8
 template <PrimitiveType T>
 const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
                                                                     Field& field, FieldInfo& info) {
-    const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+    const uint8_t precision = *data;
     data += sizeof(uint8_t);
-    const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+    const uint8_t scale = *data;
     data += sizeof(uint8_t);
     info.precision = static_cast<int>(precision);
     info.scale = static_cast<int>(scale);

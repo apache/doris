@@ -15,9 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_random_distribution_table", "p0") {
+suite("test_insert_random_distribution_table", "p0,nonConcurrent") {
     def tableName = "test_insert_random_distribution_table"
+    def enableAdaptiveRandomBucketConfig = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_adaptive_random_bucket_load'; """
+    String oldEnableAdaptiveRandomBucket = enableAdaptiveRandomBucketConfig[0][1]
 
+    try {
+        // This case verifies the legacy batch-size based random tablet rotation.
+        // Keep the suite nonConcurrent because this FE config is global.
+        sql """ ADMIN SET FRONTEND CONFIG ('enable_adaptive_random_bucket_load' = 'false') """
     // ${tableName} unpartitioned table
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -272,5 +278,8 @@ suite("test_insert_random_distribution_table", "p0") {
     assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + 3) % 10], 1)
     for (int i = 4; i < 10; i++) {
       assertEquals(partitionRowCounts[2][(partitionBeginIdx[2] + i) % 10], 0)
+    }
+    } finally {
+        sql """ ADMIN SET FRONTEND CONFIG ('enable_adaptive_random_bucket_load' = '${oldEnableAdaptiveRandomBucket}') """
     }
 }

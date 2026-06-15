@@ -129,6 +129,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public List<TransactionState> getReadyToPublishTransactions();
 
+    public List<TransactionState> getCommittedTransactions(long dbId) throws AnalysisException;
+
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId);
 
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,

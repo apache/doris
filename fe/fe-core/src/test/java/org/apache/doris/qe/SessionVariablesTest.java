@@ -78,18 +78,6 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testCloneSessionVariablesWithSessionOriginValueNotEmpty() throws NoSuchFieldException {
-        Field txIsolation = SessionVariable.class.getField("txIsolation");
-        SessionVariableField txIsolationSessionVariableField = new SessionVariableField(txIsolation);
-        sessionVariable.addSessionOriginValue(txIsolationSessionVariableField, "test");
-
-        SessionVariable sessionVariableClone = VariableMgr.cloneSessionVariable(sessionVariable);
-
-        Assertions.assertEquals("test",
-                sessionVariableClone.getSessionOriginValue().get(txIsolationSessionVariableField));
-    }
-
-    @Test
     public void testInsertVisibleTimeoutReturnMode() throws Exception {
         connectContext.setThreadLocalInfo();
         SessionVariable sessionVar = connectContext.getSessionVariable();
@@ -288,5 +276,34 @@ public class SessionVariablesTest extends TestWithFeService {
                 new StringLiteral("true")));
 
         Assertions.assertTrue(sessionVariable.isEnablePreloadExternalMetadata());
+    }
+
+    @Test
+    public void testAnnSessionVariableChecker() throws Exception {
+        SessionVariable sv = new SessionVariable();
+
+        // hnsw_ef_search: valid value accepted
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.HNSW_EF_SEARCH,
+                new IntLiteral(1)));
+        Assertions.assertEquals(1, sv.hnswEFSearch);
+
+        // hnsw_ef_search: zero rejected
+        DdlException hnswException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.HNSW_EF_SEARCH, new IntLiteral(0))));
+        Assertions.assertTrue(hnswException.getMessage().contains("hnsw_ef_search must be >= 1"));
+        Assertions.assertEquals(1, sv.hnswEFSearch);
+
+        // ivf_nprobe: valid value accepted
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.IVF_NPROBE,
+                new IntLiteral(2)));
+        Assertions.assertEquals(2, sv.ivfNprobe);
+
+        // ivf_nprobe: zero rejected
+        DdlException nprobeException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.IVF_NPROBE, new IntLiteral(0))));
+        Assertions.assertTrue(nprobeException.getMessage().contains("ivf_nprobe must be >= 1"));
+        Assertions.assertEquals(2, sv.ivfNprobe);
     }
 }

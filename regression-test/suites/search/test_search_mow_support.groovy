@@ -49,8 +49,8 @@ suite("test_search_mow_support", "p0") {
         (4, 'rainbowman lowercase', 'case variants')
     """
 
-    sql "SET enable_common_expr_pushdown = true"
-    sql "SET enable_common_expr_pushdown_for_inverted_index = true"
+    sql "SET enable_segment_limit_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     def exactCount = sql """
         SELECT /*+SET_VAR(enable_inverted_index_query=true) */ count(*)

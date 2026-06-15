@@ -405,7 +405,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
         }
         counter.wait();
         if (auto time = rpc_timer.elapsed_time(); time > local_state._max_rpc_timer->value()) {
-            local_state._max_rpc_timer->set(static_cast<int64_t>(time));
+            local_state._max_rpc_timer->set(time);
         }
 
         for (auto& [backend_id, rpc_struct] : local_state._materialization_state.rpc_struct_map) {
