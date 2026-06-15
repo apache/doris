@@ -38,6 +38,8 @@ import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -240,7 +242,7 @@ public class MaterializationNode extends PlanNode {
             PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
         Pair<PlanNode, LocalExchangeType> enforceResult = enforceRequire(
                 translatorContext, children.get(0), 0, LocalExchangeTypeRequire.requirePassthrough());
-        children = new ArrayList<>();
+        children = Lists.newArrayList();
         children.add(enforceResult.first);
         return Pair.of(this, LocalExchangeType.PASSTHROUGH);
     }

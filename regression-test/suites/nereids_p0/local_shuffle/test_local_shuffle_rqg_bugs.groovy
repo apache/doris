@@ -132,8 +132,15 @@ suite("test_local_shuffle_rqg_bugs") {
             (18, 8, 28, 118, 19.5), (19, 9, 29, 119, 20.5)
     """
 
-    // Wait for data to be visible
-    Thread.sleep(5000)
+    // Wait for the inserted data to be visible — poll the actual row counts instead of a fixed sleep.
+    for (int i = 0; i < 60; i++) {
+        def c1 = sql "SELECT COUNT(*) FROM rqg_t1"
+        def c2 = sql "SELECT COUNT(*) FROM rqg_t2"
+        if (c1[0][0] == 20 && c2[0][0] == 20) {
+            break
+        }
+        sleep(200)
+    }
 
     // ============================================================
     //  Common settings

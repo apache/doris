@@ -351,7 +351,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         Plan upstream = distribute.child(); // now they're in one fragment but will be split by ExchangeNode.
         PlanFragment upstreamFragment = upstream.accept(this, context);
-        List<List<Expr>> upstreamDistributeExprs = getChildrenDistributeExprs(upstream);
+        List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
 
         DistributionSpec targetDistribution = distribute.getDistributionSpec();
 
@@ -1153,7 +1153,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
 
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(aggregate.child(0));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
@@ -1421,7 +1421,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             PlanTranslatorContext context) {
         PlanFragment currentFragment = assertNumRows.child().accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(assertNumRows.child());
+        List<List<Expr>> distributeExprLists = getDistributeExprs(assertNumRows.child());
 
         // we need convert all columns to nullable in AssertNumRows node
         // create a tuple for AssertNumRowsNode
@@ -1658,7 +1658,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rightFragment = hashJoin.child(1).accept(this, context);
         PlanFragment leftFragment = hashJoin.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists
-                = getChildrenDistributeExprs(physicalHashJoin.left(), physicalHashJoin.right());
+                = getDistributeExprs(physicalHashJoin.left(), physicalHashJoin.right());
 
         if (JoinUtils.shouldNestedLoopJoin(hashJoin)) {
             throw new RuntimeException("Physical hash join could not execute without equal join condition.");
@@ -1930,7 +1930,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rightFragment = nestedLoopJoin.child(1).accept(this, context);
         PlanFragment leftFragment = nestedLoopJoin.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists
-                = getChildrenDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
+                = getDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
 
@@ -2158,7 +2158,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
             PlanTranslatorContext context) {
         PlanFragment inputFragment = partitionTopN.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(partitionTopN.child(0));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(partitionTopN.child(0));
         PartitionSortNode partitionSortNode = translatePartitionSortNode(
                 partitionTopN, inputFragment.getPlanRoot(), context);
         partitionSortNode.setDistributeExprLists(getDistributeExpr(partitionTopN));
@@ -2352,7 +2352,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Plan plan : recursiveCte.children()) {
             childrenFragments.add(plan.accept(this, context));
         }
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
 
         RecursiveCteNode recursiveCteNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
@@ -2426,7 +2426,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Plan plan : setOperation.children()) {
             childrenFragments.add(plan.accept(this, context));
         }
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(setOperation.children().toArray(new Plan[0]));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(setOperation.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(setOperation.getOutput(), null, context);
 
         SetOperationNode setOperationNode;
@@ -2550,7 +2550,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort,
             PlanTranslatorContext context) {
         PlanFragment inputFragment = sort.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(sort.child(0));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(sort.child(0));
 
         // 2. According to the type of sort, generate physical plan
         if (!sort.getSortPhase().isMerge()) {
@@ -2582,7 +2582,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PlanTranslatorContext context) {
         PlanFragment inputFragment = topN.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(topN.child(0));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(topN.child(0));
         // 2. According to the type of sort, generate physical plan
         if (!topN.getSortPhase().isMerge()) {
             // For localSort or Gather->Sort, we just need to add TopNNode
@@ -2653,7 +2653,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PlanTranslatorContext context) {
         PlanFragment inputPlanFragment = repeat.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(repeat.child(0));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(repeat.child(0));
 
         List<Expression> flattenGroupingExpressions = repeat.getGroupByExpressions();
         Set<Slot> preRepeatExpressions = Sets.newLinkedHashSet();
@@ -2715,7 +2715,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalWindow(PhysicalWindow<? extends Plan> physicalWindow,
             PlanTranslatorContext context) {
         PlanFragment inputPlanFragment = physicalWindow.child(0).accept(this, context);
-        List<List<Expr>> distributeExprLists = getChildrenDistributeExprs(physicalWindow.child(0));
+        List<List<Expr>> distributeExprLists = getDistributeExprs(physicalWindow.child(0));
 
         // 1. translate to old optimizer variable
         // variable in Nereids
@@ -3349,9 +3349,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return false;
     }
 
-    private List<List<Expr>> getChildrenDistributeExprs(Plan ... children) {
+    private List<List<Expr>> getDistributeExprs(Plan... plans) {
         List<List<Expr>> distributeExprLists = Lists.newArrayList();
-        for (Plan child : children) {
+        for (Plan child : plans) {
             DistributionSpec spec = ((PhysicalPlan) child).getPhysicalProperties().getDistributionSpec();
             distributeExprLists.add(getDistributeExpr(child.getOutputExprIds(), spec));
         }
