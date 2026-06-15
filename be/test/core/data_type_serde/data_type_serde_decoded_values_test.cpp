@@ -39,9 +39,11 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/field.h"
 #include "core/string_ref.h"
+#include "core/value/timestamptz_value.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -806,6 +808,52 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2Int96) {
     ASSERT_TRUE(result.status.ok()) << result.status;
     expect_column_strings(*type, *result.column,
                           {"1970-01-01 00:00:00.000000", "1969-12-31 23:59:59.999999", "NULL"});
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, ReadTimestampTzInt64AsUtcInstant) {
+    auto type = std::make_shared<DataTypeTimeStampTz>(6);
+    // 2024-12-31 16:00:00 UTC is displayed as 2025-01-01 00:00:00+08:00.
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", shanghai));
+
+    std::vector<int64_t> micros_values = {1735660800000000LL, 1735660800123456LL};
+    auto micros_view = make_fixed_view(DecodedValueKind::INT64, micros_values);
+    micros_view.time_unit = DecodedTimeUnit::MICROS;
+    auto micros_result = read_column(type, micros_view);
+    ASSERT_TRUE(micros_result.status.ok()) << micros_result.status;
+    const auto& micros_column = assert_cast<const ColumnTimeStampTz&>(*micros_result.column);
+    EXPECT_EQ(micros_column.get_element(0).to_string(shanghai, 6),
+              "2025-01-01 00:00:00.000000+08:00");
+    EXPECT_EQ(micros_column.get_element(1).to_string(shanghai, 6),
+              "2025-01-01 00:00:00.123456+08:00");
+
+    std::vector<int64_t> millis_values = {1735660800000LL};
+    auto millis_view = make_fixed_view(DecodedValueKind::INT64, millis_values);
+    millis_view.time_unit = DecodedTimeUnit::MILLIS;
+    auto millis_result = read_column(type, millis_view);
+    ASSERT_TRUE(millis_result.status.ok()) << millis_result.status;
+    const auto& millis_column = assert_cast<const ColumnTimeStampTz&>(*millis_result.column);
+    EXPECT_EQ(millis_column.get_element(0).to_string(shanghai, 6),
+              "2025-01-01 00:00:00.000000+08:00");
+
+    std::vector<int64_t> nanos_values = {1735660800123456000LL};
+    auto nanos_view = make_fixed_view(DecodedValueKind::INT64, nanos_values);
+    nanos_view.time_unit = DecodedTimeUnit::NANOS;
+    auto nanos_result = read_column(type, nanos_view);
+    ASSERT_TRUE(nanos_result.status.ok()) << nanos_result.status;
+    const auto& nanos_column = assert_cast<const ColumnTimeStampTz&>(*nanos_result.column);
+    EXPECT_EQ(nanos_column.get_element(0).to_string(shanghai, 6),
+              "2025-01-01 00:00:00.123456+08:00");
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, TimestampTzRejectsInt96WithoutTimezoneSemantics) {
+    auto type = std::make_shared<DataTypeTimeStampTz>(6);
+    std::vector<TestInt96Timestamp> values = {{0, 2440588}};
+    auto view = make_fixed_view(DecodedValueKind::INT96, values);
+
+    auto result = read_column(type, view);
+
+    expect_not_supported(result.status);
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, DateTimeV2RejectsInvalidKind) {

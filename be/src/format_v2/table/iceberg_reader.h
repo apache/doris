@@ -75,6 +75,14 @@ protected:
 private:
     bool _has_field_id(const std::vector<format::ColumnDefinition>& schema) const {
         for (const auto& field : schema) {
+            // TopN lazy materialization asks the file reader to synthesize GLOBAL_ROWID in the
+            // first-phase scan. That virtual column is not an Iceberg data field and therefore has
+            // no Iceberg field id. Do not let it downgrade schema-evolution reads to BY_NAME,
+            // otherwise old data files whose physical names predate a rename (for example,
+            // table column `new_new_id` stored as file column `id`) are materialized as defaults.
+            if (field.column_type != format::ColumnType::DATA_COLUMN) {
+                continue;
+            }
             if (!field.has_identifier_field_id()) {
                 return false;
             }

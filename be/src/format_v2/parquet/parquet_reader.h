@@ -43,7 +43,8 @@ public:
     ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                   std::unique_ptr<io::FileDescription>& file_description,
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
-                  std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt);
+                  std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+                  bool enable_mapping_timestamp_tz = false);
     ~ParquetReader() override;
 
     // 打开 Parquet 文件并解析 footer metadata。
@@ -136,6 +137,7 @@ private:
     std::unique_ptr<ParquetReaderScanState> _state;
     ParquetProfile _parquet_profile;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
+    bool _enable_mapping_timestamp_tz = false;
 };
 
 } // namespace doris::parquet

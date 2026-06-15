@@ -352,6 +352,11 @@ protected:
         *can_filter_all = false;
         for (const auto& table_filter : _table_filters) {
             if (table_filter.conjunct == nullptr ||
+                // RuntimeFilterExpr does not implement execute_column_impl(); it is evaluated by
+                // the row-level filter path through execute_filter(). Constant split pruning uses
+                // VExprContext::execute() on a one-row synthetic block, so runtime filters must not
+                // be pre-executed here even when their referenced slot maps to a constant value.
+                table_filter.conjunct->root()->is_rf_wrapper() ||
                 !_table_filter_has_only_constant_entries(table_filter)) {
                 continue;
             }

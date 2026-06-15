@@ -145,12 +145,18 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     for (const auto entry_count : entry_counts) {
         total_entries += entry_count;
     }
+    const size_t key_start = key_column->size();
     int64_t key_value_count = 0;
     RETURN_IF_ERROR(_key_reader->build_nested_column(static_cast<int64_t>(total_entries),
                                                      key_column, &key_value_count));
     if (key_value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet MAP column {} built {} keys, expected {}", _name,
                                   key_value_count, total_entries);
+    }
+    if (const auto* nullable_key_column = check_and_get_column<ColumnNullable>(*key_column);
+        nullable_key_column != nullptr &&
+        nullable_key_column->has_null(key_start, nullable_key_column->size())) {
+        return Status::Corruption("Parquet MAP column {} contains null key", _name);
     }
     int64_t value_count = 0;
     if (auto* scalar_value_reader = dynamic_cast<ScalarColumnReader*>(_value_reader.get())) {
