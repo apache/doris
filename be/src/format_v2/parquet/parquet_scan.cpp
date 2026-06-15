@@ -17,8 +17,6 @@
 
 #include "format_v2/parquet/parquet_scan.h"
 
-#include <parquet/api/reader.h>
-
 #include <algorithm>
 #include <limits>
 #include <memory>
