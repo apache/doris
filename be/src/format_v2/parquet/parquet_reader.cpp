@@ -249,6 +249,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
             .raw_rows_read = _parquet_profile.raw_rows_read,
             .selected_rows = _parquet_profile.selected_rows,
             .rows_filtered_by_conjunct = _parquet_profile.rows_filtered_by_conjunct,
+            .lazy_read_filtered_rows = _parquet_profile.lazy_read_filtered_rows,
             .total_batches = _parquet_profile.total_batches,
             .empty_selection_batches = _parquet_profile.empty_selection_batches,
             .range_gap_skipped_rows = _parquet_profile.range_gap_skipped_rows,

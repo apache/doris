@@ -421,6 +421,10 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     if (_scan_profile.rows_filtered_by_conjunct != nullptr) {
         COUNTER_UPDATE(_scan_profile.rows_filtered_by_conjunct, batch_rows - selected_rows);
     }
+    if (!_current_non_predicate_columns.empty() &&
+        _scan_profile.lazy_read_filtered_rows != nullptr) {
+        COUNTER_UPDATE(_scan_profile.lazy_read_filtered_rows, batch_rows - selected_rows);
+    }
     if (selected_rows == 0 && _scan_profile.empty_selection_batches != nullptr) {
         COUNTER_UPDATE(_scan_profile.empty_selection_batches, 1);
     }

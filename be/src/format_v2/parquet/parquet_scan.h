@@ -79,6 +79,7 @@ struct ParquetScanProfile {
     RuntimeProfile::Counter* raw_rows_read = nullptr;
     RuntimeProfile::Counter* selected_rows = nullptr;
     RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
+    RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
     RuntimeProfile::Counter* total_batches = nullptr;
     RuntimeProfile::Counter* empty_selection_batches = nullptr;
     RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
