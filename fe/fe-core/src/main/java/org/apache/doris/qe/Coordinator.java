@@ -332,6 +332,12 @@ public class Coordinator implements CoordInterface {
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
+    public Coordinator(ConnectContext context, Planner planner,
+            StatsErrorEstimator statsErrorEstimator, long jobId) {
+        this(context, planner, statsErrorEstimator);
+        this.jobId = jobId;
+    }
+
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Planner planner) {
         this.context = context;
