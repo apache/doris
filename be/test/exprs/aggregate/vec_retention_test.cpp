@@ -22,6 +22,7 @@
 #include <memory>
 #include <ostream>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
@@ -33,6 +34,7 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_retention.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
 
@@ -292,5 +294,20 @@ TEST_F(VRetentionTest, testSerialize) {
 
     agg_function->destroy(place2);
     agg_function->destroy(place3);
+}
+
+TEST_F(VRetentionTest, testMaxEventsBoundary) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+
+    // 32 boolean params is the maximum allowed (RetentionState::MAX_EVENTS) and must succeed.
+    DataTypes max_types(RetentionState::MAX_EVENTS, std::make_shared<DataTypeUInt8>());
+    auto fn = factory.get("retention", max_types, nullptr, false, -1);
+    EXPECT_NE(fn, nullptr);
+
+    // 33 boolean params overflow the fixed-size events[32] array; the function must be rejected
+    // at construction time instead of corrupting the heap.
+    DataTypes too_many_types(RetentionState::MAX_EVENTS + 1, std::make_shared<DataTypeUInt8>());
+    EXPECT_THROW({ factory.get("retention", too_many_types, nullptr, false, -1); },
+                 doris::Exception);
 }
 } // namespace doris
