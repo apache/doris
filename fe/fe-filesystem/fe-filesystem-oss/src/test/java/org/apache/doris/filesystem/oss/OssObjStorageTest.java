@@ -86,6 +86,26 @@ class OssObjStorageTest {
     }
 
     @Test
+    void resolvePathStyle_fallsBackForNonDnsBucketNames() {
+        // Explicit use_path_style=true always wins.
+        Map<String, String> explicit = buildBasicProps();
+        explicit.put("use_path_style", "true");
+        OssObjStorage explicitStorage = new OssObjStorage(explicit);
+        Assertions.assertTrue(explicitStorage.resolvePathStyle("my-bucket"));
+
+        OssObjStorage storage = new OssObjStorage(buildBasicProps());
+        // DNS-compatible bucket name -> virtual-hosted style.
+        Assertions.assertFalse(storage.resolvePathStyle("my-bucket"));
+        // Underscore (and other non-DNS-safe names) cannot be virtual-hosted -> path-style,
+        // mirroring the legacy AWS-SDK auto-fallback so such buckets keep working.
+        Assertions.assertTrue(storage.resolvePathStyle("useless_bucket"));
+        Assertions.assertTrue(storage.resolvePathStyle("Upper_Case"));
+        // No bucket known yet -> leave addressing at the default (virtual-hosted).
+        Assertions.assertFalse(storage.resolvePathStyle(""));
+        Assertions.assertFalse(storage.resolvePathStyle(null));
+    }
+
+    @Test
     void getPresignedUrl_missingBucketThrowsIOException() {
         OSS mockOss = Mockito.mock(OSS.class);
         Map<String, String> props = new HashMap<>();
@@ -141,7 +161,7 @@ class OssObjStorageTest {
 
     @Test
     void anonymousClientConfiguration_removesAuthHeaders() throws Exception {
-        ClientBuilderConfiguration config = OssObjStorage.anonymousClientConfiguration();
+        ClientBuilderConfiguration config = OssObjStorage.anonymousClientConfiguration(false);
         RequestMessage request = new RequestMessage("bucket", "key");
         request.getHeaders().put(HttpHeaders.AUTHORIZATION, "OSS anonymous:signature");
         request.getHeaders().put(OSSHeaders.OSS_SECURITY_TOKEN, "token");
@@ -278,7 +298,7 @@ class OssObjStorageTest {
         }
 
         @Override
-        protected OSS buildOssClient() {
+        protected OSS buildOssClient(boolean pathStyle) {
             return mockOss;
         }
     }
@@ -289,7 +309,7 @@ class OssObjStorageTest {
         }
 
         OSS createClient() throws IOException {
-            return buildOssClient();
+            return buildOssClient(false);
         }
     }
 }

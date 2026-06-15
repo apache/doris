@@ -87,6 +87,10 @@ public class OssObjStorage implements ObjStorage<OSS> {
     private static final int DELETE_BATCH_SIZE = 1000;
     private static final Credentials ANONYMOUS_CREDENTIALS =
             new DefaultCredentials("anonymous", "anonymous");
+    // A bucket name that can serve as a virtual-hosted subdomain: 3-63 chars, lowercase
+    // letters/digits/hyphens, must start and end with an alphanumeric.
+    private static final java.util.regex.Pattern VIRTUAL_HOST_BUCKET_NAME =
+            java.util.regex.Pattern.compile("[a-z0-9][a-z0-9-]{1,61}[a-z0-9]");
 
     private final OssFileSystemProperties properties;
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -100,39 +104,84 @@ public class OssObjStorage implements ObjStorage<OSS> {
         this.properties = properties;
     }
 
-    /** Whether path-style (vs virtual-hosted-style) bucket access is configured. */
+    /** Whether path-style (vs virtual-hosted-style) bucket access is explicitly configured. */
     public boolean isUsePathStyle() {
         return properties.isUsePathStyle();
     }
 
     @Override
     public OSS getClient() throws IOException {
+        return getClient(properties.getBucket());
+    }
+
+    /**
+     * Returns the lazily-built OSS client, choosing path-style vs virtual-hosted addressing
+     * based on {@code bucket} (see {@link #resolvePathStyle(String)}).
+     *
+     * <p>The addressing decision is made once, when the client is first built, from the first
+     * bucket accessed through this instance. An {@code OssObjStorage} is scoped to a single
+     * endpoint/bucket in practice (e.g. one backup repository), so this matches the per-bucket
+     * behavior the legacy AWS-SDK-based client relied on for that case.
+     */
+    private OSS getClient(String bucket) throws IOException {
         if (closed.get()) {
             throw new IOException("OssObjStorage is already closed");
         }
         if (ossClient == null) {
             synchronized (this) {
                 if (ossClient == null) {
-                    ossClient = buildOssClient();
+                    ossClient = buildOssClient(resolvePathStyle(bucket));
                 }
             }
         }
         return ossClient;
     }
 
-    protected OSS buildOssClient() throws IOException {
+    /**
+     * Decides whether to use path-style (SLD) addressing for {@code bucket}.
+     *
+     * <p>Honors an explicit {@code use_path_style=true}, and otherwise falls back to path-style
+     * when the bucket name cannot be expressed as a virtual-hosted DNS label (for example it
+     * contains an underscore, which is illegal in a hostname). This mirrors the AWS SDK v2
+     * behavior the legacy S3-compatible client relied on, so buckets with non-DNS-safe names
+     * keep working instead of failing with a virtual-hosted {@code NoSuchBucket}. The native OSS
+     * SDK does no such fallback on its own.
+     *
+     * <p>Note: the OSS SDK's own {@code validateBucketName} is intentionally not used here — it
+     * accepts underscores (a legal object-storage name) even though such a name is not a legal
+     * DNS host label, which is precisely the case that must trigger path-style.
+     */
+    boolean resolvePathStyle(String bucket) {
+        if (properties.isUsePathStyle()) {
+            return true;
+        }
+        return hasText(bucket) && !isVirtualHostCompatible(bucket);
+    }
+
+    /**
+     * Returns true when {@code bucket} is a valid virtual-hosted DNS label: 3-63 characters of
+     * lowercase letters, digits and hyphens, starting and ending with an alphanumeric. Names
+     * with underscores, uppercase letters or dots cannot be safely used as a virtual-hosted
+     * subdomain and therefore require path-style addressing.
+     */
+    private static boolean isVirtualHostCompatible(String bucket) {
+        return VIRTUAL_HOST_BUCKET_NAME.matcher(bucket).matches();
+    }
+
+    protected OSS buildOssClient(boolean pathStyle) throws IOException {
         String endpoint = properties.getEndpoint();
         String accessKey = properties.getAccessKey();
         String secretKey = properties.getSecretKey();
         if (!hasText(accessKey)) {
             return new OSSClientBuilder().build(endpoint, anonymousCredentialsProvider(),
-                    anonymousClientConfiguration());
+                    anonymousClientConfiguration(pathStyle));
         }
+        ClientBuilderConfiguration config = clientConfiguration(pathStyle);
         String token = properties.getSessionToken();
         if (hasText(token)) {
-            return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token);
+            return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token, config);
         }
-        return new OSSClientBuilder().build(endpoint, accessKey, secretKey);
+        return new OSSClientBuilder().build(endpoint, accessKey, secretKey, config);
     }
 
     @Override
@@ -161,12 +210,17 @@ public class OssObjStorage implements ObjStorage<OSS> {
             }
         }
         try {
-            ObjectListing listing = getClient().listObjects(request);
+            ObjectListing listing = getClient(uri.bucket()).listObjects(request);
             List<RemoteObject> objects = listing.getObjectSummaries().stream()
                     .map(obj -> toRemoteObject(uri.key(), obj))
                     .collect(Collectors.toList());
             return new RemoteObjects(objects, listing.isTruncated(),
                     listing.isTruncated() ? listing.getNextMarker() : null);
+        } catch (OSSException e) {
+            // OSSException (server-side errors such as NoSuchBucket) is a sibling of
+            // ClientException, not a subclass, so it must be caught explicitly or it would
+            // propagate as an unwrapped runtime exception.
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         } catch (ClientException e) {
             throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
         }
@@ -176,7 +230,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     public RemoteObject headObject(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
         try {
-            ObjectMetadata metadata = getClient().getObjectMetadata(uri.bucket(), uri.key());
+            ObjectMetadata metadata = getClient(uri.bucket()).getObjectMetadata(uri.bucket(), uri.key());
             return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
                     lastModifiedMs(metadata.getLastModified()));
         } catch (OSSException e) {
@@ -195,7 +249,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(requestBody.contentLength());
         try (InputStream content = requestBody.content()) {
-            getClient().putObject(new PutObjectRequest(uri.bucket(), uri.key(), content, metadata));
+            getClient(uri.bucket()).putObject(new PutObjectRequest(uri.bucket(), uri.key(), content, metadata));
         } catch (ClientException e) {
             throw new IOException("putObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
@@ -205,7 +259,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     public void deleteObject(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
         try {
-            getClient().deleteObject(uri.bucket(), uri.key());
+            getClient(uri.bucket()).deleteObject(uri.bucket(), uri.key());
         } catch (OSSException e) {
             if (isNotFound(e)) {
                 return;
@@ -221,7 +275,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
         ObjectStorageUri src = ObjectStorageUri.parse(srcPath, false);
         ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, false);
         try {
-            getClient().copyObject(new CopyObjectRequest(
+            getClient(src.bucket()).copyObject(new CopyObjectRequest(
                     src.bucket(), src.key(), dst.bucket(), dst.key()));
         } catch (ClientException e) {
             throw new IOException("copyObject from " + srcPath + " to " + dstPath
@@ -233,7 +287,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     public String initiateMultipartUpload(String remotePath) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
         try {
-            InitiateMultipartUploadResult result = getClient().initiateMultipartUpload(
+            InitiateMultipartUploadResult result = getClient(uri.bucket()).initiateMultipartUpload(
                     new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
             return result.getUploadId();
         } catch (ClientException e) {
@@ -254,7 +308,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
             request.setPartNumber(partNum);
             request.setPartSize(body.contentLength());
             request.setInputStream(content);
-            com.aliyun.oss.model.UploadPartResult result = getClient().uploadPart(request);
+            com.aliyun.oss.model.UploadPartResult result = getClient(uri.bucket()).uploadPart(request);
             return new UploadPartResult(partNum, result.getETag());
         } catch (ClientException e) {
             throw new IOException("uploadPart " + partNum + " failed for " + remotePath
@@ -270,7 +324,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
                 .map(part -> new PartETag(part.partNumber(), part.etag()))
                 .collect(Collectors.toList());
         try {
-            getClient().completeMultipartUpload(new CompleteMultipartUploadRequest(
+            getClient(uri.bucket()).completeMultipartUpload(new CompleteMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId, partEtags));
         } catch (ClientException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
@@ -282,7 +336,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
         ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
         try {
-            getClient().abortMultipartUpload(new AbortMultipartUploadRequest(
+            getClient(uri.bucket()).abortMultipartUpload(new AbortMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId));
         } catch (ClientException e) {
             throw new IOException("abortMultipartUpload failed for " + remotePath
@@ -298,7 +352,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
             if (fromByte > 0) {
                 request.setRange(fromByte, -1);
             }
-            OSSObject object = getClient().getObject(request);
+            OSSObject object = getClient(uri.bucket()).getObject(request);
             return object.getObjectContent();
         } catch (OSSException e) {
             if (isNotFound(e)) {
@@ -371,7 +425,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
             Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
             GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey, HttpMethod.PUT);
             request.setExpiration(expiration);
-            URL signedUrl = getClient().generatePresignedUrl(request);
+            URL signedUrl = getClient(bucket).generatePresignedUrl(request);
             LOG.info("Generated OSS presigned URL for key={}", objectKey);
             return signedUrl.toString();
         } catch (ClientException e) {
@@ -388,7 +442,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
                 DeleteObjectsRequest request = new DeleteObjectsRequest(bucket);
                 request.setQuiet(true);
                 request.setKeys(batch);
-                getClient().deleteObjects(request);
+                getClient(bucket).deleteObjects(request);
             }
         } catch (ClientException e) {
             throw new IOException("Failed to batch delete objects from bucket=" + bucket + ": " + e.getMessage(), e);
@@ -463,8 +517,15 @@ public class OssObjStorage implements ObjStorage<OSS> {
         };
     }
 
-    static ClientBuilderConfiguration anonymousClientConfiguration() {
+    private static ClientBuilderConfiguration clientConfiguration(boolean pathStyle) {
         ClientBuilderConfiguration config = new ClientBuilderConfiguration();
+        // SLD (second-level-domain) access is the OSS SDK's name for path-style addressing.
+        config.setSLDEnabled(pathStyle);
+        return config;
+    }
+
+    static ClientBuilderConfiguration anonymousClientConfiguration(boolean pathStyle) {
+        ClientBuilderConfiguration config = clientConfiguration(pathStyle);
         config.setSignerHandlers(Collections.singletonList(request -> {
             request.getHeaders().remove(HttpHeaders.AUTHORIZATION);
             request.getHeaders().remove(OSSHeaders.OSS_SECURITY_TOKEN);
