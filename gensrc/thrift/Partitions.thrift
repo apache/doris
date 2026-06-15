@@ -153,5 +153,3 @@ struct TDataPartition {
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
 }
-
-
