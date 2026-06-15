@@ -98,7 +98,7 @@ void RuntimeFilterExpr::close(VExprContext* context, FunctionContext::FunctionSt
 Status RuntimeFilterExpr::execute_column_impl(VExprContext* context, const Block* block,
                                               const Selector* selector, size_t count,
                                               ColumnPtr& result_column) const {
-    return Status::InternalError("Not implement RuntimeFilterExpr::execute_column_impl");
+    return _impl->execute_column(context, block, selector, count, result_column);
 }
 
 const std::string& RuntimeFilterExpr::expr_name() const {
