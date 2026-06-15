@@ -83,6 +83,11 @@ enum TLocalPartitionType {
   // on a few local instances; LOCAL_EXECUTION_HASH_SHUFFLE re-partitions by the full key (id, name) and
   // spreads the aggregation across all local instances of the backend (hash mod local instance count, mapping
   // instance i -> i), purely to add parallelism.
+  //
+  // conversely, the reverse plan scan(hash(id, name)) -> agg(group by id) is NOT a local-exchange case:
+  // hash(id, name) spreads the rows of a single id across different backends (e.g. (5, A) on be1 and
+  // (5, B) on be2), so re-partitioning them by id requires a cross-backend shuffle
+  // (GLOBAL_EXECUTION_HASH_SHUFFLE / a network exchange), which a within-backend local exchange cannot do.
   // and we can not use GLOBAL_EXECUTION_HASH_SHUFFLE(id, name) here, because
   // `TPipelineFragmentParams.shuffle_idx_to_instance_idx` is used to mapping partial global instance index to local
   // instance index, and discard the other backend's instance index, the data not belong to the local instance will be
