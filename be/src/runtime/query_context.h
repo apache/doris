@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
@@ -376,15 +377,15 @@ private:
     //      PipelineTask 3
     //              Operator 3
     // fragment_id -> list<profile>
-    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
+    std::unordered_map<int, std::vector<TProfileNodeReport>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
 
     void _report_query_profile();
 
-    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile();
+    void _collect_realtime_query_profile(
+            std::unordered_map<int, std::vector<TProfileNodeReport>>& profile_node_reports);
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
@@ -401,10 +402,8 @@ private:
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
-    void add_fragment_profile(
-            int fragment_id,
-            const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
-            std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
+    void add_fragment_profile(int fragment_id, std::vector<TProfileNodeReport> profile_node_reports,
+                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
 
     TReportExecStatusParams get_realtime_exec_status();
 

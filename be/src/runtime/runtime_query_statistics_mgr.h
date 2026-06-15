@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Data_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
 
@@ -42,8 +43,8 @@ public:
 
     static TReportExecStatusParams create_report_exec_status_params(
             const TUniqueId& q_id,
-            std::unordered_map<int32_t, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-                    fragment_id_to_profile,
+            std::unordered_map<int32_t, std::vector<TProfileNodeReport>>
+                    fragment_id_to_profile_node_reports,
             std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profile, bool is_done);
 
     void register_resource_context(std::string query_id,
@@ -65,7 +66,7 @@ public:
 
     void register_fragment_profile(const TUniqueId& query_id, const TNetworkAddress& const_addr,
                                    int32_t fragment_id,
-                                   std::vector<std::shared_ptr<TRuntimeProfileTree>> p_profiles,
+                                   std::vector<TProfileNodeReport> profile_node_reports,
                                    std::shared_ptr<TRuntimeProfileTree> load_channel_profile_x);
     // When query is finished, try to report query profiles to FE.
     // ATTN: Profile is reported to fe fragment by fragment.
@@ -81,11 +82,10 @@ private:
     std::atomic_bool started = false;
     std::mutex _profile_map_lock;
 
-    // query_id -> {coordinator_addr, {fragment_id -> std::vector<pipeline_profile>}}
+    // query_id -> {coordinator_addr, {fragment_id -> std::vector<profile_node_report>}}
     std::unordered_map<
             TUniqueId,
-            std::tuple<TNetworkAddress,
-                       std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>>>
+            std::tuple<TNetworkAddress, std::unordered_map<int, std::vector<TProfileNodeReport>>>>
             _profile_map;
 
     std::unordered_map<std::pair<TUniqueId, int32_t>, std::shared_ptr<TRuntimeProfileTree>>
