@@ -91,13 +91,21 @@ class RoutineLoadTestUtils {
         while (true) {
             def res = sqlRunner.call("SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'")
             if (res.size() > 0) {
+                def txnId = res[0][1].toString()
+                def timeout = res[0][6].toString()
                 logger.info("res: ${res[0].toString()}")
-                logger.info("timeout: ${res[0][6].toString()}")
-                Assert.assertEquals(res[0][6].toString(), expectedTimeout)
-                break;
+                logger.info("txnId: ${txnId}, timeout: ${timeout}, expected: ${expectedTimeout}")
+                // A task whose txn has not begun yet (txnId == -1) may still carry the timeout
+                // computed in a previous schedule round; the adaptive timeout only converges
+                // after a subsequent task is scheduled. Poll until a stable task carries the
+                // expected timeout instead of asserting on a transient task.
+                if (txnId != "-1" && timeout == expectedTimeout) {
+                    Assert.assertEquals(expectedTimeout, timeout)
+                    break;
+                }
             }
             if (count > maxAttempts) {
-                Assert.assertEquals(1, 2)
+                Assert.fail("Timeout waiting for task timeout to converge to ${expectedTimeout} for job ${jobName}")
                 break;
             } else {
                 sleep(1000)
