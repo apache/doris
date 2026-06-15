@@ -956,11 +956,12 @@ public class PaimonCatalogFactoryTest {
                 "cos.secret_key", "csk",
                 "cos.endpoint", "cos.ap-beijing.myqcloud.com"));
 
-        // WHY (RT-critic): legacy COSProperties writes fs.cosn.bucket.region UNCONDITIONALLY (even when blank),
-        // unlike the isNotBlank-guarded S3/OSS cred block — an empty key differs from an absent key for
-        // downstream Hadoop default resolution. MUTATION: guarding fs.cosn.bucket.region behind isNotBlank
-        // (absent when no region) -> red.
-        Assertions.assertEquals("", conf.get("fs.cosn.bucket.region"));
+        // WHY: COSProperties writes fs.cosn.bucket.region UNCONDITIONALLY (always emitted, never absent). After the
+        // migration to the shared fe-property COSProperties, the region is DERIVED from the
+        // cos.<region>.myqcloud.com endpoint (faithful to legacy COSProperties.endpointPatterns) — so a cosn
+        // catalog with an endpoint but no explicit cos.region now gets the endpoint-derived region instead of the
+        // old hand-port's blank value. MUTATION: not emitting fs.cosn.bucket.region -> red.
+        Assertions.assertEquals("ap-beijing", conf.get("fs.cosn.bucket.region"));
     }
 
     @Test
