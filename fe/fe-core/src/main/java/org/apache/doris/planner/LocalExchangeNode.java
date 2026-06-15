@@ -238,6 +238,13 @@ public class LocalExchangeNode extends PlanNode {
 
         @Override
         public LocalExchangeType preferType() {
+            // GLOBAL is the safe abstract default for a generic "any hash" requirement: it is the
+            // unconditionally-valid hash partition (full cross-backend redistribution). LOCAL only
+            // rebalances within a backend, so it is correct only when each key's rows are already
+            // backend-local — a precondition. AddLocalExchange.resolveExchangeType() deliberately
+            // specializes RequireHash to LOCAL_EXECUTION_HASH_SHUFFLE for FE-planned intra-fragment
+            // exchanges (where that precondition holds and GLOBAL's shuffle_idx_to_instance_idx may be
+            // empty); that override is scoped to that path, so the default here stays GLOBAL.
             return LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE;
         }
 
