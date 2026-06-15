@@ -29,6 +29,13 @@ public:
     BeThreadStackAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
     ~BeThreadStackAction() override = default;
 
+    // GET /api/stack_trace[?thread_id=<tid>[,<tid>...]][&tid=<tid>][&timeout_ms=<ms>]
+    //                     [&max_signal_threads=<n>]
+    // thread_id is the preferred selector; tid is kept as a legacy alias.
+    // Remote threads are sampled with a frame-pointer-only signal handler; symbolization runs
+    // after the handler returns. Full-process collection skips threads blocked in
+    // interrupt-sensitive syscalls such as accept/read and caps remote signal attempts through
+    // max_signal_threads. Explicit thread_id filters are not capped by the default limit.
     void handle(HttpRequest* req) override;
 };
 
