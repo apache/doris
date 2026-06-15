@@ -1,6 +1,21 @@
 name: Code Review Runner
 
 on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       pr_number:
@@ -204,9 +219,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
           gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
-          python3 .github/scripts/prepare_review_agents.py \
+
+          helper="$RUNNER_TEMP/prepare_review_agents.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/prepare_review_agents.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
             --changed-files "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
             --required-agents "$REVIEW_CONTEXT_DIR/required_agents.txt" \
             --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt"
