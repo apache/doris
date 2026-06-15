@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <type_traits>
 
@@ -77,7 +78,12 @@ struct AggregateFunctionAvgWeightedData {
         weight_sum = 0.0;
     }
 
-    double get() const { return data_sum / weight_sum; }
+    double get() const {
+        if (weight_sum == 0.0) {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        return data_sum / weight_sum;
+    }
 
     double data_sum = 0.0;
     double weight_sum = 0.0;
