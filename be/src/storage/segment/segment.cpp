@@ -262,15 +262,13 @@ bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
     return cid == schema.tso_col_idx();
 }
 
-Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
-                             std::unique_ptr<RowwiseIterator>* iter) {
-    if (read_options.runtime_state != nullptr) {
-        _be_exec_version = read_options.runtime_state->be_exec_version();
-    }
-    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
-
-    read_options.stats->total_segment_number++;
-    // trying to prune the current segment by segment-level zone map
+Status Segment::_prune_by_segment_zone_map(SchemaSPtr schema,
+                                           const StorageReadOptions& read_options,
+                                           bool* segment_matched) {
+    *segment_matched = true;
+    const bool collect_scan_filter_stats =
+            std::ranges::any_of(read_options.col_id_to_predicates,
+                                [](const auto& entry) { return entry.second->has_scan_filter(); });
     for (const auto& entry : read_options.col_id_to_predicates) {
         int32_t column_id = entry.first;
         // schema change
@@ -296,34 +294,66 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
         // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
         // support zonemap return true (conservative: not pruned, row-level eval handles them).
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            is_tso_placeholder_col(column_id, *schema, read_options)) {
+        if (is_tso_placeholder_col(column_id, *schema, read_options)) {
             const Int64 commit_tso =
                     read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
             ZoneMap zone_map;
             zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
             zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
             zone_map.has_not_null = true;
-            if (!entry.second->evaluate_and(zone_map)) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
+            const bool matched =
+                    collect_scan_filter_stats && entry.second->has_scan_filter()
+                            ? entry.second->evaluate_and_with_scan_filter(
+                                      zone_map, ScanFilterStage::INDEX_ZONE_MAP_SEGMENT,
+                                      cast_set<int64_t>(num_rows()))
+                            : entry.second->evaluate_and(zone_map);
+            if (matched) {
+                continue;
+            }
+            *segment_matched = false;
+            if (!collect_scan_filter_stats) {
                 return Status::OK();
             }
             continue;
         }
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            can_apply_predicate_safely(column_id, *schema,
-                                       read_options.target_cast_type_for_variants, read_options)) {
-            bool matched = true;
-            RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
-            if (!matched) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
-            }
+        if (!can_apply_predicate_safely(column_id, *schema,
+                                        read_options.target_cast_type_for_variants, read_options)) {
+            continue;
         }
+
+        bool matched = true;
+        if (collect_scan_filter_stats && entry.second->has_scan_filter()) {
+            RETURN_IF_ERROR(reader->match_condition_with_scan_filter(
+                    entry.second.get(), cast_set<int64_t>(num_rows()), &matched));
+        } else {
+            RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
+        }
+        if (matched) {
+            continue;
+        }
+        *segment_matched = false;
+        if (!collect_scan_filter_stats) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
+                             std::unique_ptr<RowwiseIterator>* iter) {
+    if (read_options.runtime_state != nullptr) {
+        _be_exec_version = read_options.runtime_state->be_exec_version();
+    }
+    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
+
+    read_options.stats->total_segment_number++;
+    // trying to prune the current segment by segment-level zone map
+    bool segment_matched = true;
+    RETURN_IF_ERROR(_prune_by_segment_zone_map(schema, read_options, &segment_matched));
+    if (!segment_matched) {
+        *iter = std::make_unique<EmptySegmentIterator>(*schema);
+        read_options.stats->filtered_segment_number++;
+        return Status::OK();
     }
 
     {

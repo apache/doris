@@ -490,6 +490,26 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     return Status::OK();
 }
 
+Status ColumnReader::match_condition_with_scan_filter(const AndBlockColumnPredicate* col_predicates,
+                                                      int64_t input_rows, bool* matched) const {
+    *matched = true;
+    if (_zone_map_index == nullptr) {
+        return Status::OK();
+    }
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+
+    if (zone_map.pass_all) {
+        col_predicates->record_scan_filter(ScanFilterStage::INDEX_ZONE_MAP_SEGMENT, input_rows,
+                                           input_rows);
+        return Status::OK();
+    }
+
+    *matched = col_predicates->evaluate_and_with_scan_filter(
+            zone_map, ScanFilterStage::INDEX_ZONE_MAP_SEGMENT, input_rows);
+    return Status::OK();
+}
+
 Status ColumnReader::prune_predicates_by_zone_map(
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
         bool* pruned) const {
@@ -550,42 +570,59 @@ Status ColumnReader::_get_filtered_pages(
                 continue;
             }
         }
-        if (zone_maps[i].pass_all()) {
-            if (collect_scan_filter_stats) {
-                col_predicates->record_scan_filter(ScanFilterStage::INDEX_ZONE_MAP, page_input_rows,
-                                                   page_input_rows);
-            }
+        bool should_read = false;
+        RETURN_IF_ERROR(_zone_map_page_should_read(zone_maps[i], col_predicates, delete_predicates,
+                                                   collect_scan_filter_stats, page_input_rows,
+                                                   &should_read));
+        if (should_read) {
             page_indexes->push_back(cast_set<uint32_t>(i));
-        } else {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            const bool matched =
-                    collect_scan_filter_stats
-                            ? col_predicates->evaluate_and_with_scan_filter(
-                                      zone_map, ScanFilterStage::INDEX_ZONE_MAP, page_input_rows)
-                            : col_predicates->evaluate_and(zone_map);
-            if (matched) {
-                bool should_read = true;
-                if (delete_predicates != nullptr) {
-                    for (auto del_pred : *delete_predicates) {
-                        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
-                        //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map)) {
-                            should_read = false;
-                            break;
-                        }
-                    }
-                }
-                if (should_read) {
-                    page_indexes->push_back(cast_set<uint32_t>(i));
-                }
-            }
         }
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
             << " filtered-percent:"
             << 1.0 - (static_cast<double>(page_indexes->size()) /
                       (static_cast<double>(page_size) * 1.0));
+    return Status::OK();
+}
+
+Status ColumnReader::_zone_map_page_should_read(
+        const ZoneMapPB& zone_map_pb, const AndBlockColumnPredicate* col_predicates,
+        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+        bool collect_scan_filter_stats, int64_t page_input_rows, bool* should_read) const {
+    *should_read = false;
+    if (zone_map_pb.pass_all()) {
+        if (collect_scan_filter_stats) {
+            col_predicates->record_scan_filter(ScanFilterStage::INDEX_ZONE_MAP_PAGE,
+                                               page_input_rows, page_input_rows);
+        }
+        *should_read = true;
+        return Status::OK();
+    }
+
+    segment_v2::ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(zone_map_pb, _data_type, zone_map));
+    const bool matched =
+            collect_scan_filter_stats
+                    ? col_predicates->evaluate_and_with_scan_filter(
+                              zone_map, ScanFilterStage::INDEX_ZONE_MAP_PAGE, page_input_rows)
+                    : col_predicates->evaluate_and(zone_map);
+    if (!matched) {
+        return Status::OK();
+    }
+
+    *should_read = true;
+    if (delete_predicates == nullptr) {
+        return Status::OK();
+    }
+
+    for (const auto& del_pred : *delete_predicates) {
+        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
+        //  So nullable only need to judge once.
+        if (del_pred->evaluate_del(zone_map)) {
+            *should_read = false;
+            return Status::OK();
+        }
+    }
     return Status::OK();
 }
 

@@ -25,6 +25,7 @@
 #include <unordered_set>
 
 #include "runtime/runtime_profile.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -33,18 +34,6 @@ namespace {
 constexpr const char* SCAN_FILTER_INFO = "ScanFilterInfo";
 constexpr const char* KEY_RANGE_INFO = "KeyRangeInfo";
 constexpr const char* RUNTIME_FILTER_PARTITION_PRUNING = "RuntimeFilterPartitionPruning";
-constexpr int NOT_APPLIED_PROFILE_ORDER = static_cast<int>(ScanFilterStage::NUM_STAGES);
-
-bool is_index_stage(ScanFilterStage stage) {
-    return stage == ScanFilterStage::INDEX_INVERTED || stage == ScanFilterStage::INDEX_ANN ||
-           stage == ScanFilterStage::INDEX_DICT || stage == ScanFilterStage::INDEX_BLOOM_FILTER ||
-           stage == ScanFilterStage::INDEX_ZONE_MAP;
-}
-
-bool is_exec_stage(ScanFilterStage stage) {
-    return stage == ScanFilterStage::EXEC_VECTOR || stage == ScanFilterStage::EXEC_SHORT_CIRCUIT ||
-           stage == ScanFilterStage::EXEC_COMMON_EXPR || stage == ScanFilterStage::EXEC_RESIDUAL;
-}
 
 void set_counter(RuntimeProfile* profile, const std::string& name, TUnit::type type,
                  const std::string& parent, int64_t level, int64_t value) {
@@ -88,45 +77,15 @@ const char* scan_filter_source_name(ScanFilterKind kind) {
 
 struct SummaryStats {
     bool participated = false;
-    bool has_filtering_stage = false;
-    bool has_time = false;
-    int first_stage = NOT_APPLIED_PROFILE_ORDER;
-    int last_stage = -1;
-    int64_t input_rows = 0;
-    int64_t output_rows = 0;
     int64_t filtered_rows = 0;
-    int64_t time_ns = 0;
 };
 
-void update_summary(SummaryStats* summary, ScanFilterStage stage,
-                    const ScanFilterStageStatsSnapshot& stats) {
+void update_summary(SummaryStats* summary, const ScanFilterStageStatsSnapshot& stats) {
     if (!stats.participated()) {
         return;
     }
-    const auto order = static_cast<int>(stage);
-    if (stats.filtered_rows > 0) {
-        if (!summary->has_filtering_stage || order < summary->first_stage) {
-            summary->first_stage = order;
-            summary->input_rows = stats.input_rows;
-        }
-        if (!summary->has_filtering_stage || order > summary->last_stage) {
-            summary->last_stage = order;
-            summary->output_rows = stats.output_rows;
-        }
-        summary->has_filtering_stage = true;
-    } else if (!summary->has_filtering_stage &&
-               (!summary->participated || order > summary->last_stage)) {
-        summary->first_stage = order;
-        summary->last_stage = order;
-        summary->input_rows = stats.input_rows;
-        summary->output_rows = stats.output_rows;
-    }
     summary->participated = true;
     summary->filtered_rows += stats.filtered_rows;
-    if (stats.has_time) {
-        summary->has_time = true;
-        summary->time_ns += stats.time_ns;
-    }
 }
 
 struct MaterializedFilterSnapshot {
@@ -135,26 +94,21 @@ struct MaterializedFilterSnapshot {
     std::array<ScanFilterStageStatsSnapshot, static_cast<size_t>(ScanFilterStage::NUM_STAGES)>
             stage_snapshots;
     SummaryStats total;
-    SummaryStats index;
-    SummaryStats exec;
 };
 
-void materialize_filter_stage(RuntimeProfile* filter_profile, ScanFilterStage stage,
-                              const ScanFilterStageStatsSnapshot& stats) {
-    auto* stage_profile = get_or_create_child(filter_profile, scan_filter_stage_name(stage));
-    set_root_counter(stage_profile, "InputRows", TUnit::UNIT, 2, stats.input_rows);
-    set_root_counter(stage_profile, "FilteredRows", TUnit::UNIT, 2, stats.filtered_rows);
-    if (stats.has_time) {
-        set_root_counter(stage_profile, "Time", TUnit::TIME_NS, 2, stats.time_ns);
-    }
-}
-
 std::string scan_filter_stages_string(const MaterializedFilterSnapshot& snapshot,
-                                      bool is_key_range_source) {
+                                      bool is_key_range_source, int profile_level) {
     std::vector<std::string> stages;
     for (int i = 0; i < static_cast<int>(ScanFilterStage::NUM_STAGES); ++i) {
         const auto stage = static_cast<ScanFilterStage>(i);
-        if (snapshot.stage_snapshots[static_cast<size_t>(stage)].participated()) {
+        const auto& stage_stats = snapshot.stage_snapshots[static_cast<size_t>(stage)];
+        if (stage_stats.participated()) {
+            if (profile_level >= 2) {
+                stages.emplace_back(
+                        fmt::format("{}({})", scan_filter_stage_name(stage),
+                                    PrettyPrinter::print(stage_stats.filtered_rows, TUnit::UNIT)));
+                continue;
+            }
             stages.emplace_back(scan_filter_stage_name(stage));
         }
     }
@@ -162,17 +116,6 @@ std::string scan_filter_stages_string(const MaterializedFilterSnapshot& snapshot
         return is_key_range_source ? "KeyRangeInfo" : "NotApplied";
     }
     return fmt::format("{}", fmt::join(stages, " -> "));
-}
-
-std::string target_string(const ScanFilterDesc& desc) {
-    std::vector<std::string> parts;
-    if (desc.column_id >= 0) {
-        parts.emplace_back(fmt::format("column_id={}", desc.column_id));
-    }
-    if (!desc.column_name.empty()) {
-        parts.emplace_back(fmt::format("column={}", desc.column_name));
-    }
-    return fmt::format("{}", fmt::join(parts, ", "));
 }
 
 std::string source_string(const ScanFilterDesc& desc) {
@@ -193,29 +136,23 @@ void materialize_filter_counters(RuntimeProfile* filter_profile,
     const auto* runtime_filter_stats =
             snapshot.runtime_filter_stats.has_value() ? &*snapshot.runtime_filter_stats : nullptr;
     filter_profile->add_info_string("Source", source_string(snapshot.desc));
-    add_info_string_if_not_empty(filter_profile, "Target", target_string(snapshot.desc));
-    filter_profile->add_info_string("Stages",
-                                    scan_filter_stages_string(snapshot, is_key_range_source));
-    add_info_string_if_not_empty(filter_profile, "Expr", snapshot.desc.expr_debug_string);
+    filter_profile->add_info_string(
+            "Stages", scan_filter_stages_string(snapshot, is_key_range_source, profile_level));
+    if (profile_level >= 3) {
+        add_info_string_if_not_empty(filter_profile, "Expr", snapshot.desc.expr_debug_string);
+    }
     if (profile_level >= 2 && runtime_filter_stats != nullptr &&
         !runtime_filter_stats->debug_string.empty()) {
         filter_profile->add_info_string("RuntimeFilterInfo", runtime_filter_stats->debug_string);
     }
 
-    if (snapshot.total.participated) {
-        set_root_counter(filter_profile, "InputRows", TUnit::UNIT, 1, snapshot.total.input_rows);
+    if (snapshot.total.filtered_rows > 0) {
         set_root_counter(filter_profile, "FilteredRows", TUnit::UNIT, 1,
                          snapshot.total.filtered_rows);
-        if (snapshot.total.has_time) {
-            set_root_counter(filter_profile, "FilterTime", TUnit::TIME_NS, 1,
-                             snapshot.total.time_ns);
-        }
     }
     if (runtime_filter_stats != nullptr) {
-        if (!snapshot.total.participated && runtime_filter_stats->input_rows > 0) {
+        if (!snapshot.total.participated && runtime_filter_stats->filtered_rows > 0) {
             DCHECK_GE(runtime_filter_stats->input_rows, runtime_filter_stats->filtered_rows);
-            set_root_counter(filter_profile, "InputRows", TUnit::UNIT, 1,
-                             runtime_filter_stats->input_rows);
             set_root_counter(filter_profile, "FilteredRows", TUnit::UNIT, 1,
                              runtime_filter_stats->filtered_rows);
         }
@@ -223,18 +160,6 @@ void materialize_filter_counters(RuntimeProfile* filter_profile,
                          runtime_filter_stats->wait_time_ns);
         set_root_counter(filter_profile, "AlwaysTrueFilterRows", TUnit::UNIT, 1,
                          runtime_filter_stats->always_true_filter_rows);
-    }
-
-    if (profile_level < 2) {
-        return;
-    }
-    for (int i = 0; i < static_cast<int>(ScanFilterStage::NUM_STAGES); ++i) {
-        const auto stage = static_cast<ScanFilterStage>(i);
-        const auto& stage_stats = snapshot.stage_snapshots[static_cast<size_t>(stage)];
-        if (!stage_stats.participated()) {
-            continue;
-        }
-        materialize_filter_stage(filter_profile, stage, stage_stats);
     }
 }
 
@@ -273,6 +198,8 @@ const char* scan_filter_kind_name(ScanFilterKind kind) {
 
 const char* scan_filter_stage_name(ScanFilterStage stage) {
     switch (stage) {
+    case ScanFilterStage::INDEX_ZONE_MAP_SEGMENT:
+        return "IndexZoneMapSegment";
     case ScanFilterStage::KEY_RANGE:
         return "KeyRange";
     case ScanFilterStage::INDEX_INVERTED:
@@ -283,8 +210,8 @@ const char* scan_filter_stage_name(ScanFilterStage stage) {
         return "IndexDict";
     case ScanFilterStage::INDEX_BLOOM_FILTER:
         return "IndexBloomFilter";
-    case ScanFilterStage::INDEX_ZONE_MAP:
-        return "IndexZoneMap";
+    case ScanFilterStage::INDEX_ZONE_MAP_PAGE:
+        return "IndexZoneMapPage";
     case ScanFilterStage::EXEC_VECTOR:
         return "ExecuteVector";
     case ScanFilterStage::EXEC_SHORT_CIRCUIT:
@@ -427,12 +354,7 @@ void ScanFilterProfile::materialize(RuntimeProfile* profile, int profile_level) 
         for (int i = 0; i < static_cast<int>(ScanFilterStage::NUM_STAGES); ++i) {
             const auto stage = static_cast<ScanFilterStage>(i);
             materialized.stage_snapshots[i] = snapshot.stats->snapshot(stage);
-            update_summary(&materialized.total, stage, materialized.stage_snapshots[i]);
-            if (is_index_stage(stage)) {
-                update_summary(&materialized.index, stage, materialized.stage_snapshots[i]);
-            } else if (is_exec_stage(stage)) {
-                update_summary(&materialized.exec, stage, materialized.stage_snapshots[i]);
-            }
+            update_summary(&materialized.total, materialized.stage_snapshots[i]);
         }
         scan_filter_snapshots.emplace_back(std::move(materialized));
     }

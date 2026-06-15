@@ -17,7 +17,7 @@
 
 #include "storage/predicate/block_column_predicate.h"
 
-#include <string.h>
+#include <cstring>
 
 namespace roaring {
 class Roaring;
@@ -34,14 +34,14 @@ template <typename EvaluateFunc>
 bool evaluate_and_with_scan_filter(
         const std::vector<std::unique_ptr<BlockColumnPredicate>>& predicates, ScanFilterStage stage,
         int64_t input_rows, EvaluateFunc&& evaluate_func) {
-    for (auto& predicate : predicates) {
+    bool all_matched = true;
+    for (const auto& predicate : predicates) {
+        // Keep scan filter attribution independent from AND short-circuiting.
         const bool matched = evaluate_func(*predicate);
         predicate->record_scan_filter(stage, input_rows, matched ? input_rows : 0);
-        if (!matched) {
-            return false;
-        }
+        all_matched &= matched;
     }
-    return true;
+    return all_matched;
 }
 
 } // namespace
@@ -121,7 +121,7 @@ uint16_t OrBlockColumnPredicate::evaluate(MutableColumns& block, uint16_t* sel,
 
 void OrBlockColumnPredicate::evaluate_or(MutableColumns& block, uint16_t* sel,
                                          uint16_t selected_size, bool* flags) const {
-    for (auto& block_column_predicate : _block_column_predicate_vec) {
+    for (const auto& block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_or(block, sel, selected_size, flags);
     }
 }
@@ -177,7 +177,7 @@ bool AndBlockColumnPredicate::evaluate_and(ParquetPredicate::CachedPageIndexStat
 
 uint16_t AndBlockColumnPredicate::evaluate(MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size) const {
-    for (auto& block_column_predicate : _block_column_predicate_vec) {
+    for (const auto& block_column_predicate : _block_column_predicate_vec) {
         selected_size = block_column_predicate->evaluate(block, sel, selected_size);
     }
     return selected_size;
@@ -185,13 +185,13 @@ uint16_t AndBlockColumnPredicate::evaluate(MutableColumns& block, uint16_t* sel,
 
 void AndBlockColumnPredicate::evaluate_and(MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size, bool* flags) const {
-    for (auto& block_column_predicate : _block_column_predicate_vec) {
+    for (const auto& block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_and(block, sel, selected_size, flags);
     }
 }
 
 bool AndBlockColumnPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
-    for (auto& block_column_predicate : _block_column_predicate_vec) {
+    for (const auto& block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(zone_map)) {
             return false;
         }
@@ -209,7 +209,7 @@ bool AndBlockColumnPredicate::evaluate_and_with_scan_filter(const segment_v2::Zo
 }
 
 bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
-    for (auto& block_column_predicate : _block_column_predicate_vec) {
+    for (const auto& block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(bf)) {
             return false;
         }
@@ -227,7 +227,7 @@ bool AndBlockColumnPredicate::evaluate_and_with_scan_filter(const segment_v2::Bl
 
 bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
                                            const size_t dict_num) const {
-    for (auto& predicate : _block_column_predicate_vec) {
+    for (const auto& predicate : _block_column_predicate_vec) {
         if (!predicate->evaluate_and(dict_words, dict_num)) {
             return false;
         }

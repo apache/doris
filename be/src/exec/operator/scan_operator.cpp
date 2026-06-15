@@ -82,8 +82,8 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
         for (size_t i = conjuncts_before; i < _conjuncts.size(); ++i) {
             DCHECK(_conjuncts[i]->root() != nullptr);
             if (!_conjuncts[i]->scan_filter_handle()) {
-                _conjuncts[i]->attach_scan_filter(
-                        _register_scan_filter(_conjuncts[i]->root(), nullptr));
+                _conjuncts[i]->attach_scan_filter(_register_scan_filter(
+                        _conjuncts[i]->root(), nullptr, state->profile_level()));
             }
         }
     }
@@ -227,9 +227,11 @@ static std::string predicates_to_string(
 }
 
 ScanFilterHandle ScanLocalStateBase::_register_scan_filter(const VExprSPtr& root,
-                                                           const SlotDescriptor* slot) {
+                                                           const SlotDescriptor* slot,
+                                                           int profile_level) {
     DCHECK(_scan_filter_profile != nullptr);
     DCHECK(root != nullptr);
+    DCHECK_GE(profile_level, 1);
 
     ScanFilterDesc desc;
     desc.kind = ScanFilterKind::NORMAL;
@@ -244,7 +246,9 @@ ScanFilterHandle ScanLocalStateBase::_register_scan_filter(const VExprSPtr& root
         desc.column_name = slot->col_name();
         desc.column_id = _parent->intermediate_row_desc().get_column_id(slot->id());
     }
-    desc.expr_debug_string = root->debug_string();
+    if (profile_level >= 3) {
+        desc.expr_debug_string = root->debug_string();
+    }
     return _scan_filter_profile->register_filter(std::move(desc));
 }
 
@@ -396,7 +400,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             if (new_root) {
                 conjunct->set_root(new_root);
                 if (_scan_filter_profile != nullptr && !conjunct->scan_filter_handle()) {
-                    conjunct->attach_scan_filter(_register_scan_filter(conjunct->root(), nullptr));
+                    conjunct->attach_scan_filter(_register_scan_filter(conjunct->root(), nullptr,
+                                                                       state->profile_level()));
                 }
                 if (_should_push_down_common_expr(conjunct->root())) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
@@ -530,7 +535,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
         if (pdt != PushDownType::UNACCEPTABLE && _scan_filter_profile != nullptr) {
             auto handle = context->scan_filter_handle();
             if (!handle) {
-                handle = _register_scan_filter(root, slot);
+                handle = _register_scan_filter(root, slot, state()->profile_level());
                 context->attach_scan_filter(handle);
             }
             DCHECK(handle);
@@ -635,7 +640,8 @@ Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, S
             if (_scan_filter_profile != nullptr) {
                 handle = expr_ctx->scan_filter_handle();
                 if (!handle) {
-                    handle = _register_scan_filter(expr_ctx->root(), slot);
+                    handle =
+                            _register_scan_filter(expr_ctx->root(), slot, state()->profile_level());
                     expr_ctx->attach_scan_filter(handle);
                 }
                 DCHECK(handle);

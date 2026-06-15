@@ -192,7 +192,8 @@ protected:
         return Status::OK();
     }
 
-    ScanFilterHandle _register_scan_filter(const VExprSPtr& root, const SlotDescriptor* slot);
+    ScanFilterHandle _register_scan_filter(const VExprSPtr& root, const SlotDescriptor* slot,
+                                           int profile_level);
 
     // Non-templated normalize methods, moved here to avoid re-compilation per Derived type.
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);

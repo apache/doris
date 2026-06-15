@@ -38,12 +38,15 @@ enum class ScanFilterKind {
     UNKNOWN,
 };
 
-// Describes where a filter records rows in the OLAP scan path. The row counts
-// are order-dependent: each stage records the input it sees in the current scan
-// execution order and the rows left after that filter/stage is applied.
+// Describes where a filter records rows in the OLAP scan path. Execution stages
+// record the input they see in the current scan order. Zone map stages record
+// independent per-filter attribution, so different filters can count the same
+// skipped segment or page.
 enum class ScanFilterStage {
-    // Storage key range pruning before segment-level predicates.
-    KEY_RANGE = 0,
+    // Segment-level zone map pruning before segment iterators are initialized.
+    INDEX_ZONE_MAP_SEGMENT = 0,
+    // Storage key range pruning in segment iterators.
+    KEY_RANGE,
     // Inverted index bitmap pruning for column predicates or pushed-down exprs.
     INDEX_INVERTED,
     // ANN range index pruning.
@@ -53,7 +56,7 @@ enum class ScanFilterStage {
     // Bloom filter index pruning at page granularity.
     INDEX_BLOOM_FILTER,
     // Zone map pruning at page granularity.
-    INDEX_ZONE_MAP,
+    INDEX_ZONE_MAP_PAGE,
     // Vectorized column predicate evaluation after rows are read.
     EXEC_VECTOR,
     // Short-circuit column predicate evaluation after lazy materialization.
