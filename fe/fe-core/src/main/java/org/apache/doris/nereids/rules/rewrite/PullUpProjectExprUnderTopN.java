@@ -176,10 +176,11 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             Set<ExprId> childBlockedExprIds = new HashSet<>(blockedExprIds);
             for (NamedExpression ne : project.getProjects()) {
                 info.addPullUpExprReplace(ne);
-                if (canPullUp(ne) && !blockedExprIds.contains(ne.getExprId())) {
+                boolean canPullUp = canPullUp(ne);
+                if (canPullUp && !blockedExprIds.contains(ne.getExprId())) {
                     info.addPulledUpExpr(project, ne);
                 }
-                if (blockedExprIds.contains(ne.getExprId())) {
+                if (shouldBlockProjectInputs(ne, canPullUp, blockedExprIds)) {
                     childBlockedExprIds.addAll(ne.getInputSlotExprIds());
                 }
             }
@@ -297,6 +298,26 @@ public class PullUpProjectExprUnderTopN implements CustomRewriter {
             return false;
         }
         return true;
+    }
+
+    private static boolean shouldBlockProjectInputs(
+            NamedExpression ne, boolean canPullUp, Set<ExprId> blockedExprIds) {
+        if (blockedExprIds.contains(ne.getExprId())) {
+            return true;
+        }
+        if (!(ne instanceof Alias)) {
+            return false;
+        }
+        Expression child = ne.child(0);
+        if (child instanceof Slot || child instanceof Literal) {
+            return false;
+        }
+        // Non-forwarding aliases that cannot be synthesized above TopN must
+        // keep their inputs below TopN. Otherwise, a lower pull-up can remove
+        // the input slot and make this alias look unavailable, causing it to
+        // be reconstructed above TopN through pullUpExprReplaceMap and bypass
+        // canPullUp(), e.g. z = assert_true(x > 0), x = a + 1.
+        return !canPullUp;
     }
 
     private static boolean isBlockingNode(Plan node) {

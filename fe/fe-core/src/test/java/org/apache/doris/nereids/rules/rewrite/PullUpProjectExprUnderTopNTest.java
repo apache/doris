@@ -795,6 +795,56 @@ class PullUpProjectExprUnderTopNTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testNoneMovableAliasBlocksDependentPullUp() {
+        // TopN
+        //   Project(z = assert_true(x > 0), id)
+        //     Project(x = a + 1, id)
+        //       Scan
+        //
+        // z cannot be synthesized above TopN. Therefore z must block x, so the
+        // lower Project must keep x instead of pulling x up and making z
+        // unavailable below TopN.
+        Slot id = scan1.getOutput().get(0);
+        Slot a = scan1.getOutput().get(1);
+        Alias x = new Alias(new Add(a, new IntegerLiteral((byte) 1)), "x");
+        Alias z = new Alias(
+                new AssertTrue(
+                        new GreaterThan(x.toSlot(), new IntegerLiteral((byte) 0)),
+                        new StringLiteral("msg")
+                ),
+                "z"
+        );
+
+        LogicalProject<LogicalOlapScan> lowerProject = new LogicalProject<>(ImmutableList.of(x, id), scan1);
+        LogicalProject<LogicalProject<LogicalOlapScan>> upperProject = new LogicalProject<>(
+                ImmutableList.of(z, id), lowerProject);
+        LogicalTopN<LogicalProject<LogicalProject<LogicalOlapScan>>> plan = new LogicalTopN<>(
+                ImmutableList.of(new OrderKey(id, false, false)), 3, 0, upperProject);
+
+        LogicalPlan rewritten = (LogicalPlan) PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyCustom(new PullUpProjectExprUnderTopN())
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                )
+                        )
+                )
+                .getPlan();
+
+        LogicalTopN<?> topN = (LogicalTopN<?>) rewritten;
+        LogicalProject<?> rewrittenUpperProject = (LogicalProject<?>) topN.child(0);
+        Assertions.assertTrue(rewrittenUpperProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(z.getExprId())));
+
+        LogicalProject<?> rewrittenLowerProject = (LogicalProject<?>) rewrittenUpperProject.child(0);
+        Assertions.assertTrue(rewrittenLowerProject.getProjects().stream()
+                .anyMatch(expr -> expr.getExprId().equals(x.getExprId())));
+    }
+
+    @Test
     void testBlockedBySort() {
         // topn -> project(id, x, y) -> sort(by x) -> project(id, x, y) -> scan
         // x is used by sort order key, so x is blocked.
