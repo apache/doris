@@ -192,15 +192,9 @@ bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
 }
 
 bool VariantColumnReader::_is_exceeded_sparse_column_limit_unlocked() const {
-    const bool has_sparse_reader =
-            _binary_column_reader != nullptr &&
-            (_binary_column_reader->get_type() == BinaryColumnType::SINGLE_SPARSE ||
-             _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
-    const bool exceeded_sparse_column_limit =
-            (_variant_sparse_column_statistics_size == 0 && has_sparse_reader) ||
-            (!_statistics->sparse_column_non_null_size.empty() &&
-             _statistics->sparse_column_non_null_size.size() >=
-                     _variant_sparse_column_statistics_size);
+    const bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
+                                              _statistics->sparse_column_non_null_size.size() >=
+                                                      _variant_sparse_column_statistics_size;
     DBUG_EXECUTE_IF("exceeded_sparse_column_limit_must_be_false", {
         if (exceeded_sparse_column_limit) {
             throw doris::Exception(
