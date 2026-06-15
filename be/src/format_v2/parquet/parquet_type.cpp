@@ -307,8 +307,6 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
 
     if (!record_reader_physical_type_supported(result.physical_type)) {
         result.supports_record_reader = false;
-    } else if (result.is_decimal && result.decimal_precision > 38) {
-        result.supports_record_reader = false;
     }
     return result;
 }
