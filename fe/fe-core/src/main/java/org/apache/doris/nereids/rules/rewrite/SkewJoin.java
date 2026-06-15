@@ -56,6 +56,7 @@ public class SkewJoin extends OneRewriteRuleFactory {
                 .when(join -> join.getJoinType().isOneSideOuterJoin()
                         || join.getJoinType().isInnerJoin() || join.getJoinType().isAsofJoin())
                 .when(join -> join.getDistributeHint().distributeType == DistributeType.NONE)
+                .whenNot(join -> join.getJoinReorderContext().isSaltJoinGenerated())
                 .whenNot(LogicalJoin::isMarkJoin)
                 .thenApply(SkewJoin::transform).toRule(RuleType.SALT_JOIN);
     }
