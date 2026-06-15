@@ -19,9 +19,11 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.meta.MetaContext;
@@ -409,7 +411,7 @@ public class SystemInfoServiceTest {
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
         for (int i = 0; i < 30000; ++i) {
             Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
-                    Maps.newHashMap(), TStorageMedium.HDD, false, false);
+                    Maps.newHashMap(), TStorageMedium.HDD, MediumAllocationMode.ADAPTIVE, false);
             Map<Tag, List<Long>> res = ret.first;
             Assert.assertEquals(3, res.get(Tag.DEFAULT_BACKEND_TAG).size());
             for (Long beId : res.get(Tag.DEFAULT_BACKEND_TAG)) {
@@ -426,6 +428,55 @@ public class SystemInfoServiceTest {
         int diff =  max - list.get(0);
         // The max replica num and min replica num's diff is less than 30%.
         Assert.assertTrue((diff * 1.0 / max) < 0.3);
+    }
+
+    /**
+     * STRICT mode must refuse to fall back to another medium when the requested
+     * one is missing. Pair with {@link #testAdaptiveFallsBackOnSingleMediumCluster()}
+     * for the ADAPTIVE behaviour on the same fixture.
+     */
+    @Test(expected = DdlException.class)
+    public void testStrictThrowsOnSingleMediumCluster() throws Exception {
+        addBackend(20001, "10.0.0.1", 9050);
+        Backend be1 = infoService.getBackend(20001);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+        addBackend(20002, "10.0.0.2", 9050);
+        Backend be2 = infoService.getBackend(20002);
+        addDisk(be2, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be2.setAlive(true);
+        addBackend(20003, "10.0.0.3", 9050);
+        Backend be3 = infoService.getBackend(20003);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be3.setAlive(true);
+
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        infoService.selectBackendIdsForReplicaCreation(replicaAlloc, Maps.newHashMap(),
+                TStorageMedium.SSD, MediumAllocationMode.STRICT, false);
+    }
+
+    @Test
+    public void testAdaptiveFallsBackOnSingleMediumCluster() throws Exception {
+        addBackend(30001, "10.0.1.1", 9050);
+        Backend be1 = infoService.getBackend(30001);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+        addBackend(30002, "10.0.1.2", 9050);
+        Backend be2 = infoService.getBackend(30002);
+        addDisk(be2, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be2.setAlive(true);
+        addBackend(30003, "10.0.1.3", 9050);
+        Backend be3 = infoService.getBackend(30003);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be3.setAlive(true);
+
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(
+                replicaAlloc, Maps.newHashMap(),
+                TStorageMedium.SSD, MediumAllocationMode.ADAPTIVE, false);
+        Assert.assertEquals("ADAPTIVE must fall back to HDD on a HDD-only cluster",
+                TStorageMedium.HDD, ret.second);
+        Assert.assertEquals(3, ret.first.get(Tag.DEFAULT_BACKEND_TAG).size());
     }
 
     private void addDisk(Backend be, String path, TStorageMedium medium, long totalB, long availB) {

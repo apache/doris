@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterGuard;
@@ -490,7 +491,8 @@ public class SystemInfoService {
 
     // Select the smallest number of tablets as the starting position of
     // round robin in the BE that match the policy
-    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium, boolean isStorageMediumSpecified) {
+    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium,
+            MediumAllocationMode mediumAllocationMode) {
         BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
                 .needScheduleAvailable()
                 .needCheckDiskUsage()
@@ -502,7 +504,9 @@ public class SystemInfoService {
 
         BeSelectionPolicy policy = builder.build();
         List<Long> beIds = selectBackendIdsByPolicy(policy, -1);
-        if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
+        // ADAPTIVE: medium is a hint; fall back to the other medium if none of the BEs can host it.
+        // STRICT  : medium is required; do not fall back (caller will surface an error).
+        if (beIds.isEmpty() && storageMedium != null && mediumAllocationMode != MediumAllocationMode.STRICT) {
             storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
             policy = builder.setStorageMedium(storageMedium).build();
             beIds = selectBackendIdsByPolicy(policy, -1);
@@ -527,14 +531,15 @@ public class SystemInfoService {
      * @param replicaAlloc
      * @param nextIndexs create tablet round robin next be index, when enable_round_robin_create_tablet
      * @param storageMedium
-     * @param isStorageMediumSpecified
+     * @param mediumAllocationMode controls whether the storage medium may fall back when no BE
+     *                             can host the requested medium (ADAPTIVE falls back, STRICT does not)
      * @param isOnlyForCheck set true if only used for check available backend
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
-            TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            TStorageMedium storageMedium, MediumAllocationMode mediumAllocationMode,
             boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(getAllClusterBackendsNoException());
@@ -568,7 +573,11 @@ public class SystemInfoService {
                 // first time empty, retry with different storage medium
                 // if only for check, no need to retry different storage medium to get backend
                 TStorageMedium originalStorageMedium = storageMedium;
-                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
+                // ADAPTIVE: retry with the opposite medium if no BE can host the requested one.
+                // STRICT: caller explicitly asked for this medium, do not fall back.
+                if (beIds.isEmpty() && storageMedium != null
+                        && mediumAllocationMode != MediumAllocationMode.STRICT
+                        && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     builder.setStorageMedium(storageMedium);
                     if (Config.enable_round_robin_create_tablet) {

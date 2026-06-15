@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
@@ -237,7 +238,7 @@ public class DynamicPartitionUtil {
         }
         ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
         Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, Maps.newHashMap(),
-                null, false, true);
+                null, MediumAllocationMode.ADAPTIVE, true);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum)
@@ -248,14 +249,14 @@ public class DynamicPartitionUtil {
 
         Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null,
-                false, true);
+                MediumAllocationMode.ADAPTIVE, true);
         if (hotPartitionNum <= 0) {
             return;
         }
 
         try {
             Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs,
-                    TStorageMedium.SSD, false, true);
+                    TStorageMedium.SSD, MediumAllocationMode.ADAPTIVE, true);
         } catch (DdlException e) {
             throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
                     + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "

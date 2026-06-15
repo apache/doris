@@ -55,6 +55,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.MysqlDb;
@@ -1738,7 +1739,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.isInMemory(),
                     singlePartitionDesc.getTabletType(),
                     storagePolicy, idGeneratorBuffer,
-                    binlogConfig, dataProperty.isStorageMediumSpecified());
+                    binlogConfig, dataProperty.getMediumAllocationMode());
 
             // check again
             olapTable = db.getOlapTableOrDdlException(tableName);
@@ -2084,7 +2085,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified)
+                                                   MediumAllocationMode mediumAllocationMode)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -2127,7 +2128,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId,
                     schemaHash, dataProperty.getStorageMedium());
             realStorageMedium = createTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
-                tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
+                tabletMeta, tabletIdSet, idGeneratorBuffer, mediumAllocationMode);
             if (realStorageMedium != null && !realStorageMedium.equals(dataProperty.getStorageMedium())) {
                 dataProperty.setStorageMedium(realStorageMedium);
                 LOG.info("real medium not eq default "
@@ -3100,7 +3101,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         storagePolicy,
                         idGeneratorBuffer,
                         binlogConfigForTask,
-                        partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                        partitionInfo.getDataProperty(partitionId).getMediumAllocationMode());
                 olapTable.addPartition(partition);
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
                         olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
@@ -3190,7 +3191,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partitionInfo.getTabletType(entry.getValue()),
                             partionStoragePolicy, idGeneratorBuffer,
                             binlogConfigForTask,
-                            dataProperty.isStorageMediumSpecified());
+                            dataProperty.getMediumAllocationMode());
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                         .setStoragePolicy(partionStoragePolicy);
@@ -3350,7 +3351,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     @VisibleForTesting
     public TStorageMedium createTablets(MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
-            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, boolean isStorageMediumSpecified)
+            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer,
+            MediumAllocationMode mediumAllocationMode)
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
@@ -3382,7 +3384,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     startPos = 0;
                 } else {
                     startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
-                            isStorageMediumSpecified);
+                            mediumAllocationMode);
                 }
                 nextIndexs.put(tag, startPos);
             }
@@ -3411,7 +3413,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
                         = systemInfoService.selectBackendIdsForReplicaCreation(
                         replicaAlloc, nextIndexs,
-                        storageMedium, isStorageMediumSpecified, false);
+                        storageMedium, mediumAllocationMode, false);
                 chosenBackendIds = chosenBackendIdsAndMedium.first;
                 storageMedium = chosenBackendIdsAndMedium.second;
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
@@ -3627,7 +3629,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, binlogConfig,
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
+                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getMediumAllocationMode());
                 newPartitions.add(newPartition);
             }
 

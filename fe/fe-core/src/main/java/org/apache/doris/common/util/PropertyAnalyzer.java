@@ -28,6 +28,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -391,6 +392,7 @@ public class PropertyAnalyzer {
         String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
+        MediumAllocationMode mediumAllocationMode = oldDataProperty.getMediumAllocationMode();
         boolean isBeingSynced = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -503,9 +505,12 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_MUTABLE);
 
         DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
-        // check the state of data property
+        dataProperty.setMediumAllocationMode(mediumAllocationMode);
+        // Hard-binding semantics: PROPERTIES("storage_medium"=...) -> STRICT.
+        // If storage_medium is absent, preserve the old mode across unrelated
+        // data property changes such as cooldown time or storage policy.
         if (storageMediumSpecified) {
-            dataProperty.setStorageMediumSpecified(true);
+            dataProperty.setMediumAllocationMode(MediumAllocationMode.STRICT);
         }
         return dataProperty;
     }
@@ -1623,7 +1628,7 @@ public class PropertyAnalyzer {
                 try {
                     SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
                     systemInfoService.selectBackendIdsForReplicaCreation(
-                            replicaAlloc, nextIndexs, null, false, true);
+                            replicaAlloc, nextIndexs, null, MediumAllocationMode.ADAPTIVE, true);
                 } catch (DdlException ddlException) {
                     throw new AnalysisException(ddlException.getMessage());
                 }

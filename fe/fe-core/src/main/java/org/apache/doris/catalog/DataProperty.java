@@ -43,7 +43,17 @@ public class DataProperty implements GsonPostProcessable {
     private String storagePolicy;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
-    private boolean storageMediumSpecified;
+    // Whether the medium was explicitly requested by the user at CREATE TABLE time.
+    // ADAPTIVE: default / auto - placement may pick any available medium
+    // STRICT  : user explicitly asked for a specific medium (e.g. storage_medium=ssd)
+    //
+    // NOTE: on master this signal lived in a transient `storageMediumSpecified` boolean
+    // that was never persisted (missing @SerializedName), so it silently reverted to false
+    // after an FE restart. By persisting it here we both (a) carry the signal across
+    // restarts correctly and (b) get a typed home for the upcoming restore-side medium
+    // decision logic. See MediumAllocationMode for semantics.
+    @SerializedName(value = "mediumAllocationMode")
+    private MediumAllocationMode mediumAllocationMode = MediumAllocationMode.ADAPTIVE;
 
     private DataProperty() {
         // for persist
@@ -53,6 +63,7 @@ public class DataProperty implements GsonPostProcessable {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
+        this.mediumAllocationMode = MediumAllocationMode.ADAPTIVE;
     }
 
     public DataProperty(DataProperty other) {
@@ -60,6 +71,7 @@ public class DataProperty implements GsonPostProcessable {
         this.cooldownTimeMs = other.cooldownTimeMs;
         this.storagePolicy = other.storagePolicy;
         this.isMutable = other.isMutable;
+        this.mediumAllocationMode = other.mediumAllocationMode;
     }
 
     /**
@@ -78,6 +90,7 @@ public class DataProperty implements GsonPostProcessable {
         this.cooldownTimeMs = cooldown;
         this.storagePolicy = storagePolicy;
         this.isMutable = isMutable;
+        this.mediumAllocationMode = MediumAllocationMode.ADAPTIVE;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -96,8 +109,35 @@ public class DataProperty implements GsonPostProcessable {
         this.storagePolicy = storagePolicy;
     }
 
+    public MediumAllocationMode getMediumAllocationMode() {
+        return mediumAllocationMode;
+    }
+
+    public void setMediumAllocationMode(MediumAllocationMode mode) {
+        this.mediumAllocationMode = (mode == null ? MediumAllocationMode.ADAPTIVE : mode);
+    }
+
+    /**
+     * Legacy alias kept so that callers migrating in follow-up commits do not all
+     * need to change at once. Prefer {@link #getMediumAllocationMode()} in new code.
+     *
+     * @deprecated use {@link #getMediumAllocationMode()} and compare with
+     *             {@link MediumAllocationMode#STRICT}.
+     */
+    @Deprecated
     public boolean isStorageMediumSpecified() {
-        return storageMediumSpecified;
+        return mediumAllocationMode == MediumAllocationMode.STRICT;
+    }
+
+    /**
+     * Legacy setter kept so that callers migrating in follow-up commits do not all
+     * need to change at once. Prefer {@link #setMediumAllocationMode(MediumAllocationMode)}.
+     *
+     * @deprecated use {@link #setMediumAllocationMode(MediumAllocationMode)}.
+     */
+    @Deprecated
+    public void setStorageMediumSpecified(boolean isSpecified) {
+        this.mediumAllocationMode = isSpecified ? MediumAllocationMode.STRICT : MediumAllocationMode.ADAPTIVE;
     }
 
     public boolean isMutable() {
@@ -108,17 +148,13 @@ public class DataProperty implements GsonPostProcessable {
         isMutable = mutable;
     }
 
-    public void setStorageMediumSpecified(boolean isSpecified) {
-        storageMediumSpecified = isSpecified;
-    }
-
     public void setStorageMedium(TStorageMedium medium) {
         this.storageMedium = medium;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy);
+        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy, mediumAllocationMode);
     }
 
     @Override
@@ -136,7 +172,8 @@ public class DataProperty implements GsonPostProcessable {
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
                 && Strings.nullToEmpty(this.storagePolicy).equals(Strings.nullToEmpty(other.storagePolicy))
-                && this.isMutable == other.isMutable;
+                && this.isMutable == other.isMutable
+                && this.mediumAllocationMode == other.mediumAllocationMode;
     }
 
     @Override
@@ -145,6 +182,7 @@ public class DataProperty implements GsonPostProcessable {
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage policy[").append(this.storagePolicy).append("]. ");
+        sb.append("medium allocation mode[").append(this.mediumAllocationMode).append("]. ");
         return sb.toString();
     }
 
@@ -152,6 +190,9 @@ public class DataProperty implements GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         // storagePolicy is a newly added field, it may be null when replaying from old version.
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
+        // mediumAllocationMode is a newly added field; old images won't contain it, so default to ADAPTIVE.
+        if (this.mediumAllocationMode == null) {
+            this.mediumAllocationMode = MediumAllocationMode.ADAPTIVE;
+        }
     }
-
 }
