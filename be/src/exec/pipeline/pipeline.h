@@ -72,8 +72,8 @@ public:
         return is_shuffled_exchange(idx);
     }
 
-    // For HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, and ADAPTIVE_PASSTHROUGH,
-    // data is processed and shuffled on the sink.
+    // For the hash-shuffle types (GLOBAL_EXECUTION_HASH_SHUFFLE, LOCAL_EXECUTION_HASH_SHUFFLE,
+    // BUCKET_HASH_SHUFFLE) and ADAPTIVE_PASSTHROUGH, data is processed and shuffled on the sink.
     // Compared to PASSTHROUGH, this is a relatively heavy operation.
     static bool heavy_operations_on_the_sink(TLocalPartitionType::type idx) {
         return is_shuffled_exchange(idx) || idx == TLocalPartitionType::ADAPTIVE_PASSTHROUGH;
