@@ -583,6 +583,7 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
     auto file_description = std::make_unique<io::FileDescription>();
     file_description->path = range.path;
     file_description->file_size = range.__isset.file_size ? range.file_size : -1;
+    file_description->mtime = range.__isset.modification_time ? range.modification_time : 0;
     file_description->range_start_offset = range.__isset.start_offset ? range.start_offset : 0;
     file_description->range_size = range.__isset.size ? range.size : -1;
     if (range.__isset.fs_name) {
