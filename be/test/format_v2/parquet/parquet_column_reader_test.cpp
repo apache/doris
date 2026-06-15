@@ -3732,6 +3732,45 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
     }
 }
 
+// Some Hive/legacy parquet files mark MAP key as optional even though actual keys are non-null.
+// Schema parsing should accept that layout; MapColumnReader rejects the file later only if a real
+// null key is materialized.
+TEST_F(ParquetColumnReaderTest, BuildMapSchemaAllowsOptionalKeyField) {
+    auto schema = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED,
+            {::parquet::schema::GroupNode::Make(
+                    "t_map_varchar", ::parquet::Repetition::OPTIONAL,
+                    {::parquet::schema::GroupNode::Make(
+                            "key_value", ::parquet::Repetition::REPEATED,
+                            {
+                                    ::parquet::schema::PrimitiveNode::Make(
+                                            "key", ::parquet::Repetition::OPTIONAL,
+                                            ::parquet::Type::BYTE_ARRAY,
+                                            ::parquet::ConvertedType::UTF8),
+                                    ::parquet::schema::PrimitiveNode::Make(
+                                            "value", ::parquet::Repetition::OPTIONAL,
+                                            ::parquet::Type::BYTE_ARRAY,
+                                            ::parquet::ConvertedType::UTF8),
+                            })},
+                    ::parquet::ConvertedType::MAP)});
+    ::parquet::SchemaDescriptor descriptor;
+    descriptor.Init(schema);
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    auto st = build_parquet_column_schema(descriptor, &fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(fields.size(), 1);
+    EXPECT_EQ(fields[0]->name, "t_map_varchar");
+    EXPECT_EQ(fields[0]->kind, ParquetColumnSchemaKind::MAP);
+    ASSERT_EQ(fields[0]->children.size(), 2);
+    EXPECT_EQ(fields[0]->children[0]->name, "key");
+    EXPECT_TRUE(fields[0]->children[0]->type->is_nullable());
+
+    const auto& map_type = assert_cast<const DataTypeMap&>(*remove_nullable(fields[0]->type));
+    EXPECT_TRUE(map_type.get_key_type()->is_nullable());
+    EXPECT_TRUE(map_type.get_value_type()->is_nullable());
+}
+
 TEST_F(ParquetColumnReaderTest, ReadInt96TimestampAsDateTimeV2) {
     const auto file_path = (_test_dir / "int96_timestamp.parquet").string();
     auto field = arrow::field("col_datetime", arrow::timestamp(arrow::TimeUnit::MICRO), false);

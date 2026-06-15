@@ -34,6 +34,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -70,6 +71,10 @@ DataTypePtr dec32(uint32_t precision, uint32_t scale) {
 
 DataTypePtr str() {
     return std::make_shared<DataTypeString>();
+}
+
+DataTypePtr timestamptz(uint32_t scale) {
+    return std::make_shared<DataTypeTimeStampTz>(scale);
 }
 
 DataTypePtr u8() {
@@ -926,6 +931,27 @@ TEST(ColumnMapperCreateMappingTest, ByNameUsesFirstMatchingFileFieldWhenAmbiguou
     expect_mapping(mapper.mappings()[0], 0, "id", 0, "ID", int_type, int_type);
 }
 
+TEST(ColumnMapperCreateMappingTest, TimestampTzScaleMismatchDoesNotAddFinalizeCast) {
+    // Scenario: HDFS TVF may expose a table slot as TIMESTAMPTZ(0), while a Parquet logical UTC
+    // timestamp file schema is materialized as TIMESTAMPTZ(6). Finalization must not add a SQL
+    // cast from scale 6 to scale 0, because that cast rounds fractional seconds:
+    //   2025-06-01 12:34:56.789+08:00 -> 2025-06-01 12:34:57+08:00
+    // Reader finalization should pass the column through; the output slot type controls display
+    // scale and hides the fractional part without changing the stored instant.
+    const auto table_type = timestamptz(0);
+    const auto file_type = timestamptz(6);
+    const std::vector<ColumnDefinition> table_schema = {name_col("ts_tz", table_type)};
+    const std::vector<ColumnDefinition> file_schema = {name_col("ts_tz", file_type, 0)};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_mapping(mapper.mappings()[0], 0, "ts_tz", 0, "ts_tz", file_type, table_type);
+    EXPECT_TRUE(mapper.mappings()[0].is_trivial);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::COPY_DIRECTLY);
+}
+
 TEST(ColumnMapperCreateMappingTest, ByNameUsesNameMappingForRenamedColumn) {
     const auto int_type = i32();
     auto table_column = name_col("current_id", int_type);
@@ -1200,6 +1226,34 @@ TEST(ColumnMapperCreateMappingTest, ByFieldIdDoesNotFallbackToNameAndUsesFirstDu
     expect_mapping(mapper.mappings()[0], 0, "renamed", 0, "first", int_type, int_type);
     expect_missing(mapper.mappings()[1]);
     expect_mapping(mapper.mappings()[2], 2, "negative", 3, "negative_file", int_type, int_type);
+}
+
+// Scenario: Iceberg TopN lazy materialization uses BY_FIELD_ID for schema evolution and also asks
+// the file reader to synthesize GLOBAL_ROWID. GLOBAL_ROWID is matched by ColumnType before the
+// field-id matcher, so keeping BY_FIELD_ID does not make the mapper look for a numeric field id for
+// that virtual column.
+TEST(ColumnMapperCreateMappingTest, ByFieldIdMapsGlobalRowIdByVirtualColumnType) {
+    const auto int_type = i32();
+    auto table_rowid = global_rowid_column_definition();
+    table_rowid.name = BeConsts::GLOBAL_ROWID_COL + "equality_delete_par_1";
+    table_rowid.identifier = Field::create_field<TYPE_STRING>(table_rowid.name);
+
+    const std::vector<ColumnDefinition> table_schema = {
+            field_id_col("new_new_id", 1, int_type),
+            table_rowid,
+    };
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("id", 1, int_type, 0),
+            global_rowid_column_definition(),
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    ASSERT_EQ(mapper.mappings().size(), 2);
+    expect_mapping(mapper.mappings()[0], 0, "new_new_id", 0, "id", int_type, int_type);
+    expect_mapping(mapper.mappings()[1], 1, table_rowid.name, GLOBAL_ROWID_COLUMN_ID,
+                   BeConsts::GLOBAL_ROWID_COL, str(), str());
 }
 
 TEST(ColumnMapperCreateMappingTest, ByFieldIdTreatsSameNameDifferentFieldIdAsMissing) {
