@@ -1236,6 +1236,11 @@ DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+DECLARE_mBool(enable_file_cache_ttl_repair_checker);
+DECLARE_mInt64(file_cache_ttl_repair_checker_interval_ms);
+DECLARE_mInt64(file_cache_ttl_repair_checker_max_scan_prefix_dirs_per_round);
+DECLARE_mInt64(file_cache_ttl_repair_checker_max_repairs_per_round);
+DECLARE_mInt64(file_cache_ttl_repair_checker_repair_sleep_ms);
 DECLARE_Int32(file_cache_downloader_thread_num_min);
 DECLARE_Int32(file_cache_downloader_thread_num_max);
 // used to persist lru information before be reboot and load the info back

@@ -1187,6 +1187,11 @@ DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
+DEFINE_mBool(enable_file_cache_ttl_repair_checker, "true");
+DEFINE_mInt64(file_cache_ttl_repair_checker_interval_ms, "1800000");
+DEFINE_mInt64(file_cache_ttl_repair_checker_max_scan_prefix_dirs_per_round, "1000");
+DEFINE_mInt64(file_cache_ttl_repair_checker_max_repairs_per_round, "1000");
+DEFINE_mInt64(file_cache_ttl_repair_checker_repair_sleep_ms, "20");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
