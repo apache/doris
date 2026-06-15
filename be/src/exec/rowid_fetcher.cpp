@@ -722,8 +722,8 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping,
         const std::vector<SlotDescriptor>& scan_slots, const TUniqueId& query_id,
-        const std::shared_ptr<RuntimeState>& runtime_state,
-        std::vector<Block>& scan_blocks, std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        const std::shared_ptr<RuntimeState>& runtime_state,std::vector<Block>& scan_blocks,
+        std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
         const std::unordered_map<std::string, int>& colname_to_slot_id,
@@ -778,8 +778,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         return Status::InternalError(
                 "Row id fetch scan row count mismatch, "
                 "query_id={}, path={}, expected_rows={}, actual_rows={}",
-                print_id(query_id), scan_range_desc.path, read_ids.size(),
-                scan_blocks[idx].rows());
+                print_id(query_id), scan_range_desc.path, read_ids.size(), scan_blocks[idx].rows());
     }
     for (size_t column_id = 0; column_id < scan_blocks[idx].columns(); ++column_id) {
         const auto& column = scan_blocks[idx].get_by_position(column_id);
