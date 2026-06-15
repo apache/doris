@@ -259,6 +259,10 @@ const map<string, THdfsCompression> COMPRESSION_MAP = {
 struct TOlapTableIndexTablets {
     1: required i64 index_id
     2: required list<i64> tablets
+    // only used in adaptive random bucket mode: FE-selected bucket owner BE for this index.
+    3: optional i64 bucket_be_id
+    // only used in adaptive random bucket mode: FE-selected bucket seqs for this index.
+    4: optional list<i32> local_bucket_seqs
 }
 
 // its a closed-open range

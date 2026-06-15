@@ -97,6 +97,32 @@ bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_through
 bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms(
         "load_back_pressure_version_time_ms");
 
+static const OlapTableIndexTablets* find_partition_index(const VOlapTablePartition& partition,
+                                                         int64_t index_id) {
+    for (const auto& index : partition.indexes) {
+        if (index.index_id == index_id) {
+            return &index;
+        }
+    }
+    return nullptr;
+}
+
+static int64_t adaptive_bucket_be_id(const VOlapTablePartition& partition,
+                                     const OlapTableIndexTablets* index) {
+    if (index != nullptr && index->__isset.bucket_be_id) {
+        return index->bucket_be_id > 0 ? index->bucket_be_id : BackendOptions::get_backend_id();
+    }
+    return partition.bucket_be_id > 0 ? partition.bucket_be_id : BackendOptions::get_backend_id();
+}
+
+static const std::vector<int32_t>& adaptive_local_bucket_seqs(
+        const VOlapTablePartition& partition, const OlapTableIndexTablets* index) {
+    if (index != nullptr && index->__isset.local_bucket_seqs) {
+        return index->local_bucket_seqs;
+    }
+    return partition.local_bucket_seqs;
+}
+
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
                           bool incremental) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -134,9 +160,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                     if (part->id != tablet.partition_id) {
                         continue;
                     }
-                    const auto bucket_be_id = part->bucket_be_id > 0
-                                                      ? part->bucket_be_id
-                                                      : BackendOptions::get_backend_id();
+                    const auto* index = find_partition_index(*part, _index_id);
+                    const auto bucket_be_id = adaptive_bucket_be_id(*part, index);
                     if (bucket_be_id != replica_node_id) {
                         continue;
                     }
@@ -690,33 +715,30 @@ void VNodeChannel::_open_internal(bool is_incremental) {
                              << _parent->_load_id << ", partition_id=" << partition_id;
                 continue;
             }
+            const auto* index_info =
+                    find_partition_index(*partition_it->second, _index_channel->_index_id);
+            if (index_info == nullptr) {
+                LOG(WARNING) << "unknown index for adaptive random bucket, load_id="
+                             << _parent->_load_id << ", partition_id=" << partition_id
+                             << ", index_id=" << _index_channel->_index_id;
+                continue;
+            }
             std::vector<int64_t> selected_ordered_tablets;
-            const auto& local_bucket_seqs = partition_it->second->local_bucket_seqs;
+            const auto& local_bucket_seqs =
+                    adaptive_local_bucket_seqs(*partition_it->second, index_info);
             if (!local_bucket_seqs.empty()) {
-                const std::vector<int64_t>* full_ordered_tablets = nullptr;
-                for (const auto& index : partition_it->second->indexes) {
-                    if (index.index_id == _index_channel->_index_id) {
-                        full_ordered_tablets = &index.tablets;
-                        break;
-                    }
-                }
-                if (full_ordered_tablets == nullptr) {
-                    LOG(WARNING) << "unknown index for adaptive random bucket, load_id="
-                                 << _parent->_load_id << ", partition_id=" << partition_id
-                                 << ", index_id=" << _index_channel->_index_id;
-                    continue;
-                }
+                const auto& full_ordered_tablets = index_info->tablets;
                 for (auto bucket_seq : local_bucket_seqs) {
                     if (bucket_seq < 0 ||
-                        bucket_seq >= cast_set<int32_t>(full_ordered_tablets->size())) {
+                        bucket_seq >= cast_set<int32_t>(full_ordered_tablets.size())) {
                         LOG(WARNING)
                                 << "invalid local bucket seq, load_id=" << _parent->_load_id
                                 << ", partition_id=" << partition_id
                                 << ", bucket_seq=" << bucket_seq
-                                << ", full_ordered_tablets_size=" << full_ordered_tablets->size();
+                                << ", full_ordered_tablets_size=" << full_ordered_tablets.size();
                         continue;
                     }
-                    auto tablet_id = (*full_ordered_tablets)[bucket_seq];
+                    auto tablet_id = full_ordered_tablets[bucket_seq];
                     if (!partition_to_local_tablets[partition_id].contains(tablet_id)) {
                         LOG(WARNING)
                                 << "skip non-local tablet selected by local bucket seq, load_id="

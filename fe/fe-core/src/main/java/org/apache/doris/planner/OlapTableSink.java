@@ -582,18 +582,20 @@ public class OlapTableSink extends DataSink {
     }
 
     public static final class AdaptiveBucketAssignment {
-        private final long bucketBeId;
         private final int loadTabletIdx;
-        private final List<Integer> localBucketSeqs;
+        private final AdaptiveIndexBucketAssignment firstIndexAssignment;
+        private final Map<Long, AdaptiveIndexBucketAssignment> indexAssignments;
 
-        public AdaptiveBucketAssignment(long bucketBeId, int loadTabletIdx, List<Integer> localBucketSeqs) {
-            this.bucketBeId = bucketBeId;
+        public AdaptiveBucketAssignment(int loadTabletIdx,
+                AdaptiveIndexBucketAssignment firstIndexAssignment,
+                Map<Long, AdaptiveIndexBucketAssignment> indexAssignments) {
             this.loadTabletIdx = loadTabletIdx;
-            this.localBucketSeqs = new ArrayList<>(localBucketSeqs);
+            this.firstIndexAssignment = firstIndexAssignment;
+            this.indexAssignments = new HashMap<>(indexAssignments);
         }
 
         public long getBucketBeId() {
-            return bucketBeId;
+            return firstIndexAssignment == null ? -1L : firstIndexAssignment.getBucketBeId();
         }
 
         public int getLoadTabletIdx() {
@@ -601,7 +603,42 @@ public class OlapTableSink extends DataSink {
         }
 
         public List<Integer> getLocalBucketSeqs() {
+            return firstIndexAssignment == null ? Collections.emptyList()
+                    : firstIndexAssignment.getLocalBucketSeqs();
+        }
+
+        public Map<Long, AdaptiveIndexBucketAssignment> getIndexAssignments() {
+            return indexAssignments;
+        }
+    }
+
+    public static final class AdaptiveIndexBucketAssignment {
+        private final long indexId;
+        private final long bucketBeId;
+        private final List<Integer> localBucketSeqs;
+
+        public AdaptiveIndexBucketAssignment(long indexId, long bucketBeId, List<Integer> localBucketSeqs) {
+            this.indexId = indexId;
+            this.bucketBeId = bucketBeId;
+            this.localBucketSeqs = new ArrayList<>(localBucketSeqs);
+        }
+
+        public long getIndexId() {
+            return indexId;
+        }
+
+        public long getBucketBeId() {
+            return bucketBeId;
+        }
+
+        public List<Integer> getLocalBucketSeqs() {
             return localBucketSeqs;
+        }
+
+        @Override
+        public String toString() {
+            return "indexId=" + indexId + ",bucketBeId=" + bucketBeId
+                    + ",localBucketSeqs=" + localBucketSeqs;
         }
     }
 
@@ -645,7 +682,8 @@ public class OlapTableSink extends DataSink {
                     || partition.getIndexes().isEmpty()) {
                 continue;
             }
-            Map<Long, List<Integer>> beToBucketSeqs = buildBeToBucketSeqs(partition, tabletLocationMap);
+            TOlapTableIndexTablets baseIndex = partition.getIndexes().get(0);
+            Map<Long, List<Integer>> beToBucketSeqs = buildBeToBucketSeqs(baseIndex, tabletLocationMap);
             long baseTabletIndex = partition.getLoadTabletIdx();
             int fallbackBucketIdx = (int) Math.floorMod(baseTabletIndex, (long) partition.getNumBuckets());
             int targetBucketNum = Math.min(
@@ -689,13 +727,18 @@ public class OlapTableSink extends DataSink {
                 }
                 List<Integer> localBucketSeqs = rotateBucketSeqsForStartBucket(
                         beToBucketSeqs.get(bucketBeId), bucketSeq);
+                Map<Long, AdaptiveIndexBucketAssignment> indexAssignments =
+                        buildIndexBucketAssignments(partition, tabletLocationMap, bucketSeq);
+                AdaptiveIndexBucketAssignment firstIndexAssignment =
+                        indexAssignments.get(baseIndex.getIndexId());
                 assignments.get(sinkBackendId).put(partition.getId(),
-                        new AdaptiveBucketAssignment(bucketBeId, bucketSeq, localBucketSeqs));
+                        new AdaptiveBucketAssignment(bucketSeq, firstIndexAssignment, indexAssignments));
                 bucketUseCounts.merge(bucketSeq, 1, Integer::sum);
                 if (sinkAssignments != null) {
                     sinkAssignments.put(sinkBackendId,
                             "bucket=" + bucketSeq + ",bucketBeId=" + bucketBeId
-                                    + ",localBucketSeqs=" + localBucketSeqs);
+                                    + ",localBucketSeqs=" + localBucketSeqs
+                                    + ",indexAssignments=" + indexAssignments);
                 }
             }
             if (sinkAssignments != null) {
@@ -731,19 +774,49 @@ public class OlapTableSink extends DataSink {
             } else if (partition.isSetLocalBucketSeqs()) {
                 partition.unsetLocalBucketSeqs();
             }
+            for (TOlapTableIndexTablets index : partition.getIndexes()) {
+                AdaptiveIndexBucketAssignment indexAssignment =
+                        assignment.getIndexAssignments().get(index.getIndexId());
+                if (indexAssignment == null) {
+                    if (index.isSetBucketBeId()) {
+                        index.unsetBucketBeId();
+                    }
+                    if (index.isSetLocalBucketSeqs()) {
+                        index.unsetLocalBucketSeqs();
+                    }
+                    continue;
+                }
+                index.setBucketBeId(indexAssignment.getBucketBeId());
+                index.setLocalBucketSeqs(new ArrayList<>(indexAssignment.getLocalBucketSeqs()));
+            }
             if (LOG.isInfoEnabled()) {
                 LOG.info("Adaptive random bucket apply partition={}, bucketBeId={}, loadTabletIdx={}, "
-                                + "localBucketSeqs={}",
+                                + "localBucketSeqs={}, indexAssignments={}",
                         partition.getId(), assignment.getBucketBeId(), assignment.getLoadTabletIdx(),
-                        assignment.getLocalBucketSeqs());
+                        assignment.getLocalBucketSeqs(), assignment.getIndexAssignments());
             }
         }
     }
 
-    private static Map<Long, List<Integer>> buildBeToBucketSeqs(TOlapTablePartition partition,
+    private static Map<Long, AdaptiveIndexBucketAssignment> buildIndexBucketAssignments(
+            TOlapTablePartition partition, Map<Long, TTabletLocation> tabletLocationMap, int bucketSeq) {
+        Map<Long, AdaptiveIndexBucketAssignment> indexAssignments = new HashMap<>();
+        for (TOlapTableIndexTablets index : partition.getIndexes()) {
+            Map<Long, List<Integer>> beToBucketSeqs = buildBeToBucketSeqs(index, tabletLocationMap);
+            Map<Integer, Long> bucketToOwnerBe = buildBucketToOwnerBe(beToBucketSeqs);
+            long bucketBeId = bucketToOwnerBe.getOrDefault(bucketSeq, -1L);
+            List<Integer> localBucketSeqs = rotateBucketSeqsForStartBucket(
+                    beToBucketSeqs.get(bucketBeId), bucketSeq);
+            indexAssignments.put(index.getIndexId(),
+                    new AdaptiveIndexBucketAssignment(index.getIndexId(), bucketBeId, localBucketSeqs));
+        }
+        return indexAssignments;
+    }
+
+    private static Map<Long, List<Integer>> buildBeToBucketSeqs(TOlapTableIndexTablets index,
             Map<Long, TTabletLocation> tabletLocationMap) {
         Map<Long, List<Integer>> beToBucketSeqs = new HashMap<>();
-        List<Long> tablets = partition.getIndexes().get(0).getTablets();
+        List<Long> tablets = index.getTablets();
         for (int bucketSeq = 0; bucketSeq < tablets.size(); bucketSeq++) {
             TTabletLocation tabletLocation = tabletLocationMap.get(tablets.get(bucketSeq));
             if (tabletLocation == null || tabletLocation.getNodeIds() == null
