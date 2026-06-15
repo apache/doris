@@ -134,11 +134,6 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
-    // Used by AddLocalExchange: tracks whether any serial operator exists
-    // between the current node and the pipeline's sink (downstream serial check).
-    // Pipeline-splitting nodes reset this to false; serial non-splitting nodes set it to true.
-    private boolean serialAncestorInCurrentPipeline;
-
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
@@ -414,13 +409,5 @@ public class PlanTranslatorContext {
 
     public Set<SlotId> getVirtualColumnIds() {
         return virtualColumnIds;
-    }
-
-    public boolean hasSerialAncestorInCurrentPipeline() {
-        return serialAncestorInCurrentPipeline;
-    }
-
-    public void setSerialAncestorInCurrentPipeline(boolean serialAncestorInCurrentPipeline) {
-        this.serialAncestorInCurrentPipeline = serialAncestorInCurrentPipeline;
     }
 }

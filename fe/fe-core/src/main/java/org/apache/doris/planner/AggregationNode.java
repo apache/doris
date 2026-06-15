@@ -382,6 +382,11 @@ public class AggregationNode extends PlanNode {
         // chain scatters same-group rows across N instances, leaving partial_preagg essentially a
         // no-op and breaking row-arrival order at downstream merge-finalize (e.g. group_concat).
         List<Expr> childDist = getChildDistributeExprList(childIndex);
+        // Multi-distinct aggregates are detected by function name. Nereids rewrites
+        // count/sum(distinct ...) into dedicated MultiDistinct* functions constructed with
+        // distinct=false and a "multi_distinct_" name, so by this legacy FunctionCallExpr layer
+        // isDistinct() is already false and the function name is the only remaining signal —
+        // there is no structural flag to test here.
         boolean hasDistinct = aggInfo.getAggregateExprs().stream()
                 .map(FunctionCallExpr::getFnName)
                 .filter(name -> name != null)

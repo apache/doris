@@ -145,7 +145,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     protected int nereidsId = -1;
 
+    // Per-child hash-distribution key exprs: childrenDistributeExprLists.get(i) is the expr list
+    // used to (re)partition this node's i-th child's input — consumed by getChildDistributeExprList()
+    // when deriving local-exchange keys.
     protected List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    // This node's own output hash-distribution key exprs — serialized to BE for its LocalExchange /
+    // shuffle (see distributeExprLists()).
     protected List<Expr> distributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName) {
@@ -1066,9 +1071,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      *
      * <h3>Invariants</h3>
      * <ul>
-     *   <li>Every serial → non-serial transition has an LE somewhere between them
-     *       (enforced by framework step 3 below, validated by
-     *       {@link AddLocalExchange#validateNoSerialWithoutLocalExchange}).</li>
+     *   <li>Where a serial → non-serial transition needs redistribution, framework step 3 inserts
+     *       the LE (e.g. a serial source fanned out via PASSTHROUGH).  This is not a hard invariant:
+     *       a serial child feeding a parent that requires PASSTHROUGH / noRequire (TableFunction,
+     *       NLJ, Agg) is already correct and needs no LE, so it is intentionally not validated by a
+     *       post-pass.</li>
      *   <li>{@code LocalExchangeNode} itself is always non-serial — setting it serial
      *       would defeat its purpose of fanning a 1-task pipeline back to N tasks.</li>
      *   <li>For pipeline-breaking parents ({@code shouldResetSerialFlagForChild=true}),

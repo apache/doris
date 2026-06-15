@@ -637,7 +637,6 @@ public class NereidsPlanner extends Planner {
         }
 
         this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        PlanTranslatorContext planTranslatorContext = this.planTranslatorContext;
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
@@ -660,8 +659,7 @@ public class NereidsPlanner extends Planner {
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
-        List<PlanFragment> planFragments = planTranslatorContext.getPlanFragments();
-        fragments = new ArrayList<>(planFragments);
+        fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
 
         boolean enableQueryCache = sessionVariable.getEnableQueryCache();
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -745,13 +743,14 @@ public class NereidsPlanner extends Planner {
         splitFragments(physicalPlan);
         doDistribute(canUseNereidsDistributePlanner, explainLevel);
 
-        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        if (sessionVariable.isEnableLocalShufflePlanner() && sessionVariable.isEnableLocalShuffle()) {
-            addLocalExchangeAfterDistribute();
-        }
+        addLocalExchangeAfterDistribute();
     }
 
     private void addLocalExchangeAfterDistribute() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        if (!sessionVariable.isEnableLocalShufflePlanner() || !sessionVariable.isEnableLocalShuffle()) {
+            return;
+        }
         AddLocalExchange adder = new AddLocalExchange();
         if (distributedPlans != null && !distributedPlans.isEmpty()) {
             adder.addLocalExchange(distributedPlans, planTranslatorContext);

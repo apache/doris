@@ -731,8 +731,8 @@ Status PipelineFragmentContext::_create_deferred_local_exchangers() {
         //   genuinely has num_tasks=1, only 1 close arrives, but seed becomes
         //   _num_instances so _running_sink_operators never reaches 0 — downstream
         //   sources hang on SHUFFLE_DATA_DEPENDENCY (e.g. MTMV refresh from
-        //   mtmv_up_down_job_p0/load.groovy stays at Status=RUNNING; build 949402
-        //   regressed exactly this way).  BE-planned mode uses max() because its
+        //   mtmv_up_down_job_p0/load.groovy stays at Status=RUNNING and regressed
+        //   exactly this way).  BE-planned mode uses max() because its
         //   `cur_pipe` is the source-side pipeline (always raised to _num_instances by
         //   add_pipeline) — not analogous to our `upstream_pipe` here, which is the
         //   sink-side pipeline that may legitimately stay at 1 for serial sources.
@@ -2022,11 +2022,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         // add_pipeline(parent).  The deferred exchanger creates _num_instances
         // channels but only fewer source tasks initialize mem_counters — the
         // sink round-robins to all channels and crashes on uninitialized ones.
-        auto downstream_num_tasks = _num_instances;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         // Restore downstream pipeline's num_tasks (mirroring _inherit_pipeline_properties:
         // downstream keeps _num_instances, upstream gets the serial/reduced count)
-        cur_pipe->set_num_tasks(downstream_num_tasks);
+        cur_pipe->set_num_tasks(_num_instances);
 
         const auto downstream_pipeline_id = cur_pipe->id();
         if (!_dag.contains(downstream_pipeline_id)) {

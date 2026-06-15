@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBucketedAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -98,9 +97,10 @@ public class BucketedAggregationNode extends PlanNode {
     }
 
     @Override
-    public boolean isSerialOperatorOnBe(ConnectContext context) {
-        // Bucketed agg handles group-by keys only (no without-key in initial version),
-        // so it's never a serial operator.
+    public boolean isSerialNode() {
+        // Bucketed agg handles group-by keys only (no without-key in initial version), so it is never
+        // a serial operator. Overriding isSerialNode() (rather than isSerialOperatorOnBe) keeps it
+        // consistent with every other node; isSerialOperatorOnBe() derives from isSerialNode().
         return false;
     }
 }
