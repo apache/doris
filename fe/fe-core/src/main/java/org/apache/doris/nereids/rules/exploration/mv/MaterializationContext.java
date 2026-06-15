@@ -27,6 +27,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -45,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -164,25 +167,30 @@ public abstract class MaterializationContext {
      * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different.
      */
-    public void tryGenerateScanPlan(CascadesContext cascadesContext) {
-        if (!this.isAvailable()) {
-            return;
-        }
-        this.scanPlan = doGenerateScanPlan(cascadesContext);
-        // Materialization output expression shuttle, this will be used to expression rewrite
-        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
-        // generate expression depend on the order of output
-        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
-                scanPlanOutput);
-        // This is used by normalize statistics column expression
-        Map<Expression, Expression> regeneratedMapping = new HashMap<>();
+    private void tryGenerateScanPlan(CascadesContext cascadesContext) {
+        Preconditions.checkState(this.isAvailable(),
+                "materialization context is not available, identifier is %s", generateMaterializationIdentifier());
+        LogicalOlapScan olapScan = doGenerateOlapScanPlan(cascadesContext);
+        List<Slot> scanPlanOutput = olapScan.getOutput();
+        ExpressionMapping newShuttledExprToScanExprMapping = ExpressionMapping.generate(
+                this.planOutputShuttledExpressions, scanPlanOutput);
+        Map<Expression, Expression> newExprToScanExprMapping = new HashMap<>();
         List<Slot> originalPlanOutput = originalPlan.getOutput();
         if (originalPlanOutput.size() == scanPlanOutput.size()) {
             for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
-                regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
+                newExprToScanExprMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
             }
         }
-        this.exprToScanExprMapping = regeneratedMapping;
+
+        LogicalOlapScan scanWithImpliedPredicates =
+                MaterializedViewUtils.withImpliedPredicates(olapScan, structInfo,
+                        newShuttledExprToScanExprMapping);
+        Plan newScanPlan = BindRelation.checkAndAddDeleteSignFilter(scanWithImpliedPredicates,
+                cascadesContext.getConnectContext(), scanWithImpliedPredicates.getTable());
+
+        this.shuttledExprToScanExprMapping = newShuttledExprToScanExprMapping;
+        this.exprToScanExprMapping = newExprToScanExprMapping;
+        this.scanPlan = newScanPlan;
     }
 
     /**
@@ -210,7 +218,7 @@ public abstract class MaterializationContext {
      * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different
      */
-    abstract Plan doGenerateScanPlan(CascadesContext cascadesContext);
+    abstract LogicalOlapScan doGenerateOlapScanPlan(CascadesContext cascadesContext);
 
     /**
      * Get materialization unique identifier which identify it

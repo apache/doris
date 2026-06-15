@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
@@ -26,10 +27,10 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintainer.PartitionIncrementCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintainer.PartitionIncrementChecker;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
+import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -38,9 +39,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -57,9 +60,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
@@ -70,6 +76,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -315,11 +322,11 @@ public class MaterializedViewUtils {
      * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
-    public static Plan generateMvScanPlan(OlapTable table, long indexId,
+    public static LogicalOlapScan generateMvOlapScanPlan(OlapTable table, long indexId,
             List<Long> partitionIds,
             PreAggStatus preAggStatus,
             CascadesContext cascadesContext) {
-        LogicalOlapScan olapScan = new LogicalOlapScan(
+        return new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 table,
                 ImmutableList.of(table.getQualifiedDbName()),
@@ -332,8 +339,139 @@ public class MaterializedViewUtils {
                 ImmutableList.of(),
                 Optional.empty(),
                 ImmutableList.of());
-        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
-                olapScan.getTable());
+    }
+
+    public static LogicalOlapScan withImpliedPredicates(
+            LogicalOlapScan olapScan, StructInfo structInfo,
+            List<? extends Expression> planOutputShuttledExpressions) {
+        ExpressionMapping shuttledExprToScanExprMapping =
+                ExpressionMapping.generate(planOutputShuttledExpressions, olapScan.getOutput());
+        return withImpliedPredicates(olapScan, structInfo, shuttledExprToScanExprMapping);
+    }
+
+    static LogicalOlapScan withImpliedPredicates(
+            LogicalOlapScan olapScan, StructInfo structInfo, ExpressionMapping shuttledExprToScanExprMapping) {
+        List<Map<Expression, Expression>> flattenExpressionMap = shuttledExprToScanExprMapping.flattenMap();
+        Map<Expression, Expression> lineageExpressionToScanExpressionMap = flattenExpressionMap.isEmpty()
+                ? ImmutableMap.of()
+                : flattenExpressionMap.get(0);
+        Set<Expression> scanPredicates = collectScanPredicates(
+                structInfo, lineageExpressionToScanExpressionMap);
+        return olapScan.withRelationImpliedPredicates(scanPredicates);
+    }
+
+    private static Set<Expression> collectScanPredicates(
+            StructInfo structInfo, Map<Expression, Expression> lineageExpressionToScanExpressionMap) {
+        Set<Expression> scanPredicateCandidates = structInfo.getPredicates().getSemanticPredicates();
+        Set<Expression> scanPredicates = new HashSet<>();
+        if (scanPredicateCandidates.isEmpty()) {
+            return scanPredicates;
+        }
+
+        List<? extends Expression> lineagePredicates = ExpressionUtils.shuttleExpressionWithLineage(
+                new ArrayList<>(scanPredicateCandidates), structInfo.getTopPlan());
+
+        Map<NonOutputSlotKey, SlotReference> nonOutputSlots = new HashMap<>();
+        for (Expression predicate : lineagePredicates) {
+            if (ExpressionUtils.isInferred(predicate) || BooleanLiteral.TRUE.equals(predicate)) {
+                continue;
+            }
+            if (!canRepresentAsScanPredicate(predicate, lineageExpressionToScanExpressionMap)) {
+                continue;
+            }
+            Expression scanPredicate = rewritePredicateToScan(predicate,
+                    lineageExpressionToScanExpressionMap, nonOutputSlots);
+            scanPredicates.add(scanPredicate);
+        }
+        return scanPredicates;
+    }
+
+    // StructInfo semantic predicates may contain top-plan predicates that are not tied to a base-table column,
+    // such as mark-join slots generated for NOT IN subqueries. Only predicates whose every leaf can be mapped
+    // to an MV scan output expression or to an identifiable original table column can be carried by the scan.
+    private static boolean canRepresentAsScanPredicate(Expression predicate,
+            Map<Expression, Expression> lineageExpressionToScanExpressionMap) {
+        if (lineageExpressionToScanExpressionMap.containsKey(predicate)) {
+            return true;
+        }
+        if (predicate instanceof SlotReference) {
+            // Mark-join slots like $c$1 are semantic predicates of the upper plan,
+            // but they are not relation columns and cannot be carried by an MV scan.
+            SlotReference slot = (SlotReference) predicate;
+            return slot.getOriginalTable().isPresent() && slot.getOriginalColumn().isPresent();
+        }
+        for (Expression child : predicate.children()) {
+            if (!canRepresentAsScanPredicate(child, lineageExpressionToScanExpressionMap)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Rewrite a semantic predicate from the MV definition side into the expression form
+    // that can be carried by the MV scan. For example, if the MV outputs `a + 1 AS x`,
+    // lineageExpressionToScanExpressionMap contains `a + 1 -> mv.x`, so `a + 1 > 10`
+    // is rewritten to `mv.x > 10`. If the predicate references a non-output column like `c > 10`,
+    // create a non-output slot for `c`, and reuse the same slot through nonOutputSlots.
+    private static Expression rewritePredicateToScan(Expression predicate,
+            Map<Expression, Expression> lineageExpressionToScanExpressionMap,
+            Map<NonOutputSlotKey, SlotReference> nonOutputSlots) {
+        return predicate.rewriteDownShortCircuit(expression -> {
+            Expression scanExpression = lineageExpressionToScanExpressionMap.get(expression);
+            if (scanExpression != null) {
+                // When an MV output expression is matched, replace it with the MV scan output slot,
+                // for example `a + 1` -> `mv.x`.
+                return scanExpression;
+            }
+            if (expression instanceof SlotReference) {
+                SlotReference slot = (SlotReference) expression;
+                Preconditions.checkState(slot.getOriginalTable().isPresent()
+                        && slot.getOriginalColumn().isPresent(),
+                        "slot can not be rewritten to mv scan predicate: %s", slot);
+                NonOutputSlotKey key = NonOutputSlotKey.of(slot);
+                // When a non-output base-table column is still identifiable, create a scan-side slot for it.
+                return nonOutputSlots.computeIfAbsent(key,
+                        ignored -> slot.withExprId(StatementScopeIdGenerator.newExprId()));
+            }
+            return expression;
+        });
+    }
+
+    // Reuse one non-output slot for the same original table column/sub-path in all rewritten predicates.
+    private static class NonOutputSlotKey {
+        private final TableIdentifier tableIdentifier;
+        private final String columnName;
+        private final List<String> subPath;
+
+        private NonOutputSlotKey(TableIdentifier tableIdentifier, String columnName, List<String> subPath) {
+            this.tableIdentifier = tableIdentifier;
+            this.columnName = columnName;
+            this.subPath = subPath;
+        }
+
+        private static NonOutputSlotKey of(SlotReference slot) {
+            return new NonOutputSlotKey(new TableIdentifier(slot.getOriginalTable().get()),
+                    slot.getOriginalColumn().get().getName(), slot.getSubPath());
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof NonOutputSlotKey)) {
+                return false;
+            }
+            NonOutputSlotKey that = (NonOutputSlotKey) o;
+            return Objects.equals(tableIdentifier, that.tableIdentifier)
+                    && Objects.equals(columnName, that.columnName)
+                    && Objects.equals(subPath, that.subPath);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(tableIdentifier, columnName, subPath);
+        }
     }
 
     /**
