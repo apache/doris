@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;

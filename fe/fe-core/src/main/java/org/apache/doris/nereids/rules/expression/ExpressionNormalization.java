@@ -68,8 +68,10 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 LogToLn.INSTANCE,
                 ConcatWsMultiArrayToOne.INSTANCE,
                 TimestampToAddTime.INSTANCE,
-                FoldConstantRule.INSTANCE,
-                NullIfToIf.INSTANCE,
+                FoldConstantRule.INSTANCE
+            ),
+            NullIfToIf.INSTANCE,
+            bottomUp(
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
                 MedianConvert.INSTANCE,
