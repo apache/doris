@@ -42,7 +42,7 @@ suite("test_inverted_index_keyword"){
  		"replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
+
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 
@@ -68,7 +68,7 @@ suite("test_inverted_index_keyword"){
         (3, '我在北京市'),
         (3, '我在西安市')
     """
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     qt_sql "SELECT * FROM ${indexTblName} where c match '330204195805121025'";
     qt_sql "SELECT * FROM ${indexTblName} where c match '36'";
     qt_sql "SELECT * FROM ${indexTblName} where c match '330225197806187713'";
