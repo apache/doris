@@ -2635,18 +2635,21 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     for (const auto& pred : _pre_eval_block_predicate) {
         if (!pred->always_true()) {
             all_pred_always_true = false;
-        } else {
-            pred->update_filter_info(0, 0, selected_size);
-            if (pred->scan_filter_handle()) {
-                pred->scan_filter_handle().stats->record(ScanFilterStage::EXEC_VECTOR,
-                                                         selected_size, selected_size);
-            }
         }
     }
 
     const uint16_t original_size = selected_size;
     //If all predicates are always_true, then return directly.
     if (all_pred_always_true || !_is_need_vec_eval) {
+        for (const auto& pred : _pre_eval_block_predicate) {
+            if (pred->always_true()) {
+                pred->update_filter_info(0, 0, original_size);
+                if (pred->scan_filter_handle()) {
+                    pred->scan_filter_handle().stats->record(ScanFilterStage::EXEC_VECTOR,
+                                                             original_size, original_size);
+                }
+            }
+        }
         for (uint16_t i = 0; i < original_size; ++i) {
             sel_rowid_idx[i] = i;
         }
@@ -2662,6 +2665,11 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     const bool collect_scan_filter_stats = _opts.scan_filter_profile != nullptr;
     for (auto& pred : _pre_eval_block_predicate) {
         if (pred->always_true()) {
+            pred->update_filter_info(0, 0, current_selected_rows);
+            if (pred->scan_filter_handle()) {
+                pred->scan_filter_handle().stats->record(
+                        ScanFilterStage::EXEC_VECTOR, current_selected_rows, current_selected_rows);
+            }
             continue;
         }
         auto column_id = pred->column_id();

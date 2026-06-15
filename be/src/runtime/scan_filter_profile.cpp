@@ -103,6 +103,13 @@ std::string scan_filter_stages_string(const MaterializedFilterSnapshot& snapshot
         const auto stage = static_cast<ScanFilterStage>(i);
         const auto& stage_stats = snapshot.stage_snapshots[static_cast<size_t>(stage)];
         if (stage_stats.participated()) {
+            if (profile_level >= 3) {
+                stages.emplace_back(
+                        fmt::format("{}(input={}, filtered={})", scan_filter_stage_name(stage),
+                                    PrettyPrinter::print(stage_stats.input_rows, TUnit::UNIT),
+                                    PrettyPrinter::print(stage_stats.filtered_rows, TUnit::UNIT)));
+                continue;
+            }
             if (profile_level >= 2) {
                 stages.emplace_back(
                         fmt::format("{}({})", scan_filter_stage_name(stage),
