@@ -960,7 +960,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             Optional<PushDownAggContext> leftChildContext, Optional<PushDownAggContext> rightChildContext,
             Optional<Slot> leftCountSlot, Optional<Slot> rightCountSlot, PushDownAggContext context) {
         JoinType joinType = join.getJoinType();
-        if (joinType.isInnerJoin()) {
+        if (joinType.isInnerOrCrossJoin()) {
             if (leftCountSlot.isPresent() && rightCountSlot.isPresent()) {
                 Expression joinCnt = TypeCoercionUtils.processBinaryArithmetic(
                         new Multiply(leftCountSlot.get(), rightCountSlot.get()));

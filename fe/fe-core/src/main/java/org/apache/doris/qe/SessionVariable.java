@@ -2338,7 +2338,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
-    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", setter = "setForceEagerAggHint",
+    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
             description = {
                     "用于测试/调试 eager aggregation 下推的匹配 hint。"
                             + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
@@ -5860,6 +5860,7 @@ public class SessionVariable implements Serializable, Writable {
                 // set config field
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
+            refreshDerivedSessionVariables();
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }

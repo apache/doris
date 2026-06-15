@@ -746,6 +746,15 @@ suite("bilateral_eager_agg") {
         GROUP BY t2.k;
     """
 
+    sql "SET force_eager_agg_hint = 'sum:t1.v=push;sum:t2.v=push;sum:t3.v=push';"
+    order_qt_cross_chain_all_push"""
+        SELECT t1.k, sum(t1.v) AS lsum, sum(t2.v) AS msum, sum(t3.v) AS rsum
+        FROM t_pdajos_1 t1
+        CROSS JOIN t_pdajos_2 t2
+        CROSS JOIN t_pdajos_2 t3
+        GROUP BY t1.k;
+    """
+
     sql "SET force_eager_agg_hint = 'count:t1.v=push;sum:p1.z=push';"
     order_qt_semi_join_output_cnt """SELECT /*+SET_VAR(disable_join_reorder = true) */
     t1.k, count(t1.v) AS lcnt, sum(p1.z) as s

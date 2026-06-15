@@ -251,6 +251,10 @@
 2	30
 3	\N
 
+-- !cross_chain_all_push --
+1	270	3600	3600
+2	270	1800	1800
+
 -- !semi_join_output_cnt --
 1	2	200
 2	1	100
