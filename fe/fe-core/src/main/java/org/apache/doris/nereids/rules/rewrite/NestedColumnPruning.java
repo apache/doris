@@ -275,54 +275,19 @@ public class NestedColumnPruning implements CustomRewriter {
             DataTypeAccessTree accessTree = kv.getValue();
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
 
+            if (accessTree.hasOffsetOnlyAccess() || accessTree.hasNullCheckOnlyAccess()) {
+                if (ignoreMetaPath) {
+                    continue;
+                }
+                stripCoveredMetaSuffixPaths(slot, allAccessPaths, allAccessPaths);
+                List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+                result.put(slot.getExprId().asInt(),
+                        new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
+                continue;
+            }
+
             if (slot.getDataType().isStringLikeType()) {
-                if (accessTree.hasStringOffsetOnlyAccess()) {
-                    if (ignoreMetaPath) {
-                        continue;
-                    }
-                    // Offset-only access (e.g. length(str_col)): type stays varchar,
-                    // but we must still send the access path to BE so it skips the char data.
-                    stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
-                    stripNullSuffixPaths(slot, allAccessPaths);
-                    List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                    result.put(slot.getExprId().asInt(),
-                            new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
-                } else if (accessTree.hasNullCheckOnlyAccess()) {
-                    if (ignoreMetaPath) {
-                        continue;
-                    }
-                    // Null-check-only access (e.g. str_col IS NULL): type stays varchar,
-                    // but we send [col, NULL] access path so BE only reads the null flag.
-                    List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                    result.put(slot.getExprId().asInt(),
-                            new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
-                }
                 // direct access (accessAll=true) or other: skip — no type change, no access paths needed.
-                continue;
-            }
-
-            if ((slot.getDataType().isArrayType() || slot.getDataType().isMapType())
-                    && accessTree.hasStringOffsetOnlyAccess()) {
-                if (ignoreMetaPath) {
-                    continue;
-                }
-                // Offset-only access (e.g. length(arr_col) / length(map_col)): type stays unchanged,
-                // but we must send the OFFSET access path to BE so it skips element/key-value data.
-                List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                result.put(slot.getExprId().asInt(),
-                        new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
-                continue;
-            }
-
-            // Null-check-only access (e.g. col IS NULL / col IS NOT NULL): type stays unchanged,
-            // but we must send the [col, NULL] access path to BE so it only reads the null flag.
-            if (accessTree.hasNullCheckOnlyAccess()) {
-                if (ignoreMetaPath) {
-                    continue;
-                }
-                List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                result.put(slot.getExprId().asInt(),
-                        new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
                 continue;
             }
 
@@ -348,19 +313,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 continue;
             }
 
-            // If a field is read in full, its metadata-only NULL/OFFSET access is redundant
-            // for any data type: e.g. [s] covers both [s.NULL] and [s.OFFSET].
-            stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
-
-            // Strip OFFSET-suffix paths when a non-OFFSET path covers the same nested field or
-            // container. The overlapping array/map container may live under the root slot itself
-            // or under a nested struct field, so compare against the actual nested prefix instead
-            // of gating this logic on the root slot type.
-            stripCoveredOffsetSuffixPaths(slot, allAccessPaths, allAccessPaths);
-
-            // Strip NULL-suffix paths when a non-NULL path also exists for the same slot.
-            // E.g. `SELECT col FROM t WHERE col IS NULL` — full data is needed, NULL path is redundant.
-            stripNullSuffixPaths(slot, allAccessPaths);
+            stripCoveredMetaSuffixPaths(slot, allAccessPaths, allAccessPaths);
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             if (shouldSkipAccessInfo(slot, prunedDataType, allPaths, predicateAccessPaths)) {
                 continue;
@@ -379,10 +332,7 @@ public class NestedColumnPruning implements CustomRewriter {
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
-            stripExactCoveredDataSkippingSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
-            stripCoveredOffsetSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
-            stripCoveredArrayNullSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
-            stripNullSuffixPaths(slot, predicateAccessPaths);
+            stripCoveredMetaSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
@@ -428,8 +378,51 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Decide whether an OFFSET-suffix path can be removed because another non-OFFSET path
-     * already covers the same container.
+     * Strip redundant metadata-only NULL/OFFSET paths while keeping enough real paths for BE readers.
+     *
+     * <p>The strip cases are:
+     * <ul>
+     *   <li>Full/data access covers metadata access, e.g. {@code [a]} removes
+     *       {@code [a, NULL]} and {@code [a, OFFSET]}. This is handled by
+     *       {@link #stripExactCoveredDataSkippingSuffixPaths}.</li>
+     *   <li>A deeper data access covers an upper metadata path, e.g. {@code [a, b, c]}
+     *       removes {@code [a, b, NULL]}, and {@code [a, *, field]} removes
+     *       {@code [a, OFFSET]}. Exact NULL/data coverage is handled by
+     *       {@link #stripNullSuffixPaths}; OFFSET/container coverage is handled by
+     *       {@link #stripCoveredOffsetByDataPaths}.</li>
+     *   <li>A deeper OFFSET access covers an upper OFFSET path, e.g.
+     *       {@code [a, *, OFFSET]} removes {@code [a, OFFSET]}. This is handled by
+     *       {@link #stripCoveredOffsetByDeeperOffsetPaths}.</li>
+     *   <li>OFFSET access covers NULL access with the same prefix, e.g.
+     *       {@code [a, OFFSET]} removes {@code [a, NULL]}. This is handled by
+     *       {@link #stripNullSuffixPaths}.</li>
+     *   <li>A deeper NULL access covers an upper NULL path, e.g.
+     *       {@code [a, *, NULL]} removes {@code [a, NULL]}. This is handled by
+     *       {@link #stripNullSuffixPaths}.</li>
+     *   <li>Map value-side coverage may need a supplemental key path, e.g.
+     *       {@code [m, *, OFFSET]} plus {@code [m, VALUES]} becomes
+     *       {@code [m, KEYS]} plus {@code [m, VALUES]}. This is handled by
+     *       {@link #stripCoveredOffsetByDataPaths} via {@link #compareOffsetPrefixCoverage}
+     *       and {@link #buildMapKeysOnlyPath}.</li>
+     *   <li>Array NULL-only paths covered by value/data access may also need supplemental
+     *       map keys, e.g. {@code [m, *, NULL]} plus {@code [m, VALUES, *, field]}
+     *       becomes {@code [m, KEYS]} plus {@code [m, VALUES, *, field]}. This is
+     *       handled by {@link #stripCoveredArrayNullSuffixPaths}.</li>
+     * </ul>
+     */
+    private static void stripCoveredMetaSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        stripExactCoveredDataSkippingSuffixPaths(slot, targetAccessPaths, coveringAccessPaths);
+        stripCoveredOffsetByDataPaths(slot, targetAccessPaths, coveringAccessPaths);
+        stripCoveredOffsetByDeeperOffsetPaths(slot, targetAccessPaths, coveringAccessPaths);
+        stripCoveredArrayNullSuffixPaths(slot, targetAccessPaths, coveringAccessPaths);
+        stripNullSuffixPaths(slot, targetAccessPaths);
+    }
+
+    /**
+     * Decide whether an OFFSET-suffix path can be removed because another path already covers
+     * the same container.
      *
      * <p>For map element_at paths, {@code *} means "read keys fully, then follow the rest of
      * the path on the value side". So a VALUES path can cover the value-side OFFSET access,
@@ -437,7 +430,7 @@ public class NestedColumnPruning implements CustomRewriter {
      * and add a KEYS-only path instead.
      */
     private static OffsetPathRewrite analyzeOffsetPathRewrite(
-            DataType slotType, List<String> path, List<List<String>> nonOffsetPaths) {
+            DataType slotType, List<String> path, List<List<String>> coveringPaths) {
         if (path.isEmpty()
                 || !AccessPathInfo.ACCESS_OFFSET.equals(path.get(path.size() - 1))) {
             return OffsetPathRewrite.keep();
@@ -446,20 +439,20 @@ public class NestedColumnPruning implements CustomRewriter {
         // Filter out the path itself to prevent self-coverage removal.
         // A deeper OFFSET path (e.g. [aa, *, OFFSET]) covering a shallower one
         // (e.g. [aa, OFFSET]) is still handled — they are different paths.
-        List<List<String>> filteredNonOffsetPaths = new ArrayList<>();
-        for (List<String> p : nonOffsetPaths) {
+        List<List<String>> filteredCoveringPaths = new ArrayList<>();
+        for (List<String> p : coveringPaths) {
             if (!p.equals(path)) {
-                filteredNonOffsetPaths.add(p);
+                filteredCoveringPaths.add(p);
             }
         }
-        return analyzePrefixCoverage(slotType, prefix, filteredNonOffsetPaths);
+        return analyzePrefixCoverage(slotType, prefix, filteredCoveringPaths);
     }
 
     private static OffsetPathRewrite analyzePrefixCoverage(
-            DataType slotType, List<String> prefix, List<List<String>> nonOffsetPaths) {
+            DataType slotType, List<String> prefix, List<List<String>> coveringPaths) {
         List<List<String>> supplementalPaths = new ArrayList<>();
-        for (List<String> nonOffset : nonOffsetPaths) {
-            OffsetPathRewrite candidate = compareOffsetPrefixCoverage(slotType, prefix, nonOffset);
+        for (List<String> coveringPath : coveringPaths) {
+            OffsetPathRewrite candidate = compareOffsetPrefixCoverage(slotType, prefix, coveringPath);
             if (!candidate.shouldRemoveOffsetPath()) {
                 continue;
             }
@@ -475,7 +468,7 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Remove OFFSET-only paths from {@code targetAccessPaths} when data paths in
+     * Remove OFFSET-only paths from {@code targetAccessPaths} when non-meta data paths in
      * {@code coveringAccessPaths} already read the same array/map/string container or a child
      * under it.
      *
@@ -487,7 +480,7 @@ public class NestedColumnPruning implements CustomRewriter {
      *       {@code map['k']} still needs full keys for lookup, while values cover the offset.</li>
      * </ul>
      */
-    private static void stripCoveredOffsetSuffixPaths(
+    private static void stripCoveredOffsetByDataPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
         int slotId = slot.getExprId().asInt();
@@ -496,42 +489,73 @@ public class NestedColumnPruning implements CustomRewriter {
             return;
         }
 
-        List<List<String>> nonOffsetPaths = new ArrayList<>();
+        List<List<String>> dataPaths = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
             List<String> path = p.second;
-            if (path.isEmpty()) {
-                continue;
-            }
-            boolean isOffset = AccessPathInfo.ACCESS_OFFSET.equals(
-                    path.get(path.size() - 1));
-            if (!isOffset) {
-                nonOffsetPaths.add(path);
-            } else if (path.size() > 2) {
-                // Deeper OFFSET paths that traverse into array/map items (e.g.
-                // [aa, *, OFFSET]) must read through the container structure,
-                // therefore they cover the container's own [aa, OFFSET] path.
-                nonOffsetPaths.add(path);
+            if (!path.isEmpty() && !isMetaPath(path)) {
+                dataPaths.add(path);
             }
         }
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
             List<String> path = p.second;
-            if (path.isEmpty()) {
-                continue;
+            if (!path.isEmpty() && !isMetaPath(path)) {
+                dataPaths.add(path);
             }
-            boolean isOffset = AccessPathInfo.ACCESS_OFFSET.equals(
-                    path.get(path.size() - 1));
-            if (!isOffset) {
-                nonOffsetPaths.add(path);
-            } else if (path.size() > 2) {
-                nonOffsetPaths.add(path);
+        }
+
+        stripCoveredOffsetByPaths(slot, targetAccessPaths, dataPaths);
+    }
+
+    /**
+     * Remove upper OFFSET-only paths when a deeper OFFSET path traverses the same container.
+     *
+     * <p>Example: {@code [a, *, OFFSET]} removes {@code [a, OFFSET]} because reading the inner
+     * array offset requires traversing the outer array structure.
+     */
+    private static void stripCoveredOffsetByDeeperOffsetPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> deeperOffsetPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            List<String> path = p.second;
+            if (isDeeperOffsetPath(path)) {
+                deeperOffsetPaths.add(path);
             }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (isDeeperOffsetPath(path)) {
+                deeperOffsetPaths.add(path);
+            }
+        }
+
+        stripCoveredOffsetByPaths(slot, targetAccessPaths, deeperOffsetPaths);
+    }
+
+    private static boolean isDeeperOffsetPath(List<String> path) {
+        return path.size() > 2 && AccessPathInfo.ACCESS_OFFSET.equals(path.get(path.size() - 1));
+    }
+
+    private static void stripCoveredOffsetByPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            List<List<String>> coveringPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty() || coveringPaths.isEmpty()) {
+            return;
         }
 
         List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
         List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
             OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
-                    slot.getDataType(), p.second, nonOffsetPaths);
+                    slot.getDataType(), p.second, coveringPaths);
             if (!rewrite.shouldRemoveOffsetPath()) {
                 continue;
             }
@@ -1070,7 +1094,7 @@ public class NestedColumnPruning implements CustomRewriter {
         /** True when the column is accessed ONLY via the offset array (e.g. length(str_col),
          *  length(arr_col), length(map_col)), meaning the type must not change but an access
          *  path still needs to be sent to BE so it can skip the char/element data. */
-        public boolean hasStringOffsetOnlyAccess() {
+        public boolean hasOffsetOnlyAccess() {
             if (isRoot) {
                 DataTypeAccessTree child = children.values().iterator().next();
                 if (!child.hasOffsetPath || child.accessAll) {

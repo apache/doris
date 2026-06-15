@@ -213,6 +213,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testOffsetPathCoversNullPathWithSamePrefix() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(a), a is null from nested_array_tbl",
+                ImmutableList.of(path("a", "OFFSET")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
     public void testDeeperNullPathCoversShallowerNullPath() throws Exception {
         // a IS NULL on ARRAY<ARRAY<INT>> generates [a, NULL]
         // element_at(a, 1) IS NULL generates [a, *, NULL]
@@ -224,7 +232,6 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("a", "*", "NULL")),
                 ImmutableList.of(path("a", "NULL")));
     }
-
 
     @Test
     public void testCardinalityMapElementKeepsValueOffsetPath() throws Exception {
