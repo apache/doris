@@ -21,15 +21,18 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,6 +59,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @ResourceLock("global")
 class ProfileManagerTest {
     private static final Logger LOG = LogManager.getLogger(ProfilePersistentTest.class);
+    private static final String PROFILE_TEST_COUNTER = "ProfileRows";
 
     private static ProfileManager profileManager;
     private File tempDir;
@@ -103,6 +107,10 @@ class ProfileManagerTest {
     }
 
     private static TDetailedReportParams createReportParam(String name, boolean isFragmentLevel) {
+        return createReportParam(name, isFragmentLevel, -1);
+    }
+
+    private static TDetailedReportParams createReportParam(String name, boolean isFragmentLevel, long counterValue) {
         TRuntimeProfileNode node = new TRuntimeProfileNode();
         node.setName(name);
         node.setNumChildren(0);
@@ -113,6 +121,12 @@ class ProfileManagerTest {
         node.setInfoStringsDisplayOrder(Lists.newArrayList());
         node.setChildCountersMap(Maps.newHashMap());
         node.setTimestamp(0);
+        if (counterValue >= 0) {
+            TCounter counter = new TCounter(PROFILE_TEST_COUNTER, TUnit.UNIT, counterValue);
+            counter.setLevel(1);
+            node.getCounters().add(counter);
+            node.getChildCountersMap().put(RuntimeProfile.ROOT_COUNTER, Sets.newHashSet(PROFILE_TEST_COUNTER));
+        }
 
         TRuntimeProfileTree tree = new TRuntimeProfileTree();
         tree.setNodes(Lists.newArrayList(node));
@@ -124,11 +138,16 @@ class ProfileManagerTest {
     }
 
     private static TQueryProfile createQueryProfile(TUniqueId queryId, int fragmentId, String suffix) {
+        return createQueryProfile(queryId, fragmentId, suffix, -1);
+    }
+
+    private static TQueryProfile createQueryProfile(TUniqueId queryId, int fragmentId, String suffix,
+            long counterValue) {
         TQueryProfile queryProfile = new TQueryProfile();
         queryProfile.setQueryId(queryId);
         queryProfile.putToFragmentIdToProfile(fragmentId, Lists.newArrayList(
                 createReportParam("FragmentLevelProfile-" + suffix, true),
-                createReportParam("PipelineProfile-" + suffix, false)));
+                createReportParam("PipelineProfile-" + suffix, false, counterValue)));
         return queryProfile;
     }
 
@@ -198,6 +217,30 @@ class ProfileManagerTest {
                 new TNetworkAddress("127.0.0.2", 9060), true);
         Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE,
                 profile.getProfileCompletionState());
+    }
+
+    @Test
+    void completedBackendProfileRejectsLaterRealtimeProfile() {
+        Profile profile = constructProfile("final-profile");
+        profile.markQueryFinished();
+        UUID taskId = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+        ExecutionProfile executionProfile = new ExecutionProfile(queryId, Lists.newArrayList(0));
+        executionProfile.addFragmentBackend(new PlanFragmentId(0), 1L);
+        profile.addExecutionProfile(executionProfile);
+
+        TNetworkAddress backendAddress = new TNetworkAddress("127.0.0.1", 9060);
+        executionProfile.updateProfile(createQueryProfile(queryId, 0, "final", 7), backendAddress, true);
+        Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE,
+                profile.getProfileCompletionState());
+
+        executionProfile.updateProfile(createQueryProfile(queryId, 0, "stale", 1), backendAddress, false);
+        Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE,
+                profile.getProfileCompletionState());
+
+        String profileText = profile.toString();
+        Assertions.assertTrue(profileText.contains("- " + PROFILE_TEST_COUNTER + ": 7"), profileText);
+        Assertions.assertFalse(profileText.contains("- " + PROFILE_TEST_COUNTER + ": 1"), profileText);
     }
 
     @Test

@@ -152,7 +152,7 @@ public class ExecutionProfile {
     }
 
     protected void setMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
-                                List<RuntimeProfile> taskProfile) {
+            List<RuntimeProfile> taskProfile) {
         multiBeProfileLock.writeLock().lock();
         try {
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
@@ -161,10 +161,18 @@ public class ExecutionProfile {
         }
     }
 
-    private void markBackendProfileDone(int fragmentId, TNetworkAddress backendHBAddress) {
+    private boolean updateMultiBeProfile(int fragmentId, TNetworkAddress backendHBAddress,
+            List<RuntimeProfile> taskProfile, boolean isDone) {
         multiBeProfileLock.writeLock().lock();
         try {
-            fragmentIdDoneBackends.get(fragmentId).add(backendHBAddress);
+            if (!isDone && fragmentIdDoneBackends.get(fragmentId).contains(backendHBAddress)) {
+                return false;
+            }
+            multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
+            if (isDone) {
+                fragmentIdDoneBackends.get(fragmentId).add(backendHBAddress);
+            }
+            return true;
         } finally {
             multiBeProfileLock.writeLock().unlock();
         }
@@ -260,6 +268,7 @@ public class ExecutionProfile {
             int fragmentId = entry.getKey();
             List<TDetailedReportParams> fragmentProfile = entry.getValue();
             int pipelineIdx = 0;
+            List<RuntimeProfile> profileNodes = Lists.newArrayList();
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
             String suffix = "(host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
@@ -286,11 +295,13 @@ public class ExecutionProfile {
 
                 profileNode.update(pipelineProfile.profile);
                 profileNode.setIsDone(isDone);
-                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
+                profileNodes.add(profileNode);
             }
-            setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
-            if (isDone) {
-                markBackendProfileDone(fragmentId, backendHBAddress);
+            if (!updateMultiBeProfile(fragmentId, backendHBAddress, taskProfile, isDone)) {
+                continue;
+            }
+            for (RuntimeProfile profileNode : profileNodes) {
+                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
             }
         }
 
@@ -307,7 +318,11 @@ public class ExecutionProfile {
     }
 
     public synchronized void addFragmentBackend(PlanFragmentId fragmentId, Long backendId) {
-        fragmentIdBeNum.put(fragmentId.asInt(), fragmentIdBeNum.get(fragmentId.asInt()) + 1);
+        addFragmentBackend(fragmentId.asInt(), backendId);
+    }
+
+    public synchronized void addFragmentBackend(int fragmentId, Long backendId) {
+        fragmentIdBeNum.put(fragmentId, fragmentIdBeNum.get(fragmentId) + 1);
     }
 
     public TUniqueId getQueryId() {
