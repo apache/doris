@@ -50,6 +50,7 @@ be/src/load/memtable                                         @liaoxin01 @gavinch
 be/src/load/routine_load                                     @liaoxin01 @gavinchou
 be/src/load/stream_load                                      @liaoxin01 @gavinchou
 be/src/storage                                               @gavinchou
+be/src/storage/olap_common.h                                 @gavinchou @yiguolei
 be/src/storage/cache                                         @liaoxin01 @gavinchou
 be/src/storage/compaction                                    @luwei16 @gavinchou
 be/src/storage/delete                                        @luwei16 @gavinchou
