@@ -283,9 +283,13 @@ public class MetaServiceRpcLimiterManager {
     }
 
     private QpsLimiter getQpsLimiter(String methodName) {
-        return qpsLimiters.compute(methodName, (name, limiter) -> {
-            if (limiter != null) {
-                return limiter;
+        QpsLimiter limiter = qpsLimiters.get(methodName);
+        if (limiter != null) {
+            return limiter;
+        }
+        return qpsLimiters.compute(methodName, (name, existing) -> {
+            if (existing != null) {
+                return existing;
             }
             int qps = getMethodTotalQps(name, Config.meta_service_rpc_rate_limit_default_qps_per_core);
             if (qps > 0) {
@@ -296,22 +300,30 @@ public class MetaServiceRpcLimiterManager {
     }
 
     private CostLimiter getCostLimiter(String methodName) {
-        return costLimiters.compute(methodName, (name, limiter) -> {
-            if (limiter != null) {
-                return limiter;
+        CostLimiter limiter = costLimiters.get(methodName);
+        if (limiter != null) {
+            return limiter;
+        }
+        return costLimiters.compute(methodName, (name, existing) -> {
+            if (existing != null) {
+                return existing;
             }
             int costLimit = getMethodTotalCostLimit(name);
             if (costLimit > 0) {
-                return new CostLimiter(methodName, costLimit);
+                return new CostLimiter(name, costLimit);
             }
             return null;
         });
     }
 
     private OverloadQpsLimiter getOverloadQpsLimiter(String methodName, double factor) {
-        return overloadQpsLimiters.compute(methodName, (name, limiter) -> {
-            if (limiter != null) {
-                return limiter;
+        OverloadQpsLimiter limiter = overloadQpsLimiters.get(methodName);
+        if (limiter != null) {
+            return limiter;
+        }
+        return overloadQpsLimiters.compute(methodName, (name, existing) -> {
+            if (existing != null) {
+                return existing;
             }
             if (!overloadThrottleMethods.contains(name)) {
                 return null;
