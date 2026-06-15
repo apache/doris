@@ -160,6 +160,19 @@ class ConfigUtilTest {
         }
     }
 
+    @Test
+    void malformedSysPropFallsBackToClamp() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "32MB");
+            long bytes = queueBytes(ConfigUtil.getDefaultDebeziumProps());
+            assertTrue(bytes >= 64L * 1024 * 1024 && bytes <= 256L * 1024 * 1024,
+                    "malformed override should fall back to [64MB, 256MB] but got " + bytes);
+        } finally {
+            restore(prev);
+        }
+    }
+
     private static void restore(String prev) {
         if (prev == null) {
             System.clearProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);

@@ -127,11 +127,21 @@ public class ConfigUtil {
     public static final String MAX_QUEUE_BYTES_SYS_PROP = "cdc.max.queue.size.in.bytes";
 
     // Heap-adaptive byte cap for the debezium ChangeEventQueue buffer.
-    // heap 1G->64MB, 2G->128MB, >=4G->256MB. -D<MAX_QUEUE_BYTES_SYS_PROP> overrides (<=0 disables).
+    // heap 1G->64MB, 2G->128MB, >=4G->256MB. -D<MAX_QUEUE_BYTES_SYS_PROP> overrides
+    // (<=0 disables); a malformed override is logged and ignored, falling back to the cap.
     private static long resolveMaxQueueSizeInBytes() {
-        Long override = Long.getLong(MAX_QUEUE_BYTES_SYS_PROP);
+        String override = System.getProperty(MAX_QUEUE_BYTES_SYS_PROP);
         if (override != null) {
-            return override < 0 ? 0 : override;
+            try {
+                long bytes = Long.parseLong(override.trim());
+                return bytes <= 0 ? 0 : bytes;
+            } catch (NumberFormatException e) {
+                LOG.warn(
+                        "Ignoring invalid -D{}={}, expected an integer byte count; "
+                                + "falling back to the adaptive cap",
+                        MAX_QUEUE_BYTES_SYS_PROP,
+                        override);
+            }
         }
         long target = Runtime.getRuntime().maxMemory() / 16;
         return Math.max(64L * 1024 * 1024, Math.min(target, 256L * 1024 * 1024));
