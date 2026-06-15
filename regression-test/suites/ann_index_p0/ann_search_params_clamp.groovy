@@ -22,7 +22,7 @@
 //   3. BE boosts efSearch to max(ef_search, k) so LIMIT k always returns k results
 
 suite("ann_search_params_clamp", "nonConcurrent") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "set enable_ann_index_result_cache=false;"
 
     // -----------------------------------------------------------------------
