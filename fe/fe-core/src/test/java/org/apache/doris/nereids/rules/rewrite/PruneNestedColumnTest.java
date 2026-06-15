@@ -242,6 +242,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testNestedMapElementLengthKeepsValueOffsetPath() throws Exception {
+        assertColumn("select length(element_at(element_at(s, 'm'), 'a')) from nested_container_tbl",
+                "struct<m:map<text,text>>",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
     public void testFullFieldAccessStripsExactDataSkippingPath() throws Exception {
         assertColumn("select element_at(s, 'city') from tbl "
                         + "where element_at(s, 'city') is null",
