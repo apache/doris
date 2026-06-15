@@ -611,10 +611,8 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// It's true for ColumnNullable only.
+    /// It's true for ColumnNullable and Const(ColumnNullable).
     virtual bool is_nullable() const { return false; }
-    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
-    virtual bool is_concrete_nullable() const { return false; }
 
     // true if column has null element
     virtual bool has_null() const { return false; }

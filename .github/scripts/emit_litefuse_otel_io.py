@@ -23,6 +23,7 @@ import json
 import os
 import secrets
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -55,6 +56,12 @@ def truncate_json(value, max_chars):
 
 def json_attr(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def json_payload_bytes(value):
+    return len(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
 
 
 def load_jsonl(path):
@@ -160,7 +167,9 @@ def event_context_payload(event, max_json_chars):
     return {key: value for key, value in payload.items() if value not in (None, "")}
 
 
-def build_agent_message_inputs(events, turn_input, max_json_chars):
+def build_agent_message_inputs(
+    events, turn_input, max_json_chars, max_context_json_chars
+):
     inputs = {}
     previous_agent_message = None
     context_events = []
@@ -184,7 +193,7 @@ def build_agent_message_inputs(events, turn_input, max_json_chars):
                     "event_count": len(context_events),
                 },
                 "events_since_previous_agent_message": [
-                    event_context_payload(context_event, max_json_chars)
+                    event_context_payload(context_event, max_context_json_chars)
                     for context_event in context_events
                 ],
             }
@@ -372,7 +381,7 @@ def build_ingestion_payload(args, input_text, output_text, events):
         if event.get("type") == "item.completed" and isinstance(event.get("item"), dict)
     ]
     agent_message_inputs = build_agent_message_inputs(
-        events, input_text, args.max_json_chars
+        events, input_text, args.max_json_chars, args.max_context_json_chars
     )
     child_count = len(completed_items) + 1
     root_end = now + (child_count + 2) * 1_000_000
@@ -479,11 +488,142 @@ def build_ingestion_payload(args, input_text, output_text, events):
     return trace_id, {"batch": batch}, len(batch) - 1
 
 
-def post_payload(endpoint, public_key, secret_key, payload):
+def compact_json_bytes(payload):
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def compact_context_event(event, max_chars):
+    compact = {}
+    for key in (
+        "event_type",
+        "line_number",
+        "item_id",
+        "item_type",
+        "status",
+        "server",
+        "tool",
+        "exit_code",
+    ):
+        if event.get(key) not in (None, ""):
+            compact[key] = event.get(key)
+    if event.get("command"):
+        compact["command"] = truncate_text(event.get("command") or "", max_chars)
+    for key in ("arguments", "result", "error", "payload", "item"):
+        if key in event:
+            compact[key] = truncate_json(event.get(key), max_chars)
+    for key in ("aggregated_output", "text", "prompt"):
+        if event.get(key):
+            compact[key] = truncate_text(event.get(key) or "", max_chars, tail=True)
+    return compact
+
+
+def shrink_event_for_payload(event, max_payload_bytes):
+    shrunk = json.loads(json.dumps(event, ensure_ascii=False))
+    body = shrunk.get("body") if isinstance(shrunk.get("body"), dict) else {}
+    event_name = body.get("name")
+
+    def candidate_with_limits(max_chars, max_context_events=None):
+        candidate = json.loads(json.dumps(shrunk, ensure_ascii=False))
+        candidate_body = candidate.get("body") if isinstance(candidate.get("body"), dict) else {}
+        input_object = candidate_body.get("input")
+        if isinstance(input_object, dict):
+            context_events = input_object.get("events_since_previous_agent_message")
+            if isinstance(context_events, list):
+                compact_events = [
+                    compact_context_event(context_event, max_chars)
+                    for context_event in context_events
+                    if isinstance(context_event, dict)
+                ]
+                if max_context_events is not None:
+                    omitted_count = max(len(compact_events) - max_context_events, 0)
+                    if max_context_events <= 0:
+                        compact_events = []
+                    else:
+                        compact_events = compact_events[-max_context_events:]
+                    if omitted_count:
+                        input_object[
+                            "events_since_previous_agent_message_omitted_count"
+                        ] = omitted_count
+                input_object["events_since_previous_agent_message"] = compact_events
+            if isinstance(input_object.get("previous_agent_message"), dict):
+                previous_message = input_object["previous_agent_message"]
+                previous_message["text"] = truncate_text(
+                    previous_message.get("text") or "", max_chars
+                )
+            if input_object.get("turn_input"):
+                input_object["turn_input"] = truncate_text(
+                    input_object.get("turn_input") or "", max_chars
+                )
+            if not (
+                isinstance(context_events, list)
+                or "previous_agent_message" in input_object
+                or "turn_input" in input_object
+            ):
+                candidate_body["input"] = truncate_json(input_object, max_chars)
+        elif input_object not in (None, ""):
+            candidate_body["input"] = truncate_json(input_object, max_chars)
+
+        output_object = candidate_body.get("output")
+        if output_object not in (None, ""):
+            candidate_body["output"] = truncate_json(output_object, max_chars)
+        metadata = candidate_body.get("metadata")
+        if metadata not in (None, ""):
+            candidate_body["metadata"] = truncate_json(metadata, max_chars)
+        return candidate
+
+    for max_chars in (2_000, 1_000, 500, 200, 80):
+        candidate = candidate_with_limits(max_chars)
+
+        if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
+            return candidate
+
+    for max_context_events in (50, 20, 10, 5, 2, 1, 0):
+        for max_chars in (80, 40, 20, 10):
+            candidate = candidate_with_limits(max_chars, max_context_events)
+            if json_payload_bytes({"batch": [candidate]}) <= max_payload_bytes:
+                return candidate
+
+    raise RuntimeError(
+        "Litefuse ingestion event is too large after truncation: "
+        f"{json_payload_bytes({'batch': [event]})} bytes > {max_payload_bytes} bytes; "
+        f"type={event.get('type')}, name={event_name}"
+    )
+
+
+def chunk_payload(payload, max_payload_bytes):
+    batch = payload.get("batch") or []
+    chunks = []
+    current = []
+    current_bytes = json_payload_bytes({"batch": current})
+
+    for event in batch:
+        event_payload = {"batch": [event]}
+        event_bytes = json_payload_bytes(event_payload)
+        if event_bytes > max_payload_bytes:
+            event = shrink_event_for_payload(event, max_payload_bytes)
+            event_payload = {"batch": [event]}
+            event_bytes = json_payload_bytes(event_payload)
+
+        candidate = {"batch": current + [event]}
+        candidate_bytes = json_payload_bytes(candidate)
+        if current and candidate_bytes > max_payload_bytes:
+            chunks.append(({"batch": current}, current_bytes))
+            current = [event]
+            current_bytes = event_bytes
+        else:
+            current.append(event)
+            current_bytes = candidate_bytes
+
+    if current:
+        chunks.append(({"batch": current}, current_bytes))
+    return chunks
+
+
+def post_payload_once(endpoint, public_key, secret_key, payload):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     request = urllib.request.Request(
         endpoint,
-        data=json.dumps(payload).encode(),
+        data=compact_json_bytes(payload),
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Basic {auth}",
@@ -502,6 +642,55 @@ def post_payload(endpoint, public_key, secret_key, payload):
             if isinstance(detail, dict)
             else 0,
         }
+
+
+def retry_payload_chunks_after_413(payload, request_size, max_payload_bytes):
+    batch = payload.get("batch") or []
+    if not batch:
+        raise RuntimeError(
+            "Litefuse ingestion returned 413 for an empty payload chunk"
+        )
+
+    next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
+    if len(batch) == 1:
+        event = shrink_event_for_payload(batch[0], next_limit)
+        return [({"batch": [event]}, json_payload_bytes({"batch": [event]}))]
+
+    return chunk_payload(payload, next_limit)
+
+
+def post_payload(endpoint, public_key, secret_key, payload, max_payload_bytes):
+    statuses = []
+    success_count = 0
+    request_sizes = []
+    retry_count = 0
+    chunks = chunk_payload(payload, max_payload_bytes)
+    while chunks:
+        chunk, request_size = chunks.pop(0)
+        try:
+            status = post_payload_once(endpoint, public_key, secret_key, chunk)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 413:
+                raise
+            retry_count += 1
+            chunks = (
+                retry_payload_chunks_after_413(
+                    chunk, request_size, max_payload_bytes
+                )
+                + chunks
+            )
+            continue
+        statuses.append(status["status"])
+        success_count += int(status.get("success_count") or 0)
+        request_sizes.append(request_size)
+    return {
+        "statuses": statuses,
+        "request_count": len(statuses),
+        "request_sizes": request_sizes,
+        "max_request_size": max(request_sizes) if request_sizes else 0,
+        "payload_too_large_retries": retry_count,
+        "success_count": success_count,
+    }
 
 
 def fetch_trace(base_url, public_key, secret_key, trace_id):
@@ -536,16 +725,30 @@ def fetch_observations_v2(base_url, public_key, secret_key, trace_id):
         return json.loads(response.read().decode())
 
 
-def fetch_observations_legacy(base_url, public_key, secret_key, trace_id):
+def fetch_observations_legacy(
+    base_url, public_key, secret_key, trace_id, max_pages=10
+):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
-    params = urllib.parse.urlencode({"traceId": trace_id, "limit": "100", "page": "1"})
-    request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/api/public/observations?{params}",
-        headers={"Authorization": f"Basic {auth}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode())
+    limit = 100
+    rows = []
+    last_payload = {}
+    for page in range(1, max_pages + 1):
+        params = urllib.parse.urlencode(
+            {"traceId": trace_id, "limit": str(limit), "page": str(page)}
+        )
+        request = urllib.request.Request(
+            f"{base_url.rstrip('/')}/api/public/observations?{params}",
+            headers={"Authorization": f"Basic {auth}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode())
+        last_payload = payload if isinstance(payload, dict) else {}
+        page_rows = observation_rows_from_v2(last_payload)
+        rows.extend(page_rows)
+        if len(page_rows) < limit:
+            break
+    return {**last_payload, "data": rows}
 
 
 def observation_rows_from_v2(payload):
@@ -771,6 +974,8 @@ def parse_args():
     parser.add_argument("--max-input-chars", type=int, default=200_000)
     parser.add_argument("--max-output-chars", type=int, default=200_000)
     parser.add_argument("--max-json-chars", type=int, default=40_000)
+    parser.add_argument("--max-context-json-chars", type=int, default=0)
+    parser.add_argument("--max-payload-bytes", type=int, default=4_000_000)
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
@@ -783,6 +988,8 @@ def parse_args():
 def main():
     args = parse_args()
     endpoint = args.endpoint or f"{args.base_url.rstrip('/')}/api/public/ingestion"
+    if args.max_context_json_chars <= 0:
+        args.max_context_json_chars = args.max_json_chars
 
     input_text = read_text(args.input_file, args.max_input_chars)
     output_text = (
@@ -808,12 +1015,20 @@ def main():
     if args.dry_run:
         result["batch_count"] = len(payload["batch"])
         result["event_types"] = [event["type"] for event in payload["batch"][:10]]
+        chunks = chunk_payload(payload, args.max_payload_bytes)
+        result["request_count"] = len(chunks)
+        result["request_sizes"] = [request_size for _, request_size in chunks]
+        result["max_request_size"] = (
+            max(result["request_sizes"]) if result["request_sizes"] else 0
+        )
         print(json.dumps(result, sort_keys=True))
         return
 
     public_key = os.environ["LANGFUSE_PUBLIC_KEY"]
     secret_key = os.environ["LANGFUSE_SECRET_KEY"]
-    result["status"] = post_payload(endpoint, public_key, secret_key, payload)
+    result["status"] = post_payload(
+        endpoint, public_key, secret_key, payload, args.max_payload_bytes
+    )
 
     if args.verify:
         try:

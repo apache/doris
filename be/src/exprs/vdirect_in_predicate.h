@@ -134,11 +134,9 @@ private:
         auto res_data_column = ColumnUInt8::create(sz);
         res_data_column->resize(sz);
 
-        if (argument_column->is_nullable()) {
-            auto column_nested = static_cast<const ColumnNullable*>(argument_column.get())
-                                         ->get_nested_column_ptr();
-            const auto& null_map =
-                    static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(argument_column.get())) {
+            auto column_nested = nullable->get_nested_column_ptr();
+            const auto& null_map = nullable->get_null_map_data();
             _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data(),
                                          filter);
         } else {

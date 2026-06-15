@@ -1205,6 +1205,17 @@ uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
 bool Tablet::suitable_for_compaction(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+#ifndef BE_TEST
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION &&
+        cumulative_compaction_policy != nullptr) {
+        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        if (_cumulative_compaction_policy == nullptr ||
+            _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
+            _cumulative_compaction_policy = cumulative_compaction_policy;
+        }
+    }
+#endif
+
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     std::shared_lock rdlock(_meta_lock);
     int32_t score = -1;
@@ -1252,12 +1263,6 @@ uint32_t Tablet::_calc_cumulative_compaction_score(
     if (cumulative_compaction_policy == nullptr) [[unlikely]] {
         return 0;
     }
-#ifndef BE_TEST
-    if (_cumulative_compaction_policy == nullptr ||
-        _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
-        _cumulative_compaction_policy = cumulative_compaction_policy;
-    }
-#endif
     DBUG_EXECUTE_IF("Tablet._calc_cumulative_compaction_score.return", {
         LOG_WARNING("Tablet._calc_cumulative_compaction_score.return")
                 .tag("tablet id", tablet_id());

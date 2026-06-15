@@ -37,7 +37,7 @@ VExplodeMapTableFunction::VExplodeMapTableFunction() {
 bool extract_column_map_info(const IColumn& src, ColumnMapExecutionData& data) {
     const IColumn* map_col = &src;
     // extract array nullable info
-    if (src.is_nullable()) {
+    if (is_column_nullable(src)) {
         const auto& null_col = reinterpret_cast<const ColumnNullable&>(src);
         // map column's nullmap
         data.map_nullmap_data = null_col.get_null_map_data().data();

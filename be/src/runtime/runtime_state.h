@@ -213,7 +213,6 @@ public:
         TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
-    const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     // should only be called in pipeline engine
@@ -892,9 +891,6 @@ private:
 
     // _error_log[_unreported_error_idx+] has been not reported to the coordinator.
     int _unreported_error_idx;
-
-    // Username of user that is executing the query to which this RuntimeState belongs.
-    std::string _user;
 
     //Query-global timestamp_ms
     int64_t _timestamp_ms;

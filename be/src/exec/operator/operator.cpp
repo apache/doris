@@ -358,7 +358,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 input_block.rows(), rows, input_block.dump_structure());
     }
     auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
+        if (is_column_nullable(*to) && !is_column_nullable(*from)) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);

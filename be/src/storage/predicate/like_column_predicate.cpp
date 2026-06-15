@@ -52,7 +52,7 @@ template <PrimitiveType T>
 uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
-    if (column.is_nullable()) {
+    if (is_column_nullable(column)) {
         auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();

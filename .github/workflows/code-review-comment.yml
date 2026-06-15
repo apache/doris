@@ -59,7 +59,7 @@ jobs:
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'COLLABORATOR'
       )
-    uses: ./.github/workflows/opencode-review-runner.yml
+    uses: ./.github/workflows/code-review-runner.yml
     secrets: inherit
     with:
       pr_number: ${{ needs.resolve-pr.outputs.pr_number }}

@@ -288,6 +288,18 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
+        DBUG_EXECUTE_IF("CloudTablet::sync_rowsets.stale_local_max_for_query_version", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            auto stale_version = dp->param<int64_t>("version", -1);
+            if (target_tablet_id == tablet_id() && stale_version >= 0) {
+                std::unique_lock wlock(_meta_lock);
+                LOG(INFO) << "override cloud tablet local max_version for query_version sync"
+                          << ", tablet_id=" << tablet_id() << ", old_max_version=" << _max_version
+                          << ", stale_version=" << stale_version
+                          << ", query_version=" << options.query_version;
+                _max_version = stale_version;
+            }
+        });
         auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
         if (stats) {
