@@ -59,6 +59,11 @@ bool is_valid_storage_vault_name(const std::string& str) {
 
 namespace doris::cloud {
 
+static CredProviderTypePB get_cred_provider_type(const ObjectStoreInfoPB& obj) {
+    return obj.has_cred_provider_type() ? obj.cred_provider_type()
+                                        : CredProviderTypePB::INSTANCE_PROFILE;
+}
+
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
@@ -769,12 +774,11 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string region = obj->has_region() ? obj->region() : "";
 
     if (obj->has_role_arn()) {
-        if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
-            obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+        if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
+            obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
+            region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn, please check it";
+            msg = "s3 conf info err with role_arn or cred provider, please check it";
             return;
         }
     } else {
@@ -1162,7 +1166,7 @@ static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_pt
         new_vault.mutable_obj_info()->clear_encryption_info();
 
         new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
-        new_vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        new_vault.mutable_obj_info()->set_cred_provider_type(get_cred_provider_type(obj_info));
         if (obj_info.has_external_id()) {
             new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
         }
@@ -1309,7 +1313,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     } else {
         last_item.set_role_arn(role_arn);
         last_item.set_external_id(external_id);
-        last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        last_item.set_cred_provider_type(get_cred_provider_type(obj));
     }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
@@ -1480,9 +1484,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (!role_arn.empty()) {
-            if (!obj.has_cred_provider_type() ||
-                obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            if (!obj.has_cred_provider_type() || !obj.has_provider() ||
+                obj.provider() != ObjectStoreInfoPB::S3) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with role_arn, please check it";
                 return;
@@ -1668,9 +1671,13 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         std::unique_ptr<Transaction> cascade_txn;
         TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn for derived storage vault update, instance_id="
-                         << cascade_id << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::CREATE>(cascade_err);
+            msg = fmt::format(
+                    "failed to create txn for derived storage vault update, instance_id={}, "
+                    "err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         std::string cascade_key;
@@ -1678,16 +1685,24 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         instance_key({cascade_id}, &cascade_key);
         cascade_err = cascade_txn->get(cascade_key, &cascade_val);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get derived instance for storage vault update, instance_id="
-                         << cascade_id << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::READ>(cascade_err);
+            msg = fmt::format(
+                    "failed to get derived instance for storage vault update, instance_id={}, "
+                    "err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         InstanceInfoPB cascade_instance;
         if (!cascade_instance.ParseFromString(cascade_val)) {
-            LOG(WARNING) << "failed to parse derived InstanceInfoPB for storage vault update, "
-                         << "instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format(
+                    "failed to parse derived InstanceInfoPB for storage vault update, "
+                    "instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         MetaServiceCode cascade_code = MetaServiceCode::OK;
@@ -1704,26 +1719,35 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                                                  &cascade_response);
         }
         if (ret != 0) {
-            LOG(WARNING) << "failed to cascade storage vault update, instance_id=" << cascade_id
-                         << " vault_id=" << root_vault_id << " msg=" << cascade_msg
-                         << " code=" << static_cast<int>(cascade_code);
-            continue;
+            code = cascade_code;
+            msg = fmt::format(
+                    "failed to cascade storage vault update, instance_id={}, vault_id={}, msg={}",
+                    cascade_id, root_vault_id, cascade_msg);
+            LOG(WARNING) << msg << " code=" << static_cast<int>(code);
+            return;
         }
 
         cascade_val = cascade_instance.SerializeAsString();
         if (cascade_val.empty()) {
-            LOG(WARNING) << "failed to serialize derived instance after storage vault update, "
-                         << "instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format(
+                    "failed to serialize derived instance after storage vault update, "
+                    "instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         cascade_txn->atomic_add(system_meta_service_instance_update_key(), 1);
         cascade_txn->put(cascade_key, cascade_val);
         cascade_err = cascade_txn->commit();
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to commit derived storage vault update, instance_id="
-                         << cascade_id << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::COMMIT>(cascade_err);
+            msg = fmt::format(
+                    "failed to commit derived storage vault update, instance_id={}, err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         async_notify_refresh_instance(txn_kv_, cascade_id, true);
@@ -1944,9 +1968,12 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         std::unique_ptr<Transaction> cascade_txn;
         TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn for derived obj store update, instance_id="
-                         << cascade_id << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::CREATE>(cascade_err);
+            msg = fmt::format(
+                    "failed to create txn for derived obj store update, instance_id={}, err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         std::string cascade_key;
@@ -1954,16 +1981,22 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance_key({cascade_id}, &cascade_key);
         cascade_err = cascade_txn->get(cascade_key, &cascade_val);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get derived instance for obj store update, instance_id="
-                         << cascade_id << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::READ>(cascade_err);
+            msg = fmt::format(
+                    "failed to get derived instance for obj store update, instance_id={}, err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         InstanceInfoPB cascade_instance;
         if (!cascade_instance.ParseFromString(cascade_val)) {
-            LOG(WARNING) << "failed to parse derived InstanceInfoPB for obj store update, "
-                         << "instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format(
+                    "failed to parse derived InstanceInfoPB for obj store update, instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         MetaServiceCode cascade_code = MetaServiceCode::OK;
@@ -1973,27 +2006,35 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                                                       cascade_code, cascade_msg);
         if (ret != 0) {
             if (ret < 0) {
-                LOG(WARNING) << "failed to cascade obj store update, instance_id=" << cascade_id
-                             << " obj_info_id=" << root_obj_id << " msg=" << cascade_msg
-                             << " code=" << static_cast<int>(cascade_code);
+                code = cascade_code;
+                msg = fmt::format(
+                        "failed to cascade obj store update, instance_id={}, obj_info_id={}, "
+                        "msg={}",
+                        cascade_id, root_obj_id, cascade_msg);
+                LOG(WARNING) << msg << " code=" << static_cast<int>(code);
+                return;
             }
-            continue;
         }
 
         cascade_val = cascade_instance.SerializeAsString();
         if (cascade_val.empty()) {
-            LOG(WARNING) << "failed to serialize derived instance after obj store update, "
-                         << "instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format(
+                    "failed to serialize derived instance after obj store update, instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         cascade_txn->atomic_add(system_meta_service_instance_update_key(), 1);
         cascade_txn->put(cascade_key, cascade_val);
         cascade_err = cascade_txn->commit();
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to commit derived obj store update, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::COMMIT>(cascade_err);
+            msg = fmt::format("failed to commit derived obj store update, instance_id={}, err={}",
+                              cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         async_notify_refresh_instance(txn_kv_, cascade_id, true);
@@ -2121,9 +2162,11 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         std::unique_ptr<Transaction> cascade_txn;
         TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn for derived instance, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::CREATE>(cascade_err);
+            msg = fmt::format("failed to create txn for derived instance, instance_id={}, err={}",
+                              cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         InstanceKeyInfo cascade_key_info {cascade_id};
@@ -2133,15 +2176,20 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
 
         cascade_err = cascade_txn->get(cascade_key, &cascade_val);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get derived instance, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::READ>(cascade_err);
+            msg = fmt::format("failed to get derived instance, instance_id={}, err={}", cascade_id,
+                              cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         InstanceInfoPB cascade_instance;
         if (!cascade_instance.ParseFromString(cascade_val)) {
-            LOG(WARNING) << "failed to parse InstanceInfoPB for derived instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("failed to parse InstanceInfoPB for derived instance_id={}",
+                              cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         // Update the cascade instance using helper function
@@ -2150,24 +2198,30 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         std::string cascade_msg;
         if (update_instance_ak_sk(cascade_instance, request, time, cascade_code, cascade_msg,
                                   cascade_update_record) != 0) {
-            LOG(WARNING) << "failed to update derived instance, instance_id=" << cascade_id
-                         << " msg=" << cascade_msg;
-            continue;
+            code = cascade_code;
+            msg = fmt::format("failed to update derived instance, instance_id={}, msg={}",
+                              cascade_id, cascade_msg);
+            LOG(WARNING) << msg << " code=" << static_cast<int>(code);
+            return;
         }
 
         cascade_val = cascade_instance.SerializeAsString();
         if (cascade_val.empty()) {
-            LOG(WARNING) << "failed to serialize derived instance, instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize derived instance, instance_id={}", cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         cascade_txn->put(cascade_key, cascade_val);
 
         cascade_err = cascade_txn->commit();
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to commit derived instance txn, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::COMMIT>(cascade_err);
+            msg = fmt::format("failed to commit derived instance txn, instance_id={}, err={}",
+                              cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         async_notify_refresh_instance(txn_kv_, cascade_id, true);

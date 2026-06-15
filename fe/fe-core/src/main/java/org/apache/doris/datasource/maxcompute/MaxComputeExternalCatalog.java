@@ -28,6 +28,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.aliyun.odps.Odps;
+import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
 import com.aliyun.odps.account.AccountFormat;
 import com.aliyun.odps.table.TableIdentifier;
@@ -52,7 +53,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     // you can ref : https://help.aliyun.com/zh/maxcompute/user-guide/endpoints
     private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
-
     private Map<String, String> props;
     private Odps odps;
     private String endpoint;
@@ -69,7 +69,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private int readTimeout;
     private int retryTimes;
     private long maxFieldSize;
-    private int maxWriteBatchRows;
 
     public boolean dateTimePredicatePushDown;
 
@@ -194,8 +193,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 props.getOrDefault(MCProperties.RETRY_COUNT, MCProperties.DEFAULT_RETRY_COUNT));
         maxFieldSize = Long.parseLong(
                 props.getOrDefault(MCProperties.MAX_FIELD_SIZE, MCProperties.DEFAULT_MAX_FIELD_SIZE));
-        maxWriteBatchRows = Integer.parseInt(
-                props.getOrDefault(MCProperties.MAX_WRITE_BATCH_ROWS, MCProperties.DEFAULT_MAX_WRITE_BATCH_ROWS));
 
         RestOptions restOptions = RestOptions.newBuilder()
                 .withConnectTimeout(connectTimeout)
@@ -209,6 +206,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         odps = MCUtils.createMcClient(props);
         odps.setDefaultProject(defaultProject);
         odps.setEndpoint(endpoint);
+        odps.getRestClient().setConnectTimeout(connectTimeout);
+        odps.getRestClient().setReadTimeout(readTimeout);
+        odps.getRestClient().setRetryTimes(retryTimes);
 
         String accountFormatProp = props.getOrDefault(MCProperties.ACCOUNT_FORMAT, MCProperties.DEFAULT_ACCOUNT_FORMAT);
         if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_NAME)) {
@@ -234,6 +234,69 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         initPreExecutionAuthenticator();
         metadataOps = new MaxComputeMetadataOps(this, odps);
         transactionManager = TransactionManagerFactory.createMCTransactionManager(this);
+    }
+
+    @Override
+    public void checkWhenCreating() throws DdlException {
+        boolean testConnection = Boolean.parseBoolean(catalogProperty.getOrDefault(TEST_CONNECTION,
+                String.valueOf(DEFAULT_TEST_CONNECTION)));
+        if (!testConnection) {
+            return;
+        }
+        // MaxCompute has no MetastoreProperties-backed connectivity tester yet,
+        // so run its catalog-specific test directly under the common test_connection switch.
+        boolean enableNamespaceSchema = Boolean.parseBoolean(
+                catalogProperty.getOrDefault(MCProperties.ENABLE_NAMESPACE_SCHEMA,
+                        MCProperties.DEFAULT_ENABLE_NAMESPACE_SCHEMA));
+        try {
+            initLocalObjects();
+            validateMaxComputeConnection(enableNamespaceSchema);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
+    protected void validateMaxComputeConnection(boolean enableNamespaceSchema) {
+        if (enableNamespaceSchema) {
+            validateMaxComputeProjectAndNamespaceSchema();
+        } else {
+            validateMaxComputeProject();
+        }
+    }
+
+    private void validateMaxComputeProject() {
+        boolean projectExists;
+        try {
+            projectExists = maxComputeProjectExists(defaultProject);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
+                    + "'. Check " + MCProperties.PROJECT + ", " + MCProperties.ENDPOINT
+                    + " and credentials. Cause: " + e.getMessage(), e);
+        }
+        if (!projectExists) {
+            throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
+                    + "'. Check " + MCProperties.PROJECT + ", " + MCProperties.ENDPOINT
+                    + " and credentials. Cause: project does not exist or is not accessible");
+        }
+    }
+
+    private void validateMaxComputeProjectAndNamespaceSchema() {
+        try {
+            validateMaxComputeNamespaceSchemaAccess(defaultProject);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
+                    + "' with namespace schema. Check " + MCProperties.PROJECT + ", " + MCProperties.ENDPOINT
+                    + ", credentials, and whether the schema list is accessible for the namespace schema "
+                    + "configuration. Cause: " + e.getMessage(), e);
+        }
+    }
+
+    protected boolean maxComputeProjectExists(String projectName) throws OdpsException {
+        return odps.projects().exists(projectName);
+    }
+
+    protected void validateMaxComputeNamespaceSchemaAccess(String projectName) throws OdpsException {
+        odps.schemas().iterator(projectName).hasNext();
     }
 
     public Odps getClient() {
@@ -330,11 +393,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         return maxFieldSize;
     }
 
-    public int getMaxWriteBatchRows() {
-        makeSureInitialized();
-        return maxWriteBatchRows;
-    }
-
     public boolean getDateTimePredicatePushDown() {
         return dateTimePredicatePushDown;
     }
@@ -409,7 +467,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                         MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
 
                 if (splitByteSize < 10485760L) {
-                    throw new DdlException(MCProperties.SPLIT_ROW_COUNT + " must be greater than or equal to 10485760");
+                    throw new DdlException(MCProperties.SPLIT_BYTE_SIZE + " must be greater than or equal to 10485760");
                 }
 
             } else if (splitStrategy.equals(MCProperties.SPLIT_BY_ROW_COUNT_STRATEGY)) {

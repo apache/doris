@@ -283,7 +283,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer = writer;
+        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -326,7 +326,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         SCOPED_RAW_TIMER(&_partition_writers_write_ns);
         output_block.erase(_non_write_columns_indices);
         RETURN_IF_ERROR(writer->write(output_block));
-        _current_writer = writer;
+        _current_writer.store(writer);
         return Status::OK();
     }
 
@@ -429,7 +429,7 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
         Block filtered_block;
         RETURN_IF_ERROR(_filter_block(output_block, &it->second, &filtered_block));
         RETURN_IF_ERROR(it->first->write(filtered_block));
-        _current_writer = it->first;
+        _current_writer.store(it->first);
     }
     return Status::OK();
 }
@@ -651,7 +651,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     //1) get the partition column ptr
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
     CHECK(col_ptr);
-    if (col_ptr->is_nullable()) {
+    if (is_column_nullable(*col_ptr)) {
         const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(col_ptr.get());
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {
@@ -664,7 +664,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     auto [item, size] = col_ptr->get_data_at(position);
     switch (type_desc) {
     case TYPE_BOOLEAN: {
-        Field field = check_and_get_column<const ColumnUInt8>(*col_ptr)->operator[](position);
+        Field field = assert_cast<const ColumnUInt8*>(col_ptr.get())->operator[](position);
         return field.get<TYPE_BOOLEAN>();
     }
     case TYPE_TINYINT: {

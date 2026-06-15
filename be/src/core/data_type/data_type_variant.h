@@ -55,13 +55,11 @@ public:
     static constexpr PrimitiveType PType = TYPE_VARIANT;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
     DataTypeVariant() = default;
+    DataTypeVariant(int32_t max_subcolumns_count);
     DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
-    }
     Status check_column(const IColumn& column) const override {
         return check_column_non_nested_type<ColumnVariant>(column);
     }
@@ -72,7 +70,6 @@ public:
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
-    Field get_default() const override { return Field::create_field<TYPE_VARIANT>(VariantMap()); }
 
     Field get_field(const TExprNode& node) const override;
 

@@ -132,17 +132,27 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     for (uint32_t i = 0; i < child_column_idxs.size(); ++i) {
         input_block.insert(block->get_by_position(child_column_idxs[i]));
     }
+    int64_t input_rows = block->rows();
     std::shared_ptr<arrow::Schema> input_schema;
     std::shared_ptr<arrow::RecordBatch> input_batch;
     RETURN_IF_ERROR(get_arrow_schema_from_block(input_block, &input_schema,
                                                 TimezoneUtils::default_time_zone));
-    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema, arrow::default_memory_pool(),
-                                           &input_batch, _timezone_obj));
+    if (child_column_idxs.empty()) {
+        RETURN_IF_ERROR(make_zero_column_arrow_batch(input_schema, input_rows, &input_batch));
+    } else {
+        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema,
+                                               arrow::default_memory_pool(), &input_batch,
+                                               _timezone_obj));
+    }
 
     // Step 3: Call Python UDTF to evaluate all rows at once (similar to Java UDTF's JNI call)
     // Python returns a ListArray where each element contains outputs for one input row
     std::shared_ptr<arrow::ListArray> list_array;
     RETURN_IF_ERROR(_udtf_client->evaluate(*input_batch, &list_array));
+    if (list_array->length() != input_rows) [[unlikely]] {
+        return Status::InternalError("Python UDTF output rows {} not equal to input rows {}",
+                                     list_array->length(), input_rows);
+    }
 
     // Step 4: Convert Python server output (ListArray) to Doris array column
     RETURN_IF_ERROR(_convert_list_array_to_array_column(list_array));
@@ -185,9 +195,9 @@ void PythonUDTFFunction::get_same_many_values(MutableColumnPtr& column, int leng
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto nullmap_column = nullable_column->get_null_map_column_ptr();
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nested_column->insert_many_from(*_array_column_detail.nested_col, pos, length);
-            assert_cast<ColumnUInt8*>(nullmap_column.get())->insert_many_defaults(length);
+            nullmap_column->insert_many_defaults(length);
         } else {
             column->insert_many_from(*_array_column_detail.nested_col, pos, length);
         }
@@ -205,8 +215,7 @@ int PythonUDTFFunction::get_value(MutableColumnPtr& column, int max_step) {
         if (_is_nullable) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
 
             nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();
@@ -250,8 +259,7 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
 
     if (_return_type->is_nullable()) {
         nullable_col = assert_cast<ColumnNullable*>(array_col_ptr.get());
-        array_col = assert_cast<ColumnArray*>(
-                nullable_col->get_nested_column_ptr()->assume_mutable().get());
+        array_col = assert_cast<ColumnArray*>(&nullable_col->get_nested_column());
     } else {
         array_col = assert_cast<ColumnArray*>(array_col_ptr.get());
     }
@@ -264,8 +272,8 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
     // Use read_column_from_arrow for optimized conversion
     // This directly converts Arrow ListArray to Doris ColumnArray
     // No struct unwrapping needed - Python server sends the correct format!
-    RETURN_IF_ERROR(array_serde->read_column_from_arrow(
-            array_col->assume_mutable_ref(), list_array.get(), 0, num_input_rows, _timezone_obj));
+    RETURN_IF_ERROR(array_serde->read_column_from_arrow(*array_col, list_array.get(), 0,
+                                                        num_input_rows, _timezone_obj));
 
     // Handle nullable wrapper: all array elements are non-null
     // (empty arrays [] are non-null, different from NULL)

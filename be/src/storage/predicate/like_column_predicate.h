@@ -96,12 +96,12 @@ private:
 
     template <bool is_and>
     void _evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
-        if (column.is_nullable()) {
-            auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+        if (is_column_nullable(column)) {
+            auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
             if (nested_col.is_column_dictionary()) {
-                auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(nested_col);
+                auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&nested_col);
                 const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 auto& data_array = nested_col_ptr->get_data();
                 for (uint16_t i = 0; i < size; i++) {
@@ -127,7 +127,7 @@ private:
             }
         } else {
             if (column.is_column_dictionary()) {
-                auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+                auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&column);
                 auto& data_array = nested_col_ptr->get_data();
                 const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 for (uint16_t i = 0; i < size; i++) {
@@ -155,7 +155,7 @@ private:
 
         std::vector<bool> tmp_res(column.dict_size(), false);
         for (int i = 0; i < column.dict_size(); i++) {
-            StringRef cell_value = column.get_shrink_value(i);
+            StringRef cell_value = column.get_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
                     &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));

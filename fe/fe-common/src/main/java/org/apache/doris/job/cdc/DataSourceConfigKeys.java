@@ -38,8 +38,32 @@ public class DataSourceConfigKeys {
     public static final String SNAPSHOT_SPLIT_KEY = "snapshot_split_key";
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    public static final String SKIP_SNAPSHOT_BACKFILL = "skip_snapshot_backfill";
+    // MySQL CDC client identity. Single value "5400" or range "5400-5408".
+    public static final String SERVER_ID = "server_id";
     public static final String SSL_MODE = "ssl_mode";
     public static final String SSL_ROOTCERT = "ssl_rootcert";
+    // PG-style spelling; MySQL normalizes to underscore form.
+    public static final String SSL_MODE_DISABLE = "disable";
+    public static final String SSL_MODE_REQUIRE = "require";
+    public static final String SSL_MODE_VERIFY_CA = "verify-ca";
+
+    // PostgreSQL replication slot and publication config
+    public static final String SLOT_NAME = "slot_name";
+    public static final String PUBLICATION_NAME = "publication_name";
+    public static final String DEFAULT_SLOT_PREFIX = "doris_cdc_";
+    public static final String DEFAULT_PUBLICATION_PREFIX = "doris_pub_";
+    // Pre-PR default (Debezium auto-created). Legacy jobs reconnecting on a newer version fall
+    // back to this name when no publication_name was persisted.
+    public static final String LEGACY_PUBLICATION_NAME = "dbz_publication";
+
+    public static String defaultSlotName(String jobId) {
+        return DEFAULT_SLOT_PREFIX + jobId;
+    }
+
+    public static String defaultPublicationName(String jobId) {
+        return DEFAULT_PUBLICATION_PREFIX + jobId;
+    }
 
     // per-table config: key format is "table.<tableName>.<suffix>"
     public static final String TABLE = "table";

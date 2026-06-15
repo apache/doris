@@ -80,6 +80,14 @@ struct TKeyRange {
 // - T<subclass>: all other operational parameters that are the same across
 //   all plan fragments
 
+enum TBinlogScanType {
+  NONE = 0,
+  APPEND_ONLY = 1,
+  MIN_DELTA = 2,
+  DETAIL = 3,
+  UNKNOWN = 4
+}
+
 struct TPaloScanRange {
   1: required list<Types.TNetworkAddress> hosts
   2: required string schema_hash
@@ -90,6 +98,9 @@ struct TPaloScanRange {
   7: optional list<TKeyRange> partition_column_ranges
   8: optional string index_name
   9: optional string table_name
+  10: optional i64 start_tso
+  11: optional i64 end_tso
+  12: optional TBinlogScanType binlog_scan_type
 }
 
 enum TFileFormatType {
@@ -112,7 +123,9 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    FORMAT_LANCE = 19,
+    FORMAT_ES_HTTP = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -426,6 +439,15 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+struct TLanceFileDesc {
+    // URI of the Lance dataset (s3://..., file:///..., etc.)
+    1: optional string dataset_uri
+    // Specific fragment IDs to read (for split-level parallelism)
+    2: optional list<i64> fragment_ids
+    // Dataset version for time travel
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -439,6 +461,10 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
+    12: optional TLanceFileDesc lance_params
+    // ES per-shard parameters (used when table_format_type == "es")
+    // Contains: index, type, shard_id, host_port, es_hosts
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -515,6 +541,12 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    // ES node-level properties (query_dsl, auth, doc_values_mode, etc.)
+    31: optional map<string, string> es_properties
+    // ES docvalue field→docvalue_type mappings
+    32: optional map<string, string> es_docvalue_context
+    // ES fields field→keyword mappings
+    33: optional map<string, string> es_fields_context
 }
 
 struct TFileRangeDesc {
@@ -673,6 +705,49 @@ struct TParquetMetadataParams {
   4: optional map<string, string> properties
   5: optional string bloom_column
   6: optional string bloom_literal
+}
+
+// Partition boundary descriptor for BE-side runtime filter partition pruning.
+// FE sends only partitions that are candidates for pruning; partitions FE does
+// not want pruned (e.g. default catch-all partitions) are simply omitted.
+//
+// Partition type is inferred from which optional fields are set:
+//   - range_start / range_end set  →  Range partition
+//   - list_values set              →  List partition
+//
+// For Range partitions:
+//   - range_start absent  →  no lower-bound constraint (negative infinity)
+//   - range_end   absent  →  no upper-bound constraint (MAXVALUE / positive infinity)
+struct TPartitionBoundary {
+  1: optional Types.TPartitionId partition_id
+  // slot_id of the partition column
+  2: optional Types.TSlotId slot_id
+
+  // Range partition: closed lower bound; absent means unbounded below
+  3: optional Exprs.TExprNode range_start
+  // Range partition: upper bound. By default (range_end_inclusive=false) the
+  // bound is OPEN, i.e. the column range is [range_start, range_end), which
+  // matches Doris RANGE partition's `VALUES [..., ...)` syntax for the
+  // single-column case. Absent means unbounded above (MAXVALUE).
+  4: optional Exprs.TExprNode range_end
+
+  // List partition: set of concrete values in this partition. A NULL_LITERAL
+  // entry indicates the partition logically contains NULL rows for this column;
+  // the BE pruner translates that into ColumnValueRange::set_contain_null(true)
+  // rather than treating it as an ordinary fixed value.
+  5: optional list<Exprs.TExprNode> list_values
+
+  // When true, treat `range_end` as a CLOSED upper bound, i.e. the projected
+  // column range is [range_start, range_end]. Used when projecting a
+  // multi-column RANGE partition onto its first column: a partition like
+  // [(L1, L2, ...), (U1, U2, ...)) projects to the first column as
+  // [L1, U1] (both ends closed) — for the L1 == U1 case the projection is the
+  // singleton {L1}, and for L1 < U1 the value U1 is reachable via inner-tuple
+  // values of the second+ column. The original half-open form [L1, U1) would
+  // be a strict UNDER-approximation and could wrongly prune the partition.
+  // The single-column case keeps the default open form to preserve exact
+  // Doris partition semantics.
+  6: optional bool range_end_inclusive = false
 }
 
 struct TMetaScanRange {
@@ -926,6 +1001,12 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
+  // Read row binlog index instead of base index
+  26: optional bool read_row_binlog
+  // Partition boundary descriptors for BE-side runtime filter partition pruning.
+  // Only partitions that are candidates for pruning are included; partitions FE
+  // does not want pruned (e.g. default catch-all) are omitted from this list.
+  27: optional list<TPartitionBoundary> partition_boundaries
 }
 
 struct TEqJoinCondition {
@@ -1016,7 +1097,8 @@ struct TNestedLoopJoinNode {
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  // for bitmap filer, don't need to join, but output left child tuple
+  // Deprecated: bitmap runtime filter planning no longer uses this field; for bitmap filer,
+  // don't need to join, but output left child tuple
   5: optional bool is_output_left_side_only
 
   6: optional Exprs.TExpr vjoin_conjunct
@@ -1028,6 +1110,11 @@ struct TNestedLoopJoinNode {
   9: optional list<Exprs.TExpr> mark_join_conjuncts
   // deprecated
   10: optional bool use_specific_projections
+
+  // Slots that need to be materialized after join conjunct evaluation.
+  // If this field is not set, BE keeps the legacy behavior.
+  // If this field is set to an empty list, no payload slot needs materialization.
+  11: optional list<Types.TSlotId> materialized_slot_ids
 }
 
 struct TMergeJoinNode {
@@ -1393,6 +1480,7 @@ enum TRuntimeFilterType {
   BLOOM = 2,
   MIN_MAX = 4,
   IN_OR_BLOOM = 8,
+  // Deprecated: bitmap runtime filters are no longer planned.
   BITMAP = 16
 }
 
@@ -1406,6 +1494,20 @@ enum TMinMaxRuntimeFilterType {
   // support hash join condition: col_A = col_B
   // support other join condition: n < col_A and col_A < m
   MIN_MAX = 4
+}
+
+// Monotonicity of a runtime filter's target expression on one partition range,
+// used by BE-side partition pruning. FE sends this per partition so BE can
+// project each boundary with the direction proven for that exact range.
+enum TTargetExprMonotonicity {
+  NON_MONOTONIC = 0,
+  MONOTONIC_INCREASING = 1,
+  MONOTONIC_DECREASING = 2
+}
+
+struct TPartitionTargetExprMonotonicity {
+  1: optional Types.TPartitionId partition_id
+  2: optional TTargetExprMonotonicity monotonicity
 }
 
 struct TTopnFilterDesc {
@@ -1452,10 +1554,10 @@ struct TRuntimeFilterDesc {
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
 
-  // for bitmap filter target expr
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter target expr
   10: optional Exprs.TExpr bitmap_target_expr
 
-  // for bitmap filter
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf; // Deprecated
@@ -1474,6 +1576,20 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // Per-filter wait time in ms. When set, overrides query-level runtime_filter_wait_time_ms.
+  // 0 means non-blocking (don't wait for this filter).
+  18: optional i32 wait_time_ms;
+
+  // Deprecated compatibility field. Current RF partition pruning uses
+  // planId_to_partition_target_monotonicity for both direct SlotRef targets and
+  // expression targets, so BE can make one per-partition decision path.
+  19: optional map<Types.TPlanNodeId, TTargetExprMonotonicity> planId_to_target_monotonicity;
+
+  // Per-target, per-partition monotonicity. BE must apply the target RF only to
+  // the listed partitions with the listed direction; absent partitions are
+  // unsafe for this RF target and must not be pruned by it.
+  20: optional map<Types.TPlanNodeId, list<TPartitionTargetExprMonotonicity>> planId_to_partition_target_monotonicity;
 }
 
 

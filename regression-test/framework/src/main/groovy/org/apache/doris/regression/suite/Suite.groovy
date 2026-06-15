@@ -992,6 +992,21 @@ class Suite implements GroovyInterceptable {
         throw new RuntimeException("dictionary ${dictName} are not ready, status: ${result}")
     }
 
+    void waitForColocateGroupStable(String groupName, int timeoutSeconds = 60) {
+        waitForColocateGroupStable(context.dbName, groupName, timeoutSeconds)
+    }
+
+    void waitForColocateGroupStable(String dbName, String groupName, int timeoutSeconds = 60) {
+        String fullGroupName = groupName.startsWith("__global__") ? groupName : "${dbName}.${groupName}"
+        logger.info("wait colocate group ${fullGroupName} stable")
+        awaitUntil(timeoutSeconds) {
+            def groups = sql_return_maparray("SHOW PROC '/colocation_group'")
+            def group = groups.find { it.GroupName == fullGroupName }
+            return group != null && group.IsStable == "true"
+        }
+        logger.info("colocate group ${fullGroupName} is stable")
+    }
+
     void flightRecord(Closure actionSupplier) {
         runAction(new FlightRecordAction(context), actionSupplier)
     }
@@ -2308,6 +2323,11 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void testExpectNoResult(String testSql) {
+        def result = sql(testSql)
+        assertEquals(result.size(), 0)
+    }
+
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
         def sqlCacheOrigValue = sql("select @@enable_sql_cache")
@@ -2405,6 +2425,50 @@ class Suite implements GroovyInterceptable {
             actionSupplier()
         } finally {
             updateConfig oldConfig
+        }
+    }
+
+    /**
+     * Set the given global variables for the duration of {@code actionSupplier},
+     * restoring their original values on exit. The variable values are read via
+     * {@code SHOW GLOBAL VARIABLES} before being changed, so any kind of
+     * exception inside {@code actionSupplier} still triggers the restore.
+     */
+    void setGlobalVarTemporary(Map<String, Object> tempVars, Closure actionSupplier) {
+        def quote = { Object v ->
+            if (v == null) {
+                return "''"
+            }
+            if (v instanceof Boolean || v instanceof Number) {
+                return v.toString()
+            }
+            return "'" + v.toString().replace("'", "''") + "'"
+        }
+        Map<String, String> origin = [:]
+        tempVars.keySet().each { key ->
+            def rows = sql_return_maparray "show global variables like '${key}'"
+            if (!rows.isEmpty()) {
+                origin.put(key, rows[0].Value as String)
+            }
+        }
+
+        try {
+            tempVars.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+        } catch (Exception e) {
+            def err = e.getMessage()
+            log.warn("skip this case ${context.suiteName}, because ${err}")
+            if (err.toUpperCase().contains("ADMIN")) {
+                return
+            }
+
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+            throw e
+        }
+
+        try {
+            actionSupplier()
+        } finally {
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
         }
     }
 

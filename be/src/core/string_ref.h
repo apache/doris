@@ -146,8 +146,7 @@ inline bool memequalSSE2Wide(const char* p1, const char* p2, size_t size) {
 //   - s1/n1: ptr/len for the first string
 //   - s2/n2: ptr/len for the second string
 //   - len: min(n1, n2) - this can be more cheaply passed in by the caller
-PURE inline int64_t string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2,
-                                   int64_t len) {
+inline int64_t string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2, int64_t len) {
     DCHECK_EQ(len, std::min(n1, n2));
 #if defined(__SSE4_2__) || defined(__aarch64__)
     while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
@@ -232,8 +231,6 @@ struct StringRef {
     static StringRef min_string_val();
     static StringRef max_string_val();
 
-    bool start_with(char) const;
-    bool end_with(char) const;
     bool start_with(const StringRef& search_string) const;
     bool end_with(const StringRef& search_string) const;
 

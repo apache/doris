@@ -19,7 +19,6 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.materialize.LazyMaterializeTopN;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2Generator;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
@@ -64,6 +63,7 @@ public class PlanPostProcessors {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
+        builder.add(new PrunePartitionPredicate());
         builder.add(new RemoveUselessProjectPostProcessor());
         builder.add(new ShuffleKeyPruner());
         builder.add(new RecomputeLogicalPropertiesProcessor());
@@ -97,7 +97,6 @@ public class PlanPostProcessors {
                     builder.add(new RuntimeFilterPrunerForExternalTable());
                 }
             }
-            builder.add(new RuntimeFilterV2Generator());
         }
         builder.add(new Validator());
         return builder.build();

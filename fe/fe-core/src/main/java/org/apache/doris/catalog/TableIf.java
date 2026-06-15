@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -209,6 +210,20 @@ public interface TableIf {
     }
 
     /**
+     * Returns whether the table can preload planning metadata before internal table locks are acquired.
+     */
+    default boolean supportsExternalMetadataPreload() {
+        return false;
+    }
+
+    /**
+     * Returns whether the table has a meaningful latest snapshot that can be preloaded ahead of analysis.
+     */
+    default boolean supportsLatestSnapshotPreload() {
+        return false;
+    }
+
+    /**
      * Doris table type.
      */
     enum TableType {
@@ -288,6 +303,7 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
+                case STREAM:
                     return "VIEW";
                 case OLAP:
                 case MYSQL:
@@ -306,7 +322,6 @@ public interface TableIf {
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
                 case PLUGIN_EXTERNAL_TABLE:
-                case STREAM:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -396,5 +411,10 @@ public interface TableIf {
             return Optional.empty();
         }
         return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
+    }
+
+    default void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        throw new DdlException("Base table type: " + getType()  + ", StreamScanType: " + streamScanType
+                + " is not supported for create table stream");
     }
 }

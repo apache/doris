@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
@@ -26,12 +27,18 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -52,6 +59,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
@@ -64,6 +72,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -77,7 +87,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
@@ -88,6 +100,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -97,27 +110,33 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
     private static final Logger LOG = LogManager.getLogger(StatementContext.class);
+    private static final long ROW_BINLOG_APPEND_OP = 0L;
 
     @Override
     public Rule build() {
@@ -216,6 +235,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
+        boolean isChangeRead = isChangeRead(unboundRelation);
+        if (isChangeRead) {
+            table = new RowBinlogTableWrapper((OlapTable) table);
+        }
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, partIds,
@@ -231,6 +254,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 if (indexId == null) {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
+                }
+                if (isChangeRead && olapTable.getBaseIndexId() != indexId) {
+                    throw new AnalysisException("Change read is not supported on non-base index " + indexName.get());
                 }
                 PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
@@ -250,6 +276,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // This tabletIds is set manually, so need to set specifiedTabletIds
             scan = scan.withManuallySpecifiedTabletIds(tabletIds);
         }
+        if (isChangeRead) {
+            if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+                throw new AnalysisException(
+                        "PREAGGOPEN hint is not supported on @incr (change-read) scans.");
+            }
+            StreamScanType scanType = checkChangeScanCondition(((OlapTableWrapper) table).getOriginTable(),
+                    unboundRelation.getScanParams());
+            scan = scan.withTableScanParams(unboundRelation.getScanParams());
+            return checkAndAddChangeScanFilter(scan, scanType, parseTimestampRange(unboundRelation.getScanParams()));
+        }
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
             return scan.withPreAggStatus(PreAggStatus.on());
         }
@@ -262,6 +298,28 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // add delete sign filter on olap scan if needed
             return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
         }
+    }
+
+    private LogicalOlapScan makeOlapTableStreamScan(TableIf table, UnboundRelation unboundRelation,
+                                                List<String> qualifier) {
+        LogicalOlapTableStreamScan scan;
+        List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
+        List<Long> tabletIds = unboundRelation.getTabletIds();
+        if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
+            scan = new LogicalOlapTableStreamScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, qualifier, partIds, tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample(), ImmutableList.of());
+        } else {
+            scan = new LogicalOlapTableStreamScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample(), ImmutableList.of());
+        }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
+        }
+        // for olap table stream scan we filter delete sign in rewrite phase
+        return scan;
     }
 
     private boolean needGenerateLogicalAggForRandomDistAggTable(LogicalOlapScan olapScan) {
@@ -422,6 +480,83 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf, ImmutableList.of()));
     }
 
+    private StreamScanType checkChangeScanCondition(OlapTable olapTable, TableScanParams scanParams)
+            throws AnalysisException {
+        if (!olapTable.needRowBinlog()) {
+            throw new AnalysisException("INCR query requires ROW binlog enabled on base table "
+                    + "(PROPERTIES('binlog.enable'='true','binlog.format'='ROW')). "
+                    + "Table " + olapTable.getQualifiedName() + " doesn't enable row binlog.");
+        }
+        HashSet<String> keys = new HashSet(scanParams.getMapParams().keySet());
+        keys.remove(OlapScanNode.OLAP_INCREMENT_TYPE);
+        keys.remove(OlapScanNode.OLAP_START_TIMESTAMP);
+        keys.remove(OlapScanNode.OLAP_END_TIMESTAMP);
+        if (!keys.isEmpty()) {
+            throw new ParseException("Unsupported parameter in incr query: " + keys);
+        }
+        StreamScanType streamScanType = StreamScanType.getType(scanParams.getMapParams().getOrDefault(
+                OlapScanNode.OLAP_INCREMENT_TYPE, StreamScanType.MIN_DELTA.name()));
+        if (streamScanType == StreamScanType.UNKNOWN) {
+            throw new AnalysisException("Unsupported parameter in incr query: " + keys);
+        }
+        if (olapTable.getKeysType().equals(KeysType.DUP_KEYS)) {
+            return streamScanType;
+        }
+        if (streamScanType.equals(StreamScanType.MIN_DELTA)) {
+            if (!olapTable.isUniqKeyMergeOnWrite()) {
+                throw new AnalysisException("MIN_DELTA INCR query requires base table to be UNIQUE KEY with "
+                        + "enable_unique_key_merge_on_write=true. Table " + olapTable.getQualifiedName()
+                        + " is " + olapTable.getKeysType() + ".");
+            }
+            if (!olapTable.getBinlogConfig().getNeedHistoricalValue()) {
+                throw new AnalysisException("MIN_DELTA INCR query requires base table to enable "
+                        + "binlog.need_historical_value=true. Table " + olapTable.getQualifiedName()
+                        + " doesn't enable historical value in row binlog.");
+            }
+        }
+        return streamScanType;
+    }
+
+    private Pair<Long, Long> parseTimestampRange(TableScanParams scanParams) {
+        Map<String, String> params = scanParams.getMapParams();
+        Long startTimestamp = OlapScanNode.parseChangeTimestamp(
+                params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
+        startTimestamp = TSOTimestamp.composeFullTimestamp(startTimestamp);
+        Long endTimestamp = null;
+        if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
+            endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
+            endTimestamp = TSOTimestamp.composeFullTimestamp(endTimestamp);
+        }
+        return Pair.of(startTimestamp, endTimestamp);
+    }
+
+    private boolean isChangeRead(UnboundRelation unboundRelation) {
+        return unboundRelation.getScanParams() != null && unboundRelation.getScanParams().incrementalRead();
+    }
+
+    /**
+     * Add op filter on append only table stream olap scan if need.
+     */
+    public static LogicalPlan addAppendOnlyFilter(LogicalPlan scan) {
+        Set<Expression> conjuncts = Sets.newHashSet();
+        // add append only op filter
+        Slot opSlot = null;
+        for (Slot slot : scan.getOutput()) {
+            if (slot.getName().equals(Column.STREAM_CHANGE_TYPE_COL)) {
+                opSlot = slot;
+                break;
+            }
+        }
+        Preconditions.checkArgument(opSlot != null);
+        Expression conjunct = new EqualTo(new VarcharLiteral("APPEND"), opSlot);
+        conjuncts.add(conjunct);
+        return new LogicalFilter<>(conjuncts, scan);
+    }
+
+    private boolean isScanAppendOnlyTableStream(OlapTableStreamWrapper stream) {
+        return stream.getStreamScanType().equals(BaseTableStream.StreamScanType.APPEND_ONLY);
+    }
+
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
                                        List<String> qualifiedTableName, CascadesContext cascadesContext) {
         // for create view stmt replace tableName to ctl.db.tableName
@@ -575,6 +710,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return new LogicalOdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+                case STREAM:
+                    return makeTableStreamScan(table, unboundRelation, qualifierWithoutTableName);
                 default:
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
@@ -700,4 +837,53 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).collect(ImmutableList.toImmutableList());
     }
 
+    private LogicalPlan makeTableStreamScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier)
+            throws AnalysisException {
+        if (table instanceof OlapTableStream) {
+            // create OlapTableStreamWrapper
+            OlapTableStream olapTableStream = (OlapTableStream) table;
+            OlapTableStreamWrapper olapTableStreamWrapper = new OlapTableStreamWrapper(olapTableStream,
+                    (OlapTable) olapTableStream.getBaseTableOrNereidsAnalysisException());
+            LogicalOlapScan scan = makeOlapTableStreamScan(olapTableStreamWrapper, unboundRelation, qualifier);
+            if (isScanAppendOnlyTableStream(olapTableStreamWrapper)) {
+                LOG.debug("Add append only filter on olap scan if need.");
+                return addAppendOnlyFilter(scan);
+            }
+            return scan;
+        }
+        throw new AnalysisException("Unsupported stream Type: " + table.getClass().getName());
+    }
+
+    /**
+     * Add append only filter on olap scan with changes if need.
+     */
+    public static LogicalPlan checkAndAddChangeScanFilter(LogicalOlapScan scan,
+                                                          StreamScanType scanType,
+                                                          Pair<Long, Long> timestampRange) {
+        LogicalPlan plan = scan;
+        Slot timestampSlot = null;
+        for (Slot slot : scan.getOutput()) {
+            if (slot.getName().equals(Column.BINLOG_TIMESTAMP_COL)) {
+                timestampSlot = slot;
+                break;
+            }
+        }
+        List<Expression> conjuncts = Lists.newArrayList();
+        conjuncts.add(new GreaterThan(timestampSlot, new BigIntLiteral(timestampRange.first)));
+        if (timestampRange.second != null) {
+            conjuncts.add(new LessThanEqual(timestampSlot, new BigIntLiteral(timestampRange.second)));
+        }
+        if (scanType.equals(StreamScanType.APPEND_ONLY)) {
+            Slot opSlot = null;
+            for (Slot slot : scan.getOutput()) {
+                if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
+                    opSlot = slot;
+                    break;
+                }
+            }
+            Preconditions.checkArgument(opSlot != null);
+            conjuncts.add(new EqualTo(opSlot, new BigIntLiteral(ROW_BINLOG_APPEND_OP)));
+        }
+        return new LogicalFilter<>(ImmutableSet.copyOf(conjuncts), plan);
+    }
 }

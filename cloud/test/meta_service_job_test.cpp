@@ -1645,6 +1645,71 @@ void check_job_key(MetaServiceProxy* meta_service, std::string instance_id, int6
     }
 }
 
+// Regression test for CORE-5964: STOP_TOKEN should not be rejected by the stale tablet
+// cache check even when the BE's cached compaction counts lag behind the meta-service.
+// STOP_TOKEN is a lock marker used by schema change (MOW table) to block concurrent
+// compactions during delete bitmap recalculation -- it does not perform actual compaction
+// work, so verifying compaction count freshness is meaningless for it.
+TEST(MetaServiceJobTest, StopTokenSkipsStaleTabletCacheCheck) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 101;
+
+    // Set up tablet index
+    auto index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    TabletIndexPB idx_pb;
+    idx_pb.set_table_id(table_id);
+    idx_pb.set_index_id(index_id);
+    idx_pb.set_partition_id(partition_id);
+    idx_pb.set_tablet_id(tablet_id);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(index_key, idx_pb.SerializeAsString());
+
+    // Simulate meta-service state where cumulative_compaction_cnt=9 (advanced by another BE)
+    std::string stats_key =
+            stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    TabletStatsPB stats;
+    stats.set_base_compaction_cnt(0);
+    stats.set_cumulative_compaction_cnt(9);
+    txn->put(stats_key, stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // A regular CUMULATIVE compaction with stale counts (req=8 < actual=9) must be rejected.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/8, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_TABLET_CACHE)
+                << "CUMULATIVE with stale counts should be rejected";
+    }
+
+    // A STOP_TOKEN with the same stale counts must NOT be rejected (CORE-5964 regression).
+    // The BE's cached cumulative_compaction_cnt=8 lags behind the actual value=9 on the
+    // meta-service side, but STOP_TOKEN registration must still succeed.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "stop_token_job", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/8, TabletCompactionJobPB::STOP_TOKEN,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "STOP_TOKEN with stale counts should NOT be rejected; got: "
+                << res.status().msg();
+    }
+}
+
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
@@ -5213,6 +5278,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         streaming_attach->set_job_id(1002);
         streaming_attach->set_offset("test_offset_3");
         streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_filtered_rows(150);
         streaming_attach->set_load_bytes(10000);
         streaming_attach->set_num_files(20);
         streaming_attach->set_file_bytes(15000);
@@ -5241,6 +5307,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().job_id(), 1002);
         EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 150);
         EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
         EXPECT_EQ(response.commit_attach().num_files(), 20);
         EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
@@ -5363,6 +5430,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         streaming_attach->set_job_id(job_id);
         streaming_attach->set_offset("original_offset");
         streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_filtered_rows(50);
         streaming_attach->set_load_bytes(5000);
         streaming_attach->set_num_files(10);
         streaming_attach->set_file_bytes(8000);
@@ -5391,6 +5459,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "original_offset");
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
     }
 
@@ -5427,6 +5496,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.commit_attach().offset(), "reset_offset");
         // Other fields should remain unchanged
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
         EXPECT_EQ(response.commit_attach().num_files(), 10);
         EXPECT_EQ(response.commit_attach().file_bytes(), 8000);

@@ -108,6 +108,12 @@ public class AddColumnsOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Add columns is considered safe for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ADD COLUMN (");

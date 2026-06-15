@@ -20,7 +20,9 @@
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
+#include <aws/core/platform/Environment.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
 #include <aws/sts/STSClient.h>
@@ -47,8 +49,8 @@
 #include "cpp/aws_logger.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/obj_retry_strategy.h"
-#include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
 #ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"
@@ -238,7 +240,12 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
         if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
             s3_conf.role_arn = obj_info.role_arn();
             s3_conf.external_id = obj_info.external_id();
-            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            if (obj_info.has_cred_provider_type()) {
+                s3_conf.cred_provider_type =
+                        cred_provider_type_from_pb(obj_info.cred_provider_type());
+            } else {
+                s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            }
         }
     }
 
@@ -314,6 +321,28 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credenti
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 }
 
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_create_credentials_provider(
+        CredProviderType type) {
+    switch (type) {
+    case CredProviderType::Env:
+        return std::make_shared<Aws::Auth::EnvironmentAWSCredentialsProvider>();
+    case CredProviderType::SystemProperties:
+        return std::make_shared<Aws::Auth::ProfileConfigFileAWSCredentialsProvider>();
+    case CredProviderType::WebIdentity:
+        return std::make_shared<Aws::Auth::STSAssumeRoleWebIdentityCredentialsProvider>();
+    case CredProviderType::Container:
+        return std::make_shared<Aws::Auth::TaskRoleCredentialsProvider>(
+                Aws::Environment::GetEnv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI").c_str());
+    case CredProviderType::InstanceProfile:
+        return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+    case CredProviderType::Anonymous:
+        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+    case CredProviderType::Default:
+    default:
+        return std::make_shared<CustomAwsCredentialsProviderChain>();
+    }
+}
+
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credentials_provider_v2(
         const S3Conf& s3_conf) {
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
@@ -322,11 +351,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credenti
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
     }
 
-    if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
-        if (s3_conf.role_arn.empty()) {
-            return std::make_shared<CustomAwsCredentialsProviderChain>();
-        }
-
+    if (!s3_conf.role_arn.empty()) {
         Aws::Client::ClientConfiguration clientConfiguration =
                 S3Environment::getClientConfiguration();
         if (_ca_cert_file_path.empty()) {
@@ -338,13 +363,13 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credenti
         }
 
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<CustomAwsCredentialsProviderChain>(), clientConfiguration);
+                _create_credentials_provider(s3_conf.cred_provider_type), clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
                 s3_conf.role_arn, Aws::String(), s3_conf.external_id,
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
     }
-    return std::make_shared<CustomAwsCredentialsProviderChain>();
+    return _create_credentials_provider(s3_conf.cred_provider_type);
 }
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentials_provider(
@@ -368,7 +393,9 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        if (config::s3_client_retry_slow_down) {
+            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        }
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
@@ -380,7 +407,7 @@ int S3Accessor::init() {
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
-        // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
+        // Therefore, the policy can record retries after the RetryPolicy has handled the response.
         options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
@@ -414,7 +441,7 @@ int S3Accessor::init() {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry /*scaleFactor = 25*/);
+                config::max_s3_client_retry, config::s3_client_retry_slow_down);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =

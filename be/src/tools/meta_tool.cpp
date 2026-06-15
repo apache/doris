@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -46,6 +47,7 @@
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -54,11 +56,14 @@
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_column_object_pool.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "storage/types.h"
 #include "util/coding.h"
+#include "util/unaligned.h"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -101,7 +106,7 @@ std::string get_usage(const std::string& progname) {
     ss << "./meta_tool --operation=delete_meta "
           "--root_path=/path/to/storage/path --tablet_id=tabletid "
           "--schema_hash=schemahash\n";
-    ss << "./meta_tool --operation=delete_meta --tablet_file=file_path\n";
+    ss << "./meta_tool --operation=batch_delete_meta --tablet_file=file_path\n";
     ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     ss << "./meta_tool --operation=show_segment_footer --file=/path/to/segment/file\n";
     ss << "./meta_tool --operation=show_segment_data --file=/path/to/segment/file\n";
@@ -132,9 +137,13 @@ void get_meta(DataDir* data_dir) {
     std::string value;
     Status s =
             TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
-    if (s.is<doris::ErrorCode::META_KEY_NOT_FOUND>()) {
-        std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
-                  << ", schema_hash:" << FLAGS_schema_hash << std::endl;
+    if (!s.ok()) {
+        if (s.is<doris::ErrorCode::META_KEY_NOT_FOUND>()) {
+            std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
+                      << ", schema_hash:" << FLAGS_schema_hash << std::endl;
+        } else {
+            std::cout << "get meta failed: " << s.to_string() << std::endl;
+        }
         return;
     }
     std::cout << value << std::endl;
@@ -177,8 +186,8 @@ Status init_data_dir(StorageEngine& engine, const std::string& dir, std::unique_
     }
     res = p->init();
     if (!res.ok()) {
-        std::cout << "data_dir load failed" << std::endl;
-        return Status::InternalError("data_dir load failed");
+        std::cout << "data_dir load failed: " << res.to_string() << std::endl;
+        return res;
     }
 
     p.swap(*ret);
@@ -464,7 +473,8 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
             // LargeInt is stored as Int128
             const StringRef& data = column.get_data_at(row);
             if (data.size == sizeof(__int128)) {
-                __int128 val = *reinterpret_cast<const __int128*>(data.data);
+                // data.data may not be 16-byte aligned; use unaligned_load to avoid UB.
+                __int128 val = unaligned_load<__int128>(data.data);
                 return doris::LargeIntValue::to_string(val);
             }
             return "<invalid largeint>";
@@ -548,7 +558,8 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
         case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
             const StringRef& data = column.get_data_at(row);
             if (data.size == sizeof(__int128)) {
-                __int128 val = *reinterpret_cast<const __int128*>(data.data);
+                // data.data may not be 16-byte aligned; use unaligned_load to avoid UB.
+                __int128 val = unaligned_load<__int128>(data.data);
                 return doris::LargeIntValue::to_string(val);
             }
             return "<invalid decimal>";
@@ -640,7 +651,7 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
         return;
     }
 
-    MutableColumnPtr dst_column = data_type->create_column();
+    doris::MutableColumnPtr dst_column = data_type->create_column();
 
     // Determine how many rows to display (max 10 rows for readability)
     const size_t max_display_rows = 10;
@@ -667,11 +678,11 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
     for (size_t i = 0; i < rows_read; ++i) {
         std::cout << indent << "  [" << i << "] ";
         if (column_meta.is_nullable()) {
-            const auto& nullable_col = assert_cast<const ColumnNullable&>(*dst_column);
+            const auto& nullable_col = assert_cast<const doris::ColumnNullable&>(*dst_column);
             if (nullable_col.is_null_at(i)) {
                 std::cout << "NULL";
             } else {
-                const IColumn& nested_col = nullable_col.get_nested_column();
+                const doris::IColumn& nested_col = nullable_col.get_nested_column();
                 std::cout << format_column_value(nested_col, i, field_type);
             }
         } else {
@@ -773,11 +784,12 @@ void print_column_meta(const doris::segment_v2::ColumnMetaPB& column_meta,
 }
 
 // Register hijacked accessors
-ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, ExecEnv, segment_v2::EncodingInfoResolver*,
-                     _encoding_info_resolver);
-ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, ExecEnv, std::shared_ptr<MemTrackerLimiter>,
-                     _orphan_mem_tracker);
-ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, ExecEnv, std::atomic_bool, _s_tracking_memory);
+ACCESS_PRIVATE_FIELD(ExecEnv_encoding_info_resolver, doris::ExecEnv,
+                     doris::segment_v2::EncodingInfoResolver*, _encoding_info_resolver);
+ACCESS_PRIVATE_FIELD(ExecEnv_orphan_mem_tracker, doris::ExecEnv,
+                     std::shared_ptr<doris::MemTrackerLimiter>, _orphan_mem_tracker);
+ACCESS_PRIVATE_STATIC_FIELD(ExecEnv_tracking_memory, doris::ExecEnv, std::atomic_bool,
+                            _s_tracking_memory);
 
 void show_segment_data(const std::string& file_name) {
     // Initialize ExecEnv components needed for ColumnReader
@@ -795,7 +807,7 @@ void show_segment_data(const std::string& file_name) {
     if (exec_env->mem_tracker_limiter_pool.empty()) {
         exec_env->mem_tracker_limiter_pool.resize(doris::MEM_TRACKER_GROUP_NUM,
                                                   doris::TrackerLimiterGroup());
-        (*tracking_memory).store(true, std::memory_order_release);
+        tracking_memory->store(true, std::memory_order_release);
         exec_env->*mem_tracker = doris::MemTrackerLimiter::create_shared(
                 doris::MemTrackerLimiter::Type::GLOBAL, "Orphan");
     }
@@ -906,6 +918,32 @@ void show_segment_data(const std::string& file_name) {
                   << std::setprecision(2) << (footer.data_footprint() / 1024.0) << " KB)"
                   << std::endl;
     }
+}
+
+void init_common_components() {
+    // init meta_tool.log to current dir
+    if (doris::config::sys_log_dir == "") {
+        doris::config::sys_log_dir = ".";
+    }
+    if (doris::config::sys_log_level == "") {
+        doris::config::sys_log_level = "INFO";
+    }
+    if (doris::config::sys_log_roll_mode == "") {
+        doris::config::sys_log_roll_mode = "SIZE-MB-1024";
+    }
+    FLAGS_log_dir = doris::config::sys_log_dir;
+    if (!doris::init_glog("meta_tool")) {
+        fprintf(stderr, "init glog failed.\n");
+    }
+
+    doris::ExecEnv::GetInstance()->init_mem_tracker();
+    doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
+    doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
+            doris::TabletSchemaCache::create_global_schema_cache(
+                    doris::config::tablet_schema_cache_capacity));
+    doris::ExecEnv::GetInstance()->set_tablet_column_object_pool(
+            doris::TabletColumnObjectPool::create_global_column_cache(
+                    doris::config::tablet_schema_cache_capacity));
 }
 
 void gen_empty_segment() {
@@ -1029,6 +1067,7 @@ int main(int argc, char** argv) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_meta") {
+        init_common_components();
         show_meta();
     } else if (FLAGS_operation == "batch_delete_meta") {
         std::string tablet_file;
@@ -1040,18 +1079,21 @@ int main(int argc, char** argv) {
             return -1;
         }
 
+        init_common_components();
         batch_delete_meta(tablet_file);
     } else if (FLAGS_operation == "show_segment_footer") {
         if (FLAGS_file == "") {
             std::cout << "no file flag for show dict" << std::endl;
             return -1;
         }
+        init_common_components();
         show_segment_footer(FLAGS_file);
     } else if (FLAGS_operation == "show_segment_data") {
         if (FLAGS_file == "") {
             std::cout << "no file flag for show_segment_data" << std::endl;
             return -1;
         }
+        init_common_components();
         show_segment_data(FLAGS_file);
     } else if (FLAGS_operation == "gen_empty_segment") {
         gen_empty_segment();
@@ -1062,6 +1104,25 @@ int main(int argc, char** argv) {
             std::cout << "invalid operation:" << FLAGS_operation << std::endl;
             return -1;
         }
+
+        if (getenv("DORIS_HOME") == nullptr) {
+            fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
+            exit(-1);
+        }
+
+        std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+        if (!doris::config::init(conffile.c_str(), true, true, true)) {
+            fprintf(stderr, "error read config file. \n");
+            return -1;
+        }
+
+        std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+        if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+            fprintf(stderr, "error read custom config file. \n");
+            return -1;
+        }
+
+        init_common_components();
 
         StorageEngine engine(doris::EngineOptions {});
         std::unique_ptr<DataDir> data_dir;

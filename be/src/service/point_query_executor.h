@@ -181,7 +181,7 @@ public:
 
         LRUCachePolicy* cache() const { return _cache; }
         Slice data() const {
-            return {(char*)((RowCacheValue*)_cache->value(_handle))->cache_value,
+            return {((RowCacheValue*)_cache->value(_handle))->cache_value,
                     reinterpret_cast<LRUHandle*>(_handle)->charge};
         }
 

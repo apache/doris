@@ -70,9 +70,6 @@ public:
     DataTypeStruct(const DataTypes& elems, const Strings& names);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
-    }
     std::string do_get_name() const override;
     const std::string get_family_name() const override { return "Struct"; }
 
@@ -80,8 +77,6 @@ public:
 
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
-
-    Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

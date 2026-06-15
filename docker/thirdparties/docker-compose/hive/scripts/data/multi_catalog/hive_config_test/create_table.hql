@@ -1,7 +1,9 @@
 create database if not exists default;
 use default;
 
-CREATE TABLE `hive_recursive_directories_table`(
+drop table if exists `hive_recursive_directories_table`;
+
+create table `hive_recursive_directories_table`(
   `id` int,
   `name` string)
 ROW FORMAT SERDE
@@ -14,7 +16,10 @@ LOCATION
   '/user/doris/suites/default/hive_recursive_directories_table';
 
 
-CREATE TABLE `hive_ignore_absent_partitions_table`(
+drop table if exists `hive_ignore_absent_partitions_table`;
+
+
+create table `hive_ignore_absent_partitions_table`(
   `id` int,
   `name` string)
 PARTITIONED BY (country STRING, city STRING)
@@ -27,5 +32,5 @@ OUTPUTFORMAT
 LOCATION
   '/user/doris/suites/default/hive_ignore_absent_partitions_table';
 
-ALTER TABLE hive_ignore_absent_partitions_table ADD PARTITION (country='USA', city='NewYork');
-ALTER TABLE hive_ignore_absent_partitions_table ADD PARTITION (country='India', city='Delhi');
+ALTER TABLE hive_ignore_absent_partitions_table ADD if not exists PARTITION (country='USA', city='NewYork');
+ALTER TABLE hive_ignore_absent_partitions_table ADD if not exists PARTITION (country='India', city='Delhi');

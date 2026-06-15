@@ -40,7 +40,7 @@
 #include "common/http_helper.h"
 #include "common/logging.h"
 #include "common/util.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
@@ -239,7 +239,7 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
         std::ranges::for_each(resource_types, [&](const auto& resource_type) {
             int64_t to_recycle_num =
                     g_bvar_recycler_instance_last_round_to_recycle_num.get({id, resource_type});
-            int64_t to_recycle_bytes = to_recycle_bytes =
+            int64_t to_recycle_bytes =
                     g_bvar_recycler_instance_last_round_to_recycle_bytes.get({id, resource_type});
 
             ss << "Task Type: " << resource_type << "\n";

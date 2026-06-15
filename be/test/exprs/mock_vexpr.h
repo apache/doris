@@ -29,8 +29,8 @@ public:
     MOCK_CONST_METHOD0(clone, VExprSPtr());
     MOCK_CONST_METHOD0(expr_name, const std::string&());
     MOCK_CONST_METHOD3(execute, Status(VExprContext* context, Block* block, int* result_column_id));
-    MOCK_CONST_METHOD5(execute_column,
-                       Status(VExprContext* context, const Block* block, Selector* selector,
+    MOCK_CONST_METHOD5(execute_column_impl,
+                       Status(VExprContext* context, const Block* block, const Selector* selector,
                               size_t count, ColumnPtr& result_column));
 }; // class MockVExpr
 

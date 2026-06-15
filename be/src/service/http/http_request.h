@@ -90,6 +90,8 @@ public:
     void finish_send_reply();
     void wait_finish_send_reply();
 
+    void set_header(const std::string& key, const std::string& value) { _headers[key] = value; }
+
 private:
     SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;

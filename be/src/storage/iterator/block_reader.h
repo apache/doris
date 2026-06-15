@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
@@ -54,6 +55,11 @@ public:
         return _vcollect_iter.update_profile(profile);
     }
 
+    // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
+    size_t preferred_block_size_bytes() const override {
+        return config::enable_adaptive_batch_size ? _reader_context.preferred_block_size_bytes : 0;
+    }
+
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
@@ -69,6 +75,24 @@ private:
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
 
+    Status _min_delta_next_block(Block* block, bool* eof);
+
+    Status _detail_change_next_block(Block* block, bool* eof);
+
+    Status _ensure_binlog_column_pos(const Block& src_block);
+
+    int64_t _read_binlog_op(const IColumn& col, size_t row) const;
+
+    Status _write_binlog_op(IColumn& col, int64_t op) const;
+
+    bool _is_binlog_meta_column(int idx) const;
+
+    int _resolve_source_column_index(int idx, bool use_before) const;
+
+    void _init_pending_row_columns(const Block& block);
+
+    bool _emit_pending_row(MutableColumns& target_columns, size_t& output_row_count);
+
     Status _replace_key_next_block(Block* block, bool* eof);
 
     Status _init_collect_iter(const ReaderParams& read_params);
@@ -81,6 +105,10 @@ private:
     void _update_last_mutil_seq(int seq_idx);
     void _compare_sequence_map_and_replace(MutableColumns& columns);
 
+    // Check if the accumulated output columns have reached the preferred byte budget,
+    // used to limit the output block size for adaptive batch sizing.
+    bool _reached_byte_budget(const MutableColumns& columns) const;
+
     void _append_agg_data(MutableColumns& columns);
 
     void _update_agg_data(MutableColumns& columns);
@@ -88,6 +116,9 @@ private:
     size_t _copy_agg_data();
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
+
+    Status _append_change_row(MutableColumns& target_columns, const Block& src_block,
+                              size_t row_pos, int64_t output_op, bool use_before);
 
     // return false if keys of rowsets are mono ascending and disjoint
     bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
@@ -105,11 +136,20 @@ private:
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
 
+    // Buffer of consecutive rows that share the same primary key, used by
+    // _min_delta_next_block to fold INSERT/UPDATE/DELETE into a single net change.
+    // Rows are appended as the merge iterator advances and cleared after each key group.
     MutableColumns _stored_data_columns;
     std::vector<IteratorRowRef> _stored_row_ref;
 
     std::vector<bool> _stored_has_null_tag;
     std::vector<bool> _stored_has_variable_length_tag;
+
+    // One-row carry-over buffer holding the AFTER row of an UPDATE pair when the BEFORE row
+    // was already emitted on the boundary of batch_max_rows(). Flushed by _emit_pending_row()
+    // at the start of the next call to *_next_block.
+    MutableColumns _pending_row_columns;
+    bool _has_pending_row = false;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
@@ -123,6 +163,11 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
+    int _binlog_op_pos = -1;
+    int _binlog_lsn_pos = -1;
+    int _binlog_timestamp_pos = -1;
+    bool _binlog_column_pos_inited = false;
+
     bool _has_seq_map = false;
     // for check multi seq
     std::unordered_map<uint32_t, MutableColumnPtr> _seq_columns;
@@ -130,7 +175,10 @@ private:
     // seq in return_columns, val pos in _normal_columns_idx
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_in_origin_block;
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_not_in_origin_block;
-
+    // For each src column index in the binlog block, the index of its companion __BEFORE__
+    // column (or itself if no BEFORE mirror exists). Built lazily by _ensure_binlog_column_pos
+    // and consulted via _resolve_source_column_index when emitting BEFORE rows.
+    std::vector<int> _before_column_idx;
     Arena _arena;
 };
 

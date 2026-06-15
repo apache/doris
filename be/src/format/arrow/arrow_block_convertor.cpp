@@ -147,6 +147,15 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
     return converter.convert(result);
 }
 
+Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
+                                    std::shared_ptr<arrow::RecordBatch>* result) {
+    if (schema->num_fields() != 0) {
+        return Status::InvalidArgument("schema should have no fields for zero column batch");
+    }
+    *result = arrow::RecordBatch::Make(schema, rows, std::vector<std::shared_ptr<arrow::Array>> {});
+    return Status::OK();
+}
+
 Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
                                 const DataTypes& types, Block* block,
                                 const cctz::time_zone& timezone_obj) {

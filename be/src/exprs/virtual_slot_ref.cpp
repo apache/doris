@@ -102,8 +102,9 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                      size_t count, ColumnPtr& result_column) const {
+Status VirtualSlotRef::execute_column_impl(VExprContext* context, const Block* block,
+                                           const Selector* selector, size_t count,
+                                           ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -233,11 +234,10 @@ Status VirtualSlotRef::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+        bool enable_result_cache, AnnRangeSearchEvaluationResult& result) {
     return _virtual_column_expr->evaluate_ann_range_search(
             range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators, row_bitmap,
-            ann_index_stats);
-
-    return Status::OK();
+            ann_index_stats, enable_result_cache, result);
 }
 } // namespace doris

@@ -82,8 +82,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         if (!_predicate->has_value()) {
             result_column = create_always_true_column(count, _data_type->is_nullable());
             return Status::OK();
@@ -118,7 +118,7 @@ public:
         result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
-            change_null_to_true(result_column->assume_mutable());
+            change_null_to_true(result_column->assert_mutable());
         }
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();

@@ -51,9 +51,9 @@ public:
 
     std::string get_name() const override { return name; }
 
-    doris::Status execute(VExprContext* context, const doris::Block* block, Selector* expr_selector,
-                          size_t output_count, ColumnPtr& result_column,
-                          const DataTypePtr& result_type,
+    doris::Status execute(VExprContext* context, const doris::Block* block,
+                          const Selector* expr_selector, size_t output_count,
+                          ColumnPtr& result_column, const DataTypePtr& result_type,
                           const VExprSPtrs& children) const override {
         ///* array_filter(array, array<boolean>) *///
 
@@ -75,7 +75,7 @@ public:
         auto input_rows = first_column->size();
         auto first_outside_null_map = ColumnUInt8::create(input_rows, 0);
         auto first_arg_column = first_column;
-        if (first_arg_column->is_nullable()) {
+        if (is_column_nullable(*first_arg_column)) {
             first_arg_column =
                     assert_cast<const ColumnNullable*>(first_column.get())->get_nested_column_ptr();
             const auto& column_array_nullmap =
@@ -84,9 +84,7 @@ public:
                                              column_array_nullmap.get_data());
         }
         const auto& first_col_array = assert_cast<const ColumnArray&>(*first_arg_column);
-        const auto& first_off_data =
-                assert_cast<const ColumnArray::ColumnOffsets&>(first_col_array.get_offsets_column())
-                        .get_data();
+        const auto& first_off_data = first_col_array.get_offsets_column().get_data();
         const auto& first_nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
 
@@ -99,7 +97,7 @@ public:
 
         auto second_arg_column = second_column;
         auto second_outside_null_map = ColumnUInt8::create(input_rows, 0);
-        if (second_arg_column->is_nullable()) {
+        if (is_column_nullable(*second_arg_column)) {
             second_arg_column = assert_cast<const ColumnNullable*>(second_column.get())
                                         ->get_nested_column_ptr();
             const auto& column_array_nullmap =
@@ -108,9 +106,7 @@ public:
                                              column_array_nullmap.get_data());
         }
         const auto& second_col_array = assert_cast<const ColumnArray&>(*second_arg_column);
-        const auto& second_off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
-                                              second_col_array.get_offsets_column())
-                                              .get_data();
+        const auto& second_off_data = second_col_array.get_offsets_column().get_data();
         const auto& second_nested_null_map_data =
                 assert_cast<const ColumnNullable&>(*second_col_array.get_data_ptr())
                         .get_null_map_column()

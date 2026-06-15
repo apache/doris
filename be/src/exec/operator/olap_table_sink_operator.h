@@ -37,9 +37,9 @@ public:
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
-    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
-                           const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0, 0),
+    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, int node_id,
+                           const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr)
+            : Base(operator_id, node_id, node_id),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _pool(pool) {};
@@ -57,7 +57,7 @@ public:
         return VExpr::open(_output_vexpr_ctxs, state);
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

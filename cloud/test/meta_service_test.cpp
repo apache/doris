@@ -8458,7 +8458,111 @@ TEST(MetaServiceTxnStoreRetryableTest, DoNotReturnRetryableCode) {
     config::txn_store_retry_times = retry_times;
 }
 
-TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
+TEST(MetaServiceTxnStoreRetryableTest, CastAsPreservesMaybeCommittedForProxyRetry) {
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::enable_txn_store_retry = enable_retry;
+    };
+
+    config::enable_txn_store_retry = false;
+    ASSERT_EQ(cast_as<ErrCategory::COMMIT>(TxnErrorCode::TXN_MAYBE_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+    ASSERT_EQ(cast_as<ErrCategory::CREATE>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_MAYBE_COMMITTED);
+
+    config::enable_txn_store_retry = true;
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::COMMIT>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::CREATE>(TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED),
+              MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE);
+    ASSERT_EQ(cast_as<ErrCategory::READ>(TxnErrorCode::TXN_TIMEOUT),
+              MetaServiceCode::KV_TXN_GET_ERR);
+    ASSERT_EQ(cast_as<ErrCategory::CREATE>(TxnErrorCode::TXN_TIMEOUT),
+              MetaServiceCode::KV_TXN_CREATE_ERR);
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, MaybeCommittedCodeWithoutRetryReturnsCommitErr) {
+    size_t index = 0;
+    SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_MAYBE_COMMITTED;
+    });
+    SyncPoint::get_instance()->enable_processing();
+    bool enable_retry = config::enable_txn_store_retry;
+    int64_t max_txn_commit_byte = config::max_txn_commit_byte;
+    config::enable_txn_store_retry = false;
+    config::max_txn_commit_byte = 1;
+
+    auto service = get_meta_service();
+
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse resp;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(100);
+    req.set_partition_id(123);
+    req.set_lock_id(-3);
+    req.set_without_lock(true);
+    req.set_initiator(-1);
+    req.set_tablet_id(333);
+    req.add_rowset_ids("r1");
+    req.add_segment_ids(0);
+    req.add_versions(2);
+    req.add_segment_delete_bitmaps("abc");
+
+    service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    EXPECT_EQ(index, 1);
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+    config::enable_txn_store_retry = enable_retry;
+    config::max_txn_commit_byte = max_txn_commit_byte;
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, ReadMaybeCommittedCodeWithoutRetryReturnsCommitErr) {
+    size_t index = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("get_version_code", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<MetaServiceCode*>(args[0]) = MetaServiceCode::KV_TXN_MAYBE_COMMITTED;
+    });
+    sync_point->enable_processing();
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::enable_txn_store_retry = enable_retry;
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    };
+    config::enable_txn_store_retry = false;
+
+    auto service = get_meta_service();
+    create_tablet(service.get(), 1, 1, 1, 1);
+    insert_rowset(service.get(), 1, "read_maybe_committed_without_retry", 1, 1, 1);
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(1);
+    req.set_table_id(1);
+    req.set_partition_id(1);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    EXPECT_EQ(resp.version(), 2);
+    EXPECT_EQ(index, 1);
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCodeReturnsCommitErr) {
     size_t index = 0;
     SyncPoint::get_instance()->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
         ++index;
@@ -8491,7 +8595,7 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
 
     service->update_delete_bitmap(&cntl, &req, &resp, nullptr);
 
-    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_MAYBE_COMMITTED)
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 
@@ -8500,6 +8604,45 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCode) {
     config::txn_store_retry_times = retry_times;
     config::enable_txn_store_retry = enable_retry;
     config::max_txn_commit_byte = max_txn_commit_byte;
+}
+
+TEST(MetaServiceTxnStoreRetryableTest, RetryReadMaybeCommittedCodeReturnsCommitErr) {
+    size_t index = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->set_call_back("get_version_code", [&](auto&& args) {
+        ++index;
+        *doris::try_any_cast<MetaServiceCode*>(args[0]) = MetaServiceCode::KV_TXN_MAYBE_COMMITTED;
+    });
+    sync_point->enable_processing();
+    int32_t retry_times = config::txn_store_retry_times;
+    bool enable_retry = config::enable_txn_store_retry;
+    DORIS_CLOUD_DEFER {
+        config::txn_store_retry_times = retry_times;
+        config::enable_txn_store_retry = enable_retry;
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    };
+    config::txn_store_retry_times = 2;
+    config::enable_txn_store_retry = true;
+
+    auto service = get_meta_service();
+    create_tablet(service.get(), 1, 1, 1, 1);
+    insert_rowset(service.get(), 1, "retry_read_maybe_committed", 1, 1, 1);
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(1);
+    req.set_table_id(1);
+    req.set_partition_id(1);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
+            << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    EXPECT_EQ(resp.version(), 2);
+    EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 }
 
 TEST(MetaServiceTest, GetClusterStatusTest) {
@@ -10834,15 +10977,96 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
-    ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
-            << res.status().msg();
-    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
 
     commit_txn(meta_service.get(), db_id, txn_id, label);
     ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
     ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
             << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+}
+
+TEST(MetaServiceTest, CommitRowsetCheckTmpAndRecycleKeyExclusion) {
+    auto meta_service = get_meta_service();
+
+    const bool old_enable_recycle_delete_rowset_key_check =
+            config::enable_recycle_delete_rowset_key_check;
+    config::enable_recycle_delete_rowset_key_check = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycle_delete_rowset_key_check = old_enable_recycle_delete_rowset_key_check;
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::string instance_id = "commit_rowset_recycle_key_test_instance_id";
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto put_recycle_rowset = [&](const doris::RowsetMetaCloudPB& rowset) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        RecycleRowsetPB recycle_rowset;
+        recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset);
+        recycle_rowset.set_type(RecycleRowsetPB::PREPARE);
+        std::string recycle_rs_val;
+        ASSERT_TRUE(recycle_rowset.SerializeToString(&recycle_rs_val));
+        txn->put(recycle_rowset_key({instance_id, rowset.tablet_id(), rowset.rowset_id_v2()}),
+                 recycle_rs_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    {
+        int64_t table_id = 1;
+        int64_t partition_id = 1;
+        int64_t tablet_id = 1;
+        int64_t db_id = 100201;
+        std::string label = "test_commit_rowset_tmp_and_recycle_key_conflict";
+        create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(123);
+        rowset.mutable_load_id()->set_lo(456);
+        ASSERT_NO_FATAL_FAILURE(prepare_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+
+        ASSERT_NO_FATAL_FAILURE(put_recycle_rowset(rowset));
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("mutually exclusive") != std::string::npos)
+                << res.status().msg();
+    }
+
+    {
+        int64_t table_id = 2;
+        int64_t partition_id = 2;
+        int64_t tablet_id = 2;
+        int64_t db_id = 100202;
+        std::string label = "test_commit_rowset_without_tmp_or_recycle_key";
+        create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+        int64_t txn_id = 0;
+        ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        rowset.mutable_load_id()->set_hi(789);
+        rowset.mutable_load_id()->set_lo(101112);
+
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_TRUE(res.status().msg().find("recycle rowset key not found") != std::string::npos)
+                << res.status().msg();
+    }
 }
 
 TEST(MetaServiceTest, AlterObjInfoTest) {

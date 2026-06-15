@@ -36,6 +36,7 @@
 #include <initializer_list>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -76,6 +77,7 @@
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -93,6 +95,30 @@ int64_t packed_file_retry_sleep_ms() {
 
 void sleep_for_packed_file_retry() {
     std::this_thread::sleep_for(std::chrono::milliseconds(packed_file_retry_sleep_ms()));
+}
+
+bool is_packed_slice_path(const doris::RowsetMetaCloudPB& rowset, const std::string& path) {
+    const auto& locations = rowset.packed_slice_locations();
+    auto it = locations.find(path);
+    return it != locations.end() && it->second.has_packed_file_path() &&
+           !it->second.packed_file_path().empty();
+}
+
+void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
+                                      const std::string& path,
+                                      std::vector<std::string>* file_paths) {
+    if (!is_packed_slice_path(rowset, path)) {
+        file_paths->push_back(path);
+    }
+}
+
+bool filter_out_instance(const std::string& instance_id) {
+    if (config::recycle_whitelist.empty()) {
+        return std::ranges::find(config::recycle_blacklist, instance_id) !=
+               config::recycle_blacklist.end();
+    }
+    return std::ranges::find(config::recycle_whitelist, instance_id) ==
+           config::recycle_whitelist.end();
 }
 
 } // namespace
@@ -231,7 +257,7 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
 
     auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 }
 
 Recycler::~Recycler() {
@@ -247,26 +273,30 @@ void Recycler::instance_scanner_callback() {
     std::this_thread::sleep_for(
             std::chrono::seconds(config::recycler_sleep_before_scheduling_seconds));
     while (!stopped()) {
-        std::vector<InstanceInfoPB> instances;
-        get_all_instances(txn_kv_.get(), instances);
-        // TODO(plat1ko): delete job recycle kv of non-existent instances
-        LOG(INFO) << "Recycler get instances: " << [&instances] {
-            std::stringstream ss;
-            for (auto& i : instances) ss << ' ' << i.instance_id();
-            return ss.str();
-        }();
-        if (!instances.empty()) {
-            // enqueue instances
-            std::lock_guard lock(mtx_);
-            for (auto& instance : instances) {
-                if (instance_filter_.filter_out(instance.instance_id())) continue;
-                auto [_, success] = pending_instance_set_.insert(instance.instance_id());
-                // skip instance already in pending queue
-                if (success) {
-                    pending_instance_queue_.push_back(std::move(instance));
+        if (config::enable_recycler) {
+            std::vector<InstanceInfoPB> instances;
+            get_all_instances(txn_kv_.get(), instances);
+            // TODO(plat1ko): delete job recycle kv of non-existent instances
+            LOG(INFO) << "Recycler get instances: " << [&instances] {
+                std::stringstream ss;
+                for (auto& i : instances) ss << ' ' << i.instance_id();
+                return ss.str();
+            }();
+            if (!instances.empty()) {
+                // enqueue instances
+                std::lock_guard lock(mtx_);
+                for (auto& instance : instances) {
+                    if (filter_out_instance(instance.instance_id())) continue;
+                    auto [_, success] = pending_instance_set_.insert(instance.instance_id());
+                    // skip instance already in pending queue
+                    if (success) {
+                        pending_instance_queue_.push_back(std::move(instance));
+                    }
                 }
+                pending_instance_cond_.notify_all();
             }
-            pending_instance_cond_.notify_all();
+        } else {
+            LOG(WARNING) << "Skip recycler since enable_recycler is false";
         }
         {
             std::unique_lock lock(mtx_);
@@ -295,6 +325,11 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             // skip instance in recycling
             if (recycling_instance_map_.count(instance_id)) continue;
+        }
+        if (!config::enable_recycler) {
+            LOG(WARNING) << "Skip recycle instance_id=" << instance_id
+                         << " since enable_recycler is false";
+            continue;
         }
         auto instance_recycler = std::make_shared<InstanceRecycler>(
                 txn_kv_, instance, _thread_pool_group, txn_lazy_committer_);
@@ -404,7 +439,6 @@ void Recycler::check_recycle_tasks() {
 }
 
 int Recycler::start(brpc::Server* server) {
-    instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
     S3Environment::getInstance();
 
@@ -591,7 +625,8 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           resource_mgr_(std::make_shared<ResourceManager>(txn_kv_)) {
     delete_bitmap_lock_white_list_->init();
     resource_mgr_->init();
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 
     // Since the recycler's resource manager could not be notified when instance info changes,
     // we need to refresh the instance info here to ensure the resource manager has the latest info.
@@ -1526,7 +1561,7 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
     return -1;
 }
 
-int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_view /*value*/,
+int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_view value,
                                             PackedFileRecycleStats* stats, int* ret) {
     if (stats) {
         ++stats->num_scanned;
@@ -1542,6 +1577,31 @@ int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_vi
         if (ret) {
             *ret = -1;
         }
+        return 0;
+    }
+
+    cloud::PackedFileInfoPB packed_info;
+    if (!packed_info.ParseFromArray(value.data(), value.size())) {
+        LOG_WARNING("failed to parse packed file info from scan")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        if (stats) {
+            ++stats->num_failed;
+        }
+        if (ret) {
+            *ret = -1;
+        }
+        return 0;
+    }
+
+    const int64_t now_sec = ::time(nullptr);
+    const bool due =
+            config::force_immediate_recycle ||
+            now_sec - packed_info.created_at_sec() >= config::packed_file_correction_delay_seconds;
+    const bool need_correction = !packed_info.corrected() && due;
+    const bool need_recycle =
+            packed_info.state() == cloud::PackedFileInfoPB::RECYCLING && packed_info.ref_cnt() == 0;
+    if (!need_correction && !need_recycle) {
         return 0;
     }
 
@@ -1855,90 +1915,243 @@ int InstanceRecycler::abort_job_for_related_rowset(const RowsetMetaCloudPB& rows
 }
 
 template <typename T>
-int InstanceRecycler::abort_txn_or_job_for_recycle(T& rowset_meta_pb) {
-    RowsetMetaCloudPB* rs_meta;
-    RecycleRowsetPB::Type rowset_type = RecycleRowsetPB::PREPARE;
-
+RowsetMetaCloudPB* mutable_rowset_meta(T& rowset_meta_pb) {
     if constexpr (std::is_same_v<T, RecycleRowsetPB>) {
-        // For keys that are not in the RecycleRowsetPB::PREPARE state
-        // we do not need to check the job or txn state
-        // because tmp_rowset_key already exists when this key is generated.
-        rowset_type = rowset_meta_pb.type();
-        rs_meta = rowset_meta_pb.mutable_rowset_meta();
+        return rowset_meta_pb.mutable_rowset_meta();
     } else {
-        rs_meta = &rowset_meta_pb;
+        return &rowset_meta_pb;
+    }
+}
+
+template <typename T>
+const RowsetMetaCloudPB& rowset_meta(const T& rowset_meta_pb) {
+    if constexpr (std::is_same_v<T, RecycleRowsetPB>) {
+        return rowset_meta_pb.rowset_meta();
+    } else {
+        return rowset_meta_pb;
+    }
+}
+
+struct DeferredRecycleAbortTask {
+    enum class Type : uint8_t {
+        TXN,
+        JOB,
+    };
+
+    Type type = Type::TXN;
+    int64_t txn_id = 0;
+    int64_t tablet_id = 0;
+    int64_t start_version = 0;
+    int64_t end_version = 0;
+    std::string rowset_id;
+    std::string job_id;
+};
+
+struct DeferredRecyclePrepareDeleteTask {
+    std::string key;
+    std::string resource_id;
+    std::string rowset_id;
+    int64_t tablet_id = 0;
+};
+
+template <typename T>
+std::optional<DeferredRecycleAbortTask> make_deferred_abort_task(const T& rowset_meta_pb) {
+    if constexpr (std::is_same_v<T, RecycleRowsetPB>) {
+        if (rowset_meta_pb.type() != RecycleRowsetPB::PREPARE) {
+            return std::nullopt;
+        }
     }
 
-    DCHECK(rs_meta != nullptr);
+    const auto& rs_meta = rowset_meta(rowset_meta_pb);
+    DeferredRecycleAbortTask task;
+    task.tablet_id = rs_meta.tablet_id();
+    task.start_version = rs_meta.start_version();
+    task.end_version = rs_meta.end_version();
+    if (rs_meta.has_load_id()) {
+        task.type = DeferredRecycleAbortTask::Type::TXN;
+        task.txn_id = rs_meta.txn_id();
+        return task;
+    }
+    if (rs_meta.has_job_id()) {
+        task.type = DeferredRecycleAbortTask::Type::JOB;
+        task.rowset_id = rs_meta.rowset_id_v2();
+        task.job_id = rs_meta.job_id();
+        return task;
+    }
+    return std::nullopt;
+}
 
-    // compaction/sc will generate recycle_rowset_key for each input rowset with load_id
-    // we need skip them because the related txn has been finished
-    // load_rowset1 load_rowset2 => pick for compaction => compact_rowset
-    // compact_rowset1 compact_rowset2 => pick for compaction/sc job => new_rowset
-    if (rowset_type == RecycleRowsetPB::PREPARE) {
-        if (rs_meta->has_load_id()) {
-            // load
-            return abort_txn_for_related_rowset(rs_meta->txn_id());
-        } else if (rs_meta->has_job_id()) {
-            // compaction / schema change
-            return abort_job_for_related_rowset(*rs_meta);
+template <typename T>
+bool need_mark_rowset_as_recycled(const T& rowset_meta_pb) {
+    const auto& rs_meta = rowset_meta(rowset_meta_pb);
+    return !rs_meta.has_is_recycled() || !rs_meta.is_recycled();
+}
+
+template <typename T>
+int batch_mark_rowsets_as_recycled(TxnKv* txn_kv, const std::string& instance_id,
+                                   const std::vector<std::string>& keys) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn, instance_id=" << instance_id;
+        return -1;
+    }
+    std::vector<std::optional<std::string>> values;
+    err = txn->batch_get(&values, keys);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to batch get rowset meta, instance_id=" << instance_id << ' '
+                     << "keys size=" << keys.size() << ' ' << "err=" << err;
+        return -1;
+    }
+    size_t total_keys = keys.size();
+    for (size_t i = 0; i < total_keys; i++) {
+        if (!values[i].has_value()) {
+            // has already been removed by commit_rowset
+            continue;
         }
+        auto key = keys[i];
+        auto val = values[i].value();
+        T rowset_meta_pb;
+        if (!rowset_meta_pb.ParseFromString(val)) {
+            LOG(WARNING) << "failed to parse rowset meta, instance_id=" << instance_id
+                         << " key=" << hex(key);
+            return -1;
+        }
+        if (!need_mark_rowset_as_recycled(rowset_meta_pb)) {
+            continue;
+        }
+        mutable_rowset_meta(rowset_meta_pb)->set_is_recycled(true);
+        val.clear();
+        rowset_meta_pb.SerializeToString(&val);
+        txn->put(key, val);
+    }
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to commit txn, instance_id=" << instance_id;
+        return -1;
     }
 
     return 0;
 }
 
 template <typename T>
-int mark_rowset_as_recycled(TxnKv* txn_kv, const std::string& instance_id, std::string_view key,
-                            T& rowset_meta_pb) {
-    RowsetMetaCloudPB* rs_meta;
-
-    if constexpr (std::is_same_v<T, RecycleRowsetPB>) {
-        rs_meta = rowset_meta_pb.mutable_rowset_meta();
-    } else {
-        rs_meta = &rowset_meta_pb;
-    }
-
-    bool need_write_back = false;
-    if ((!rs_meta->has_is_recycled() || !rs_meta->is_recycled())) {
-        need_write_back = true;
-        rs_meta->set_is_recycled(true);
-    }
-
-    if (need_write_back) {
+int collect_deferred_abort_tasks(TxnKv* txn_kv, const std::string& instance_id,
+                                 const std::vector<std::string>& keys,
+                                 std::vector<DeferredRecycleAbortTask>* abort_tasks,
+                                 bool skip_base_version) {
+    constexpr size_t kAbortCheckBatchSize = 256;
+    for (size_t offset = 0; offset < keys.size(); offset += kAbortCheckBatchSize) {
+        size_t limit = std::min(keys.size(), offset + kAbortCheckBatchSize);
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to create txn, instance_id=" << instance_id;
             return -1;
         }
-        // double check becase of new transaction
-        T rowset_meta;
-        std::string val;
-        err = txn->get(key, &val);
-        if (!rowset_meta.ParseFromString(val)) {
-            LOG(WARNING) << "failed to parse rs_meta, instance_id=" << instance_id;
-            return -1;
-        }
-        if constexpr (std::is_same_v<T, RecycleRowsetPB>) {
-            rs_meta = rowset_meta.mutable_rowset_meta();
-        } else {
-            rs_meta = &rowset_meta;
-        }
-        if ((rs_meta->has_is_recycled() && rs_meta->is_recycled())) {
-            return 0;
-        }
-        rs_meta->set_is_recycled(true);
-        val.clear();
-        rowset_meta.SerializeToString(&val);
-        txn->put(key, val);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to commit txn, instance_id=" << instance_id;
-            return -1;
+        for (size_t idx = offset; idx < limit; ++idx) {
+            const std::string& key = keys[idx];
+            std::string val;
+            err = txn->get(key, &val);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                // has already been removed
+                continue;
+            }
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to get rowset meta, instance_id=" << instance_id
+                             << " key=" << hex(key);
+                return -1;
+            }
+            T rowset_meta_pb;
+            if (!rowset_meta_pb.ParseFromString(val)) {
+                LOG(WARNING) << "failed to parse rowset meta, instance_id=" << instance_id
+                             << " key=" << hex(key);
+                return -1;
+            }
+            if (skip_base_version && rowset_meta(rowset_meta_pb).end_version() == 1) {
+                continue;
+            }
+            if (auto abort_task = make_deferred_abort_task(rowset_meta_pb);
+                abort_task.has_value()) {
+                abort_tasks->emplace_back(std::move(*abort_task));
+            }
         }
     }
-    return need_write_back ? 1 : 0;
+    return 0;
+}
+
+template <typename T>
+int InstanceRecycler::batch_abort_txn_or_job_for_recycle(const std::vector<std::string>& keys,
+                                                         bool skip_base_version) {
+    std::vector<DeferredRecycleAbortTask> abort_tasks;
+    if (collect_deferred_abort_tasks<T>(txn_kv_.get(), instance_id_, keys, &abort_tasks,
+                                        skip_base_version) != 0) {
+        LOG(WARNING) << "failed to collect rowset abort tasks, instance_id=" << instance_id_;
+        return -1;
+    }
+    for (const auto& abort_task : abort_tasks) {
+        LOG(INFO) << "begin to abort txn or job for related rowset, instance_id=" << instance_id_
+                  << " tablet_id=" << abort_task.tablet_id << " version=["
+                  << abort_task.start_version << '-' << abort_task.end_version << "]";
+        int abort_ret = 0;
+        if (abort_task.type == DeferredRecycleAbortTask::Type::TXN) {
+            abort_ret = abort_txn_for_related_rowset(abort_task.txn_id);
+        } else {
+            RowsetMetaCloudPB rowset_meta;
+            rowset_meta.set_tablet_id(abort_task.tablet_id);
+            rowset_meta.set_rowset_id_v2(abort_task.rowset_id);
+            rowset_meta.set_job_id(abort_task.job_id);
+            abort_ret = abort_job_for_related_rowset(rowset_meta);
+        }
+        if (abort_ret != 0) {
+            LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
+                         << instance_id_ << " tablet_id=" << abort_task.tablet_id << " version=["
+                         << abort_task.start_version << '-' << abort_task.end_version << "]";
+            return abort_ret;
+        }
+    }
+    return 0;
+}
+
+int collect_prepare_delete_tasks(TxnKv* txn_kv, const std::string& instance_id,
+                                 const std::vector<std::string>& keys,
+                                 std::vector<DeferredRecyclePrepareDeleteTask>* delete_tasks) {
+    constexpr size_t kPrepareCheckBatchSize = 256;
+    for (size_t offset = 0; offset < keys.size(); offset += kPrepareCheckBatchSize) {
+        size_t limit = std::min(keys.size(), offset + kPrepareCheckBatchSize);
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn, instance_id=" << instance_id;
+            return -1;
+        }
+        for (size_t idx = offset; idx < limit; ++idx) {
+            const std::string& key = keys[idx];
+            std::string val;
+            err = txn->get(key, &val);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                // has already been removed
+                continue;
+            }
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to get recycle rowset, instance_id=" << instance_id
+                             << " key=" << hex(key);
+                return -1;
+            }
+            RecycleRowsetPB rowset;
+            if (!rowset.ParseFromString(val)) {
+                LOG(WARNING) << "failed to parse recycle rowset, instance_id=" << instance_id
+                             << " key=" << hex(key);
+                return -1;
+            }
+            if (rowset.type() != RecycleRowsetPB::PREPARE) {
+                continue;
+            }
+            const auto& rs_meta = rowset.rowset_meta();
+            delete_tasks->push_back(
+                    {key, rs_meta.resource_id(), rs_meta.rowset_id_v2(), rs_meta.tablet_id()});
+        }
+    }
+    return 0;
 }
 
 int InstanceRecycler::recycle_ref_rowsets(bool* has_unrecycled_rowsets) {
@@ -2714,135 +2927,125 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 .tag("num_recycled", num_recycled);
     };
 
-    // The first string_view represents the tablet key which has been recycled
-    // The second bool represents whether the following fdb's tablet key deletion could be done using range move or not
-    using TabletKeyPair = std::pair<std::string_view, bool>;
-    SyncExecutor<TabletKeyPair> sync_executor(
+    // The tablet key and id which have been recycled.
+    struct TabletInfo {
+        std::string_view tablet_meta_key;
+        int64_t tablet_id;
+    };
+    SyncExecutor<TabletInfo> sync_executor(
             _thread_pool_group.recycle_tablet_pool,
             fmt::format("recycle tablets, tablet id {}, index id {}, partition id {}", table_id,
                         index_id, partition_id),
-            [](const TabletKeyPair& k) { return k.first.empty(); });
+            [](const TabletInfo& k) { return k.tablet_meta_key.empty(); });
 
-    // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
-    std::vector<std::string> tablet_idx_keys;
-    std::vector<std::string> restore_job_keys;
+    // Elements in `tablets_info` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string> init_rs_keys;
-    std::vector<std::string> tablet_compact_stats_keys;
-    std::vector<std::string> tablet_load_stats_keys;
-    std::vector<std::string> versioned_meta_tablet_keys;
+    bool has_failure = false;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
-        bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
         if (!tablet_meta_pb.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed tablet meta").tag("key", hex(k));
-            use_range_remove = false;
+            has_failure = true;
             return -1;
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
-        if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
+        if (config::enable_recycler_check_lazy_txn_finished &&
+            !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             LOG(WARNING) << "lazy txn not finished tablet_id=" << tablet_meta_pb.tablet_id();
+            has_failure = true;
             return -1;
         }
 
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
-        restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
-        if (is_multi_version) {
-            // The tablet index/inverted index are recycled in recycle_versioned_tablet.
-            tablet_compact_stats_keys.push_back(
-                    versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
-            tablet_load_stats_keys.push_back(
-                    versioned::tablet_load_stats_key({instance_id_, tablet_id}));
-            versioned_meta_tablet_keys.push_back(
-                    versioned::meta_tablet_key({instance_id_, tablet_id}));
-        }
         TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
-        sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
-                           &metrics_context, k]() mutable -> TabletKeyPair {
-            if (recycle_tablet(tid, metrics_context) != 0) {
-                LOG_WARNING("failed to recycle tablet")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tid);
-                range_move = false;
-                return {std::string_view(), range_move};
-            }
-            ++num_recycled;
-            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-            return {k, range_move};
-        });
+        sync_executor.add(
+                [this, &num_recycled, tid = tablet_id, &metrics_context, k]() -> TabletInfo {
+                    if (recycle_tablet(tid, metrics_context) != 0) {
+                        LOG_WARNING("failed to recycle tablet")
+                                .tag("instance_id", instance_id_)
+                                .tag("tablet_id", tid);
+                        return {.tablet_meta_key = std::string_view(), .tablet_id = tid};
+                    }
+                    ++num_recycled;
+                    LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+                    return {.tablet_meta_key = k, .tablet_id = tid};
+                });
         return 0;
     };
 
-    // TODO(AlexYue): Add one ut to cover use_range_remove = false
     auto loop_done = [&, this]() -> int {
+        int ret = 0;
         bool finished = true;
-        auto tablet_keys = sync_executor.when_all(&finished);
+        bool has_empty_key = false;
+        DORIS_CLOUD_DEFER {
+            init_rs_keys.clear();
+            has_failure = false;
+        };
+        auto tablets_info = sync_executor.when_all(&finished);
         if (!finished) {
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
             return -1;
         }
-        if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
-        if (!tablet_keys.empty() &&
-            std::ranges::all_of(tablet_keys, [](const auto& k) { return k.first.empty(); })) {
-            return -1;
+
+        size_t size_before_erase = tablets_info.size();
+        std::erase_if(tablets_info, [](const TabletInfo& t) { return t.tablet_meta_key.empty(); });
+        if (tablets_info.empty()) {
+            return size_before_erase == 0 ? 0 : -1;
+        } else if (size_before_erase != tablets_info.size()) {
+            has_empty_key = true;
         }
+
+        ret = has_empty_key ? -1 : 0;
         // sort the vector using key's order
-        std::sort(tablet_keys.begin(), tablet_keys.end(),
-                  [](const auto& prev, const auto& last) { return prev.first < last.first; });
-        bool use_range_remove = true;
-        for (auto& [_, remove] : tablet_keys) {
-            if (!remove) {
-                use_range_remove = remove;
-                break;
-            }
-        }
-        DORIS_CLOUD_DEFER {
-            tablet_idx_keys.clear();
-            restore_job_keys.clear();
-            init_rs_keys.clear();
-            tablet_compact_stats_keys.clear();
-            tablet_load_stats_keys.clear();
-            versioned_meta_tablet_keys.clear();
-        };
+        std::ranges::sort(tablets_info, [](const auto& prev, const auto& last) {
+            return prev.tablet_meta_key < last.tablet_meta_key;
+        });
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to delete tablet meta kv, instance_id=" << instance_id_;
             return -1;
         }
         std::string tablet_key_end;
-        if (!tablet_keys.empty()) {
-            if (use_range_remove) {
-                tablet_key_end = std::string(tablet_keys.back().first) + '\x00';
-                txn->remove(tablet_keys.front().first, tablet_key_end);
+        if (!tablets_info.empty()) {
+            if (!has_empty_key && !has_failure) {
+                tablet_key_end = std::string(tablets_info.back().tablet_meta_key) + '\x00';
+                txn->remove(tablets_info.front().tablet_meta_key, tablet_key_end);
             } else {
-                for (auto& [k, _] : tablet_keys) {
-                    txn->remove(k);
+                for (auto& tablet_info : tablets_info) {
+                    txn->remove(tablet_info.tablet_meta_key);
                 }
             }
         }
         if (is_multi_version) {
-            for (auto& k : tablet_compact_stats_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet compact stats for recycled tablet
+                auto k = versioned::tablet_compact_stats_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned tablet compact stats key")
                         .tag("compact_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
-            for (auto& k : tablet_load_stats_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet load stats for recycled tablet
+                auto k = versioned::tablet_load_stats_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned tablet load stats key").tag("load_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
-            for (auto& k : versioned_meta_tablet_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of meta tablet for recycled tablet
+                auto k = versioned::meta_tablet_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned meta tablet key").tag("meta_tablet_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
         }
-        for (auto& k : tablet_idx_keys) {
+        for (auto& tablet_info : tablets_info) {
+            std::string k;
+            meta_tablet_idx_key({instance_id_, tablet_info.tablet_id}, &k);
             txn->remove(k);
         }
-        for (auto& k : restore_job_keys) {
+        for (auto& tablet_info : tablets_info) {
+            std::string k;
+            job_restore_tablet_key({instance_id_, tablet_info.tablet_id}, &k);
             txn->remove(k);
         }
         for (auto& k : init_rs_keys) {
@@ -2853,7 +3056,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                          << ", err=" << err;
             return -1;
         }
-        return 0;
+        return ret;
     };
 
     int ret = scan_and_recycle(tablet_key_begin, tablet_key_end, std::move(recycle_func),
@@ -2987,29 +3190,33 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     for (int64_t i = 0; i < num_segments; ++i) {
-        file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, i),
+                                         &file_paths);
         if (index_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& index_id : index_ids) {
-                file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
-                                                            index_id.second));
+                add_file_to_delete_if_not_packed(
+                        rs_meta_pb,
+                        inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                               index_id.second),
+                        &file_paths);
             }
         } else if (!index_ids.empty()) {
-            file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(
+                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
         }
     }
 
-    // Process delete bitmap - check if it's stored in packed file
-    bool delete_bitmap_is_packed = false;
+    // Process delete bitmap - check where it's stored.
+    DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                       &delete_bitmap_is_packed) != 0) {
+                                                       &delete_bitmap_storage_type) != 0) {
         LOG_WARNING("failed to decrement delete bitmap packed file ref count")
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id)
                 .tag("rowset_id", rowset_id);
         return -1;
     }
-    // Only delete standalone delete bitmap file if not stored in packed file
-    if (!delete_bitmap_is_packed) {
+    if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
         file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
     }
     // TODO(AlexYue): seems could do do batch
@@ -3255,11 +3462,11 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
     return ret;
 }
 
-int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
-                                                                     const std::string& rowset_id,
-                                                                     bool* out_is_packed) {
-    if (out_is_packed) {
-        *out_is_packed = false;
+int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
+        int64_t tablet_id, const std::string& rowset_id,
+        DeleteBitmapStorageType* out_storage_type) {
+    if (out_storage_type) {
+        *out_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     }
 
     // Get delete bitmap storage info from FDB
@@ -3303,15 +3510,24 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(int64_t tab
         return -1;
     }
 
-    // Check if delete bitmap is stored in packed file
-    if (!storage.has_packed_slice_location() ||
-        storage.packed_slice_location().packed_file_path().empty()) {
-        // Not stored in packed file, nothing to do
+    if (storage.store_in_fdb()) {
+        if (out_storage_type) {
+            *out_storage_type = DeleteBitmapStorageType::IN_FDB;
+        }
         return 0;
     }
 
-    if (out_is_packed) {
-        *out_is_packed = true;
+    // Check if delete bitmap is stored in standalone file.
+    if (!storage.has_packed_slice_location() ||
+        storage.packed_slice_location().packed_file_path().empty()) {
+        if (out_storage_type) {
+            *out_storage_type = DeleteBitmapStorageType::STANDALONE_FILE;
+        }
+        return 0;
+    }
+
+    if (out_storage_type) {
+        *out_storage_type = DeleteBitmapStorageType::PACKED_FILE;
     }
 
     const auto& packed_loc = storage.packed_slice_location();
@@ -3650,10 +3866,10 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        // Process delete bitmap - check if it's stored in packed file
-        bool delete_bitmap_is_packed = false;
+        // Process delete bitmap - check where it's stored.
+        DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
         if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                           &delete_bitmap_is_packed) != 0) {
+                                                           &delete_bitmap_storage_type) != 0) {
             LOG_WARNING("failed to decrement delete bitmap packed file ref count")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
@@ -3661,8 +3877,7 @@ int InstanceRecycler::delete_rowset_data(
             ret = -1;
             continue;
         }
-        // Only delete standalone delete bitmap file if not stored in packed file
-        if (!delete_bitmap_is_packed) {
+        if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
             file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
         }
 
@@ -3731,11 +3946,15 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {
-            file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, i),
+                                             &file_paths);
             if (index_format == InvertedIndexStorageFormatPB::V1) {
                 for (const auto& index_id : index_ids) {
-                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
-                                                                index_id.first, index_id.second));
+                    add_file_to_delete_if_not_packed(
+                            rs,
+                            inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                                   index_id.second),
+                            &file_paths);
                 }
             } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
                 // try to recycle inverted index v2 when get_ret == 1
@@ -3747,7 +3966,8 @@ int InstanceRecycler::delete_rowset_data(
                             .tag("inverted index v2 path",
                                  inverted_index_path_v2(tablet_id, rowset_id, i));
                 }
-                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+                add_file_to_delete_if_not_packed(
+                        rs, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
             }
         }
     }
@@ -3946,7 +4166,8 @@ int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t inde
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
-        if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
+        if (config::enable_recycler_check_lazy_txn_finished &&
+            !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             return 0;
         }
 
@@ -4729,17 +4950,69 @@ int InstanceRecycler::recycle_rowsets() {
                 .tag("expired_rowset_meta_size", expired_rowset_size);
     };
 
-    std::vector<std::string> rowset_keys;
-    // rowset_id -> rowset_meta
-    // store rowset id and meta for statistics rs size when delete
-    std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    struct RecycleRowsetEntry {
+        std::string key;
+        doris::RowsetMetaCloudPB meta;
+    };
+    struct RecycleRowsetDeleteJob {
+        std::vector<std::string> keys;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    };
+    // Store the scanned recycle key with rowset meta. The scanned key is the actual KV key to delete.
+    std::vector<RecycleRowsetEntry> rowsets;
+    int64_t current_tablet_id = -1;
+    int64_t recycled_rowset_count_for_current_tablet = 0;
+    bool current_tablet_skip_logged = false;
+    std::string next_scan_begin;
+    const int64_t rowset_batch_size_per_tablet =
+            std::max(1, config::recycle_rowsets_per_tablet_batch_size);
+    const int64_t delete_rowset_batch_size =
+            std::min(500000, config::recycle_rowsets_delete_batch_size);
+    auto try_reserve_tablet_recycle_slot = [&](int64_t tablet_id) -> bool {
+        if (current_tablet_id != tablet_id) {
+            current_tablet_id = tablet_id;
+            recycled_rowset_count_for_current_tablet = 0;
+            current_tablet_skip_logged = false;
+        }
+        if (recycled_rowset_count_for_current_tablet >= rowset_batch_size_per_tablet) {
+            if (!current_tablet_skip_logged) {
+                LOG_INFO(
+                        "skip recycle rowsets for tablet because per-tablet batch limit is reached")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("limit", rowset_batch_size_per_tablet);
+                current_tablet_skip_logged = true;
+            }
+            const int64_t next_tablet_id = tablet_id == INT64_MAX ? INT64_MAX : tablet_id + 1;
+            recycle_rowset_key({instance_id_, next_tablet_id, ""}, &next_scan_begin);
+            return false;
+        }
+        ++recycled_rowset_count_for_current_tablet;
+        return true;
+    };
+    auto next_scan_begin_getter = [&](std::string* begin) -> bool {
+        if (next_scan_begin.empty()) {
+            return false;
+        }
+        *begin = std::move(next_scan_begin);
+        next_scan_begin.clear();
+        return true;
+    };
+
+    std::vector<std::string> rowset_keys_to_mark_recycled;
+    std::vector<std::string> rowset_keys_to_abort;
+    std::vector<std::string> prepare_rowset_keys_to_delete;
 
     // Store keys of rowset recycled by background workers
     std::mutex async_recycled_rowset_keys_mutex;
     std::vector<std::string> async_recycled_rowset_keys;
+    std::vector<std::string> rowset_keys_without_data;
     auto worker_pool = std::make_unique<SimpleThreadPool>(
             config::instance_recycler_worker_pool_size, "recycle_rowsets");
     worker_pool->start();
+    auto mark_abort_worker_pool = std::make_unique<SimpleThreadPool>(
+            config::instance_recycler_worker_pool_size, "recycle_rs_mark_abort");
+    mark_abort_worker_pool->start();
     // TODO bacth delete
     auto delete_versioned_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
         std::string dbm_start_key =
@@ -4791,7 +5064,7 @@ int InstanceRecycler::recycle_rowsets() {
         if (delete_versioned_delete_bitmap_kvs(tablet_id, rowset_id) != 0) {
             return -1;
         }
-        rowset_keys.push_back(std::move(key));
+        rowset_keys_without_data.push_back(std::move(key));
         return 0;
     };
 
@@ -4819,6 +5092,12 @@ int InstanceRecycler::recycle_rowsets() {
         ++num_expired;
         expired_rowset_size += v.size();
 
+        int64_t tablet_id =
+                rowset.has_type() ? rowset.rowset_meta().tablet_id() : rowset.tablet_id();
+        if (!try_reserve_tablet_recycle_slot(tablet_id)) {
+            return 0;
+        }
+
         if (!rowset.has_type()) {                         // old version `RecycleRowsetPB`
             if (!rowset.has_resource_id()) [[unlikely]] { // impossible
                 // in old version, keep this key-value pair and it needs to be checked manually
@@ -4829,8 +5108,8 @@ int InstanceRecycler::recycle_rowsets() {
                 // old version `RecycleRowsetPB` may has empty resource_id, just remove the kv.
                 LOG(INFO) << "delete the recycle rowset kv that has empty resource_id, key="
                           << hex(k) << " value=" << proto_to_json(rowset);
-                rowset_keys.emplace_back(k);
-                return -1;
+                rowset_keys_without_data.emplace_back(k);
+                return 0;
             }
             // decode rowset_id
             auto k1 = k;
@@ -4856,38 +5135,26 @@ int InstanceRecycler::recycle_rowsets() {
 
         auto* rowset_meta = rowset.mutable_rowset_meta();
         if (config::enable_mark_delete_rowset_before_recycle) {
-            int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
-            if (mark_ret == -1) {
-                LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
-                             << " tablet_id=" << rowset_meta->tablet_id() << " version=["
-                             << rowset_meta->start_version() << '-' << rowset_meta->end_version()
-                             << "]";
-                return -1;
-            } else if (mark_ret == 1) {
-                LOG(INFO)
-                        << "rowset already marked as recycled, recycler will delete data and kv at "
-                           "next turn, instance_id="
-                        << instance_id_ << " tablet_id=" << rowset_meta->tablet_id() << " version=["
-                        << rowset_meta->start_version() << '-' << rowset_meta->end_version() << "]";
+            if (need_mark_rowset_as_recycled(rowset)) {
+                rowset_keys_to_mark_recycled.emplace_back(k);
+                LOG(INFO) << "rowset queued to mark as recycled, recycler will delete data and kv "
+                             "at next turn, instance_id="
+                          << instance_id_ << " tablet_id=" << rowset_meta->tablet_id()
+                          << " version=[" << rowset_meta->start_version() << '-'
+                          << rowset_meta->end_version() << "]";
                 return 0;
             }
         }
 
-        if (config::enable_abort_txn_and_job_for_delete_rowset_before_recycle) {
-            LOG(INFO) << "begin to abort txn or job for related rowset, instance_id="
-                      << instance_id_ << " tablet_id=" << rowset_meta->tablet_id() << " version=["
-                      << rowset_meta->start_version() << '-' << rowset_meta->end_version() << "]";
-
-            if (rowset_meta->end_version() != 1) {
-                int ret = abort_txn_or_job_for_recycle(rowset);
-
-                if (ret != 0) {
-                    LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
-                                 << instance_id_ << " tablet_id=" << rowset.tablet_id()
-                                 << " version=[" << rowset_meta->start_version() << '-'
-                                 << rowset_meta->end_version() << "]";
-                    return ret;
-                }
+        if (config::enable_abort_txn_and_job_for_delete_rowset_before_recycle &&
+            rowset_meta->end_version() != 1) {
+            if (make_deferred_abort_task(rowset).has_value()) {
+                LOG(INFO) << "rowset queued to abort related txn or job after current scan batch, "
+                             "instance_id="
+                          << instance_id_ << " tablet_id=" << rowset_meta->tablet_id()
+                          << " version=[" << rowset_meta->start_version() << '-'
+                          << rowset_meta->end_version() << "]";
+                rowset_keys_to_abort.emplace_back(k);
             }
         }
 
@@ -4920,25 +5187,22 @@ int InstanceRecycler::recycle_rowsets() {
             }
         } else {
             num_compacted += rowset.type() == RecycleRowsetPB::COMPACT;
-            rowset_keys.emplace_back(k);
-            rowsets.emplace(rowset_meta->rowset_id_v2(), std::move(*rowset_meta));
-            if (rowset_meta->num_segments() <= 0) { // Skip empty rowset
+            if (rowset_meta->num_segments() > 0) { // Skip empty rowset
+                rowsets.emplace_back(std::string(k), std::move(*rowset_meta));
+            } else {
                 ++num_empty_rowset;
+                rowset_keys_without_data.emplace_back(k);
             }
         }
         return 0;
     };
 
-    auto loop_done = [&]() -> int {
-        std::vector<std::string> rowset_keys_to_delete;
-        // rowset_id -> rowset_meta
-        // store rowset id and meta for statistics rs size when delete
-        std::map<std::string, doris::RowsetMetaCloudPB> rowsets_to_delete;
-        rowset_keys_to_delete.swap(rowset_keys);
-        rowsets_to_delete.swap(rowsets);
-        worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
-                             rowsets_to_delete = std::move(rowsets_to_delete)]() {
-            if (delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET,
+    auto submit_delete_rowset_data_job = [&](std::vector<std::string> rowset_keys,
+                                             std::map<std::string, RowsetMetaCloudPB> rowsets) {
+        worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys),
+                             rowsets_to_delete = std::move(rowsets)]() {
+            if (!rowsets_to_delete.empty() &&
+                delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET,
                                    metrics_context) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
@@ -4952,8 +5216,104 @@ int InstanceRecycler::recycle_rowsets() {
                 LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
                 return;
             }
+
             num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
         });
+    };
+
+    auto submit_mark_abort_rowset_job = [&](std::vector<std::string> rowset_keys_to_mark,
+                                            std::vector<std::string> rowset_keys_to_abort) {
+        if (rowset_keys_to_mark.empty() && rowset_keys_to_abort.empty()) {
+            return;
+        }
+        mark_abort_worker_pool->submit([&, rowset_keys_to_mark = std::move(rowset_keys_to_mark),
+                                        rowset_keys_to_abort =
+                                                std::move(rowset_keys_to_abort)]() mutable {
+            auto start = steady_clock::now();
+            DORIS_CLOUD_DEFER {
+                auto cost = duration_cast<milliseconds>(steady_clock::now() - start).count();
+                LOG(INFO) << "finish mark and abort rowset job, instance_id=" << instance_id_ << ' '
+                          << "cost_ms=" << cost << ' '
+                          << "rowset_keys_to_mark.size()=" << rowset_keys_to_mark.size() << ' '
+                          << "rowset_keys_to_abort.size()=" << rowset_keys_to_abort.size();
+            };
+            if (!rowset_keys_to_mark.empty() &&
+                batch_mark_rowsets_as_recycled<RecycleRowsetPB>(txn_kv_.get(), instance_id_,
+                                                                rowset_keys_to_mark) != 0) {
+                LOG(WARNING) << "failed to batch mark rowsets as recycled, instance_id="
+                             << instance_id_ << ' '
+                             << "rowset_keys_to_mark.size()=" << rowset_keys_to_mark.size();
+                return;
+            }
+            if (!rowset_keys_to_abort.empty() &&
+                batch_abort_txn_or_job_for_recycle<RecycleRowsetPB>(rowset_keys_to_abort, true) !=
+                        0) {
+                LOG(WARNING) << "failed to batch abort txn or job for related rowset, "
+                                "instance_id="
+                             << instance_id_ << ' '
+                             << "rowset_keys_to_abort.size()=" << rowset_keys_to_abort.size();
+                return;
+            }
+        });
+    };
+
+    bool scan_finished = false;
+    auto loop_done = [&]() -> int {
+        std::vector<std::string> mark_keys_to_process;
+        std::vector<std::string> abort_keys_to_process;
+        mark_keys_to_process.swap(rowset_keys_to_mark_recycled);
+        abort_keys_to_process.swap(rowset_keys_to_abort);
+        submit_mark_abort_rowset_job(std::move(mark_keys_to_process),
+                                     std::move(abort_keys_to_process));
+        if (!scan_finished && rowsets.size() < delete_rowset_batch_size) {
+            return 0;
+        }
+
+        DORIS_CLOUD_DEFER {
+            // if return -1 in loop done, rowset info in memory is not cleared,
+            // it can lead to memory accumulation
+            rowset_keys_without_data.clear();
+            rowsets.clear();
+        };
+        std::random_device rd;
+        std::mt19937 g(rd());
+        std::ranges::shuffle(rowsets, g);
+
+        std::vector<std::string> rowset_keys_to_delete;
+        rowset_keys_to_delete.reserve(rowset_batch_size_per_tablet);
+        // rowset_id -> rowset_meta
+        // store rowset id and meta for statistics rs size when delete
+        std::map<std::string, doris::RowsetMetaCloudPB> rowsets_to_delete;
+
+        size_t rowsets_per_batch_size = 0;
+        for (auto& rowset : rowsets) {
+            rowset_keys_to_delete.emplace_back(std::move(rowset.key));
+            rowsets_to_delete.emplace(rowset.meta.rowset_id_v2(), std::move(rowset.meta));
+            if (++rowsets_per_batch_size < rowset_batch_size_per_tablet) {
+                continue;
+            }
+
+            submit_delete_rowset_data_job(std::move(rowset_keys_to_delete),
+                                          std::move(rowsets_to_delete));
+            rowsets_per_batch_size = 0;
+            rowset_keys_to_delete.clear();
+            rowsets_to_delete.clear();
+        }
+
+        if (!rowset_keys_to_delete.empty() || !rowsets_to_delete.empty()) {
+            submit_delete_rowset_data_job(std::move(rowset_keys_to_delete),
+                                          std::move(rowsets_to_delete));
+        }
+
+        for (size_t i = 0; i < rowset_keys_without_data.size(); i += rowset_batch_size_per_tablet) {
+            auto begin = rowset_keys_without_data.begin() + i;
+            auto end = rowset_keys_without_data.begin() +
+                       std::min(i + rowset_batch_size_per_tablet, rowset_keys_without_data.size());
+            std::vector<std::string> rowset_keys_to_remove(std::make_move_iterator(begin),
+                                                           std::make_move_iterator(end));
+            submit_delete_rowset_data_job(std::move(rowset_keys_to_remove), {});
+        }
+
         return 0;
     };
 
@@ -4961,9 +5321,18 @@ int InstanceRecycler::recycle_rowsets() {
         scan_and_statistics_rowsets();
     }
     // recycle_func and loop_done for scan and recycle
-    int ret = scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_rowset_kv),
-                               std::move(loop_done));
+    int ret = scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_rowset_kv), loop_done,
+                               std::move(next_scan_begin_getter));
+    scan_finished = true;
+    // if the size of rowsets is always less than delete_rowset_batch_size
+    // it need to submit the task directly
+    // else if the size of rowsets is greater than delete_rowset_batch_size,
+    // but there are residual, whether due to failed or unsuccessful cleanup, this behavior is idempotent
+    if (loop_done() != 0) {
+        ret = -1;
+    }
 
+    mark_abort_worker_pool->stop();
     worker_pool->stop();
 
     if (!async_recycled_rowset_keys.empty()) {
@@ -4980,6 +5349,16 @@ int InstanceRecycler::recycle_rowsets() {
     metrics_context.report();
 
     return ret;
+}
+
+int InstanceRecycler::next_recycle_rowset_tablet_key(const std::string& instance_id,
+                                                     int64_t tablet_id, std::string* next_key) {
+    DCHECK(next_key != nullptr);
+    if (tablet_id == std::numeric_limits<int64_t>::max()) {
+        return -1;
+    }
+    *next_key = recycle_rowset_key({instance_id, tablet_id + 1, ""});
+    return 0;
 }
 
 int InstanceRecycler::recycle_restore_jobs() {
@@ -5565,6 +5944,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     std::vector<std::string> tmp_rowset_keys;
     std::vector<std::string> tmp_rowset_ref_count_keys;
+    std::vector<std::string> tmp_rowset_keys_to_mark_recycled;
+    std::vector<std::string> tmp_rowset_keys_to_abort;
 
     // rowset_id -> rowset_meta
     // store tmp_rowset id and meta for statistics rs size when delete
@@ -5577,7 +5958,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
                              &expired_rowset_size, &total_rowset_key_size, &total_rowset_value_size,
-                             &earlest_ts, &tmp_rowset_ref_count_keys, this,
+                             &earlest_ts, &tmp_rowset_ref_count_keys,
+                             &tmp_rowset_keys_to_mark_recycled, &tmp_rowset_keys_to_abort, this,
                              &metrics_context](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_key_size += k.size();
@@ -5598,33 +5980,23 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         }
 
         if (config::enable_mark_delete_rowset_before_recycle) {
-            int mark_ret = mark_rowset_as_recycled(txn_kv_.get(), instance_id_, k, rowset);
-            if (mark_ret == -1) {
-                LOG(WARNING) << "failed to mark rowset as recycled, instance_id=" << instance_id_
-                             << " tablet_id=" << rowset.tablet_id() << " version=["
-                             << rowset.start_version() << '-' << rowset.end_version() << "]";
-                return -1;
-            } else if (mark_ret == 1) {
-                LOG(INFO)
-                        << "rowset already marked as recycled, recycler will delete data and kv at "
-                           "next turn, instance_id="
-                        << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
-                        << rowset.start_version() << '-' << rowset.end_version() << "]";
+            if (need_mark_rowset_as_recycled(rowset)) {
+                tmp_rowset_keys_to_mark_recycled.emplace_back(k);
+                LOG(INFO) << "rowset queued to mark as recycled, recycler will delete data and kv "
+                             "at next turn, instance_id="
+                          << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
+                          << rowset.start_version() << '-' << rowset.end_version() << "]";
                 return 0;
             }
         }
 
         if (config::enable_abort_txn_and_job_for_delete_rowset_before_recycle) {
-            LOG(INFO) << "begin to abort txn or job for related rowset, instance_id="
-                      << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
-                      << rowset.start_version() << '-' << rowset.end_version() << "]";
-
-            int ret = abort_txn_or_job_for_recycle(rowset);
-            if (ret != 0) {
-                LOG(WARNING) << "failed to abort txn or job for related rowset, instance_id="
-                             << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
-                             << rowset.start_version() << '-' << rowset.end_version() << "]";
-                return ret;
+            if (make_deferred_abort_task(rowset).has_value()) {
+                LOG(INFO) << "rowset queued to abort related txn or job after current scan batch, "
+                             "instance_id="
+                          << instance_id_ << " tablet_id=" << rowset.tablet_id() << " version=["
+                          << rowset.start_version() << '-' << rowset.end_version() << "]";
+                tmp_rowset_keys_to_abort.emplace_back(k);
             }
         }
 
@@ -5689,14 +6061,36 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     };
 
     auto loop_done = [&]() -> int {
-        DORIS_CLOUD_DEFER {
-            tmp_rowset_keys.clear();
-            tmp_rowsets.clear();
-            tmp_rowset_ref_count_keys.clear();
-        };
-        worker_pool->submit([&, tmp_rowset_keys_to_delete = tmp_rowset_keys,
-                             tmp_rowsets_to_delete = tmp_rowsets,
-                             tmp_rowset_ref_count_keys_to_delete = tmp_rowset_ref_count_keys]() {
+        std::vector<std::string> tmp_rowset_keys_to_delete;
+        std::vector<std::string> tmp_rowset_ref_count_keys_to_delete;
+        std::vector<std::string> mark_keys_to_process;
+        std::vector<std::string> abort_keys_to_process;
+        std::map<std::string, doris::RowsetMetaCloudPB> tmp_rowsets_to_delete;
+        tmp_rowset_keys_to_delete.swap(tmp_rowset_keys);
+        tmp_rowsets_to_delete.swap(tmp_rowsets);
+        tmp_rowset_ref_count_keys_to_delete.swap(tmp_rowset_ref_count_keys);
+        mark_keys_to_process.swap(tmp_rowset_keys_to_mark_recycled);
+        abort_keys_to_process.swap(tmp_rowset_keys_to_abort);
+        worker_pool->submit([&, tmp_rowset_keys_to_delete = std::move(tmp_rowset_keys_to_delete),
+                             tmp_rowsets_to_delete = std::move(tmp_rowsets_to_delete),
+                             tmp_rowset_ref_count_keys_to_delete =
+                                     std::move(tmp_rowset_ref_count_keys_to_delete),
+                             mark_keys_to_process = std::move(mark_keys_to_process),
+                             abort_keys_to_process = std::move(abort_keys_to_process)]() mutable {
+            if (!mark_keys_to_process.empty() &&
+                batch_mark_rowsets_as_recycled<RowsetMetaCloudPB>(txn_kv_.get(), instance_id_,
+                                                                  mark_keys_to_process) != 0) {
+                LOG(WARNING) << "failed to batch mark tmp rowsets as recycled, instance_id="
+                             << instance_id_;
+                return;
+            }
+            if (!abort_keys_to_process.empty() &&
+                batch_abort_txn_or_job_for_recycle<RowsetMetaCloudPB>(abort_keys_to_process,
+                                                                      false) != 0) {
+                LOG(WARNING) << "failed to batch abort txn or job for releated rowset, instance_id="
+                             << instance_id_;
+                return;
+            }
             if (delete_rowset_data(tmp_rowsets_to_delete, RowsetRecyclingState::TMP_ROWSET,
                                    metrics_context) != 0) {
                 LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
@@ -5722,7 +6116,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 LOG(WARNING) << "failed to tmp rowset ref count kv, instance_id=" << instance_id_;
                 return;
             }
-            num_recycled += tmp_rowset_keys.size();
+            num_recycled += tmp_rowset_keys_to_delete.size();
             return;
         });
         return 0;
@@ -5747,7 +6141,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 int InstanceRecycler::scan_and_recycle(
         std::string begin, std::string_view end,
         std::function<int(std::string_view k, std::string_view v)> recycle_func,
-        std::function<int()> loop_done) {
+        std::function<int()> loop_done, std::function<bool(std::string*)> next_begin_getter) {
     LOG(INFO) << "begin scan_and_recycle key_range=[" << hex(begin) << "," << hex(end) << ")";
     int ret = 0;
     int64_t cnt = 0;
@@ -5779,6 +6173,9 @@ int InstanceRecycler::scan_and_recycle(
             LOG(INFO) << "no keys in the given range=[" << hex(begin) << "," << hex(end) << ")";
             break; // scan finished
         }
+        bool begin_updated = false;
+        LOG(INFO) << "scan_and_recycle iterator key_range=[" << hex(begin) << "," << hex(end)
+                  << ") iterator->size()=" << it->size();
         while (it->has_next()) {
             ++cnt;
             // recycle corresponding resources
@@ -5792,9 +6189,30 @@ int InstanceRecycler::scan_and_recycle(
                 err = "recycle_func error";
                 ret = -1;
             }
+            if (next_begin_getter) {
+                std::string next_begin;
+                if (next_begin_getter(&next_begin)) {
+                    if (next_begin > k) {
+                        begin = std::move(next_begin);
+                        begin_updated = true;
+                        VLOG_DEBUG << "scan_and_recycle updates begin to " << hex(begin)
+                                   << " after key=" << hex(k);
+                        break;
+                    }
+                    LOG_WARNING("ignore invalid next begin in scan_and_recycle")
+                            .tag("next_begin", hex(next_begin))
+                            .tag("current_key", hex(k));
+                }
+            }
         }
-        begin.push_back('\x00'); // Update to next smallest key for iteration
+        if (!begin_updated) {
+            begin.push_back('\x00'); // Update to next smallest key for iteration
+        } else {
+            it.reset();
+        }
+
         // FIXME(gavin): if we want to continue scanning, the loop_done should not return non-zero
+        // if we want to continue scanning, the recycle_func should not return non-zero
         if (loop_done && loop_done() != 0) {
             err = "loop_done error";
             ret = -1;

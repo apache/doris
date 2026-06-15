@@ -31,7 +31,13 @@ Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard, mirroring the close()/sink() paths in this
+    // file which already gate on `_runtime_filter_producer_helper`.
+    // terminate() may run on a cancel / early-wake path before the helper
+    // is attached, in which case skip_process() would NPE.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return Base::terminate(state);
 }
 
@@ -61,7 +67,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status SetSinkOperatorX<is_intersect>::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 
@@ -74,7 +80,8 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
     if (in_block->rows() != 0) {
         if (local_state._mutable_block.empty()) {
             auto tmp_build_block = *(in_block->create_same_struct_block(0, false));
-            local_state._mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+            local_state._mutable_block =
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         {

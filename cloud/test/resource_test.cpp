@@ -948,8 +948,8 @@ TEST(StorageVaultCascadeTest, AlterS3VaultCascadesToDerivedInstances) {
         *key_id = 1;
     });
 
-    std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
 
+    std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
     create_instance_with_storage_vault(meta_service.get(), "vault_parent", "", "2", "vault_old",
                                        "old_ak", "old_sk");
     create_instance_with_storage_vault(meta_service.get(), "vault_child", "vault_parent", "2",
@@ -970,6 +970,7 @@ TEST(StorageVaultCascadeTest, AlterS3VaultCascadesToDerivedInstances) {
     meta_service->alter_storage_vault(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
+    std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
     verify_storage_vault(meta_service.get(), "vault_parent", "2", "vault_new", "new_ak", cipher_sk);
     verify_storage_vault(meta_service.get(), "vault_child", "2", "vault_new", "new_ak", cipher_sk);
 
@@ -992,7 +993,6 @@ TEST(StorageVaultCascadeTest, SnapshotDisabledSkipsCascade) {
     });
 
     std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
-
     create_instance_with_storage_vault(meta_service.get(), "vault_parent_disabled", "", "2",
                                        "vault_old", "old_ak", "old_sk",
                                        /*enable_snapshot=*/false);

@@ -331,8 +331,7 @@ private:
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
         const ColumnArray* array_column = nullptr;
         const ColumnUInt8* array_null_map = nullptr;
-        if (left_column->is_nullable()) {
-            auto nullable_array = reinterpret_cast<const ColumnNullable*>(left_column.get());
+        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(left_column.get())) {
             array_column =
                     reinterpret_cast<const ColumnArray*>(&nullable_array->get_nested_column());
             array_null_map = &nullable_array->get_null_map_column();
@@ -343,12 +342,11 @@ private:
         const auto& offsets = array_column->get_offsets();
         const UInt8* nested_null_map = nullptr;
         ColumnPtr nested_column = nullptr;
-        if (array_column->get_data().is_nullable()) {
-            const auto& nested_null_column =
-                    reinterpret_cast<const ColumnNullable&>(array_column->get_data());
-            nested_null_column.sanity_check();
-            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-            nested_column = nested_null_column.get_nested_column_ptr();
+        if (const auto* nested_null_column =
+                    check_and_get_column<ColumnNullable>(&array_column->get_data())) {
+            nested_null_column->sanity_check();
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column = nested_null_column->get_nested_column_ptr();
         } else {
             nested_column = array_column->get_data_ptr();
         }
@@ -357,15 +355,15 @@ private:
         ColumnPtr right_full_column = arguments[1].column->convert_to_full_column_if_const();
         ColumnPtr right_column = right_full_column;
         const UInt8* right_nested_null_map = nullptr;
-        if (right_column->is_nullable()) {
-            const auto& nested_null_column = assert_cast<const ColumnNullable&>(*right_full_column);
-            right_column = nested_null_column.get_nested_column_ptr();
-            right_nested_null_map = nested_null_column.get_null_map_column().get_data().data();
+        if (const auto* nested_null_column =
+                    check_and_get_column<ColumnNullable>(right_column.get())) {
+            right_column = nested_null_column->get_nested_column_ptr();
+            right_nested_null_map = nested_null_column->get_null_map_column().get_data().data();
         }
         // execute
         auto array_type = remove_nullable(arguments[0].type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         auto right_type = remove_nullable(arguments[1].type);
 
         ColumnPtr res = nullptr;

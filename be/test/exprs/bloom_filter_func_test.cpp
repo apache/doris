@@ -53,17 +53,8 @@ TEST_F(BloomFilterFuncTest, Init) {
     }
 
     const size_t runtime_length = 1024;
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
 
     try {
@@ -111,17 +102,8 @@ TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
 TEST_F(BloomFilterFuncTest, InsertSet) {
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -165,17 +147,8 @@ TEST_F(BloomFilterFuncTest, InsertSet) {
 TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(true);
     const size_t runtime_length = 1024;
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -236,17 +209,8 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
 TEST_F(BloomFilterFuncTest, Merge) {
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -331,17 +295,8 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
             "=";
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
 
     ASSERT_TRUE(bloom_filter_func.init_with_fixed_length(runtime_length));
@@ -379,17 +334,8 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
 TEST_F(BloomFilterFuncTest, MergeLargeData) {
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -482,17 +428,8 @@ TEST_F(BloomFilterFuncTest, FindDictOlapEngine) {
     column->initialize_hash_values_for_runtime_filter();
 
     BloomFilterFunc<PrimitiveType::TYPE_STRING> bloom_filter_func(false);
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(0);
     ASSERT_TRUE(st) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -523,17 +460,8 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
     const size_t count = 4096;
 
     BloomFilterFunc<PrimitiveType::TYPE_DECIMAL256> bloom_filter_func(true);
-    RuntimeFilterParams params {1,
-                                RuntimeFilterType::BLOOM_FILTER,
-                                PrimitiveType::TYPE_INT,
-                                false,
-                                0,
-                                0,
-                                0,
-                                256,
-                                0,
-                                0,
-                                false};
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, PrimitiveType::TYPE_INT, false, 0, 0, 0, 256, 0, 0};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(0);
     ASSERT_TRUE(st) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -570,8 +498,10 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
 
     bloom_filter_func2.insert_fixed_len(string_column->clone(), 0);
 
-    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"),
-                           StringRef("dd\0\0", 4), StringRef("ef\0\0", 4)};
+    // CHAR padding is stripped at the page decoder now, so the runtime BF
+    // probe sees natural-length StringRefs; no trailing '\0' bytes here.
+    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"), StringRef("dd"),
+                           StringRef("ef")};
 
     PODArray<uint16_t> offsets2(5);
     std::iota(offsets2.begin(), offsets2.end(), 0);

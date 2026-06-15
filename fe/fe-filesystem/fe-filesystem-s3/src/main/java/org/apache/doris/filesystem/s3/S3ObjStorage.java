@@ -23,14 +23,11 @@ import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.StsCredentials;
 import org.apache.doris.filesystem.spi.UploadPartResult;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
-import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
@@ -65,10 +62,10 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import software.amazon.awssdk.services.sts.StsClient;
-import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.sts.model.Credentials;
+import software.amazon.awssdk.utils.http.SdkHttpUtils;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -77,7 +74,6 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -86,81 +82,40 @@ import java.util.stream.Collectors;
 
 /**
  * Object storage implementation backed by AWS S3 SDK v2.
- * Accepts only Map<String, String> in constructor; no dependency on fe-core or fe-common.
- *
- * <p>Recognized property keys:
- * <ul>
- *   <li>AWS_ENDPOINT     - S3 endpoint URL (required)</li>
- *   <li>AWS_REGION       - AWS region identifier (required)</li>
- *   <li>AWS_ACCESS_KEY   - AWS access key ID</li>
- *   <li>AWS_SECRET_KEY   - AWS secret access key</li>
- *   <li>AWS_TOKEN        - AWS session token (optional)</li>
- *   <li>use_path_style   - "true" to enable path-style bucket access</li>
- * </ul>
+ * The Map constructor binds through {@link S3FileSystemProperties} so all runtime
+ * paths use the same typed S3 parameter model.
  */
 public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private static final Logger LOG = LogManager.getLogger(S3ObjStorage.class);
 
-    static final String PROP_ENDPOINT = "AWS_ENDPOINT";
-    static final String PROP_REGION = "AWS_REGION";
-    static final String PROP_ACCESS_KEY = "AWS_ACCESS_KEY";
-    static final String PROP_SECRET_KEY = "AWS_SECRET_KEY";
-    static final String PROP_TOKEN = "AWS_TOKEN";
-    static final String PROP_PATH_STYLE = "use_path_style";
-    static final String PROP_BUCKET = "AWS_BUCKET";
-    static final String PROP_ROLE_ARN = "AWS_ROLE_ARN";
-    static final String PROP_EXTERNAL_ID = "AWS_EXTERNAL_ID";
-
     /** Validity period for pre-signed URLs and STS tokens (seconds). */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
-    /**
-     * Normalizes property keys to canonical AWS_* form so that callers using
-     * alternate key formats (e.g. "s3.access_key", "access_key") are treated
-     * identically to callers that already use canonical keys like "AWS_ACCESS_KEY".
-     *
-     * <p>Only adds a canonical entry when the canonical key is absent; explicit
-     * canonical values are never overridden.
-     */
-    static Map<String, String> normalizeProperties(Map<String, String> props) {
-        Map<String, String> result = new HashMap<>(props);
-        addIfAbsent(result, PROP_ACCESS_KEY, "s3.access_key", "access_key", "ACCESS_KEY");
-        addIfAbsent(result, PROP_SECRET_KEY, "s3.secret_key", "secret_key", "SECRET_KEY");
-        addIfAbsent(result, PROP_ENDPOINT, "s3.endpoint", "endpoint", "ENDPOINT");
-        addIfAbsent(result, PROP_REGION, "s3.region", "region", "REGION");
-        addIfAbsent(result, PROP_TOKEN, "s3.session_token", "session_token");
-        return result;
-    }
-
-    /** Copies the first non-null alias value into {@code canonicalKey} if not already present. */
-    private static void addIfAbsent(Map<String, String> map, String canonicalKey, String... aliases) {
-        if (map.containsKey(canonicalKey)) {
-            return;
-        }
-        for (String alias : aliases) {
-            String value = map.get(alias);
-            if (value != null) {
-                map.put(canonicalKey, value);
-                return;
-            }
-        }
-    }
-
-    private final Map<String, String> properties;
+    private final S3FileSystemProperties s3Properties;
     private final boolean usePathStyle;
     /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
     private final String bucket;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile S3Client client;
 
+    public S3ObjStorage(S3FileSystemProperties properties) {
+        this.s3Properties = properties;
+        this.usePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
+        this.bucket = properties.getBucket();
+    }
+
     public S3ObjStorage(Map<String, String> properties) {
-        // Always normalize so that subclasses (OssObjStorage, CosObjStorage, etc.)
-        // which pass s3.* property keys also get them mapped to canonical AWS_* form.
-        Map<String, String> normalized = normalizeProperties(properties);
-        this.properties = Collections.unmodifiableMap(normalized);
-        this.usePathStyle = Boolean.parseBoolean(normalized.getOrDefault(PROP_PATH_STYLE, "false"));
-        this.bucket = normalized.get(PROP_BUCKET);
+        this(S3FileSystemProperties.of(properties));
+    }
+
+    /**
+     * Returns whether path-style (vs virtual-hosted-style) bucket access is enabled.
+     * Used by {@link S3FileSystem} when parsing URIs that may be path-style
+     * ({@code https://endpoint/bucket/key}) instead of virtual-hosted ({@code s3://bucket/key}).
+     */
+    public boolean isUsePathStyle() {
+        return usePathStyle;
     }
 
     @Override
@@ -179,10 +134,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     protected S3Client buildClient() throws IOException {
-        String endpointStr = properties.get(PROP_ENDPOINT);
-        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
-        AwsCredentialsProvider credentialsProvider = buildCredentialsProvider();
+        return buildClient(
+                s3Properties.getEndpoint(),
+                s3Properties.getRegion(),
+                buildCredentialsProvider());
+    }
 
+    private S3Client buildClient(String endpointStr, String region, AwsCredentialsProvider credentialsProvider)
+            throws IOException {
         S3ClientBuilder builder = S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder()
                         .socketTimeout(Duration.ofSeconds(30))
@@ -197,7 +156,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
         // endpointOverride is only set for non-AWS endpoints (MinIO, COS, OSS, etc.).
         // Standard AWS S3 access uses region-only routing without an explicit endpoint.
-        if (endpointStr != null && !endpointStr.isEmpty()) {
+        if (StringUtils.isNotBlank(endpointStr)) {
             if (!endpointStr.contains("://")) {
                 endpointStr = "https://" + endpointStr;
             }
@@ -219,47 +178,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     protected AwsCredentialsProvider buildCredentialsProvider() {
-        String roleArn = properties.get(PROP_ROLE_ARN);
-        if (roleArn != null && !roleArn.isEmpty()) {
-            return buildAssumeRoleCredentialsProvider(roleArn, properties.get(PROP_EXTERNAL_ID));
-        }
-        return buildClientBaseCredentialsProvider();
-    }
-
-    private AwsCredentialsProvider buildClientBaseCredentialsProvider() {
-        String accessKey = properties.get(PROP_ACCESS_KEY);
-        String secretKey = properties.get(PROP_SECRET_KEY);
-        String token = properties.get(PROP_TOKEN);
-
-        if (accessKey != null && !accessKey.isEmpty() && secretKey != null && !secretKey.isEmpty()) {
-            if (token != null && !token.isEmpty()) {
-                return StaticCredentialsProvider.create(
-                        AwsSessionCredentials.create(accessKey, secretKey, token));
-            }
-            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
-        }
-        // Allow anonymous access: chain DefaultCredentialsProvider with AnonymousCredentialsProvider
-        // as fallback, so public buckets can be accessed without any credentials.
-        return AwsCredentialsProviderChain.builder()
-                .credentialsProviders(
-                        DefaultCredentialsProvider.create(),
-                        AnonymousCredentialsProvider.create())
-                .build();
+        return S3CredentialsProviderFactory.createClientProvider(s3Properties, this::buildStsClient);
     }
 
     private AwsCredentialsProvider buildStsSourceCredentialsProvider() {
-        String accessKey = properties.get(PROP_ACCESS_KEY);
-        String secretKey = properties.get(PROP_SECRET_KEY);
-        String token = properties.get(PROP_TOKEN);
-
-        if (accessKey != null && !accessKey.isEmpty() && secretKey != null && !secretKey.isEmpty()) {
-            if (token != null && !token.isEmpty()) {
-                return StaticCredentialsProvider.create(
-                        AwsSessionCredentials.create(accessKey, secretKey, token));
-            }
-            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
-        }
-        return DefaultCredentialsProvider.create();
+        return S3CredentialsProviderFactory.createStsSourceProvider(s3Properties);
     }
 
     protected StsClient buildStsClient(AwsCredentialsProvider credentialsProvider, String region) {
@@ -269,27 +192,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .build();
     }
 
-    private AwsCredentialsProvider buildAssumeRoleCredentialsProvider(String roleArn, String externalId) {
-        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
-        StsClient stsClient = buildStsClient(buildStsSourceCredentialsProvider(), region);
-        return StsAssumeRoleCredentialsProvider.builder()
-                .stsClient(stsClient)
-                .refreshRequest(builder -> {
-                    builder.roleArn(roleArn)
-                            .roleSessionName("doris_" + UUID.randomUUID().toString().replace("-", ""));
-                    if (externalId != null && !externalId.isEmpty()) {
-                        builder.externalId(externalId);
-                    }
-                }).build();
-    }
-
     @Override
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(uri.bucket())
                 .prefix(uri.key());
-        if (continuationToken != null && !continuationToken.isEmpty()) {
+        if (StringUtils.isNotBlank(continuationToken)) {
             builder.continuationToken(continuationToken);
         }
         try {
@@ -309,8 +218,89 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
+    /**
+     * Strips {@code prefix} (with implicit trailing-slash normalisation) from {@code key}
+     * to produce the per-listing relative path. Identical normalisation to
+     * {@link #getRelativePathSafe(String, String)} so callers see the same relative-path
+     * shape regardless of which list entry point ({@link #listObjects},
+     * {@link #listObjectsNonRecursive}, {@link #listObjectsWithPrefix}) was used.
+     * If {@code prefix} does not end in {@code "/"} (e.g. user passed
+     * {@code s3://bucket/foo} expecting "directory" semantics), {@code "/"} is appended
+     * before stripping; if it already ends in {@code "/"} no double-slash is introduced.
+     * Bucket-root prefixes (empty key) leave {@code key} unchanged.
+     */
     private static String getRelativePath(String prefix, String key) {
-        return key.startsWith(prefix) ? key.substring(prefix.length()) : key;
+        return getRelativePathSafe(prefix, key);
+    }
+
+    /**
+     * Bounded variant of {@link #listObjects(String, String)}: caps the number of keys
+     * returned in this single call via {@code maxKeys}. Useful for "is this prefix
+     * non-empty?" probes that should not pull a full page of 1000 keys.
+     *
+     * @param maxKeys upper bound of keys to fetch; values {@code <= 0} are treated as no cap
+     */
+    public RemoteObjects listObjects(String remotePath, String continuationToken, int maxKeys)
+            throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
+                .bucket(uri.bucket())
+                .prefix(uri.key());
+        if (maxKeys > 0) {
+            builder.maxKeys(maxKeys);
+        }
+        if (StringUtils.isNotBlank(continuationToken)) {
+            builder.continuationToken(continuationToken);
+        }
+        try {
+            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
+            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
+                    .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
+                            s3Obj.key(),
+                            getRelativePath(uri.key(), s3Obj.key()),
+                            s3Obj.eTag(),
+                            s3Obj.size(),
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, response.isTruncated(),
+                    response.nextContinuationToken());
+        } catch (SdkException e) {
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Lists objects using S3 delimiter mode (delimiter {@code "/"}) so only the direct
+     * children under {@code remotePath} are returned in {@code Contents}. Sub-directories
+     * (which appear as {@code CommonPrefixes}) are intentionally NOT exposed here; callers
+     * that need them should issue a separate request. Used to give the FileSystem
+     * abstraction true POSIX-like "list one directory level" semantics on object stores.
+     */
+    public RemoteObjects listObjectsNonRecursive(String remotePath, String continuationToken)
+            throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
+                .bucket(uri.bucket())
+                .prefix(uri.key())
+                .delimiter("/");
+        if (StringUtils.isNotBlank(continuationToken)) {
+            builder.continuationToken(continuationToken);
+        }
+        try {
+            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
+            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
+                    .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
+                            s3Obj.key(),
+                            getRelativePath(uri.key(), s3Obj.key()),
+                            s3Obj.eTag(),
+                            s3Obj.size(),
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, response.isTruncated(),
+                    response.nextContinuationToken());
+        } catch (SdkException e) {
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -370,7 +360,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         S3Uri dstUri = S3Uri.parse(dstPath, usePathStyle);
         try {
             getClient().copyObject(CopyObjectRequest.builder()
-                    .copySource(srcUri.bucket() + "/" + srcUri.key())
+                    .copySource(SdkHttpUtils.urlEncodeIgnoreSlashes(
+                            srcUri.bucket() + "/" + srcUri.key()))
                     .destinationBucket(dstUri.bucket())
                     .destinationKey(dstUri.key())
                     .build());
@@ -437,8 +428,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         try {
             getClient().abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
+        } catch (S3Exception e) {
+            // Re-throw so callers know the abort failed; orphaned parts may still exist
+            // and require manual cleanup or a lifecycle rule.
+            throw new IOException("abortMultipartUpload failed for " + remotePath
+                    + " (uploadId=" + uploadId + "): HTTP " + e.statusCode()
+                    + " " + e.awsErrorDetails().errorCode() + ": " + e.getMessage(), e);
         } catch (SdkException e) {
-            LOG.warn("abortMultipartUpload failed for {}: {}", remotePath, e.getMessage());
+            throw new IOException("abortMultipartUpload failed for " + remotePath
+                    + " (uploadId=" + uploadId + "): " + e.getMessage(), e);
         }
     }
 
@@ -498,27 +496,25 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String roleArn = properties.get(PROP_ROLE_ARN);
-        String externalId = properties.get(PROP_EXTERNAL_ID);
-        if (roleArn == null || roleArn.isEmpty()) {
+        if (StringUtils.isBlank(s3Properties.getRoleArn())) {
             throw new IOException("STS role ARN (AWS_ROLE_ARN) is not configured");
         }
-        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
         try {
-            try (StsClient stsClient = buildStsClient(buildStsSourceCredentialsProvider(), region)) {
+            try (StsClient stsClient = buildStsClient(
+                    buildStsSourceCredentialsProvider(), s3Properties.getRegion())) {
                 AssumeRoleRequest.Builder reqBuilder = AssumeRoleRequest.builder()
-                        .roleArn(roleArn)
+                        .roleArn(s3Properties.getRoleArn())
                         .durationSeconds(SESSION_EXPIRE_SECONDS)
                         .roleSessionName("doris_" + UUID.randomUUID().toString().replace("-", ""));
-                if (externalId != null && !externalId.isEmpty()) {
-                    reqBuilder.externalId(externalId);
+                if (StringUtils.isNotBlank(s3Properties.getExternalId())) {
+                    reqBuilder.externalId(s3Properties.getExternalId());
                 }
                 AssumeRoleResponse resp = stsClient.assumeRole(reqBuilder.build());
                 Credentials cred = resp.credentials();
                 return new StsCredentials(cred.accessKeyId(), cred.secretAccessKey(), cred.sessionToken());
             }
         } catch (Exception e) {
-            LOG.warn("Failed to get STS token, roleArn={}", roleArn, e);
+            LOG.warn("Failed to get STS token, roleArn={}", s3Properties.getRoleArn(), e);
             throw new IOException("Failed to get STS token: " + e.getMessage(), e);
         }
     }
@@ -532,7 +528,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()
                     .bucket(bucket)
                     .prefix(fullPrefix);
-            if (continuationToken != null && !continuationToken.isEmpty()) {
+            if (StringUtils.isNotBlank(continuationToken)) {
                 reqBuilder.continuationToken(continuationToken);
             }
             ListObjectsV2Response resp = getClient().listObjectsV2(reqBuilder.build());
@@ -578,9 +574,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
         requireBucket("getPresignedUrl");
-        String accessKey = properties.get(PROP_ACCESS_KEY);
-        String secretKey = properties.get(PROP_SECRET_KEY);
-        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
         try {
             PutObjectRequest putReq = PutObjectRequest.builder()
                     .bucket(bucket)
@@ -590,10 +583,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     .signatureDuration(Duration.ofSeconds(SESSION_EXPIRE_SECONDS))
                     .putObjectRequest(putReq)
                     .build();
-            AwsBasicCredentials cred = AwsBasicCredentials.create(accessKey, secretKey);
             try (S3Presigner presigner = S3Presigner.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(StaticCredentialsProvider.create(cred))
+                    .region(Region.of(s3Properties.getRegion()))
+                    .credentialsProvider(StaticCredentialsProvider.create(
+                            AwsBasicCredentials.create(s3Properties.getAccessKey(), s3Properties.getSecretKey())))
                     .build()) {
                 PresignedPutObjectRequest presigned = presigner.presignPutObject(presignReq);
                 LOG.info("Generated S3 presigned URL for key={}", objectKey);
@@ -633,8 +626,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             throw new IOException("Failed to batch delete objects from bucket=" + bucket + ": " + e.getMessage(), e);
         }
         if (!failedKeys.isEmpty()) {
-            throw new IOException("Failed to delete " + failedKeys.size() + " object(s), first key: "
-                    + failedKeys.get(0));
+            // Surface the full failure count and a bounded sample of failing keys in
+            // the message so operators can correlate logs with the truncated list
+            // without flooding the exception when DeleteObjects rejects many keys
+            // at once (S3 batch up to 1000). The complete list is already at WARN
+            // in the loop above; do not repeat it here.
+            int sampleSize = Math.min(10, failedKeys.size());
+            String sample = String.join(", ", failedKeys.subList(0, sampleSize));
+            String suffix = failedKeys.size() > sampleSize
+                    ? " (and " + (failedKeys.size() - sampleSize) + " more, see WARN log for full list)"
+                    : "";
+            throw new IOException("Failed to delete " + failedKeys.size() + " object(s) from bucket="
+                    + bucket + "; failing keys [" + sample + "]" + suffix);
         }
     }
 
@@ -643,7 +646,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     // -----------------------------------------------------------------------
 
     private void requireBucket(String operation) throws IOException {
-        if (bucket == null || bucket.isEmpty()) {
+        if (StringUtils.isBlank(bucket)) {
             throw new IOException(operation + " requires AWS_BUCKET to be configured");
         }
     }
@@ -668,7 +671,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public Map<String, String> getProperties() {
-        return properties;
+        return s3Properties.toFileSystemKv();
     }
 
     @Override

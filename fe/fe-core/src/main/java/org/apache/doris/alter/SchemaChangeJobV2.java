@@ -307,6 +307,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             long backendId = shadowReplica.getBackendIdWithoutException();
                             long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
+
+                            MaterializedIndexMeta rowBinlogIndexMeta = null;
+                            if (tbl.needRowBinlog() && originIndexId == tbl.getBaseIndexId()) {
+                                rowBinlogIndexMeta = tbl.getRowBinlogMeta();
+                            }
+
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
@@ -319,7 +325,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.getCompressionType(),
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                     tbl.disableAutoCompaction(),
-                                    tbl.enableSingleReplicaCompaction(),
                                     tbl.skipWriteIndexOnLoad(),
                                     tbl.getCompactionPolicy(),
                                     tbl.getTimeSeriesCompactionGoalSizeMbytes(),
@@ -336,7 +341,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                     tbl.storageDictPageSize(),
                                     columnSeqMapping,
-                                    tbl.getVerticalCompactionNumColumnsPerGroup());
+                                    tbl.getVerticalCompactionNumColumnsPerGroup(),
+                                    rowBinlogIndexMeta);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);

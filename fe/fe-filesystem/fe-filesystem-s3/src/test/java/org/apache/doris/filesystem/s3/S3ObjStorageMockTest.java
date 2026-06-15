@@ -28,7 +28,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -251,6 +253,34 @@ class S3ObjStorageMockTest {
         Assertions.assertEquals("dst", captor.getValue().destinationKey());
     }
 
+    @Test
+    void copyObject_percentEncodesCopySourceWithSpecialChars() throws IOException {
+        Mockito.when(mockS3.copyObject(ArgumentMatchers.any(CopyObjectRequest.class)))
+                .thenReturn(CopyObjectResponse.builder().build());
+
+        storage.copyObject("s3://my-bucket/path/has space+plus.csv", "s3://my-bucket/dst");
+
+        ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        Mockito.verify(mockS3).copyObject(captor.capture());
+        // Slashes preserved (path separators), space -> %20, '+' -> %2B
+        Assertions.assertEquals("my-bucket/path/has%20space%2Bplus.csv",
+                captor.getValue().copySource());
+    }
+
+    @Test
+    void copyObject_percentEncodesUnicodeCopySource() throws IOException {
+        Mockito.when(mockS3.copyObject(ArgumentMatchers.any(CopyObjectRequest.class)))
+                .thenReturn(CopyObjectResponse.builder().build());
+
+        storage.copyObject("s3://my-bucket/data/éclair.csv", "s3://my-bucket/dst");
+
+        ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        Mockito.verify(mockS3).copyObject(captor.capture());
+        // 'é' is UTF-8 0xC3 0xA9
+        Assertions.assertEquals("my-bucket/data/%C3%A9clair.csv",
+                captor.getValue().copySource());
+    }
+
     // ------------------------------------------------------------------
     // initiateMultipartUpload()
     // ------------------------------------------------------------------
@@ -321,6 +351,40 @@ class S3ObjStorageMockTest {
         Assertions.assertEquals("upload-123", captor.getValue().uploadId());
     }
 
+    @Test
+    void abortMultipartUpload_throwsIOExceptionOnSdkException() {
+        // Generic SdkException (not S3Exception): simple wrap.
+        Mockito.when(mockS3.abortMultipartUpload(ArgumentMatchers.any(AbortMultipartUploadRequest.class)))
+                .thenThrow(software.amazon.awssdk.core.exception.SdkException.builder()
+                        .message("network down").build());
+
+        IOException ex = Assertions.assertThrows(IOException.class,
+                () -> storage.abortMultipartUpload("s3://my-bucket/file", "upload-xyz"));
+        Assertions.assertTrue(ex.getMessage().contains("upload-xyz"),
+                "exception must mention uploadId; got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("network down"),
+                "exception must surface root cause; got: " + ex.getMessage());
+    }
+
+    @Test
+    void abortMultipartUpload_throwsIOExceptionOnS3ExceptionWithStatusCode() {
+        S3Exception s3ex = (S3Exception) S3Exception.builder()
+                .statusCode(403)
+                .awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails.builder()
+                        .errorCode("AccessDenied").errorMessage("Forbidden").build())
+                .message("Forbidden")
+                .build();
+        Mockito.when(mockS3.abortMultipartUpload(ArgumentMatchers.any(AbortMultipartUploadRequest.class)))
+                .thenThrow(s3ex);
+
+        IOException ex = Assertions.assertThrows(IOException.class,
+                () -> storage.abortMultipartUpload("s3://my-bucket/file", "upload-403"));
+        Assertions.assertTrue(ex.getMessage().contains("403"),
+                "exception must include status code; got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("AccessDenied"),
+                "exception must include AWS error code; got: " + ex.getMessage());
+    }
+
     // ------------------------------------------------------------------
     // getPresignedUrl() - requires bucket
     // ------------------------------------------------------------------
@@ -329,6 +393,7 @@ class S3ObjStorageMockTest {
     void getPresignedUrl_throwsWhenBucketNotConfigured() {
         Map<String, String> noBucketProps = new HashMap<>();
         noBucketProps.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
+        noBucketProps.put("AWS_REGION", "us-east-1");
         noBucketProps.put("AWS_ACCESS_KEY", "ak");
         noBucketProps.put("AWS_SECRET_KEY", "sk");
         S3ObjStorage noBucket = new TestableS3ObjStorage(noBucketProps, mockS3);
@@ -362,6 +427,45 @@ class S3ObjStorageMockTest {
                 credentialsProvider.getClass().getSimpleName());
     }
 
+    @Test
+    void buildCredentialsProvider_usesTypedCredentialsProviderType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        props.put("s3.credentials_provider_type", "ENV");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(props);
+        InspectableS3ObjStorage typedStorage = new InspectableS3ObjStorage(properties, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = typedStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertInstanceOf(EnvironmentVariableCredentialsProvider.class, credentialsProvider);
+    }
+
+    @Test
+    void buildCredentialsProvider_usesAnonymousCredentialsProviderType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        props.put("s3.credentials_provider_type", "ANONYMOUS");
+        S3FileSystemProperties properties = S3FileSystemProperties.of(props);
+        InspectableS3ObjStorage typedStorage = new InspectableS3ObjStorage(properties, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = typedStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertInstanceOf(AnonymousCredentialsProvider.class, credentialsProvider);
+    }
+
+    @Test
+    void buildCredentialsProvider_usesBackendCredentialsProviderTypeFromLegacyMap() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com");
+        props.put("AWS_REGION", "us-west-2");
+        props.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ENV");
+        InspectableS3ObjStorage mapStorage = new InspectableS3ObjStorage(props, mockS3);
+
+        AwsCredentialsProvider credentialsProvider = mapStorage.inspectBuildCredentialsProvider();
+
+        Assertions.assertInstanceOf(EnvironmentVariableCredentialsProvider.class, credentialsProvider);
+    }
+
     // ------------------------------------------------------------------
     // close()
     // ------------------------------------------------------------------
@@ -386,6 +490,11 @@ class S3ObjStorageMockTest {
             this.mockClient = mockClient;
         }
 
+        TestableS3ObjStorage(S3FileSystemProperties properties, S3Client mockClient) {
+            super(properties);
+            this.mockClient = mockClient;
+        }
+
         @Override
         protected S3Client buildClient() {
             return mockClient;
@@ -397,6 +506,10 @@ class S3ObjStorageMockTest {
             super(properties, mockClient);
         }
 
+        InspectableS3ObjStorage(S3FileSystemProperties properties, S3Client mockClient) {
+            super(properties, mockClient);
+        }
+
         AwsCredentialsProvider inspectBuildCredentialsProvider() {
             return buildCredentialsProvider();
         }
@@ -405,5 +518,83 @@ class S3ObjStorageMockTest {
         protected StsClient buildStsClient(AwsCredentialsProvider credentialsProvider, String region) {
             return Mockito.mock(StsClient.class);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // deleteObjectsByKeys() partial-failure exception message (#19)
+    // ------------------------------------------------------------------
+
+    @Test
+    void deleteObjectsByKeys_partialFailure_messageCarriesCountAndSampleKeys() {
+        // 12 simulated per-key errors so we exceed the 10-key sample cap and
+        // can verify both the truncation suffix and the per-key list.
+        java.util.List<software.amazon.awssdk.services.s3.model.S3Error> errors = new java.util.ArrayList<>();
+        java.util.List<String> keys = new java.util.ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            String k = "dir/file" + i + ".csv";
+            keys.add(k);
+            errors.add(software.amazon.awssdk.services.s3.model.S3Error.builder()
+                    .key(k).code("AccessDenied").message("denied").build());
+        }
+        Mockito.when(mockS3.deleteObjects(ArgumentMatchers.any(
+                        software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class)))
+                .thenReturn(software.amazon.awssdk.services.s3.model.DeleteObjectsResponse.builder()
+                        .errors(errors).build());
+
+        IOException ex = Assertions.assertThrows(IOException.class,
+                () -> storage.deleteObjectsByKeys("my-bucket", keys));
+
+        String msg = ex.getMessage();
+        Assertions.assertTrue(msg.contains("Failed to delete 12 object(s)"), msg);
+        Assertions.assertTrue(msg.contains("bucket=my-bucket"), msg);
+        // The first 10 failing keys must be in the message.
+        for (int i = 0; i < 10; i++) {
+            Assertions.assertTrue(msg.contains("dir/file" + i + ".csv"),
+                    "missing sample key dir/file" + i + ".csv in: " + msg);
+        }
+        // The 11th and 12th must not (capped sample); the suffix must report the overflow.
+        Assertions.assertFalse(msg.contains("dir/file10.csv"), msg);
+        Assertions.assertTrue(msg.contains("and 2 more"), msg);
+    }
+
+    // ------------------------------------------------------------------
+    // listObjects vs listObjectsWithPrefix consistent relative paths (#20)
+    // ------------------------------------------------------------------
+
+    @Test
+    void listObjects_andListObjectsWithPrefix_relativePathsMatch_noTrailingSlash() throws IOException {
+        // Same logical S3 layout queried via two entry points; the per-object
+        // relative-path strings must match regardless of which path was used and
+        // regardless of whether the caller appended a trailing slash to the prefix.
+        Instant t = Instant.now();
+        S3Object obj = S3Object.builder().key("foo/sub/file.parquet").size(7L).lastModified(t).build();
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(obj).isTruncated(false).build());
+
+        // Variant A: full URI form, prefix WITHOUT trailing slash.
+        RemoteObjects a = storage.listObjects("s3://my-bucket/foo", null);
+        // Variant B: full URI form, prefix WITH trailing slash.
+        RemoteObjects b = storage.listObjects("s3://my-bucket/foo/", null);
+        // Variant C: cloud-style listObjectsWithPrefix, no trailing slash.
+        RemoteObjects c = storage.listObjectsWithPrefix("foo", null, null);
+        // Variant D: cloud-style listObjectsWithPrefix, with trailing slash.
+        RemoteObjects d = storage.listObjectsWithPrefix("foo/", null, null);
+
+        String expected = "sub/file.parquet";
+        Assertions.assertEquals(expected, a.getObjectList().get(0).getRelativePath());
+        Assertions.assertEquals(expected, b.getObjectList().get(0).getRelativePath());
+        Assertions.assertEquals(expected, c.getObjectList().get(0).getRelativePath());
+        Assertions.assertEquals(expected, d.getObjectList().get(0).getRelativePath());
+    }
+
+    @Test
+    void listObjects_relativePathAtBucketRoot_returnsFullKey() throws IOException {
+        // No prefix (bucket root): relative path equals the full key.
+        S3Object obj = S3Object.builder().key("top/file.parquet").size(1L).build();
+        Mockito.when(mockS3.listObjectsV2(ArgumentMatchers.any(ListObjectsV2Request.class)))
+                .thenReturn(ListObjectsV2Response.builder().contents(obj).isTruncated(false).build());
+
+        RemoteObjects r = storage.listObjects("s3://my-bucket/", null);
+        Assertions.assertEquals("top/file.parquet", r.getObjectList().get(0).getRelativePath());
     }
 }

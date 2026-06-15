@@ -1,4 +1,5 @@
-CREATE TABLE `test_different_column_orders_orc`(
+drop table if exists `test_different_column_orders_orc`;
+create table `test_different_column_orders_orc`(
   `name` string,
   `id` int,
   `city` string,

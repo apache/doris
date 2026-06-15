@@ -624,11 +624,11 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     }
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     auto request = std::make_shared<PTabletWriterOpenRequest>();
-    request->set_allocated_id(&_parent->_load_id);
+    request->mutable_id()->CopyFrom(_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_sender_id(_parent->_sender_id);
-    request->set_allocated_schema(_parent->_schema->to_protobuf());
+    request->mutable_schema()->CopyFrom(*_parent->_schema->to_protobuf());
     if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
         request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
     }
@@ -676,9 +676,6 @@ void VNodeChannel::_open_internal(bool is_incremental) {
                               open_closure->response_.get(), open_closure.get());
     open_closure.release();
     _open_callbacks.push_back(open_callback);
-
-    static_cast<void>(request->release_id());
-    static_cast<void>(request->release_schema());
 }
 
 void VNodeChannel::open() {
@@ -1218,7 +1215,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     }
 
     auto request = std::make_shared<PTabletWriterCancelRequest>();
-    request->set_allocated_id(&_parent->_load_id);
+    request->mutable_id()->CopyFrom(_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_sender_id(_parent->_sender_id);
     request->set_cancel_reason(cancel_msg);
@@ -1240,7 +1237,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     _stub->tablet_writer_cancel(closure->cntl_.get(), closure->request_.get(),
                                 closure->response_.get(), closure.get());
     closure.release();
-    static_cast<void>(request->release_id());
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
@@ -1764,10 +1760,12 @@ Status VTabletWriter::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
+        Defer recover_batching_block([&]() {
+            _row_distribution._batching_block->set_mutable_columns(
+                    std::move(tmp_block).mutate_columns());
+            _row_distribution._batching_block->clear_column_data();
+        });
         RETURN_IF_ERROR(this->write(_state, tmp_block));
-        _row_distribution._batching_block->set_mutable_columns(
-                tmp_block.mutate_columns()); // Recovery back
-        _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
     return Status::OK();
@@ -2066,6 +2064,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
+    const bool is_replaying_batched_block = _row_distribution._deal_batched;
     auto rows = input_block.rows();
     auto bytes = input_block.bytes();
     if (UNLIKELY(rows == 0)) {
@@ -2080,8 +2079,10 @@ Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(rows);
     _state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
+    if (!is_replaying_batched_block) {
+        DorisMetrics::instance()->load_rows->increment(rows);
+        DorisMetrics::instance()->load_bytes->increment(bytes);
+    }
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(

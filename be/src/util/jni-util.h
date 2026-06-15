@@ -797,8 +797,7 @@ public:
 
     Status get_byte_elements(JNIEnv* env, jsize start, jsize len, jbyte* buffer) {
         DCHECK(!this->uninitialized());
-        env->GetByteArrayRegion((jbyteArray)this->_obj, start, len,
-                                reinterpret_cast<jbyte*>(buffer));
+        env->GetByteArrayRegion((jbyteArray)this->_obj, start, len, buffer);
         RETURN_ERROR_IF_EXC(env);
         return Status::OK();
     }

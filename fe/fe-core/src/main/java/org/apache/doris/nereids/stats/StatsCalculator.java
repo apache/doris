@@ -73,8 +73,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -86,6 +84,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -106,8 +105,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
@@ -430,14 +427,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
 
-    /**
-     * if get partition col stats failed, then return table level col stats
-     */
-    private ColumnStatistic getColumnStatsFromPartitionCacheOrTableCache(
-            OlapTableStatistics olapTableStats, SlotReference slot, List<String> partitionNames) {
-        return getColumnStatistic(olapTableStats, slot.getName(), partitionNames);
-    }
-
     private double getSelectedPartitionRowCount(OlapScan olapScan, double tableRowCount) {
         // the number of partitions whose row count is not available
         double unknownPartitionCount = 0;
@@ -626,8 +615,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
                 if (enablePartitionStatics) {
-                    cache = getColumnStatsFromPartitionCacheOrTableCache(
-                            olapTableStats, slot, selectedPartitionNames);
+                    cache = getColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
                 } else {
                     cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 }
@@ -636,7 +624,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
                         selectedPartitionsRowCount);
-                colStatsBuilder.normalizeAvgSizeByte(slot);
+                colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
+                //scale null_num
+                double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
+                colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -646,7 +637,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
-                colStatsBuilder.normalizeAvgSizeByte(slot);
+                colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -829,6 +820,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return computeOlapScan(olapScan);
     }
 
+    @Override
+    public Statistics visitLogicalOlapTableStreamScan(LogicalOlapTableStreamScan olapScan, Void context) {
+        return computeOlapScan(olapScan);
+    }
+
     private boolean isVisibleSlotReference(Slot slot) {
         if (slot instanceof SlotReference) {
             Optional<Column> colOpt = ((SlotReference) slot).getOriginalColumn();
@@ -837,12 +833,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         return false;
-    }
-
-    @Override
-    public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan deferMaterializeOlapScan,
-            Void context) {
-        return computeOlapScan(deferMaterializeOlapScan.getLogicalOlapScan());
     }
 
     @Override
@@ -908,11 +898,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN, groupExpression.childStatistics(0));
-    }
-
-    @Override
-    public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Void context) {
-        return computeTopN(topN.getLogicalTopN(), groupExpression.childStatistics(0));
     }
 
     @Override
@@ -1042,12 +1027,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
-            Void context) {
-        return computeCatalogRelation(deferMaterializeOlapScan.getPhysicalOlapScan());
-    }
-
-    @Override
     public Statistics visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
         return computeCatalogRelation(schemaScan);
     }
@@ -1107,12 +1086,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN, groupExpression.childStatistics(0));
-    }
-
-    @Override
-    public Statistics visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            Void context) {
-        return computeTopN(topN.getPhysicalTopN(), groupExpression.childStatistics(0));
     }
 
     @Override
@@ -1269,6 +1242,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return columnStatistics;
     }
 
+    /**
+     * - partition pruned: try to get partition col stats, if failed, then fall back to table level col stats
+     * - no partition pruned: get table level col stats
+     */
     private ColumnStatistic getColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
         if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {

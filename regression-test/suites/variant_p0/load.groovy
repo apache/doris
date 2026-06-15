@@ -379,7 +379,6 @@ suite("regression_test_variant", "p0"){
                 "light_schema_change" = "true",
                 "store_row_column" = "true",
                 "disable_auto_compaction" = "false",
-                "enable_single_replica_compaction" = "false",
                 "group_commit_interval_ms" = "10000",
                 "group_commit_data_bytes" = "134217728"
                 );
@@ -410,7 +409,7 @@ suite("regression_test_variant", "p0"){
               "replication_allocation" = "tag.location.default: 1"
             );
             """
-            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+            exception("errCode = 2, detailMessage = Variant type should not be used in distribution column[content].")
         }
 
          test {

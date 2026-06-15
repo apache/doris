@@ -41,7 +41,6 @@
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
@@ -138,7 +137,7 @@ private:
 
     void _fill_path_column(MutableColumnPtr& dst) {
         ColumnNullable* nullable_column = nullptr;
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
         ColumnVariant& var =
@@ -154,8 +153,8 @@ private:
                 _sparse_column_cache->binary_column->get_ptr(), 0,
                 _sparse_column_cache->binary_column->size());
         var.incr_num_rows(_sparse_column_cache->binary_column->size());
-        var.get_sparse_column()->assume_mutable()->resize(var.rows());
-        var.get_doc_value_column()->assume_mutable()->resize(var.rows());
+        var.get_sparse_column_mutable().resize(var.rows());
+        var.get_doc_value_column_mutable().resize(var.rows());
         ENABLE_CHECK_CONSISTENCY(&var);
     }
 

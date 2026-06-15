@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -161,7 +162,6 @@ public:
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
-            auto param_type = arg.type->get_primitive_type();
             if (param_value.is_null()) {
                 // predicate like column NOT IN (NULL, '') should not push down to index.
                 if (negative) {
@@ -170,14 +170,11 @@ public:
                 *roaring |= *null_bitmap;
                 continue;
             }
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
-                    param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             segment_v2::InvertedIndexParam param;
             param.column_name = data_type_with_name.first;
             param.column_type = data_type_with_name.second;
-            param.query_value = query_param->get_value();
+            param.query_value = param_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
@@ -213,15 +210,16 @@ public:
         auto& vec_null_map_to = col_null_map_to->get_data();
 
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
-        const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
+        const auto& [unpacked_column, col_const] = unpack_if_const(left_arg.column);
+        ColumnPtr materialized_column = unpacked_column;
+        if (in_state->use_set && col_const) {
+            materialized_column = left_arg.column->convert_to_full_column_if_const();
+        }
 
         if (in_state->use_set) {
-            if (materialized_column->is_nullable()) {
-                const auto* null_col_ptr =
-                        check_and_get_column<ColumnNullable>(materialized_column.get());
-                const auto& null_map =
-                        assert_cast<const ColumnUInt8&>(null_col_ptr->get_null_map_column())
-                                .get_data();
+            if (const auto* null_col_ptr =
+                        check_and_get_column<ColumnNullable>(materialized_column.get())) {
+                const auto& null_map = null_col_ptr->get_null_map_column().get_data();
                 const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {

@@ -54,8 +54,13 @@ public class DefaultAuthenticator implements Authenticator {
 
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
         try {
-            Env.getCurrentEnv().getAuth().checkPassword(request.getUserName(), request.getRemoteIp(),
-                    nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+            if (request.getUserIdentity() != null) {
+                Env.getCurrentEnv().getAuth().checkPasswordForUserIdentity(request.getUserIdentity(),
+                        nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+            } else {
+                Env.getCurrentEnv().getAuth().checkPassword(request.getUserName(), request.getRemoteIp(),
+                        nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+            }
         } catch (AuthenticationException e) {
             ErrorReport.report(e.errorCode, e.msgs);
             return AuthenticateResponse.failedResponse;

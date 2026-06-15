@@ -34,6 +34,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "storage/binlog.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
@@ -96,9 +97,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.block_row_max = read_context->batch_size;
+    _read_options.preferred_block_size_bytes = read_context->preferred_block_size_bytes;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
-    _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
     _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
 
@@ -112,8 +113,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.collection_statistics = _read_context->collection_statistics;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
+    _read_options.commit_tso = _rowset->rowset_meta()->commit_tso();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    _read_options.topn_limit = _topn_limit;
+    _read_options.read_limit = _topn_limit;
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),
@@ -212,6 +214,16 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
+    _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
+    int32_t lsn_col_id = _read_context->tablet_schema->binlog_lsn_col_idx();
+    if (lsn_col_id >= 0) {
+        for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
+            if (_read_context->return_columns->at(i) == static_cast<uint32_t>(lsn_col_id)) {
+                _read_options.binlog_lsn_idx = static_cast<int>(i);
+                break;
+            }
+        }
+    }
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
@@ -330,9 +342,13 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
+        if (_read_options.binlog_lsn_idx != -1) {
+            sequence_loc = _read_options.binlog_lsn_idx;
+        }
         _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
                                        _read_context->read_orderby_key_reverse,
-                                       _read_context->merged_rows, _output_schema);
+                                       _read_context->merged_rows, _output_schema,
+                                       _read_options.binlog_lsn_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

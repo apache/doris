@@ -70,7 +70,7 @@ struct ReaderInitContext {
     virtual ~ReaderInitContext() = default;
 
     // ---- Owned by FileScanner, shared by all readers ----
-    std::vector<ColumnDescriptor>* column_descs = nullptr;
+    const std::vector<ColumnDescriptor>* column_descs = nullptr;
     std::unordered_map<std::string, uint32_t>* col_name_to_block_idx = nullptr;
     RuntimeState* state = nullptr;
     const TupleDescriptor* tuple_descriptor = nullptr;
@@ -125,6 +125,10 @@ public:
         RETURN_IF_ERROR(on_after_read_block(block, read_rows));
         return Status::OK();
     }
+
+    // Override this in readers that can adjust batch size between consecutive reads.
+    virtual void set_batch_size(size_t batch_size) {}
+    virtual size_t get_batch_size() const { return 0; }
 
     // Type is always nullable to process illegal values.
     // Results are cached after the first successful call.
@@ -257,6 +261,10 @@ protected:
 
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
+    // never let batch size be 0 because _do_get_next_block uses it as the
+    // upper bound of a `while (block->rows() < batch_size)` loop and a 0 would make the reader
+    // return without setting eof, causing the scanner to spin on empty blocks.
+    const size_t _DEFAULT_BATCH_SIZE = 4064; // 4094 - 32(padding)
     TPushAggOp::type _push_down_agg_type {};
 
 public:

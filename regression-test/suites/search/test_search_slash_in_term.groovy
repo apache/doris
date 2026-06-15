@@ -61,6 +61,13 @@ suite("test_search_slash_in_term", "p0") {
     // Wait for index building
     Thread.sleep(3000)
 
+    order_qt_segment_limit_disabled_still_pushes_search """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=false) */ id
+        FROM ${tableName}
+        WHERE search('title:AC/DC')
+        ORDER BY id
+    """
+
     // ============ Test 1: Slash in term with field prefix ============
     // title:AC/DC should parse as single term, standard analyzer tokenizes to "ac" and "dc"
     // With default OR operator, matches rows containing "ac" or "dc" in title

@@ -25,8 +25,11 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,11 +37,11 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * ES scan plan provider — generates shard-level scan ranges and node-level properties.
@@ -58,12 +61,6 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static final Logger LOG = LogManager.getLogger(EsScanPlanProvider.class);
 
-    // Cache TTL: metadata is shared within a single query planning cycle
-    // (planScan and getScanNodeProperties are called in rapid succession).
-    // 10 seconds avoids redundant REST calls without serving stale data
-    // across different queries.
-    static final long METADATA_CACHE_TTL_MS = 10_000;
-
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     public static final String PROP_QUERY_DSL = "query_dsl";
@@ -71,29 +68,13 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     public static final String PROP_PASSWORD = "password";
     public static final String PROP_HTTP_SSL_ENABLED = "http_ssl_enabled";
     public static final String PROP_DOC_VALUES_MODE = "doc_values_mode";
-    public static final String PROP_NOT_PUSHED_INDICES = "_not_pushed_conjunct_indices";
+    public static final String PROP_ES_INDEX = "_es_index";
 
     public static final String PROP_DOCVALUE_CONTEXT_JSON = "docvalue_context_json";
     public static final String PROP_FIELDS_CONTEXT_JSON = "fields_context_json";
 
     private final EsConnectorRestClient restClient;
     private final Map<String, String> properties;
-    private final ConcurrentHashMap<String, CachedMetadata> metadataCache = new ConcurrentHashMap<>();
-
-    /** Timestamped wrapper for cached metadata state. */
-    private static final class CachedMetadata {
-        final EsMetadataState state;
-        final long timestampMs;
-
-        CachedMetadata(EsMetadataState state) {
-            this.state = state;
-            this.timestampMs = System.currentTimeMillis();
-        }
-
-        boolean isExpired() {
-            return System.currentTimeMillis() - timestampMs > METADATA_CACHE_TTL_MS;
-        }
-    }
 
     public EsScanPlanProvider(EsConnectorRestClient restClient,
             Map<String, String> properties) {
@@ -103,7 +84,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public ConnectorScanRangeType getScanRangeType() {
-        return ConnectorScanRangeType.ES_SCAN;
+        return ConnectorScanRangeType.FILE_SCAN;
     }
 
     @Override
@@ -146,7 +127,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 List<String> hosts = new ArrayList<>();
                 for (EsShardRouting routing : shardRouting) {
-                    hosts.add(routing.getHttpHost() + ":" + routing.getHttpPort());
+                    hosts.add(EsHostAddress.formatHostPort(routing.getHttpHost(), routing.getHttpPort()));
                 }
                 ranges.add(new EsScanRange(
                         shardRouting.get(0).getIndexName(),
@@ -168,14 +149,33 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
+        return buildScanNodeProperties(handle, columns, filter).getProperties();
+    }
+
+    @Override
+    public ScanNodePropertiesResult getScanNodePropertiesResult(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        return buildScanNodeProperties(handle, columns, filter);
+    }
+
+    private ScanNodePropertiesResult buildScanNodeProperties(
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
         EsTableHandle esHandle = (EsTableHandle) handle;
         EsMetadataState state = fetchMetadataState(esHandle, columns);
 
         Map<String, String> nodeProps = new HashMap<>();
 
+        // File format type for PluginDrivenScanNode.getFileFormatType()
+        nodeProps.put("file_format_type", "es_http");
+
         // Table/index metadata for EXPLAIN
         nodeProps.put("_table_name", esHandle.getIndexName());
-        nodeProps.put("_es_index", esHandle.getIndexName());
+        nodeProps.put(PROP_ES_INDEX, esHandle.getIndexName());
 
         // Auth properties
         String user = properties.getOrDefault(EsConnectorProperties.USER, null);
@@ -194,18 +194,6 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         EsQueryDslResult dslResult = buildQueryDsl(filter, state);
         nodeProps.put(PROP_QUERY_DSL, dslResult.getQueryDsl());
 
-        // Serialize not-pushed conjunct indices so the scan node can prune pushed conjuncts
-        if (!dslResult.getNotPushedIndices().isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < dslResult.getNotPushedIndices().size(); i++) {
-                if (i > 0) {
-                    sb.append(",");
-                }
-                sb.append(dslResult.getNotPushedIndices().get(i));
-            }
-            nodeProps.put(PROP_NOT_PUSHED_INDICES, sb.toString());
-        }
-
         // Doc values mode — two-gate check matching old EsScanNode.useDocValueScan():
         // Gate 1: selected field count must not exceed maxDocValueFields
         // Gate 2: every selected field must exist in the docValueFieldsContext map
@@ -216,7 +204,10 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         // so we don't need the ES-specific getScanNodeMapProperties() on the generic SPI.
         serializeFieldContexts(state, nodeProps);
 
-        return nodeProps;
+        // Build not-pushed conjunct indices set for structured reporting
+        Set<Integer> notPushedSet = new HashSet<>(dslResult.getNotPushedIndices());
+
+        return new ScanNodePropertiesResult(nodeProps, notPushedSet);
     }
 
     private void serializeFieldContexts(EsMetadataState state, Map<String, String> nodeProps) {
@@ -282,13 +273,12 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
     private EsMetadataState fetchMetadataState(EsTableHandle handle,
             List<ConnectorColumnHandle> columns) {
         String indexName = handle.getIndexName();
-        CachedMetadata cached = metadataCache.get(indexName);
-        if (cached != null && !cached.isExpired()) {
-            return cached.state;
-        }
-
         List<String> columnNames = new ArrayList<>();
-        // Column names not strictly needed for scan planning but useful for field context
+        for (ConnectorColumnHandle col : columns) {
+            if (col instanceof NamedColumnHandle) {
+                columnNames.add(((NamedColumnHandle) col).getName());
+            }
+        }
         String mappingType = properties.getOrDefault(
                 EsConnectorProperties.MAPPING_TYPE, null);
         boolean nodesDiscovery = Boolean.parseBoolean(properties.getOrDefault(
@@ -300,19 +290,7 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         EsMetadataState state = new EsMetadataState(
                 indexName, mappingType, columnNames, nodesDiscovery, seeds);
         EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state);
-        EsMetadataState result = fetcher.fetch();
-        metadataCache.put(indexName, new CachedMetadata(result));
-        return result;
-    }
-
-    /** Visible for testing: returns the number of cached metadata entries. */
-    int metadataCacheSize() {
-        return metadataCache.size();
-    }
-
-    /** Visible for testing: clears the metadata cache. */
-    void clearMetadataCache() {
-        metadataCache.clear();
+        return fetcher.fetch();
     }
 
     /**
@@ -362,12 +340,98 @@ public class EsScanPlanProvider implements ConnectorScanPlanProvider {
         return 1;
     }
 
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params,
+            Map<String, String> properties) {
+        // Build es_properties map from scan node properties
+        Map<String, String> esProperties = new HashMap<>();
+        copyIfPresent(properties, PROP_QUERY_DSL, esProperties);
+        copyIfPresent(properties, PROP_USER, esProperties);
+        copyIfPresent(properties, PROP_PASSWORD, esProperties);
+        copyIfPresent(properties, PROP_HTTP_SSL_ENABLED, esProperties);
+        copyIfPresent(properties, PROP_DOC_VALUES_MODE, esProperties);
+        params.setEsProperties(esProperties);
+
+        // Deserialize docvalue_context and fields_context from JSON
+        String docvalueJson = properties.get(PROP_DOCVALUE_CONTEXT_JSON);
+        if (docvalueJson != null && !docvalueJson.isEmpty()) {
+            try {
+                TypeReference<Map<String, String>> mapTypeRef =
+                        new TypeReference<Map<String, String>>() {};
+                Map<String, String> docCtx =
+                        JSON_MAPPER.readValue(docvalueJson, mapTypeRef);
+                params.setEsDocvalueContext(docCtx);
+            } catch (Exception e) {
+                LOG.warn("Failed to parse docvalue_context_json", e);
+            }
+        }
+
+        String fieldsJson = properties.get(PROP_FIELDS_CONTEXT_JSON);
+        if (fieldsJson != null && !fieldsJson.isEmpty()) {
+            try {
+                TypeReference<Map<String, String>> mapTypeRef =
+                        new TypeReference<Map<String, String>>() {};
+                Map<String, String> fieldsCtx =
+                        JSON_MAPPER.readValue(fieldsJson, mapTypeRef);
+                params.setEsFieldsContext(fieldsCtx);
+            } catch (Exception e) {
+                LOG.warn("Failed to parse fields_context_json", e);
+            }
+        }
+    }
+
+    private static void copyIfPresent(Map<String, String> src,
+            String key, Map<String, String> dst) {
+        String value = src.get(key);
+        if (value != null) {
+            dst.put(key, value);
+        }
+    }
+
+    @Override
+    public void appendExplainInfo(StringBuilder output, String prefix,
+            Map<String, String> properties) {
+        String indexName = properties.get(PROP_ES_INDEX);
+        if (indexName != null) {
+            output.append(prefix).append("ES index: ").append(indexName)
+                    .append("\n");
+        }
+        String docvalueJson = properties.get(PROP_DOCVALUE_CONTEXT_JSON);
+        if (docvalueJson != null && !docvalueJson.isEmpty()) {
+            try {
+                TypeReference<Map<String, String>> mapTypeRef =
+                        new TypeReference<Map<String, String>>() {};
+                Map<String, String> dvMap =
+                        JSON_MAPPER.readValue(docvalueJson, mapTypeRef);
+                output.append(prefix).append("ES doc-value fields: ")
+                        .append(dvMap.keySet()).append("\n");
+            } catch (Exception e) {
+                output.append(prefix).append("ES doc-value fields: ")
+                        .append("(parse error)").append("\n");
+            }
+        }
+        String fieldsJson = properties.get(PROP_FIELDS_CONTEXT_JSON);
+        if (fieldsJson != null && !fieldsJson.isEmpty()) {
+            try {
+                TypeReference<Map<String, String>> mapTypeRef =
+                        new TypeReference<Map<String, String>>() {};
+                Map<String, String> fMap =
+                        JSON_MAPPER.readValue(fieldsJson, mapTypeRef);
+                output.append(prefix).append("ES source fields: ")
+                        .append(fMap.keySet()).append("\n");
+            } catch (Exception e) {
+                output.append(prefix).append("ES source fields: ")
+                        .append("(parse error)").append("\n");
+            }
+        }
+    }
+
     private List<String> collectAllHosts(
             Map<Integer, List<EsShardRouting>> routingsMap) {
         List<String> hosts = new ArrayList<>();
         for (List<EsShardRouting> routings : routingsMap.values()) {
             for (EsShardRouting routing : routings) {
-                String addr = routing.getHttpHost() + ":" + routing.getHttpPort();
+                String addr = EsHostAddress.formatHostPort(routing.getHttpHost(), routing.getHttpPort());
                 if (!hosts.contains(addr)) {
                     hosts.add(addr);
                 }

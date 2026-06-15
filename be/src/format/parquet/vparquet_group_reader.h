@@ -227,8 +227,7 @@ protected:
     }
 
 private:
-    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
-                             bool* modify_row_ids);
+    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
 
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
@@ -239,6 +238,15 @@ private:
                                DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                size_t pre_read_rows) const;
 
+    Status _fill_partition_columns(
+            Block* block, size_t rows,
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns);
+    Status _fill_missing_columns(
+            Block* block, size_t rows,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
+    Status _get_block_column_pos(const Block& block, const std::string& column_name,
+                                 uint32_t* position) const;
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
                          const std::vector<uint32_t>& columns_to_filter);
@@ -246,6 +254,7 @@ private:
                                   const IColumn::Filter& filter);
 
     bool _can_filter_by_dict(int slot_id, const tparquet::ColumnMetaData& column_metadata);
+    bool _need_current_batch_row_positions() const;
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -257,9 +266,7 @@ private:
     Status _get_current_batch_row_id(size_t read_rows);
 
     io::FileReaderSPtr _file_reader;
-    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
-            _column_readers; // table_column_name
-    const std::vector<std::string>& _read_table_columns;
+    std::vector<std::string> _read_table_columns;
 
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
@@ -270,8 +277,11 @@ private:
     std::shared_ptr<RowLineageColumns> _row_lineage_columns;
     // merge the row ranges generated from page index and position delete.
     RowRanges _read_ranges;
+    // ParquetColumnReader keeps a reference to _read_ranges, so readers must be destroyed first.
+    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
+            _column_readers; // table_column_name
 
-    const LazyReadContext& _lazy_read_ctx;
+    LazyReadContext _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;
     int64_t _predicate_filter_time = 0;
     int64_t _dict_filter_rewrite_time = 0;

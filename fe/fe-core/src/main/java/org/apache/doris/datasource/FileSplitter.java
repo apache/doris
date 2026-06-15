@@ -101,6 +101,10 @@ public class FileSplitter {
                 List<String> partitionValues,
                 SplitCreator splitCreator)
                 throws IOException {
+        if (length <= 0) {
+            // Zero-length files contain no data; skip to avoid sending empty splits to BE.
+            return Lists.newArrayList();
+        }
         // Pass splitCreator.create() to set target file split size to calculate split weight.
         long targetFileSplitSize = specifiedFileSplitSize > 0 ? specifiedFileSplitSize : maxSplitSize;
         if (blockLocations == null) {

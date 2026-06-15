@@ -53,8 +53,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         return _do_execute(context, block, nullptr, selector, count, result_column, nullptr);
     }
 
@@ -116,7 +116,7 @@ public:
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
-                       Selector* selector, size_t count, ColumnPtr& result_column,
+                       const Selector* selector, size_t count, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const {
         DCHECK(_open_finished || block == nullptr);
         DCHECK(!(filter != nullptr && selector != nullptr))
@@ -134,11 +134,9 @@ private:
         auto res_data_column = ColumnUInt8::create(sz);
         res_data_column->resize(sz);
 
-        if (argument_column->is_nullable()) {
-            auto column_nested = static_cast<const ColumnNullable*>(argument_column.get())
-                                         ->get_nested_column_ptr();
-            const auto& null_map =
-                    static_cast<const ColumnNullable*>(argument_column.get())->get_null_map_data();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(argument_column.get())) {
+            auto column_nested = nullable->get_nested_column_ptr();
+            const auto& null_map = nullable->get_null_map_data();
             _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data(),
                                          filter);
         } else {

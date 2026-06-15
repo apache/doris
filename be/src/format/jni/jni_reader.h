@@ -93,6 +93,9 @@ public:
         return Status::OK();
     }
 
+    void set_batch_size(size_t batch_size) override;
+    size_t get_batch_size() const override { return _batch_size; }
+
     /**
      * Read next batch from Java scanner and fill the block.
      */
@@ -117,6 +120,8 @@ public:
     }
 
 protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
+    Status on_after_read_block(Block* block, size_t* read_rows) override;
     void _collect_profile_before_close() override;
 
     /**
@@ -137,6 +142,7 @@ protected:
 private:
     static const std::vector<SlotDescriptor*> _s_empty_slot_descs;
 
+    Status _fill_partition_columns(Block* block, size_t num_rows);
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
@@ -175,11 +181,16 @@ private:
     Jni::MethodId _jni_scanner_release_column;
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
+    Jni::MethodId _jni_scanner_set_batch_size;
 
     JniDataBridge::TableMetaAddress _table_meta;
+    size_t _batch_size = 0;
 
     // Column name to block index map, passed from FileScanner to avoid repeated map creation
     const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_values;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
 
     void _set_meta(long meta_addr) { _table_meta.set_meta(meta_addr); }
 };

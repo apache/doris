@@ -146,7 +146,7 @@ TEST_F(CompactionTaskTest, TestAutoSetCompactionIncreaseTaskNum) {
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
     sp->set_call_back("olap_server::_generate_compaction_tasks.return_empty", [](auto&& values) {
-        auto* ret = try_any_cast_ret<std::vector<TabletSharedPtr>>(values);
+        auto* ret = try_any_cast_ret<std::vector<TabletCompactionContext>>(values);
         ret->second = true;
     });
     sp->set_call_back("StorageEngine::_adjust_compaction_thread_num.return_void",
@@ -222,7 +222,7 @@ TEST_F(CompactionTaskTest, TestAutoSetCompactionDecreaseTaskNum) {
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
     sp->set_call_back("olap_server::_generate_compaction_tasks.return_empty", [](auto&& values) {
-        auto* ret = try_any_cast_ret<std::vector<TabletSharedPtr>>(values);
+        auto* ret = try_any_cast_ret<std::vector<TabletCompactionContext>>(values);
         ret->second = true;
     });
     sp->set_call_back("StorageEngine::_adjust_compaction_thread_num.return_void",

@@ -56,6 +56,24 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
     }
 
     // ExchangeNode -> upstreamFragment -> AssignedJob(instances of upstreamFragment)
+    /**
+     * Compute assigned jobs that deploy one instance on every available backend.
+     * This is used for dictionary sink fragments where data must be loaded onto
+     * all BEs. Supports two loading modes:
+     * <ul>
+     *   <li><b>Full load</b>: when source data version has changed, redeploy to all BEs
+     *       with parallelism matching the upstream fragment instance count.</li>
+     *   <li><b>Partial load</b>: when only some BEs are outdated, deploy only to those
+     *       outdated BEs to avoid redundant work.</li>
+     * </ul>
+     * Each BE gets one instance with an empty {@link DefaultScanSource} (the actual
+     * scan data comes from the upstream exchange).
+     *
+     * @param distributeContext the distribute context providing the worker manager
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs,
+     *                  used to determine the expected instance count for full loads
+     * @return one assigned job per target backend
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(DistributeContext distributeContext,
             ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

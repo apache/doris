@@ -47,7 +47,9 @@ public class PublishVersionTask extends AgentTask {
     private List<Long> errorTablets;
 
     // tabletId => version, current version = 0
-    private Map<Long, Long> succTablets;
+    // Initialized to an empty map (not null) so that getSuccTablets() never returns null
+    // even when the task is force-finished without a real BE response.
+    private Map<Long, Long> succTablets = Maps.newHashMap();
 
     /**
      * To collect loaded rows for each tablet from each BE
@@ -59,7 +61,6 @@ public class PublishVersionTask extends AgentTask {
         super(null, backendId, TTaskType.PUBLISH_VERSION, dbId, -1L, -1L, -1L, -1L, transactionId, createTime);
         this.transactionId = transactionId;
         this.partitionVersionInfos = partitionVersionInfos;
-        this.succTablets = null;
         this.errorTablets = new ArrayList<>();
         this.isFinished = false;
     }
@@ -84,7 +85,7 @@ public class PublishVersionTask extends AgentTask {
     }
 
     public void setSuccTablets(Map<Long, Long> succTablets) {
-        this.succTablets = succTablets;
+        this.succTablets = (succTablets == null) ? Maps.newHashMap() : succTablets;
     }
 
     public synchronized List<Long> getErrorTablets() {

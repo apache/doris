@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <cstddef>
 
@@ -29,12 +30,6 @@ static constexpr size_t STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 256 * 1024l;
 
 constexpr long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384; // default row store page size: 16KB
 
-struct EncodingPreference {
-    bool integer_type_default_use_plain_encoding {false};
-    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl {
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
-};
-
 struct PageBuilderOptions {
     size_t data_page_size = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
@@ -44,7 +39,10 @@ struct PageBuilderOptions {
 
     bool is_dict_page = false; // page used for saving dictionary
 
-    EncodingPreference encoding_preference {};
+    // On-disk binary plain encoding used by BinaryDictPageBuilder for its dict word page and
+    // dict-overflow fallback page (PLAIN_ENCODING / PLAIN_ENCODING_V2 / PLAIN_ENCODING_V3).
+    // Consumed only by BinaryDictPageBuilder.
+    EncodingTypePB dict_binary_plain_encoding = PLAIN_ENCODING;
 };
 
 struct PageDecoderOptions {

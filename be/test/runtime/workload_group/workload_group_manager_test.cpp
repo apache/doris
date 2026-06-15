@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/pipeline/dependency.h"
-#include "exec/pipeline/pipeline_tracing.h"
 #include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -85,8 +84,6 @@ protected:
         ExecEnv::GetInstance()->_spill_file_mgr = new SpillFileManager(std::move(spill_store_map));
         auto st = ExecEnv::GetInstance()->_spill_file_mgr->init();
         EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
-        ExecEnv::GetInstance()->_pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>();
-
         config::spill_in_paused_queue_timeout_ms = 2000;
         doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }

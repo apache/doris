@@ -38,6 +38,7 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -342,7 +343,11 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (truncateString && sourceLength > targetLength && targetLength >= 0) {
+                } else if (truncateString && targetLength >= 0
+                        && (sourceLength < 0 || sourceLength > targetLength)) {
+                    // sourceLength < 0 means the source is an unbounded string like type
+                    // (e.g. text/string whose getLen() returns -1), which is always longer
+                    // than a bounded char/varchar target and therefore needs truncation.
                     castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
@@ -657,6 +662,18 @@ public class BindSink implements AnalysisRuleFactory {
 
         if (!sink.getPartitions().isEmpty()) {
             throw new AnalysisException("Not support insert with partition spec in hive catalog.");
+        }
+
+        // Fast-fail: if the table-level SD already declares an LZO InputFormat, reject immediately
+        // without entering the expensive partition-lookup path in bindDataSink().
+        // Note: this is a best-effort early check.  The definitive LZO guard lives in
+        // BaseExternalTableDataSink.getTFileFormatType(), which is called for both the table-level
+        // SD and every existing partition SD — covering the case where the table SD is plain text
+        // but individual partitions override it with an LZO InputFormat.
+        String inputFormat = table.getRemoteTable().getSd().getInputFormat();
+        if (HiveUtil.isLzoInputFormat(inputFormat)) {
+            throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
+                    + "(input format: " + inputFormat + "). LZO tables are read-only in Doris.");
         }
 
         List<Column> bindColumns;

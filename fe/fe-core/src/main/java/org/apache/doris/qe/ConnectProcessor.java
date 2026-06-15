@@ -50,7 +50,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -75,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -154,12 +154,20 @@ public abstract class ConnectProcessor {
     }
 
     protected void handleResetConnection() {
-        ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-        ctx.clearLastDBOfCatalog();
-        ctx.getState().setOk();
+        try {
+            ctx.resetConnection();
+            ctx.getState().setOk();
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        }
     }
 
-    protected void handleStmtReset() {
+    protected void handleStmtResetById(int stmtId) {
+        if (ctx.getPreparedStementContext(String.valueOf(stmtId)) == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_reset", stmtId));
+            return;
+        }
         ctx.getState().setOk();
     }
 
@@ -183,6 +191,34 @@ public abstract class ConnectProcessor {
             return;
         }
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+    }
+
+    /**
+     * Pre-resolve the workload group name and set it on ConnectContext.
+     * This ensures the workload group is available for audit logging even if the query
+     * fails when analysing and before reaching Coordinator.exec (where it is normally
+     * set). The resolution follows the same priority as WorkloadGroupMgr:
+     * session variable -> user property -> default group.
+     * Callers should invoke this at the start of any command dispatch path that may
+     * emit an audit log (COM_QUERY / COM_STMT_EXECUTE / COM_FIELD_LIST / FlightSql
+     * handleQuery). It is also re-invoked at the top of every iteration of
+     * {@link #executeQuery}'s per-statement loop so multi-statement requests that
+     * change {@code @@workload_group} mid-batch still audit later statements with
+     * the effective value.
+     */
+    protected void resolveWorkloadGroupName() {
+        ctx.setWorkloadGroupName("");
+        if (!Config.enable_workload_group) {
+            return;
+        }
+        String groupName = ctx.getSessionVariable().getWorkloadGroup();
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(ctx.getQualifiedUser());
+        }
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
+        }
+        ctx.setWorkloadGroupName(groupName);
     }
 
     // only throw an exception when there is a problem interacting with the requesting client
@@ -287,6 +323,12 @@ public abstract class ConnectProcessor {
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }
+                // Re-resolve per statement: an earlier statement in the same multi-stmt
+                // request (e.g. SET workload_group=...) may have changed the effective
+                // workload group, and later statements that fail before Coordinator.exec
+                // would otherwise be audited with the stale value picked up once per
+                // packet in dispatch().
+                resolveWorkloadGroupName();
 
                 StatementBase parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
@@ -349,7 +391,7 @@ public abstract class ConnectProcessor {
                             true);
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
-                            && ctx.executor != null && ctx.executor.isForwardToMaster()
+                            && ctx.executor != null && ctx.executor.hasForwardedToMaster()
                             && ctx.executor.getProxyStatusCode() != 0)) {
                         break;
                     }
@@ -597,7 +639,7 @@ public abstract class ConnectProcessor {
         LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId));
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         ByteBuffer packet;
-        if (executor != null && executor.isForwardToMaster()
+        if (executor != null && executor.hasForwardedToMaster()
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
@@ -827,4 +869,3 @@ public abstract class ConnectProcessor {
         throw new NotSupportedException("Just MysqlConnectProcessor support execute");
     }
 }
-

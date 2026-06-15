@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
@@ -40,7 +41,9 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -50,6 +53,35 @@ public:
 private:
     std::unique_ptr<MockRowDescriptor> _mock_row_desc;
 };
+
+namespace {
+
+constexpr auto CANCEL_REASON = "analytic sink cancelled";
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
+class CancelAfterChecksRuntimeState : public MockRuntimeState {
+public:
+    void reset_cancel_after(int64_t check_count) {
+        _check_count = 0;
+        _cancel_after = check_count;
+    }
+
+    bool is_cancelled() const override {
+        return _cancel_after >= 0 && ++_check_count > _cancel_after;
+    }
+
+    Status cancel_reason() const override { return Status::Cancelled(CANCEL_REASON); }
+
+private:
+    mutable int64_t _check_count = 0;
+    int64_t _cancel_after = -1;
+};
+
+} // namespace
 
 struct AnalyticSinkOperatorTest : public ::testing::Test {
     void Initialize(int batch_size) {
@@ -166,6 +198,36 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     char buffer[100];
     std::vector<int64_t> _data_vals;
 };
+
+TEST_F(AnalyticSinkOperatorTest, SinkReturnsCancelBeforeOutputBlock) {
+    Initialize(10);
+    create_operator(false, 0, "", {}, nullptr);
+    create_local_state();
+
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+    Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
+    expect_cancelled(sink->sink(state.get(), &block, true));
+}
+
+TEST_F(AnalyticSinkOperatorTest, SinkStopsBeforeNextBufferedBlockWhenCancelled) {
+    const int batch_size = 2;
+    Initialize(batch_size);
+    auto cancel_state = std::make_shared<CancelAfterChecksRuntimeState>();
+    cancel_state->_batch_size = batch_size;
+    state = cancel_state;
+    create_operator(false, 0, "", {}, nullptr);
+    create_local_state();
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({0, 1});
+        auto status = sink->sink(state.get(), &block, false);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+
+    cancel_state->reset_cancel_after(1);
+    Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3});
+    expect_cancelled(sink->sink(state.get(), &block, true));
+}
 
 TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
     Initialize(10);

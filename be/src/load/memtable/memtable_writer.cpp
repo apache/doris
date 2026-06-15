@@ -37,11 +37,11 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/backend_options.h"
 #include "storage/rowset/beta_rowset_writer.h"
+#include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/schema_change/schema_change.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
-#include "storage/tablet_info.h"
 #include "util/mem_info.h"
 #include "util/stopwatch.hpp"
 
@@ -80,7 +80,8 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     // we can make sure same keys sort in the same order in all replicas.
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
-                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr));
+                    _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr,
+                    _req.table_schema_param));
 
     _is_init = true;
     return Status::OK();
@@ -289,6 +290,9 @@ Status MemTableWriter::_do_close_wait() {
 }
 
 void MemTableWriter::_update_profile(RuntimeProfile* profile) {
+    if (!profile) {
+        return;
+    }
     // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
     // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
     auto child =

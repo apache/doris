@@ -33,6 +33,19 @@ class HdfsConfigBuilderTest {
     }
 
     @Test
+    void build_disablesCacheForAllSupportedSchemes() {
+        Configuration conf = HdfsConfigBuilder.build(Map.of());
+        for (String scheme : HdfsFileSystemProvider.SUPPORTED_SCHEMES) {
+            Assertions.assertTrue(
+                    conf.getBoolean("fs." + scheme + ".impl.disable.cache", false),
+                    "fs." + scheme + ".impl.disable.cache should be true");
+            Assertions.assertTrue(
+                    conf.getBoolean("fs.AbstractFileSystem." + scheme + ".impl.disable.cache", false),
+                    "fs.AbstractFileSystem." + scheme + ".impl.disable.cache should be true");
+        }
+    }
+
+    @Test
     void buildSetsProvidedProperties() {
         Configuration conf = HdfsConfigBuilder.build(Map.of(
                 "fs.defaultFS", "hdfs://namenode:8020",

@@ -244,8 +244,6 @@ TEST_F(DataTypeStringTest, simple_func_test) {
         EXPECT_TRUE(dt.equals(dt));
 
         EXPECT_EQ(std::string(dt.get_family_name()), std::string("String"));
-
-        EXPECT_EQ(dt.get_default(), Field::create_field<TYPE_STRING>(String()));
     };
     test_func(dt_str);
     EXPECT_EQ(dt_str.get_primitive_type(), TYPE_STRING);

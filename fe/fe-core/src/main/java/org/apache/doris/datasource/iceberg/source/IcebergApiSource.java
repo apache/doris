@@ -37,22 +37,20 @@ import java.util.Map;
 public class IcebergApiSource implements IcebergSource {
 
     private final ExternalTable targetTable;
-    private final Table originTable;
     private final TupleDescriptor desc;
+    private Table originTable;
 
     public IcebergApiSource(ExternalTable table, TupleDescriptor desc,
                             Map<String, ColumnRange> columnNameToRange) {
+        if (!(table instanceof IcebergExternalTable) && !(table instanceof IcebergSysExternalTable)) {
+            throw new IllegalArgumentException(
+                    "Expected Iceberg table but got " + table.getClass().getSimpleName());
+        }
         if (table instanceof IcebergExternalTable) {
             IcebergExternalTable icebergExtTable = (IcebergExternalTable) table;
             if (icebergExtTable.isView()) {
                 throw new UnsupportedOperationException("IcebergApiSource does not support view");
             }
-            this.originTable = IcebergUtils.getIcebergTable(icebergExtTable);
-        } else if (table instanceof IcebergSysExternalTable) {
-            this.originTable = ((IcebergSysExternalTable) table).getSysIcebergTable();
-        } else {
-            throw new IllegalArgumentException(
-                    "Expected Iceberg table but got " + table.getClass().getSimpleName());
         }
         this.targetTable = table;
         this.desc = desc;
@@ -64,12 +62,19 @@ public class IcebergApiSource implements IcebergSource {
     }
 
     @Override
-    public String getFileFormat() {
-        return IcebergUtils.getFileFormat(originTable).name();
+    public String getFileFormat() throws MetaNotFoundException {
+        return IcebergUtils.getFileFormat(getIcebergTable()).name();
     }
 
     @Override
-    public Table getIcebergTable() throws MetaNotFoundException {
+    public synchronized Table getIcebergTable() throws MetaNotFoundException {
+        if (originTable == null) {
+            if (targetTable instanceof IcebergExternalTable) {
+                originTable = IcebergUtils.getIcebergTable((IcebergExternalTable) targetTable);
+            } else {
+                originTable = ((IcebergSysExternalTable) targetTable).getSysIcebergTable();
+            }
+        }
         return originTable;
     }
 

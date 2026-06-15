@@ -52,8 +52,8 @@ public:
 #endif
     VectorizedFnCall(const TExprNode& node);
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     Status execute_runtime_filter(VExprContext* context, const Block* block,
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
@@ -91,7 +91,8 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) override;
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+            bool enable_result_cache, AnnRangeSearchEvaluationResult& result) override;
 
     void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
                                   segment_v2::AnnRangeSearchRuntime& runtime,
@@ -103,8 +104,8 @@ protected:
     std::string _function_name;
 
 private:
-    Status _do_execute(VExprContext* context, const Block* block, Selector* selector, size_t count,
-                       ColumnPtr& result_column, ColumnPtr* arg_column) const;
+    Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
+                       size_t count, ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };
 
 } // namespace doris

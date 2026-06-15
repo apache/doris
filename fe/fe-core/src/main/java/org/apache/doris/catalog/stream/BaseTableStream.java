@@ -20,10 +20,12 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
@@ -35,25 +37,38 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class BaseTableStream extends Table {
-    public enum StreamConsumeType {
-        DEFAULT,
+    public enum StreamScanType {
         APPEND_ONLY,
         MIN_DELTA,
+        DETAIL,
         UNKNOWN;
-        public static StreamConsumeType getType(String typeName) {
+        public static StreamScanType getType(String typeName) {
             if (typeName == null) {
                 return UNKNOWN;
             }
             typeName = typeName.toLowerCase();
             switch (typeName) {
-                case "default":
-                    return DEFAULT;
                 case "append_only":
                     return APPEND_ONLY;
                 case "min_delta":
                     return MIN_DELTA;
+                case "detail":
+                    return DETAIL;
                 default:
                     return UNKNOWN;
+            }
+        }
+
+        public static TBinlogScanType toThrift(StreamScanType streamScanType) {
+            switch (streamScanType) {
+                case MIN_DELTA:
+                    return TBinlogScanType.MIN_DELTA;
+                case APPEND_ONLY:
+                    return TBinlogScanType.APPEND_ONLY;
+                case DETAIL:
+                    return TBinlogScanType.DETAIL;
+                default:
+                    return TBinlogScanType.UNKNOWN;
             }
         }
     }
@@ -61,7 +76,7 @@ public abstract class BaseTableStream extends Table {
     private static ImmutableList<TableType> supportedTableTypeList = ImmutableList.of(TableType.OLAP);
 
     @SerializedName("sct")
-    protected StreamConsumeType streamConsumeType = StreamConsumeType.DEFAULT;
+    protected StreamScanType streamScanType = StreamScanType.MIN_DELTA;
 
     @SerializedName("sir")
     protected boolean showInitialRows;
@@ -104,19 +119,23 @@ public abstract class BaseTableStream extends Table {
         return baseTable;
     }
 
-    public void setProperties(Map<String, String> properties) throws AnalysisException {
+    public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
         showInitialRows = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS,
                 false);
-        streamConsumeType = PropertyAnalyzer.analyzeStreamType(properties);
+        streamScanType = PropertyAnalyzer.analyzeStreamType(properties);
     }
 
     public String getTableStreamType() {
         return "BASE_STREAM";
     }
 
-    public String getConsumeType() {
-        return streamConsumeType.name();
+    public String getScanTypeString() {
+        return streamScanType.name();
+    }
+
+    public StreamScanType getStreamScanType() {
+        return streamScanType;
     }
 
     public boolean isDisabled() {
@@ -149,7 +168,7 @@ public abstract class BaseTableStream extends Table {
 
     public void appendProperties(StringBuilder sb) {
         sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STREAM_TYPE)
-                .append("\" = \"").append(streamConsumeType).append("\"");
+                .append("\" = \"").append(streamScanType).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS)
                 .append("\" = \"").append(showInitialRows).append("\"\n");
     }
@@ -163,4 +182,27 @@ public abstract class BaseTableStream extends Table {
     // @param dataBatch the data batch to fill
     // DB_NAME, STREAM_NAME, STREAM_ID, UNIT, CONSUMPTION_STATUS, LAG, LAST_CONSUMPTION_TIME
     abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch);
+
+    public <E extends Exception> TableIf getBaseTableOrException(java.util.function.Function<String, E> e)
+            throws E {
+        TableIf table = getBaseTableNullable();
+        if (table == null) {
+            throw e.apply(streamTableInfo.getTableName());
+        }
+        return table;
+    }
+
+    public TableIf getBaseTableOrNereidsAnalysisException() throws AnalysisException {
+        return getBaseTableOrException(
+                t -> new AnalysisException(String.format("Unknown base table '%s'", t)));
+    }
+
+    public List<String> getBaseTableFullQualifiers() {
+        return streamTableInfo.getFullQualifiers();
+    }
+
+    public abstract void unprotectedCheckStreamUpdate(AbstractTableStreamUpdate update)
+            throws UserException;
+
+    public abstract void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts);
 }

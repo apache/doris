@@ -37,6 +37,16 @@ public class ResultReceiverConsumerTest {
     private ResultReceiver receiver3 = Mockito.mock(ResultReceiver.class);
 
     @Test
+    public void testEmptyReceiversForRemoteResult() throws Exception {
+        ResultReceiverConsumer consumer = new ResultReceiverConsumer(Lists.newArrayList(),
+                System.currentTimeMillis() + 3600);
+        Status status = new Status();
+
+        Assert.assertFalse(consumer.isEos());
+        Assertions.assertThrows(UserException.class, () -> consumer.getNext(status));
+    }
+
+    @Test
     public void testEosHandling() throws Exception {
         ResultReceiverConsumer consumer = new ResultReceiverConsumer(
                 Lists.newArrayList(receiver1, receiver2, receiver3), System.currentTimeMillis() + 3600);

@@ -266,10 +266,9 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset = 0;
-                int32_t end_offset = 0;
-                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 int32_t length = end_offset - start_offset;
                 const auto* raw_data = buffer->data() + start_offset;
@@ -463,25 +462,16 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 
 // Deserializes a STRING/VARCHAR/CHAR value from its OLAP string representation
 // (e.g. from ZoneMap protobuf). This is the inverse of to_olap_string().
-//
-// For CHAR type: if the string is shorter than the declared column length (_len),
-// pads with '\0' bytes to reach _len. This preserves CHAR's fixed-length semantics.
-// For STRING/VARCHAR: stores the string as-is.
-//
-// Examples:
-//   CHAR(10), str="hello"  => field = "hello\0\0\0\0\0" (10 bytes)
-//   VARCHAR,  str="hello"  => field = "hello" (5 bytes)
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
-    if (cast_set<int>(str.size()) < _len) {
-        DCHECK_EQ(_type, TYPE_CHAR);
-        std::string tmp(_len, '\0');
-        memcpy(tmp.data(), str.data(), str.size());
-        field = Field::create_field<TYPE_CHAR>(std::move(tmp));
-    } else {
-        field = Field::create_field<TYPE_STRING>(str);
-    }
+    // CHAR(N) writes through OlapColumnDataConvertorChar are zero-padded to
+    // the declared schema length, so the serialized OLAP string carries
+    // trailing '\0' bytes. strnlen() drops that padding to surface the
+    // logical character content in the Field. VARCHAR / STRING never write
+    // trailing '\0' through this path, so strnlen is a no-op for them.
+    size_t len = strnlen(str.data(), str.size());
+    field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
 }
 

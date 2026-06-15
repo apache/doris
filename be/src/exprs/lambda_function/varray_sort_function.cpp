@@ -66,8 +66,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
-                   ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
+                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
@@ -88,7 +88,7 @@ public:
 
         ColumnPtr outside_null_map = nullptr;
 
-        if (arg_column->is_nullable()) {
+        if (is_column_nullable(*arg_column)) {
             arg_column = assert_cast<const ColumnNullable*>(column.get())->get_nested_column_ptr();
             outside_null_map =
                     assert_cast<const ColumnNullable*>(column.get())->get_null_map_column_ptr();
@@ -96,9 +96,7 @@ public:
         }
 
         const auto& col_array = assert_cast<const ColumnArray&>(*arg_column);
-        const auto& off_data =
-                assert_cast<const ColumnArray::ColumnOffsets&>(col_array.get_offsets_column())
-                        .get_data();
+        const auto& off_data = col_array.get_offsets_column().get_data();
 
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*col_array.get_data_ptr());
@@ -142,9 +140,9 @@ public:
         NullMap* temp_nullmap_data[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; i++) {
             auto* temp_column = assert_cast<ColumnNullable*>(
-                    lambda_block.get_by_position(i).column->assume_mutable().get());
+                    lambda_block.get_by_position(i).column->assert_mutable().get());
             temp_data[i] = temp_column->get_nested_column_ptr();
-            auto& null_map_col = assert_cast<ColumnUInt8&>(temp_column->get_null_map_column());
+            auto& null_map_col = temp_column->get_null_map_column();
             temp_nullmap_data[i] = &null_map_col.get_data();
             temp_data[i]->resize(1);
             temp_nullmap_data[i]->resize(1);

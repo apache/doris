@@ -17,8 +17,6 @@
 
 #include "util/jni_native_method.h"
 
-#include <glog/logging.h>
-
 #include <cstdlib>
 #include <vector>
 

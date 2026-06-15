@@ -111,7 +111,7 @@ Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
+Status PartitionSortSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -127,7 +127,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block,
             if (local_state._is_need_passthrough) {
                 {
                     COUNTER_UPDATE(local_state._passthrough_rows_counter, (int64_t)current_rows);
-                    std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
+                    LockGuard lock(local_state._shared_state->buffer_mutex);
                     local_state._shared_state->blocks_buffer.push(std::move(*input_block));
                     // buffer have data, source could read this.
                     local_state._dependency->set_ready_to_read();
@@ -158,8 +158,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block,
             }
             local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read(false));
-            INJECT_MOCK_SLEEP(std::unique_lock<std::mutex> lc(
-                    local_state._shared_state->prepared_finish_lock));
+            LockGuard lc(local_state._shared_state->prepared_finish_lock);
             sorter->set_prepared_finish();
             // iff one sorter have data, then could set source ready to read
             local_state._dependency->set_ready_to_read();
@@ -170,7 +169,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block,
                     local_state._sorted_partition_input_rows);
         //so all data from child have sink completed
         {
-            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            LockGuard lc(local_state._shared_state->sink_eos_lock);
             local_state._shared_state->sink_eos = true;
             // this ready is also need, as source maybe block by self in some case
             local_state._dependency->set_ready_to_read();
@@ -261,8 +260,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                             {
                                 COUNTER_UPDATE(local_state._passthrough_rows_counter,
                                                (int64_t)(row + 1));
-                                std::lock_guard<std::mutex> lock(
-                                        local_state._shared_state->buffer_mutex);
+                                LockGuard lock(local_state._shared_state->buffer_mutex);
                                 // have emplace (num_rows - row) to hashtable, and now have row remaining needed in block;
                                 // set_num_rows(x) retains the range [0, x - 1], so row + 1 is needed here.
                                 input_block->set_num_rows(row + 1);

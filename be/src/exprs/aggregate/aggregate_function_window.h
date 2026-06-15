@@ -550,7 +550,7 @@ struct WindowFunctionFirstImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_end = std::min<int64_t>(frame_end, partition_end);
-            if (columns[0]->is_nullable()) {
+            if (is_column_nullable(*columns[0])) {
                 const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
                 // the valid range is: [frame_start, frame_end)
                 while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
@@ -584,7 +584,7 @@ struct WindowFunctionLastImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_start = std::max<int64_t>(frame_start, partition_start);
-            if (columns[0]->is_nullable()) {
+            if (is_column_nullable(*columns[0])) {
                 const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
                 // wants find a not null value in [frame_start, frame_end)
                 // iff has find: set_value and return directly

@@ -102,7 +102,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* block, bool eos) override;
 
 private:
     friend class GroupCommitBlockSinkLocalState;

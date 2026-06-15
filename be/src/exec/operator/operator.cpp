@@ -35,7 +35,6 @@
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
 #include "exec/operator/empty_set_operator.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/file_scan_operator.h"
@@ -146,6 +145,23 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
+}
+
+bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
+    return exchange_type == ExchangeType::HASH_SHUFFLE ||
+           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+}
+
+bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {
+    if (!_child) {
+        return false;
+    }
+    if (_child->is_serial_operator()) {
+        return true;
+    }
+    const auto child_distribution = _child->required_data_distribution(state);
+    return child_distribution.need_local_exchange() &&
+           !is_hash_shuffle(child_distribution.distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -342,29 +358,30 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 input_block.rows(), rows, input_block.dump_structure());
     }
     auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
+        if (is_column_nullable(*to) && !is_column_nullable(*from)) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
                 bytes_usage += null_column.allocated_bytes();
             } else {
-                to = make_nullable(from, false)->assume_mutable();
+                to = make_nullable(from, false)->assert_mutable();
             }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
                 bytes_usage += from->allocated_bytes();
             } else {
-                to = from->assume_mutable();
+                to = from->assert_mutable();
             }
         }
     };
 
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
+    auto& mutable_columns = mutable_block.mutable_columns();
     if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
             ColumnPtr column_ptr;
@@ -380,9 +397,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
     }
-
     local_state->_estimate_memory_usage += bytes_usage;
 
     return Status::OK();
@@ -404,10 +419,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
     auto* local_state = state->get_local_state(operator_id());
     Defer defer([&]() {
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            local_state->update_output_block_counters(*block);
         }
     });
     if (_output_row_descriptor) {
@@ -442,6 +454,7 @@ void PipelineXLocalStateBase::reached_limit(Block* block, bool* eos) {
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_process_rows(rows);
     }
 }
 
@@ -524,7 +537,11 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
         : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _budget(state->batch_size(), state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -573,6 +590,12 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::ROWS_PRODUCED, TUnit::UNIT, 1);
     _blocks_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::BLOCKS_PRODUCED, TUnit::UNIT, 1);
+    _output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _max_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MAX_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _min_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MIN_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::PROJECTION_TIME, 2);
     _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::INIT_TIME, 2);
     _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::OPEN_TIME, 2);
@@ -706,13 +729,15 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 }
 
 template <typename LocalStateType>
-Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StreamingOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                          bool* eos) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(state, block, eos));
     return pull(state, block, eos);
 }
 
 template <typename LocalStateType>
-Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                         bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
@@ -847,7 +872,6 @@ DECLARE_OPERATOR(OlapScanLocalState)
 DECLARE_OPERATOR(GroupCommitLocalState)
 DECLARE_OPERATOR(JDBCScanLocalState)
 DECLARE_OPERATOR(FileScanLocalState)
-DECLARE_OPERATOR(EsScanLocalState)
 DECLARE_OPERATOR(AnalyticLocalState)
 DECLARE_OPERATOR(SortLocalState)
 DECLARE_OPERATOR(SpillSortLocalState)

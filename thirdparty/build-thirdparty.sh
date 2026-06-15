@@ -153,7 +153,7 @@ if [[ "${CLEAN}" -eq 1 ]] && [[ -d "${TP_SOURCE_DIR}" ]]; then
 fi
 
 # Download thirdparties.
-eval "${TP_DIR}/download-thirdparty.sh ${packages[*]}"
+eval "bash ${TP_DIR}/download-thirdparty.sh ${packages[*]}"
 
 export LD_LIBRARY_PATH="${TP_DIR}/installed/lib:${LD_LIBRARY_PATH}"
 
@@ -1428,7 +1428,7 @@ build_aws_sdk() {
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
+        -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts;kinesis" \
         -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-literal-operator ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
@@ -1453,6 +1453,7 @@ build_aws_sdk() {
     strip_lib libaws-c-compression.a
     strip_lib libaws-cpp-sdk-identity-management.a
     strip_lib libaws-cpp-sdk-sts.a
+    strip_lib libaws-cpp-sdk-kinesis.a
 }
 
 # lzma

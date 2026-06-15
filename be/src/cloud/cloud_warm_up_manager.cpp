@@ -34,6 +34,7 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -546,7 +547,7 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 
         auto st = Status::create(result.status);
         if (!st.ok()) {
-            if (st.is<CANCELED>()) {
+            if (st.is<ErrorCode::CANCELLED>()) {
                 LOG(INFO) << "get_replica_info: warm up job cancelled, tablet_id=" << tablet_id
                           << ", job_id=" << job_id;
                 cancelled_jobs.push_back(job_id);
@@ -581,23 +582,50 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    if (sync_wait_timeout_ms <= 0) {
+        auto rs_meta_pb = std::make_shared<RowsetMetaPB>(rs_meta.get_rowset_pb());
+        auto st = _thread_pool_token->submit_func([this, rs_meta_pb, sync_wait_timeout_ms]() {
+            RowsetMeta async_rs_meta;
+            bool init_succeed = async_rs_meta.init_from_pb(*rs_meta_pb);
+            TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.async_init_from_pb",
+                                     &init_succeed);
+            if (!init_succeed) {
+                LOG(WARNING) << "Failed to init rowset meta when warming up rowset asynchronously";
+                return;
+            }
+            _warm_up_rowset(async_rs_meta, sync_wait_timeout_ms);
+        });
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
+            file_cache_warm_up_failed_task_num << 1;
+        }
+        return;
+    }
+
     bthread::Mutex mu;
     bthread::ConditionVariable cv;
+    bool finished = false;
     std::unique_lock<bthread::Mutex> lock(mu);
     auto st = _thread_pool_token->submit_func([&, this]() {
-        std::unique_lock<bthread::Mutex> l(mu);
         _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
+        std::unique_lock<bthread::Mutex> l(mu);
+        finished = true;
         cv.notify_one();
     });
     if (!st.ok()) {
         LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
         file_cache_warm_up_failed_task_num << 1;
     } else {
-        cv.wait(lock);
+        while (!finished) {
+            TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.before_wait", &cv);
+            cv.wait(lock);
+        }
     }
 }
 
 void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::_warm_up_rowset.enter", &rs_meta,
+                             &sync_wait_timeout_ms);
     bool cache_hit = false;
     auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {

@@ -71,9 +71,11 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     custom_profile()->add_info_string("CacheTabletId", tablet_ids_str);
 
     // 3. lookup the cache and find proper slot order
-    hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
+    if (!cache_param.force_refresh_query_cache) {
+        hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
+    }
     custom_profile()->add_info_string("HitCache", std::to_string(hit_cache));
-    if (hit_cache && !cache_param.force_refresh_query_cache) {
+    if (hit_cache) {
         _hit_cache_results = _query_cache_handle.get_cache_result();
         auto hit_cache_slot_orders = _query_cache_handle.get_cache_slot_orders();
 
@@ -116,7 +118,7 @@ std::string CacheSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
@@ -154,7 +156,10 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* 
             if (need_clone_empty) {
                 *block = output_block->clone_empty();
             }
-            RETURN_IF_ERROR(MutableBlock::build_mutable_block(block).merge(*output_block));
+            ScopedMutableBlock scoped_mutable_block(block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
+            RETURN_IF_ERROR(mutable_block.merge(*output_block));
+            scoped_mutable_block.restore();
             local_state._current_query_cache_rows += output_block->rows();
             auto mem_consume = output_block->allocated_bytes();
             local_state._current_query_cache_bytes += mem_consume;
@@ -177,7 +182,10 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* 
             if (need_clone_empty) {
                 *block = hit_cache_block->clone_empty();
             }
-            RETURN_IF_ERROR(MutableBlock::build_mutable_block(block).merge(*hit_cache_block));
+            ScopedMutableBlock scoped_mutable_block(block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
+            RETURN_IF_ERROR(mutable_block.merge(*hit_cache_block));
+            scoped_mutable_block.restore();
             if (!local_state._hit_cache_column_orders.empty()) {
                 auto datas = block->get_columns_with_type_and_name();
                 block->clear();

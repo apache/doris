@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.maxcompute;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -43,6 +44,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 public class MCTransaction implements Transaction {
@@ -55,6 +57,7 @@ public class MCTransaction implements Transaction {
 
     // Storage API write session ID (created in beginInsert, used in finishInsert)
     private String writeSessionId;
+    private final AtomicLong nextBlockId = new AtomicLong(0);
 
     public MCTransaction(MaxComputeExternalCatalog catalog) {
         this.catalog = catalog;
@@ -68,6 +71,10 @@ public class MCTransaction implements Transaction {
 
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
         this.table = (MaxComputeExternalTable) dorisTable;
+        if (table.isUnsupportedOdpsTable()) {
+            throw new UserException("Writing MaxCompute external table or logical view is not supported: "
+                    + table.getDbName() + "." + table.getName());
+        }
 
         try {
             TableIdentifier tableId = catalog.getOdpsTableIdentifier(table.getDbName(), table.getName());
@@ -113,6 +120,7 @@ public class MCTransaction implements Transaction {
 
             TableBatchWriteSession writeSession = builder.buildBatchWriteSession();
             writeSessionId = writeSession.getId();
+            nextBlockId.set(0);
 
             LOG.info("Created MC Storage API write session: {} for table {}.{}",
                     writeSessionId, catalog.getDefaultProject(), table.getName());
@@ -126,6 +134,61 @@ public class MCTransaction implements Transaction {
         return writeSessionId;
     }
 
+    public long allocateBlockIdRange(String requestWriteSessionId, long length) throws UserException {
+        if (length <= 0) {
+            throw new UserException("MaxCompute block_id allocation length must be positive: " + length);
+        }
+        if (writeSessionId == null || writeSessionId.isEmpty()) {
+            throw new UserException("MaxCompute write session has not been initialized");
+        }
+        if (!writeSessionId.equals(requestWriteSessionId)) {
+            throw new UserException("MaxCompute write session mismatch, expected=" + writeSessionId
+                    + ", actual=" + requestWriteSessionId);
+        }
+
+        long start;
+        long endExclusive;
+        do {
+            start = nextBlockId.get();
+            endExclusive = start + length;
+            if (endExclusive > Config.max_compute_write_max_block_count) {
+                throw new UserException("MaxCompute block_id exceeds limit, start="
+                        + start + ", length=" + length + ", maxBlockCount="
+                        + Config.max_compute_write_max_block_count);
+            }
+        } while (!nextBlockId.compareAndSet(start, endExclusive));
+
+        LOG.info("Allocated MaxCompute block_id range: sessionId={}, start={}, length={}",
+                writeSessionId, start, length);
+        return start;
+    }
+
+    private void appendCommitMessages(List<WriterCommitMessage> allMessages, String encodedCommitMessage)
+            throws Exception {
+        byte[] bytes = Base64.getDecoder().decode(encodedCommitMessage);
+        ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+        ObjectInputStream ois = new ObjectInputStream(bais);
+        Object payload = ois.readObject();
+        ois.close();
+
+        if (payload instanceof WriterCommitMessage) {
+            allMessages.add((WriterCommitMessage) payload);
+            return;
+        }
+        if (payload instanceof List<?>) {
+            for (Object item : (List<?>) payload) {
+                if (!(item instanceof WriterCommitMessage)) {
+                    throw new UserException("Unexpected MaxCompute commit payload item type: "
+                            + (item == null ? "null" : item.getClass().getName()));
+                }
+                allMessages.add((WriterCommitMessage) item);
+            }
+            return;
+        }
+        throw new UserException("Unexpected MaxCompute commit payload type: "
+                + (payload == null ? "null" : payload.getClass().getName()));
+    }
+
     public void finishInsert() throws UserException {
         try {
             long t0 = System.currentTimeMillis();
@@ -134,16 +197,7 @@ public class MCTransaction implements Transaction {
             synchronized (this) {
                 for (TMCCommitData data : commitDataList) {
                     if (data.isSetCommitMessage() && !data.getCommitMessage().isEmpty()) {
-                        byte[] bytes = Base64.getDecoder().decode(data.getCommitMessage());
-                        ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-                        ObjectInputStream ois = new ObjectInputStream(bais);
-                        // Deserialized as List<WriterCommitMessage> — supports segmented
-                        // commit where one writer produces multiple commit messages
-                        @SuppressWarnings("unchecked")
-                        List<WriterCommitMessage> msgs =
-                                (List<WriterCommitMessage>) ois.readObject();
-                        allMessages.addAll(msgs);
-                        ois.close();
+                        appendCommitMessages(allMessages, data.getCommitMessage());
                     }
                 }
             }

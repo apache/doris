@@ -40,6 +40,7 @@
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
+#include "util/unaligned.h"
 
 namespace doris {
 // Type map的基本结构
@@ -255,10 +256,9 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         const size_t offset_size = sizeof(int32_t);
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset = 0;
-                int32_t end_offset = 0;
-                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;
@@ -709,7 +709,9 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         result.writeInt64(val);
     } else if constexpr (T == TYPE_LARGEINT) {
-        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
+        // data_ref.data may not be 16-byte aligned; dereferencing __int128*
+        // directly is UB and may SIGBUS on alignment-strict platforms.
+        __int128_t val = unaligned_load<__int128_t>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (T == TYPE_FLOAT) {
         float val = *reinterpret_cast<const float*>(data_ref.data);
@@ -981,8 +983,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_BIGINT>(v);
         data += sizeof(Int64);
     } else if constexpr (T == TYPE_LARGEINT) {
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
+        auto pack = unaligned_load<PackedInt128>(data);
         field = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
         data += sizeof(PackedInt128);
     } else if constexpr (T == TYPE_FLOAT) {
@@ -998,8 +999,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_IPV4>(v);
         data += sizeof(IPv4);
     } else if constexpr (T == TYPE_IPV6) {
-        PackedUInt128 pack;
-        memcpy(&pack, data, sizeof(PackedUInt128));
+        auto pack = unaligned_load<PackedUInt128>(data);
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);
@@ -1008,7 +1008,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_DATEV2>(v);
         data += sizeof(UInt32);
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        const uint8_t scale = *data;
         data += sizeof(uint8_t);
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;

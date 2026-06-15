@@ -33,7 +33,6 @@
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
 #include "service/http/action/adjust_log_level.h"
-#include "service/http/action/adjust_tracing_dump.h"
 #include "service/http/action/batch_download_action.h"
 #include "service/http/action/be_proc_thread_action.h"
 #include "service/http/action/calc_file_crc_action.h"
@@ -114,6 +113,11 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
           _ev_http_server(new EvHttpServer(port, num_threads)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
+HttpService::HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server)
+        : _env(env),
+          _ev_http_server(std::move(http_server)),
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
+
 HttpService::~HttpService() {
     stop();
 }
@@ -155,11 +159,6 @@ Status HttpService::start() {
 
     AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
-
-    //TODO: add query GET interface
-    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump(_env));
-    _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
-                                      adjust_tracing_dump);
 
     // Register BE version action
     VersionAction* version_action =

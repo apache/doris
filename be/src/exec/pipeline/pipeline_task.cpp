@@ -27,6 +27,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -153,7 +154,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     {
         const auto& deps =
                 _state->get_local_state(_source->operator_id())->execution_dependencies();
-        std::unique_lock<std::mutex> lc(_dependency_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
         std::copy(deps.begin(), deps.end(),
                   std::inserter(_execution_dependencies, _execution_dependencies.end()));
     }
@@ -199,7 +200,7 @@ Status PipelineTask::_extract_dependencies() {
         }
     }
     {
-        std::unique_lock<std::mutex> lc(_dependency_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
@@ -344,12 +345,18 @@ bool PipelineTask::_is_blocked() {
 }
 
 void PipelineTask::unblock_all_dependencies() {
-    // We use a lock to assure all dependencies are not deconstructed here.
-    std::unique_lock<std::mutex> lc(_dependency_lock);
+    // Keep dependency pointers and task-owned operator/shared state stable because set_ready() may
+    // synchronously call wake_up() and submit this task.
+    std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         try {
             DCHECK(_wake_up_early || fragment->is_canceled());
+            DBUG_EXECUTE_IF("PipelineTask::unblock_all_dependencies.before_set_ready", {
+                if (dp->callback.has_value()) {
+                    DBUG_RUN_CALLBACK();
+                }
+            });
             std::ranges::for_each(_write_dependencies,
                                   [&](Dependency* dep) { dep->set_always_ready(); });
             std::ranges::for_each(_finish_dependencies,
@@ -417,14 +424,7 @@ bool PipelineTask::_should_trigger_revoking(const size_t reserve_size) const {
     }
 
     if (is_high_memory_pressure) {
-        const auto revocable_size = [&]() {
-            size_t total = _sink->revocable_mem_size(_state);
-            for (const auto& op : _operators) {
-                total += op->revocable_mem_size(_state);
-            }
-            return total;
-        }();
-
+        const auto revocable_size = _get_revocable_size();
         const auto total_estimated_revocable = revocable_size * parallelism;
         return total_estimated_revocable >= int64_t(double(query_limit) * 0.2);
     }
@@ -647,7 +647,6 @@ Status PipelineTask::execute(bool* done) {
 
             bool eos = false;
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, &eos));
-            RETURN_IF_ERROR(block->check_type_and_column());
             _eos = eos;
         }
 
@@ -718,7 +717,7 @@ Status PipelineTask::execute(bool* done) {
                     }
                 }
             });
-            RETURN_IF_ERROR(block->check_type_and_column());
+
             status = _sink->sink(_state, block, _eos);
 
             if (_eos) {
@@ -888,8 +887,9 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    // Synchronize with unblock_all_dependencies() before clearing state used by wake_up()->submit().
+    std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
-    std::unique_lock<std::mutex> lc(_dependency_lock);
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
@@ -926,6 +926,8 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
     }
 
     if (close_sink) {
+        // Synchronize FINISHED with forced unblocking so delayed wake_up() sees a stable state.
+        std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
         RETURN_IF_ERROR(_state_transition(State::FINISHED));
     }
     return s;
@@ -945,7 +947,7 @@ std::string PipelineTask::debug_string() {
                    _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
                    _wake_by, _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling,
                    is_running());
-    std::unique_lock<std::mutex> lc(_dependency_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
     if (is_finalized() || !fragment) {
@@ -1006,18 +1008,29 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
+size_t PipelineTask::_get_revocable_size() const {
+    // Sum revocable memory from every operator in the pipeline + the sink.
+    // Each operator reports only its own revocable memory (no child recursion).
+    size_t total = 0;
+    size_t sink_revocable_size = _sink->revocable_mem_size(_state);
+    if (sink_revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+        total += sink_revocable_size;
+    }
+    for (const auto& op : _operators) {
+        size_t ops_revocable_size = op->revocable_mem_size(_state);
+        if (ops_revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+            total += ops_revocable_size;
+        }
+    }
+    return total;
+}
+
 size_t PipelineTask::get_revocable_size() const {
     if (!_opened || is_finalized() || _running || (_eos && !_spilling)) {
         return 0;
     }
 
-    // Sum revocable memory from every operator in the pipeline + the sink.
-    // Each operator reports only its own revocable memory (no child recursion).
-    size_t total = _sink->revocable_mem_size(_state);
-    for (const auto& op : _operators) {
-        total += op->revocable_mem_size(_state);
-    }
-    return total;
+    return _get_revocable_size();
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
@@ -1071,12 +1084,18 @@ void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep
 Status PipelineTask::_state_transition(State new_state) {
     const auto& table =
             _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
-    if (!table[(int)new_state].contains(_exec_state)) {
+    auto current_state = _exec_state.load();
+    if (!table[(int)new_state].contains(current_state)) {
         return Status::InternalError(
-                "Task state transition from {} to {} is not allowed! Task info: {}",
-                _to_string(_exec_state), _to_string(new_state), debug_string());
+                "Task state transition from {} to {} is not allowed! Task: query_id={}, "
+                "instance_id={}, id={}, pipeline={}, open={}, eos={}, dry_run={}, "
+                "wake_up_early={}, wake_by={}, spilling={}, running={}",
+                _to_string(current_state), _to_string(new_state), print_id(_query_id),
+                print_id(_state->fragment_instance_id()), _index, _pipeline_name, _opened,
+                _eos.load(), _dry_run, _wake_up_early.load(), _wake_by.load(), _spilling.load(),
+                is_running());
     }
-    // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
+    // FINISHED/FINALIZED -> RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
     // after the task already terminated), but we must not actually move the state backwards
     // or update profile info (which would misleadingly show RUNNABLE for a terminated task).
     bool need_move = !((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&

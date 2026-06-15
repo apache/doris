@@ -25,6 +25,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -61,6 +62,16 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private void processProps(Map<String, String> properties) throws AnalysisException {
         Map<String, String> copyProps = new HashMap<>(properties);
         copyProps.put("format", "json");
+
+        // Standalone TVF: random jobId. TVF-in-job: job.id injected by rewriteTvfParams.
+        String jobId = copyProps.computeIfAbsent(JOB_ID_KEY,
+                k -> UUID.randomUUID().toString().replace("-", ""));
+
+        // Default PG slot/pub so cdcclient auto-creates per-job resources
+        StreamingJobUtils.populateDefaultSourceProperties(
+                DataSourceType.valueOf(copyProps.get(DataSourceConfigKeys.TYPE).toUpperCase()),
+                copyProps, jobId);
+
         super.parseCommonProperties(copyProps);
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
         this.processedParams.put(URI_KEY, URI);
@@ -68,7 +79,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         this.processedParams.put(HTTP_ENABLE_CHUNK_RESPONSE_KEY, "true");
         this.processedParams.put(HTTP_METHOD_KEY, "POST");
 
-        String payload = generateParams(properties);
+        String payload = generateParams(copyProps);
         this.processedParams.put(HTTP_PAYLOAD_KEY, payload);
         this.backendConnectProperties.putAll(processedParams);
         generateFileStatus();
@@ -76,8 +87,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
         FetchRecordRequest recordRequest = new FetchRecordRequest();
-        String defaultJobId = UUID.randomUUID().toString().replace("-", "");
-        recordRequest.setJobId(properties.getOrDefault(JOB_ID_KEY, defaultJobId));
+        recordRequest.setJobId(properties.get(JOB_ID_KEY));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));
         recordRequest.setConfig(properties);
         try {
@@ -89,7 +99,6 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 Map<String, Object> metaMap = objectMapper.readValue(meta, new TypeReference<Map<String, Object>>() {});
                 recordRequest.setMeta(metaMap);
             }
-
             return objectMapper.writeValueAsString(recordRequest);
         } catch (IOException e) {
             LOG.warn("Failed to serialize fetch record request", e);
@@ -98,17 +107,94 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     }
 
     private void validate(Map<String, String> properties) throws AnalysisException {
-        if (!properties.containsKey(DataSourceConfigKeys.JDBC_URL)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.JDBC_URL))) {
             throw new AnalysisException("jdbc_url is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.TYPE)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.TYPE))) {
             throw new AnalysisException("type is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.TABLE)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.TABLE))) {
             throw new AnalysisException("table is required");
         }
-        if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
+        if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.OFFSET))) {
             throw new AnalysisException("offset is required");
+        }
+        DataSourceType sourceType;
+        try {
+            sourceType = DataSourceType.valueOf(properties.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unsupported type: " + properties.get(DataSourceConfigKeys.TYPE));
+        }
+        switch (sourceType) {
+            case MYSQL:
+                if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.DATABASE))) {
+                    throw new AnalysisException("database is required for MySQL");
+                }
+                break;
+            case POSTGRES:
+                if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.SCHEMA))) {
+                    throw new AnalysisException("schema is required for PostgreSQL");
+                }
+                validatePgIdentifierIfPresent(properties, DataSourceConfigKeys.SLOT_NAME);
+                validatePgIdentifierIfPresent(properties, DataSourceConfigKeys.PUBLICATION_NAME);
+                break;
+            default:
+                throw new AnalysisException("Unsupported type: " + sourceType);
+        }
+        String offset = properties.get(DataSourceConfigKeys.OFFSET);
+        if (!DataSourceConfigValidator.isValidOffset(offset, sourceType.name())) {
+            throw new AnalysisException("Invalid value for key 'offset': " + offset);
+        }
+        String sslMode = properties.get(DataSourceConfigKeys.SSL_MODE);
+        if (sslMode != null && !DataSourceConfigValidator.isValidSslMode(sslMode)) {
+            throw new AnalysisException("Invalid value for key 'ssl_mode': " + sslMode);
+        }
+        try {
+            DataSourceConfigValidator.validateSslVerifyCaPair(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE);
+        validatePositiveIntIfPresent(properties, DataSourceConfigKeys.SNAPSHOT_PARALLELISM);
+        validateBooleanIfPresent(properties, DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL);
+        // TVF entrypoint shares server_id checks with the from-to path's validateSource.
+        try {
+            DataSourceConfigValidator.validateServerIdConfig(properties);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    private static void validatePositiveIntIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isPositiveInt(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+        }
+    }
+
+    private static void validatePgIdentifierIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isValidPgIdentifier(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+        }
+    }
+
+    private static void validateBooleanIfPresent(Map<String, String> properties, String key)
+            throws AnalysisException {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        if (!DataSourceConfigValidator.isValidBoolean(value)) {
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
         }
     }
 

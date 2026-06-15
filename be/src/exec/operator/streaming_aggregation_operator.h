@@ -224,9 +224,10 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
-            return DataDistribution(ExchangeType::PASSTHROUGH);
+            return {ExchangeType::PASSTHROUGH};
         }
-        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
+            !child_breaks_local_key_distribution(state)) {
             return StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(state);
         }
         if (_partition_exprs.empty()) {
@@ -235,7 +236,7 @@ public:
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }
-        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return {ExchangeType::HASH_SHUFFLE, _partition_exprs};
     }
 
 private:

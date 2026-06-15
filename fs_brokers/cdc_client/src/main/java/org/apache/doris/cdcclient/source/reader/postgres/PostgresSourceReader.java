@@ -49,20 +49,28 @@ import org.apache.flink.cdc.connectors.postgres.source.fetch.PostgresStreamFetch
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffset;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffsetFactory;
 import org.apache.flink.cdc.connectors.postgres.source.utils.CustomPostgresSchema;
+import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresQueryUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.PostgresConnectorConfig;
+import io.debezium.connector.postgresql.PostgresConnectorConfig.AutoCreateMode;
 import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
@@ -75,6 +83,8 @@ import io.debezium.relational.history.TableChanges;
 import io.debezium.time.Conversions;
 import lombok.Data;
 import org.postgresql.Driver;
+import org.postgresql.core.BaseConnection;
+import org.postgresql.core.ServerVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -93,9 +103,18 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        synchronized (SLOT_CREATION_LOCK) {
-            LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
-            createSlotForGlobalStreamSplit(dialect);
+        // Doris-owned publication: pre-create it covering all include_tables (autocreate is
+        // DISABLED).
+        if (isPublicationDorisOwned(config, jobId)) {
+            createPublicationForDorisOwned(dialect, config, jobId);
+        }
+        // Only create the slot when Doris owns it (name == default); user-provided slots must
+        // pre-exist, validated at CREATE JOB.
+        if (isSlotDorisOwned(config, jobId)) {
+            synchronized (SLOT_CREATION_LOCK) {
+                LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
+                createSlotForGlobalStreamSplit(dialect);
+            }
         }
         super.initialize(jobId, dataSource, config);
         // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
@@ -138,6 +157,61 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                             "Fail to get or create slot, the slot name is %s. Due to: %s ",
                             postgresDialect.getSlotName(), ExceptionUtils.getRootCauseMessage(t)),
                     t);
+        }
+    }
+
+    /**
+     * Create/ensure the Doris-owned publication for all include_tables (idempotent, multi-BE safe).
+     */
+    private void createPublicationForDorisOwned(
+            PostgresDialect dialect, Map<String, String> config, String jobId) {
+        String pubName = resolvePublicationName(config, jobId);
+        String schema = config.get(DataSourceConfigKeys.SCHEMA);
+        String[] qualified = ConfigUtil.getTableList(schema, config);
+        if (qualified.length == 0) {
+            throw new CdcClientException("No tables to create publication " + pubName);
+        }
+        String tableList =
+                Arrays.stream(qualified)
+                        .map(
+                                q ->
+                                        new TableId(null, schema, q.substring(q.indexOf('.') + 1))
+                                                .toDoubleQuotedString())
+                        .collect(Collectors.joining(", "));
+        // Mirrors debezium PostgresReplicationConnection#initPublication: check existence, then
+        // CREATE ... FOR TABLE / ALTER ... SET TABLE (here always the full include_tables set).
+        try (PostgresConnection conn = dialect.openJdbcConnection();
+                Statement stmt = conn.connection().createStatement()) {
+            long count;
+            try (ResultSet rs =
+                    stmt.executeQuery(
+                            "SELECT COUNT(1) FROM pg_publication WHERE pubname = '"
+                                    + pubName
+                                    + "'")) {
+                rs.next();
+                count = rs.getLong(1);
+            }
+            if (count == 0) {
+                // Preserve debezium FILTERED behavior: on PG 13+ publish partitioned-root changes
+                // as the root table, matching configFactory.setIncludePartitionedTables(true).
+                String pubViaRootSuffix =
+                        ((BaseConnection) conn.connection())
+                                        .haveMinimumServerVersion(ServerVersion.v13)
+                                ? " WITH (publish_via_partition_root = true)"
+                                : "";
+                stmt.execute(
+                        "CREATE PUBLICATION "
+                                + pubName
+                                + " FOR TABLE "
+                                + tableList
+                                + pubViaRootSuffix);
+            } else {
+                stmt.execute("ALTER PUBLICATION " + pubName + " SET TABLE " + tableList);
+            }
+            LOG.info("Ensured publication {} for tables {}", pubName, tableList);
+        } catch (SQLException e) {
+            throw new CdcClientException(
+                    "Failed to create publication " + pubName + ": " + e.getMessage(), e);
         }
     }
 
@@ -206,7 +280,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.latest());
         } else if (ConfigUtil.isJson(startupMode)) {
-            throw new RuntimeException("Unsupported json offset " + startupMode);
+            Map<String, String> offsetMap = ConfigUtil.toStringMap(startupMode);
+            if (offsetMap == null || !offsetMap.containsKey(SourceInfo.LSN_KEY)) {
+                throw new RuntimeException(
+                        "JSON offset for PostgreSQL must contain 'lsn' key, got: " + startupMode);
+            }
+            configFactory.startupOptions(StartupOptions.specificOffset(offsetMap));
         } else if (ConfigUtil.is13Timestamp(startupMode)) {
             // start from timestamp
             Long ts = Long.parseLong(startupMode);
@@ -227,6 +306,19 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
+
+        // Always DISABLED; the publication always pre-exists: Doris creates it for all
+        // include_tables
+        // in initialize(); user-provided / legacy (dbz_publication) ones are already present on PG.
+        // FILTERED would make each split SET TABLE its single table -> flip publication -> data
+        // loss.
+        String publicationName = resolvePublicationName(cdcConfig, jobId);
+        String slotName = resolveSlotName(cdcConfig, jobId);
+        dbzProps.put(PostgresConnectorConfig.PUBLICATION_NAME.name(), publicationName);
+        dbzProps.put(
+                PostgresConnectorConfig.PUBLICATION_AUTOCREATE_MODE.name(),
+                AutoCreateMode.DISABLED.getValue());
+
         configFactory.debeziumProperties(dbzProps);
 
         // setting ssl
@@ -243,7 +335,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         configFactory.serverTimeZone(
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
-        configFactory.slotName(getSlotName(jobId));
+        configFactory.slotName(slotName);
         configFactory.decodingPluginName("pgoutput");
         configFactory.heartbeatInterval(
                 Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
@@ -251,12 +343,38 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         // support scan partition table
         configFactory.setIncludePartitionedTables(true);
 
+        // from-to: FE forces "true" (at-least-once, skip backfill); TVF: absent → false
+        // (exactly-once needs backfill).
+        configFactory.skipSnapshotBackfill(
+                Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
+
         // subtaskId use pg create slot in snapshot phase, slotname is slot_name_subtaskId
         return configFactory.create(subtaskId);
     }
 
-    private String getSlotName(String jobId) {
-        return "doris_cdc_" + jobId;
+    private String resolveSlotName(Map<String, String> config, String jobId) {
+        String name = config.get(DataSourceConfigKeys.SLOT_NAME);
+        return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.defaultSlotName(jobId);
+    }
+
+    // Legacy jobs (created before slot/pub names were persisted) keep no publication_name in
+    // sourceProperties; fall back to the pre-PR Debezium default so they continue to use the
+    // existing publication on PG.
+    private String resolvePublicationName(Map<String, String> config, String jobId) {
+        String name = config.get(DataSourceConfigKeys.PUBLICATION_NAME);
+        return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.LEGACY_PUBLICATION_NAME;
+    }
+
+    // Per-resource ownership: Doris owns the resource iff the resolved name equals
+    // doris_{cdc|pub}_{jobId}. Users cannot specify this name (jobId is unknown pre-CREATE);
+    // legacy publication resolves to dbz_publication and stays user-owned (not dropped).
+    private boolean isSlotDorisOwned(Map<String, String> config, String jobId) {
+        return DataSourceConfigKeys.defaultSlotName(jobId).equals(resolveSlotName(config, jobId));
+    }
+
+    private boolean isPublicationDorisOwned(Map<String, String> config, String jobId) {
+        return DataSourceConfigKeys.defaultPublicationName(jobId)
+                .equals(resolvePublicationName(config, jobId));
     }
 
     @Override
@@ -266,6 +384,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         PostgresSourceFetchTaskContext taskContext =
                 new PostgresSourceFetchTaskContext(sourceConfig, dialect);
+        LOG.info(
+                "create snapshot reader for job {}, thread tag = debezium-snapshot-reader-{}",
+                config.getJobId(),
+                subtaskId);
         IncrementalSourceScanFetcher snapshotReader =
                 new IncrementalSourceScanFetcher(taskContext, subtaskId);
         return snapshotReader;
@@ -277,9 +399,13 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         PostgresSourceFetchTaskContext taskContext =
                 new PostgresSourceFetchTaskContext(sourceConfig, dialect);
-        // subTaskId maybe add jobId?
+        int readerTag = Math.abs(config.getJobId().hashCode());
+        LOG.info(
+                "create binlog reader for job {}, thread tag = debezium-reader-{}",
+                config.getJobId(),
+                readerTag);
         IncrementalSourceStreamFetcher binlogReader =
-                new IncrementalSourceStreamFetcher(taskContext, 0);
+                new IncrementalSourceStreamFetcher(taskContext, readerTag);
         return binlogReader;
     }
 
@@ -290,6 +416,13 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     @Override
     protected Offset createOffset(Map<String, ?> offset) {
+        // ALTER offset may only contain lsn, supplement ts_usec for PostgresOffsetContext.Loader
+        if (offset.containsKey(SourceInfo.LSN_KEY)
+                && !offset.containsKey(SourceInfo.TIMESTAMP_USEC_KEY)) {
+            Map<String, Object> supplemented = new HashMap<>(offset);
+            supplemented.put(SourceInfo.TIMESTAMP_USEC_KEY, "0");
+            return PostgresOffset.of(supplemented);
+        }
         return PostgresOffset.of(offset);
     }
 
@@ -311,6 +444,26 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     protected DataType fromDbzColumn(Column splitColumn) {
         return PostgresTypeUtils.fromDbzColumn(splitColumn);
+    }
+
+    @Override
+    protected Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
+        String sql =
+                String.format(
+                        "SELECT %s FROM %s WHERE 1=0",
+                        PostgresQueryUtils.quote(splitColumn.name()),
+                        PostgresQueryUtils.quote(tableId));
+        try (JdbcConnection jdbc =
+                        new PostgresDialect(sourceConfig).openJdbcConnection(sourceConfig);
+                Statement st = jdbc.connection().createStatement();
+                ResultSet rs = st.executeQuery(sql)) {
+            return Class.forName(rs.getMetaData().getColumnClassName(1));
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Probe split key class failed for " + tableId + "." + splitColumn.name(), e);
+        }
     }
 
     /**
@@ -453,21 +606,41 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         super.close(jobConfig);
-        // drop pg slot
+        Map<String, String> config = jobConfig.getConfig();
+        String jobId = jobConfig.getJobId();
+        String slotName = resolveSlotName(config, jobId);
+        String pubName = resolvePublicationName(config, jobId);
+        boolean dropSlot = isSlotDorisOwned(config, jobId);
+        boolean dropPub = isPublicationDorisOwned(config, jobId);
+        if (!dropSlot && !dropPub) {
+            LOG.info(
+                    "Skipping drop of user-provided slot {} / publication {} for job {}",
+                    slotName,
+                    pubName,
+                    jobId);
+            return;
+        }
         try {
             PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
             PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            String slotName = getSlotName(jobConfig.getJobId());
-            LOG.info(
-                    "Dropping postgres replication slot {} for job {}",
-                    slotName,
-                    jobConfig.getJobId());
-            dialect.removeSlot(slotName);
+            if (dropSlot) {
+                LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
+                dialect.removeSlot(slotName);
+            } else {
+                LOG.info("Skipping drop of user-provided slot {} for job {}", slotName, jobId);
+            }
+            if (dropPub) {
+                LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
+                try (PostgresConnection connection = dialect.openJdbcConnection()) {
+                    connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
+                }
+            } else {
+                LOG.info(
+                        "Skipping drop of user-provided publication {} for job {}", pubName, jobId);
+            }
         } catch (Exception ex) {
             LOG.warn(
-                    "Failed to drop postgres replication slot for job {}: {}",
-                    jobConfig.getJobId(),
-                    ex.getMessage());
+                    "Failed to clean up postgres resources for job {}: {}", jobId, ex.getMessage());
         }
     }
 }
