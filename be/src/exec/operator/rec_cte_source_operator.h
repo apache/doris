@@ -209,7 +209,7 @@ public:
         return {ExchangeType::NOOP};
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         auto& ctx = local_state._shared_state;
         ctx->update_ready_to_return();

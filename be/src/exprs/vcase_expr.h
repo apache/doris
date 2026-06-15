@@ -156,7 +156,7 @@ private:
                 continue;
             }
             std::tie(raw_then_columns[i], is_consts[i]) = unpack_if_const(then_columns[i]);
-            is_nullable[i] = raw_then_columns[i]->is_nullable();
+            is_nullable[i] = is_column_nullable(*raw_then_columns[i]);
         }
 
         auto* raw_result_column = result_column_ptr.get();
@@ -260,7 +260,7 @@ private:
                 continue;
             }
 
-            if (raw_when_column->is_nullable()) {
+            if (is_column_nullable(*raw_when_column)) {
                 const auto* column_nullable_ptr =
                         assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                                 raw_when_column.get());

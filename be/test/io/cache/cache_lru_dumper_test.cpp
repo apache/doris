@@ -19,11 +19,13 @@
 
 #include <filesystem>
 
+#include "common/config.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "util/defer_op.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -156,6 +158,53 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
         ++src_it;
         ++dst_it;
     }
+}
+
+TEST_F(CacheLRUDumperTest, test_lru_log_record_disabled_keeps_existing_backlog) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 2;
+    config::file_cache_background_lru_log_queue_max_size = 10;
+
+    UInt128Wrapper hash(123456789ULL);
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 0, 4096);
+    ASSERT_EQ(recorder->lru_log_queue_size(FileCacheType::NORMAL), 1);
+
+    config::file_cache_background_lru_dump_tail_record_num = 0;
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, 4096, 4096);
+
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::NORMAL), 1);
+    EXPECT_EQ(recorder->get_lru_log_queue(FileCacheType::NORMAL).size_approx(), 1);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 1);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::NORMAL).get_elements_num_unsafe(), 1);
+}
+
+TEST_F(CacheLRUDumperTest, test_lru_log_record_queue_hard_cap) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_log_queue_max_size = 2;
+
+    UInt128Wrapper hash(987654321ULL);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 0, 4096);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 4096, 4096);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 8192, 4096);
+
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::INDEX), 2);
+    EXPECT_EQ(recorder->get_lru_log_queue(FileCacheType::INDEX).size_approx(), 2);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::INDEX), 2);
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::INDEX), 0);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 2);
 }
 
 } // namespace doris::io

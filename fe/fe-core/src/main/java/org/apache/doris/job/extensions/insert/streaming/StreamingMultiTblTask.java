@@ -26,6 +26,7 @@ import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -82,7 +83,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long loadBytes = 0L;
     private long filteredRows = 0L;
     private long loadedRows = 0L;
-    private long timeoutMs;
     private long runningBackendId;
 
     public StreamingMultiTblTask(Long jobId,
@@ -103,7 +103,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.jobProperties = jobProperties;
         this.targetDb = targetDb;
         this.cloudCluster = cloudCluster;
-        this.timeoutMs = Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
     }
 
     @Override
@@ -210,6 +209,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         String feAddr = Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
+        request.setTaskTimeoutMs(getTaskTimeoutMs());
         if (offsetProvider instanceof JdbcSourceOffsetProvider) {
             String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
             if (schemas != null) {
@@ -308,18 +308,57 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     @Override
     protected void onFail(String errMsg) throws JobException {
+        // Release this task's reader before reschedule so it stops competing for the shared slot.
+        releaseRemoteReader();
         super.onFail(errMsg);
     }
 
     @Override
     public void cancel(boolean needWaitCancelComplete) {
-        // No manual cancellation is required; the task ID will be checked for consistency in the beforeCommit function.
+        // No release here: DROP/STOP/PAUSE clean up via /api/close; releasing would orphan the engine.
         super.cancel(needWaitCancelComplete);
     }
 
     @Override
     public void closeOrReleaseResources() {
-        // no need
+        // No-op: reader is shared across tasks; release on reschedule is done in onFail().
+    }
+
+    /**
+     * Best-effort, onFail reschedule only: stop this job's reader on {@link #runningBackendId} so a
+     * reschedule to another backend never leaves two readers competing for the same source (e.g. one
+     * PG replication slot, which is kept, not dropped). Failures are swallowed and must not block
+     * rescheduling.
+     */
+    public void releaseRemoteReader() {
+        if (runningBackendId <= 0) {
+            return;
+        }
+        Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
+        if (backend == null) {
+            log.info("Skip releasing remote reader: backend {} not found, job {} task {}",
+                    runningBackendId, getJobId(), getTaskId());
+            return;
+        }
+        try {
+            JobBaseConfig releaseParams = new JobBaseConfig(
+                    String.valueOf(getJobId()), dataSourceType.name(), sourceProperties, getFrontendAddress());
+            InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                    .setApi("/api/releaseReader/" + getTaskId())
+                    .setParams(new Gson().toJson(releaseParams)).build();
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            // Fire-and-forget: this runs under the job write lock, so never block on the result.
+            BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            log.info("Sent release reader request to backend {}:{} for job {} task {}",
+                    backend.getHost(), backend.getBrpcPort(), getJobId(), getTaskId());
+        } catch (Exception ex) {
+            log.warn("Release remote reader request failed for job {} task {}: ", getJobId(), getTaskId(), ex);
+        }
+    }
+
+    private String getFrontendAddress() {
+        return Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
     }
 
     public boolean isTimeout() {
@@ -327,12 +366,18 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             // It's still pending, waiting for scheduling.
             return false;
         }
+        long timeoutMs = getTaskTimeoutMs();
         long elapsed = System.currentTimeMillis() - startTimeMs;
         if (elapsed > timeoutMs) {
             log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
             return true;
         }
         return false;
+    }
+
+    // Read multiplier live so config changes affect already-running tasks.
+    private long getTaskTimeoutMs() {
+        return Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
     }
 
     /**

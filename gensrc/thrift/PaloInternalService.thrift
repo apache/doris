@@ -209,7 +209,7 @@ struct TQueryOptions {
 
   64: optional bool dry_run_query = false
 
-  65: optional bool enable_common_expr_pushdown = false;
+  65: optional bool enable_common_expr_pushdown = false; // deprecated
 
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
@@ -352,7 +352,7 @@ struct TQueryOptions {
 
   135: optional bool enable_parallel_outfile = false;
 
-  136: optional bool enable_phrase_query_sequential_opt = true;
+  136: optional bool enable_phrase_query_sequential_opt = true; // deprecated
   
   137: optional bool enable_auto_create_when_overwrite = false;
 
@@ -482,7 +482,7 @@ struct TQueryOptions {
   215: optional i64 ai_context_window_size = 131072;
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
-  216: optional bool enable_rust_lance_reader = false;
+  216: optional bool enable_rust_lance_reader = false; // deprecated
   217: optional bool new_version_percentile = false
 
   // Adaptive batch size: target output block size in bytes. Valid range [1MB, 512MB].

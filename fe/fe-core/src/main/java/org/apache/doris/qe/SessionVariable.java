@@ -42,7 +42,6 @@ import org.apache.doris.qe.VarAttrDef.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TSerdeDialect;
 
@@ -79,7 +78,6 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
-
 
 /**
  * System variable.
@@ -213,8 +211,6 @@ public class SessionVariable implements Serializable, Writable {
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
-    public static final String USE_V2_ROLLUP = "use_v2_rollup";
-    public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
     public static final String STORAGE_ENGINE = "storage_engine";
     // Compatible with datagrip mysql
@@ -251,7 +247,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String runtime_filter_wait_infinitely = "runtime_filter_wait_infinitely";
 
     // Maximum number of bloom runtime filters allowed per query
-    public static final String RUNTIME_FILTERS_MAX_NUM = "runtime_filters_max_num";
     // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
     public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
@@ -269,10 +264,36 @@ public class SessionVariable implements Serializable, Writable {
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE = "insert_visible_timeout_return_mode";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED = "committed";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR = "error";
+
+    // Keep the mode enum for business logic while storing the session value as a string.
+    public enum InsertVisibleTimeoutReturnMode {
+        COMMITTED(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED),
+        ERROR(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR);
+
+        private final String option;
+
+        InsertVisibleTimeoutReturnMode(String option) {
+            this.option = option;
+        }
+
+        public String getOption() {
+            return option;
+        }
+
+        @Override
+        public String toString() {
+            return option;
+        }
+    }
+
+    // change scan consistency and wait options.
+    public static final String ENABLE_EVENTUAL_CONSISTENT_CHANGE = "enable_eventual_consistent_change";
+    public static final String CHANGE_VISIBLE_TIMEOUT_MS = "change_visible_timeout_ms";
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
-
-    public static final String ENABLE_VARIANT_ACCESS_IN_ORIGINAL_PLANNER = "enable_variant_access_in_original_planner";
 
     // set the default parallelism for send batch when execute InsertStmt operation,
     // if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config,
@@ -297,16 +318,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GLOBAL_PARTITION_TOPN_THRESHOLD = "global_partition_topn_threshold";
 
-    public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
-
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
-
-    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
-
-    public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
+    public static final long DEFAULT_CHANGE_VISIBLE_TIMEOUT_MS = 10_000;
 
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
+    public static final long MIN_CHANGE_VISIBLE_TIMEOUT_MS = 1000;
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
 
@@ -361,8 +378,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
-    public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
-
     public static final String PARALLEL_PREPARE_THRESHOLD = "parallel_prepare_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
@@ -392,6 +407,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_PRELOAD_EXTERNAL_METADATA = "enable_preload_external_metadata";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
@@ -410,8 +426,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
 
     public static final String REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = "rewrite_or_to_in_predicate_threshold";
-
-    public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
@@ -435,15 +449,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
-    public static final String SHUFFLED_AGG_NODE_IDS = "shuffled_agg_node_ids";
-
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
 
     public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
-
-    public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
 
     public static final String ENABLE_SEGMENT_LIMIT_PUSHDOWN = "enable_segment_limit_pushdown";
 
@@ -465,11 +475,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
-    public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
-
     public static final String ENABLE_SAVE_STATISTICS_SYNC_JOB = "enable_save_statistics_sync_job";
-
-    public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
 
@@ -500,14 +506,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
 
-    public static final String ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX
-            = "enable_common_expr_pushdown_for_inverted_index";
-
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
     public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
-    public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
     public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
@@ -519,8 +521,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
-
-    public static final String TRACE_NEREIDS = "trace_nereids";
 
     public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
 
@@ -643,6 +643,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
+    public static final String ENABLE_DECOUPLED_RUNTIME_FILTER = "enable_decoupled_runtime_filter";
+
+    public static final String DECOUPLED_RF_NDV_RATIO_THRESHOLD = "decoupled_rf_ndv_ratio_threshold";
+
+    public static final String MIN_DECOUPLED_RF_TARGET_ROWS = "min_decoupled_rf_target_rows";
+
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
     public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
@@ -729,9 +735,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
 
-    public static final String ENABLE_SYNC_MV_COST_BASED_REWRITE
-            = "enable_sync_mv_cost_based_rewrite";
-
     public static final String MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS
             = "materialized_view_rewrite_duration_threshold_ms";
 
@@ -766,8 +769,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
 
-    public static final String ENABLE_RUST_LANCE_READER = "enable_rust_lance_reader";
-
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -795,7 +796,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHORT_CIRCUIT_EVALUATION = "short_circuit_evaluation";
 
-
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
@@ -811,13 +811,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STATS = "enable_stats";
 
-    public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
-
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
     public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
-
-    public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
     // Deprecated legacy switch for flatten-nested variant behavior.
     // It is distinct from variant_enable_nested_group.
@@ -853,8 +849,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
 
     public static final String MINIMUM_OPERATOR_MEMORY_REQUIRED_KB = "minimum_operator_memory_required_kb";
-
-    public static final String ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT = "enable_phrase_query_sequential_opt";
 
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
@@ -918,7 +912,6 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static final String SKEW_VALUE_THRESHOLD = "skew_value_threshold";
-
 
     @VarAttrDef.VarAttr(name = SKEW_VALUE_THRESHOLD, needForward = true,
                 description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× skewValueThreshold 时，该值即被视为热点值",
@@ -1040,6 +1033,28 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_DECOUPLED_RUNTIME_FILTER,
+            description = {"启用解耦 Runtime Filter：允许 RF 的生产者和条件来源分属不同 join 节点",
+                    "Enable decoupled runtime filter: allow RF producer and predicate source "
+                    + "to be on different join nodes"})
+    public boolean enableDecoupledRuntimeFilter = true;
+
+    @VarAttrDef.VarAttr(name = DECOUPLED_RF_NDV_RATIO_THRESHOLD,
+            description = {"解耦 RF 的 NDV 比值阈值。当 probe_ndv/build_ndv < 该值时，"
+                    + "优先使用解耦 RF 并删除标准 RF；否则保留标准 RF，解耦 RF 设为非阻塞",
+                    "NDV ratio threshold for decoupled RF. When probe_ndv/build_ndv < threshold, "
+                    + "prefer decoupled RF and remove standard RF; otherwise keep standard RF "
+                    + "and make decoupled RF non-blocking"})
+    public double decoupledRfNdvRatioThreshold = 0.5;
+
+    @VarAttrDef.VarAttr(name = MIN_DECOUPLED_RF_TARGET_ROWS,
+            description = {"解耦 RF 目标扫描节点的最小行数。当目标扫描行数低于此阈值时，"
+                    + "跳过生成解耦 RF（因为小表扫描太快，RF 来不及生效）",
+                    "Minimum row count for the target scan of a decoupled RF. "
+                    + "Skip generating decoupled RF when the target scan has fewer rows "
+                    + "(small scans complete too quickly for the RF to arrive in time)"})
+    public long minDecoupledRfTargetRows = 5_000_000;
+
     @VarAttrDef.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
 
@@ -1071,6 +1086,26 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
+
+    // Control whether publish timeout keeps the committed response or returns an explicit error.
+    @VarAttrDef.VarAttr(name = INSERT_VISIBLE_TIMEOUT_RETURN_MODE, needForward = true,
+            checker = "checkInsertVisibleTimeoutReturnMode", setter = "setInsertVisibleTimeoutReturnMode",
+            description = {"控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+                    "Controls the status returned to the client when a normal internal-table INSERT times out "
+                            + "while waiting for publish visibility."},
+            options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
+    public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EVENTUAL_CONSISTENT_CHANGE, needForward = true,
+            description = {"是否允许在 CHANGES/快照类时间查询中使用最终一致语义（不等待事务发布）。开启后可能返回不包含最新 commit 的结果。",
+                    "Whether to allow eventual consistent semantics for time-based CHANGES/snapshot queries. "
+                            + "If true, query may return results without waiting committed txns to be visible."})
+    public boolean enableEventualConsistentChange = false;
+
+    @VarAttrDef.VarAttr(name = CHANGE_VISIBLE_TIMEOUT_MS, needForward = true,
+            description = {"时间范围 CHANGES/快照查询等待 COMMITTED 事务发布为 VISIBLE 的最长时间（毫秒）。",
+                    "Max time in ms to wait committed txns become visible for time-based CHANGES/snapshot queries."})
+    public long changeVisibleTimeoutMs = DEFAULT_CHANGE_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend. Default value to 100G.
     @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
@@ -1373,7 +1408,6 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
-
     public enum IgnoreSplitType {
         NONE,
         IGNORE_JNI,
@@ -1400,7 +1434,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
                             + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
                             + " 3 means open some Counters that may cause performance degradation"})
-    public int profileLevel = 1;
+    public int profileLevel = 2;
 
     @VarAttrDef.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
@@ -1462,7 +1496,6 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean skipPrunePredicate = false;
 
-
     @VarAttrDef.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = true;
 
@@ -1489,12 +1522,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
-
-    @VarAttrDef.VarAttr(name = USE_V2_ROLLUP)
-    public boolean useV2Rollup = false;
-
-    @VarAttrDef.VarAttr(name = REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL)
-    public boolean rewriteCountDistinct = true;
 
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VarAttrDef.VarAttr(name = EVENT_SCHEDULER)
@@ -1531,12 +1558,6 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
     public int sendBatchParallelism = 1;
 
-    @VarAttrDef.VarAttr(name = ENABLE_VARIANT_ACCESS_IN_ORIGINAL_PLANNER)
-    public boolean enableVariantAccessInOriginalPlanner = false;
-
-    @VarAttrDef.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
-    public boolean extractWideRangeExpr = true;
-
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DML, varType = VariableAnnotation.REMOVED)
     public boolean enableNereidsDML = true;
 
@@ -1547,9 +1568,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = true;
-
-    @VarAttrDef.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.REMOVED)
-    public boolean enableVectorizedEngine = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
             varType = VariableAnnotation.REMOVED, setter = "setEnablePipelineEngine")
@@ -1626,12 +1644,6 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
-    // the maximum size in bytes for a table that will be broadcast to all be nodes
-    // when performing a join, By setting this value to -1 broadcasting can be disabled.
-    // Default value is 1Gto
-    @VarAttrDef.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
-    public double autoBroadcastJoinThreshold = 0.8;
-
     @VarAttrDef.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, fuzzy = true)
     public int parallelPrepareThreshold = 32;
 
@@ -1669,7 +1681,6 @@ public class SessionVariable implements Serializable, Writable {
             "Ignore the rf when it encounters an error" })
     public boolean ignoreRuntimeFilterError = false;
 
-
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
@@ -1686,10 +1697,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterWaitTimeMs = 1000;
 
     @VarAttrDef.VarAttr(name = runtime_filter_wait_infinitely, fuzzy = true, needForward = true)
-    private boolean runtimeFilterWaitInfinitely = false;
-
-    @VarAttrDef.VarAttr(name = RUNTIME_FILTERS_MAX_NUM, needForward = true)
-    private int runtimeFiltersMaxNum = 10;
+    public boolean runtimeFilterWaitInfinitely = false;
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true, needForward = true)
@@ -1733,6 +1741,15 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL)
     public boolean topNLazyMaterializationUsingIndex = false;
 
+    @VarAttrDef.VarAttr(name = "enable_topn_expr_pullup", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否将TopN下方Project中的非平凡表达式上拉至TopN之上，"
+                    + "以扩大延迟物化范围",
+                    "Whether to pull up non-trivial expressions from Project below TopN, "
+                            + "to expand lazy materialization scope"})
+    public boolean enableTopnExprPullup = true;
+
     @VarAttrDef.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL,
@@ -1760,9 +1777,6 @@ public class SessionVariable implements Serializable, Writable {
             return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationUsingIndex;
         }
     }
-
-    @VarAttrDef.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
-    private boolean disableInvertedIndexV1ForVaraint = true;
 
     @Deprecated
     @VarAttrDef.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
@@ -1871,9 +1885,6 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
     private double globalPartitionTopNThreshold = 100;
 
-    @VarAttrDef.VarAttr(name = ENABLE_INFER_PREDICATE)
-    private boolean enableInferPredicate = true;
-
     @VarAttrDef.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
     private boolean returnObjectDataAsBinary = false;
 
@@ -1920,14 +1931,6 @@ public class SessionVariable implements Serializable, Writable {
                     "Force the optimizer to choose a physical plan containing these Group IDs "
                     + "(comma-separated integer list)"})
     public String requiredGroupIds = "";
-
-    @VarAttrDef.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
-            description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
-                    + "系统会将这个算子的并发度调整为 1，以减少简单查询的扇出",
-                    "When a ScanNode has no filter conditions and the limit value is less than this threshold, "
-                            + "the system will adjust the concurrency of this operator to 1 "
-                            + "to reduce the fan-out of simple queries"})
-    public long limitRowsForSingleInstance = 10000;
 
     public boolean isEnableLeftZigZag() {
         return enableLeftZigZag;
@@ -1991,6 +1994,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsPlanner = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_PRELOAD_EXTERNAL_METADATA,
+            needForward = true, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+                "是否在获取内表规划期读锁前预加载 Hive/Hudi/Iceberg/Paimon/JDBC 外表元数据",
+                "Whether to preload Hive/Hudi/Iceberg/Paimon/JDBC external table metadata before internal table "
+                        + "plan-time read locks are acquired"
+            })
+    private boolean enablePreloadExternalMetadata = false;
+
     @VarAttrDef.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
 
@@ -2013,9 +2024,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = "filter_cost_factor", needForward = true)
     public double filterCostFactor = 0.0001;
-
-    @VarAttrDef.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
-    private boolean nereidsStarSchemaSupport = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
             fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
@@ -2076,10 +2084,6 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
-    @VarAttrDef.VarAttr(name = SHUFFLED_AGG_NODE_IDS,
-            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public String shuffledAggNodeIds = "";
-
     @VarAttrDef.VarAttr(
             name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
             description = {
@@ -2100,10 +2104,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
-
-    // Legacy session variable. BE treats common expr pushdown as enabled in this branch.
-    @VarAttrDef.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
-    public boolean enableCommonExprPushdown = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_SEGMENT_LIMIT_PUSHDOWN, fuzzy = true, needForward = true,
             description = {"是否启用 SegmentIterator 层 LIMIT 下推。",
@@ -2182,11 +2182,6 @@ public class SessionVariable implements Serializable, Writable {
      * The current statistics are only used for CBO test,
      * and are not available to users. (work in progress)
      */
-    @VarAttrDef.VarAttr(name = ENABLE_CBO_STATISTICS)
-    public boolean enableCboStatistics = false;
-
-    @VarAttrDef.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
-    public boolean enableEliminateSortNode = true;
 
     @VarAttrDef.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
     public int partitionPruningExpandThreshold = 10;
@@ -2269,11 +2264,6 @@ public class SessionVariable implements Serializable, Writable {
             "是否启用 inverted index query。", "Set whether to use inverted index query."})
     public boolean enableInvertedIndexQuery = true;
 
-    // Whether enable query expr with inverted index.
-    @VarAttrDef.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, fuzzy = true, needForward = true,
-            description = {"是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
-    public boolean enableCommonExpPushDownForInvertedIndex = true;
-
     // Whether enable pushdown count agg to scan node when using inverted index match.
     @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
             "是否启用 count_on_index pushdown。", "Set whether to pushdown count_on_index."})
@@ -2308,10 +2298,6 @@ public class SessionVariable implements Serializable, Writable {
                     "Comma-separated list of MOR tables to read as DUP (skip merge, skip delete sign filter). "
                             + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables."})
     public String readMorAsDupTables = "";
-
-    // Whether drop table when create table as select insert data appear error.
-    @VarAttrDef.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
-    public boolean dropTableIfCtasFailed = true;
 
     @VarAttrDef.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
     public int maxTableCountUseCascadesJoinReorder = 10;
@@ -2386,9 +2372,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    @VarAttrDef.VarAttr(name = TRACE_NEREIDS)
-    public boolean traceNereids = false;
 
     @VarAttrDef.VarAttr(name = PLAN_NEREIDS_DUMP)
     public boolean planNereidsDump = false;
@@ -2498,7 +2481,6 @@ public class SessionVariable implements Serializable, Writable {
             setter = "setOrcTinyStripeThresholdBytes")
     public long orcTinyStripeThresholdBytes  = 8L * 1024L * 1024L;
 
-
     @VarAttrDef.VarAttr(
             name = ORC_ONCE_MAX_READ_BYTES,
             fuzzy = true,
@@ -2512,7 +2494,6 @@ public class SessionVariable implements Serializable, Writable {
             setter = "setOrcOnceMaxReadBytes")
     public long orcOnceMaxReadBytes = 8L * 1024L * 1024L;
 
-
     @VarAttrDef.VarAttr(
             name = ORC_MAX_MERGE_DISTANCE_BYTES,
             fuzzy = true,
@@ -2524,7 +2505,6 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             setter = "setOrcMaxMergeDistanceBytes")
     public long orcMaxMergeDistanceBytes = 1024L * 1024L;
-
 
     @VarAttrDef.VarAttr(
             name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
@@ -2740,7 +2720,6 @@ public class SessionVariable implements Serializable, Writable {
     })
     public long hugeTableDefaultSampleRows = 4194304;
 
-
     @VarAttrDef.VarAttr(name = HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES, flag = VarAttrDef.GLOBAL,
             description = {
                     "大小超过该值的表将会自动通过采样收集统计信息",
@@ -2851,11 +2830,6 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether enable materialized view nest rewrite"})
     public boolean enableMaterializedViewNestRewrite = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
-            description = {"是否允许基于代价改写同步物化视图",
-                    "Whether enable cost based rewrite for sync mv"}, varType = VariableAnnotation.REMOVED)
-    public boolean enableSyncMvCostBasedRewrite = true;
-
     @VarAttrDef.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
             description = {"物化视图透明改写允许的最长耗时，超过此时长不再进行透明改写",
                     "The maximum duration allowed for transparent rewriting of materialized views; "
@@ -2866,7 +2840,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"建表时创建分区的最大数量",
                     "The maximum number of partitions created during table creation"})
     public int createTablePartitionMaxNum = 10000;
-
 
     @VarAttrDef.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
             description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
@@ -2899,12 +2872,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
     private boolean enablePaimonCppReader = false;
-
-    @VarAttrDef.VarAttr(name = ENABLE_RUST_LANCE_READER,
-            fuzzy = true,
-            description = {"使用 Rust Lance 读取器读取 Lance 格式数据",
-                    "Use Rust-based Lance reader for Lance format data"})
-    private boolean enableRustLanceReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -3112,36 +3079,6 @@ public class SessionVariable implements Serializable, Writable {
         return ids;
     }
 
-    public List<Integer> getShuffledAggNodeIds() {
-        List<Integer> ids = Lists.newLinkedList();
-        if (shuffledAggNodeIds.isEmpty()) {
-            return ImmutableList.of();
-        }
-        for (String v : shuffledAggNodeIds.split(",[\\s]*")) {
-            int res = -1;
-            if (!v.isEmpty()) {
-                boolean isNumber = true;
-                for (int i = 0; i < v.length(); ++i) {
-                    char c = v.charAt(i);
-                    if (c < '0' || c > '9') {
-                        isNumber = false;
-                        break;
-                    }
-                }
-                if (isNumber) {
-                    try {
-                        res = Integer.parseInt(v);
-                    } catch (Throwable t) {
-                        // ignore
-                    }
-                }
-
-            }
-            ids.add(res);
-        }
-        return ids;
-    }
-
     public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
         this.ignoreRuntimeFilterIds = ignoreRuntimeFilterIds;
     }
@@ -3215,7 +3152,6 @@ public class SessionVariable implements Serializable, Writable {
                     + " like \"MaxMessageSize reached\"",
                     "用于控制结果反序列化时 thrift 字段的最大值，当遇到类似\"MaxMessageSize reached\"这样的错误时可以考虑修改该参数"})
     public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
-
 
     // CLOUD_VARIABLES_BEGIN
     @VarAttrDef.VarAttr(name = CLOUD_CLUSTER, alias = {COMPUTE_GROUP})
@@ -3438,12 +3374,6 @@ public class SessionVariable implements Serializable, Writable {
     })
     public int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
-    @VarAttrDef.VarAttr(name = ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT, needForward = true, description = {
-        "开启顺序短语查询对连词的优化",
-        "enable optimization for conjunctions in sequential phrase queries"
-    })
-    public boolean enablePhraseQuerySequentialOpt = true;
-
     @VarAttrDef.VarAttr(name = "enable_adjust_conjunct_order_by_cost", needForward = true)
     public boolean enableAdjustConjunctOrderByCost = true;
 
@@ -3580,6 +3510,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAddIndexForNewData = false;
 
     @VarAttrDef.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            checker = "checkHnswEfSearch",
             description = {"HNSW 索引的 EF 搜索参数，控制搜索的精度和速度",
                     "HNSW index EF search parameter, controls the precision and speed of the search"})
     public int hnswEFSearch = 32;
@@ -3595,6 +3526,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean hnswBoundedQueue = true;
 
     @VarAttrDef.VarAttr(name = IVF_NPROBE, needForward = true,
+            checker = "checkIvfNprobe",
             description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 32;
@@ -3658,7 +3590,6 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean defaultVariantEnableDocMode = false;
 
-
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
             needForward = true,
@@ -3720,14 +3651,11 @@ public class SessionVariable implements Serializable, Writable {
         this.enableConditionCache = Config.pull_request_id % 2 == 0;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
-        this.enableCommonExprPushdown = random.nextBoolean();
         // enable fuzzy after we clean all case of
-        // enable_common_expr_pushdown/enable_common_exp_pushdown_for_inverted_index
         // this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -4039,7 +3967,6 @@ public class SessionVariable implements Serializable, Writable {
         return insertTimeoutS;
     }
 
-
     public void setInsertTimeoutS(int insertTimeoutS) {
         this.insertTimeoutS = insertTimeoutS;
     }
@@ -4090,10 +4017,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public String getTransactionIsolation() {
         return transactionIsolation;
-    }
-
-    public String getTxIsolation() {
-        return txIsolation;
     }
 
     public String getCharsetClient() {
@@ -4348,7 +4271,6 @@ public class SessionVariable implements Serializable, Writable {
         return val;
     }
 
-
     private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
         int val = Integer.valueOf(value);
         if (val < minValue) {
@@ -4534,6 +4456,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableSqlCache;
     }
 
+    public boolean isEnablePreloadExternalMetadata() {
+        return enablePreloadExternalMetadata;
+    }
+
+    public void setEnablePreloadExternalMetadata(boolean enablePreload) {
+        this.enablePreloadExternalMetadata = enablePreload;
+    }
+
     public void setEnableSqlCache(boolean enableSqlCache) {
         this.enableSqlCache = enableSqlCache;
     }
@@ -4583,22 +4513,7 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
-    public boolean isUseV2Rollup() {
-        return useV2Rollup;
-    }
-
     // for unit test
-    public void setUseV2Rollup(boolean useV2Rollup) {
-        this.useV2Rollup = useV2Rollup;
-    }
-
-    public boolean isRewriteCountDistinct() {
-        return rewriteCountDistinct;
-    }
-
-    public void setRewriteCountDistinct(boolean rewriteCountDistinct) {
-        this.rewriteCountDistinct = rewriteCountDistinct;
-    }
 
     public String getEventScheduler() {
         return eventScheduler;
@@ -4716,14 +4631,6 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterWaitTimeMs = runtimeFilterWaitTimeMs;
     }
 
-    public int getRuntimeFiltersMaxNum() {
-        return runtimeFiltersMaxNum;
-    }
-
-    public void setRuntimeFiltersMaxNum(int runtimeFiltersMaxNum) {
-        this.runtimeFiltersMaxNum = runtimeFiltersMaxNum;
-    }
-
     public int getRuntimeFilterType() {
         return runtimeFilterType;
     }
@@ -4733,7 +4640,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {
-        this.runtimeFilterType = runtimeFilterType;
+        this.runtimeFilterType = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(runtimeFilterType);
     }
 
     public int getRuntimeFilterMaxInNum() {
@@ -4766,10 +4673,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableLocalExchange() {
         return enableLocalExchange;
-    }
-
-    public boolean getEnableCboStatistics() {
-        return enableCboStatistics;
     }
 
     public long getFileSplitSize() {
@@ -4872,12 +4775,12 @@ public class SessionVariable implements Serializable, Writable {
         return retryOriginSqlOnConvertFail;
     }
 
-    public String[] getSqlConvertorFeatures() {
-        return enableSqlConvertorFeatures.split(",");
-    }
-
     public String getSqlConvertorConfig() {
         return sqlConvertorConfig;
+    }
+
+    public String[] getSqlConvertorFeatures() {
+        return enableSqlConvertorFeatures.split(",");
     }
 
     public Dialect getSqlParseDialect() {
@@ -4910,6 +4813,47 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public String getInsertVisibleTimeoutReturnMode() {
+        return getInsertVisibleTimeoutReturnModeEnum().getOption();
+    }
+
+    public InsertVisibleTimeoutReturnMode getInsertVisibleTimeoutReturnModeEnum() {
+        return parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
+    }
+
+    public boolean isInsertVisibleTimeoutReturnError() {
+        return getInsertVisibleTimeoutReturnModeEnum() == InsertVisibleTimeoutReturnMode.ERROR;
+    }
+
+    public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
+        this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode)
+                .getOption();
+    }
+
+    public boolean isEnableEventualConsistentChange() {
+        return enableEventualConsistentChange;
+    }
+
+    public void setEnableEventualConsistentChange(boolean enableEventualConsistentChange) {
+        this.enableEventualConsistentChange = enableEventualConsistentChange;
+    }
+
+    public long getChangeVisibleTimeoutMs() {
+        if (changeVisibleTimeoutMs < MIN_CHANGE_VISIBLE_TIMEOUT_MS) {
+            return MIN_CHANGE_VISIBLE_TIMEOUT_MS;
+        } else {
+            return changeVisibleTimeoutMs;
+        }
+    }
+
+    public void setChangeVisibleTimeoutMs(long changeVisibleTimeoutMs) {
+        if (changeVisibleTimeoutMs < MIN_CHANGE_VISIBLE_TIMEOUT_MS) {
+            this.changeVisibleTimeoutMs = MIN_CHANGE_VISIBLE_TIMEOUT_MS;
+        } else {
+            this.changeVisibleTimeoutMs = changeVisibleTimeoutMs;
+        }
+    }
+
     public boolean getIsSingleSetVar() {
         return isSingleSetVar;
     }
@@ -4936,10 +4880,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDeleteWithoutPartition() {
         return deleteWithoutPartition;
-    }
-
-    public boolean isExtractWideRangeExpr() {
-        return extractWideRangeExpr;
     }
 
     public boolean isGroupByAndHavingUseAliasFirst() {
@@ -5000,14 +4940,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setReturnObjectDataAsBinary(boolean returnObjectDataAsBinary) {
         this.returnObjectDataAsBinary = returnObjectDataAsBinary;
-    }
-
-    public boolean isEnableInferPredicate() {
-        return enableInferPredicate;
-    }
-
-    public void setEnableInferPredicate(boolean enableInferPredicate) {
-        this.enableInferPredicate = enableInferPredicate;
     }
 
     public boolean isEnableProjection() {
@@ -5283,10 +5215,6 @@ public class SessionVariable implements Serializable, Writable {
         this.readHiveJsonInOneColumn = readHiveJsonInOneColumn;
     }
 
-    public boolean isDropTableIfCtasFailed() {
-        return dropTableIfCtasFailed;
-    }
-
     public void checkQueryTimeoutValid(String newQueryTimeout) {
         int value = Integer.valueOf(newQueryTimeout);
         if (value <= 0) {
@@ -5296,6 +5224,27 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check query_timeout failed", exception);
             throw exception;
         }
+    }
+
+    public void checkInsertVisibleTimeoutReturnMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment and enum access.
+        parseInsertVisibleTimeoutReturnMode(mode);
+    }
+
+    // Parse the stored string case-insensitively and expose the enum only to business logic.
+    private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
+        if (StringUtils.isEmpty(mode)) {
+            LOG.warn("insertVisibleTimeoutReturnMode value is empty");
+            throw new UnsupportedOperationException("insertVisibleTimeoutReturnMode value is empty");
+        }
+        for (InsertVisibleTimeoutReturnMode value : InsertVisibleTimeoutReturnMode.values()) {
+            if (value.getOption().equalsIgnoreCase(mode)) {
+                return value;
+            }
+        }
+        LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
+        throw new UnsupportedOperationException(
+                "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
     }
 
     public void checkMaxExecutionTimeMSValid(String newValue) {
@@ -5336,16 +5285,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableInvertedIndexQuery(boolean enableInvertedIndexQuery) {
         this.enableInvertedIndexQuery = enableInvertedIndexQuery;
-    }
-
-
-    public boolean isEnableCommonExprPushdownForInvertedIndex() {
-        return enableCommonExpPushDownForInvertedIndex;
-    }
-
-
-    public void setEnableCommonExprPushdownForInvertedIndex(boolean enableCommonExpPushDownForInvertedIndex) {
-        this.enableCommonExpPushDownForInvertedIndex = enableCommonExpPushDownForInvertedIndex;
     }
 
     public boolean isEnablePushDownCountOnIndex() {
@@ -5448,7 +5387,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
-        tResult.setShuffledAggIds(getShuffledAggNodeIds());
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky
@@ -5497,14 +5435,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
         tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
 
-        if (cpuResourceLimit > 0) {
-            TResourceLimit resourceLimit = new TResourceLimit();
-            resourceLimit.setCpuLimit(cpuResourceLimit);
-            tResult.setResourceLimit(resourceLimit);
-        }
-
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
-        tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setEnableSegmentLimitPushdown(enableSegmentLimitPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
@@ -5526,7 +5457,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFileCacheBasePath(fileCacheBasePath);
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
-        tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
 
         if (dryRunQuery) {
@@ -5542,7 +5472,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
-        tResult.setEnableRustLanceReader(enableRustLanceReader);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
@@ -5568,7 +5497,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
-        tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
         tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
@@ -5619,7 +5547,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
         tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
         tResult.setInListValueCountThreshold(inListValueCountThreshold);
-        tResult.setEnablePhraseQuerySequentialOpt(enablePhraseQuerySequentialOpt);
         tResult.setEnableAutoCreateWhenOverwrite(enableAutoCreateWhenOverwrite);
 
         tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
@@ -5700,7 +5627,6 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, root.toString());
     }
 
-
     public void readFields(DataInput in) throws IOException {
         String json = Text.readString(in);
         readFromJson(json);
@@ -5724,7 +5650,7 @@ public class SessionVariable implements Serializable, Writable {
                         break;
                     case "int":
                         // root.get(attr.name()) always return Long type, so need to convert it.
-                        field.set(this, Integer.valueOf(root.get(attr.name()).toString()));
+                        field.set(this, normalizeIntValue(attr.name(), root.get(attr.name()).toString()));
                         break;
                     case "long":
                         field.set(this, (Long) root.get(attr.name()));
@@ -5777,7 +5703,7 @@ public class SessionVariable implements Serializable, Writable {
                         }
                         break;
                     case "int":
-                        field.set(this, Integer.valueOf(sessionVarMap.get(attr.name())));
+                        field.set(this, normalizeIntValue(attr.name(), sessionVarMap.get(attr.name())));
                         break;
                     case "long":
                         field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
@@ -5800,6 +5726,14 @@ public class SessionVariable implements Serializable, Writable {
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
+    }
+
+    private static int normalizeIntValue(String name, String value) {
+        int intValue = Integer.valueOf(value);
+        if (RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+            return (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+        }
+        return intValue;
     }
 
     /**
@@ -5895,14 +5829,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
-    }
-
-    public boolean isTraceNereids() {
-        return traceNereids;
-    }
-
-    public void setTraceNereids(boolean traceNereids) {
-        this.traceNereids = traceNereids;
     }
 
     public boolean isPlayNereidsDump() {
@@ -6240,7 +6166,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
-
     public String getPreMaterializedViewRewriteStrategy() {
         return preMaterializedViewRewriteStrategy;
     }
@@ -6327,7 +6252,6 @@ public class SessionVariable implements Serializable, Writable {
         return ignoreSplitType;
     }
 
-
     public void checkIgnoreSplitType(String value) {
         try {
             IgnoreSplitType.valueOf(value);
@@ -6336,7 +6260,6 @@ public class SessionVariable implements Serializable, Writable {
                     "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
         }
     }
-
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;
@@ -6398,14 +6321,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isUseSerialExchange() {
         return useSerialExchange && getEnableLocalExchange();
-    }
-
-    public void setDisableInvertedIndexV1ForVaraint(boolean disableInvertedIndexV1ForVaraint) {
-        this.disableInvertedIndexV1ForVaraint = disableInvertedIndexV1ForVaraint;
-    }
-
-    public boolean getDisableInvertedIndexV1ForVaraint() {
-        return disableInvertedIndexV1ForVaraint;
     }
 
     @Deprecated
@@ -6480,10 +6395,6 @@ public class SessionVariable implements Serializable, Writable {
     public static boolean enableStrictCast() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            StatementContext statementContext = connectContext.getStatementContext();
-            if (statementContext != null && statementContext.isInsert()) {
-                return connectContext.getSessionVariable().enableInsertStrict;
-            }
             return connectContext.getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
@@ -6495,6 +6406,22 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkHnswEfSearch(String efSearch) {
+        int value = Integer.valueOf(efSearch);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "hnsw_ef_search must be >= 1, got: " + efSearch);
+        }
+    }
+
+    public void checkIvfNprobe(String nprobe) {
+        int value = Integer.valueOf(nprobe);
+        if (value < 1) {
+            throw new UnsupportedOperationException(
+                    "ivf_nprobe must be >= 1, got: " + nprobe);
         }
     }
 

@@ -68,6 +68,7 @@
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/historical_row_retriever.h"
 #include "storage/segment/page_io.h"
@@ -162,11 +163,12 @@ VerticalSegmentWriter::~VerticalSegmentWriter() {
 }
 
 void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
-                                              const TabletColumn& column) {
+                                              const TabletColumn& column,
+                                              const ColumnWriterOptions& opts) {
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
     meta->set_length(cast_set<int32_t>(column.length()));
-    meta->set_encoding(DEFAULT_ENCODING);
+    meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     meta->set_default_value(column.default_value());
@@ -178,7 +180,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
+        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i), opts);
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
@@ -193,8 +195,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
                                                     const TabletSchemaSPtr& tablet_schema) {
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
+    opts.storage_format = tablet_schema->storage_format();
 
-    _init_column_meta(opts.meta, cid, column);
+    _init_column_meta(opts.meta, cid, column, opts);
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
@@ -300,16 +303,11 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         }
     })
     if (column.is_row_store_column()) {
-        // smaller page size for row store column
+        // smaller page size for row store column; encoding is already set to PLAIN /
+        // PLAIN_V2 by _init_column_meta via resolve_default_encoding().
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
-        // Row store data is already serialized as a single blob. Keep it on plain pages
-        // to avoid introducing dictionary pages for the hidden row store column.
-        opts.meta->set_encoding(_tablet_schema->binary_plain_encoding_default_impl() ==
-                                                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                                        ? PLAIN_ENCODING_V2
-                                        : PLAIN_ENCODING);
     }
 
     opts.rowset_ctx = _opts.rowset_ctx;
@@ -318,10 +316,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.footer = &_footer;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
 
-    opts.encoding_preference = {.integer_type_default_use_plain_encoding =
-                                        _tablet_schema->integer_type_default_use_plain_encoding(),
-                                .binary_plain_encoding_default_impl =
-                                        _tablet_schema->binary_plain_encoding_default_impl()};
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -1455,7 +1449,7 @@ Status VerticalSegmentWriter::_write_footer() {
 
     // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
 
-    if (_tablet_schema->is_external_segment_column_meta_used()) {
+    if (_tablet_schema->storage_format() == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3) {
         _footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
         VLOG_DEBUG << "use external column meta";
         // External ColumnMetaPB writing (optional)
@@ -1520,14 +1514,6 @@ void VerticalSegmentWriter::_set_min_key(const Slice& key) {
 void VerticalSegmentWriter::_set_max_key(const Slice& key) {
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
-}
-
-inline bool VerticalSegmentWriter::_is_mow() {
-    return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
-}
-
-inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 
 } // namespace doris::segment_v2

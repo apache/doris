@@ -383,9 +383,12 @@ suite ("sub_query_correlated") {
     """
 
     //----------subquery with order and limit----------
-    order_qt_scalar_subquery_with_order_and_limit """
-        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a limit 1);
-    """
+    test {
+        sql """
+            select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a limit 1);
+        """
+        exception """limit is not supported in correlated subquery"""
+    }
 
     //---------subquery with Disjunctions-------------
 	order_qt_scalar_subquery_with_disjunctions """

@@ -63,6 +63,7 @@
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/types.h"
 #include "util/coding.h"
+#include "util/unaligned.h"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -472,7 +473,8 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
             // LargeInt is stored as Int128
             const StringRef& data = column.get_data_at(row);
             if (data.size == sizeof(__int128)) {
-                __int128 val = *reinterpret_cast<const __int128*>(data.data);
+                // data.data may not be 16-byte aligned; use unaligned_load to avoid UB.
+                __int128 val = unaligned_load<__int128>(data.data);
                 return doris::LargeIntValue::to_string(val);
             }
             return "<invalid largeint>";
@@ -556,7 +558,8 @@ std::string format_column_value(const doris::IColumn& column, size_t row,
         case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
             const StringRef& data = column.get_data_at(row);
             if (data.size == sizeof(__int128)) {
-                __int128 val = *reinterpret_cast<const __int128*>(data.data);
+                // data.data may not be 16-byte aligned; use unaligned_load to avoid UB.
+                __int128 val = unaligned_load<__int128>(data.data);
                 return doris::LargeIntValue::to_string(val);
             }
             return "<invalid decimal>";

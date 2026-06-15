@@ -90,7 +90,7 @@ public:
         if (var.is_null_root()) {
             return make_nullable(col, true);
         }
-        if (var.is_scalar_variant() && var.get_root()->is_nullable()) {
+        if (var.is_scalar_variant() && is_column_nullable(*var.get_root())) {
             const auto* nullable = assert_cast<const ColumnNullable*>(var.get_root().get());
             return ColumnNullable::create(
                     col, nullable->get_null_map_column_ptr()->clone_resized(col->size()));
@@ -386,6 +386,15 @@ private:
             } else {
                 column->insert_data("0", 1);
             }
+            break;
+        }
+        case simdjson::ondemand::json_type::string: {
+            // Extract the raw (unescaped) string value rather than its JSON
+            // representation. simdjson::to_json_string would keep the surrounding
+            // double quotes (e.g. "2026-05-20"), which leaks into the result and
+            // makes scalar-string variants inconsistent with structured ones.
+            std::string_view value_str = value.get_string().value();
+            column->insert_data(value_str.data(), value_str.length());
             break;
         }
         default: {

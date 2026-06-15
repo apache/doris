@@ -137,7 +137,12 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block,
                                                 _sequence_id_idx, *rhs._block, -1);
     }
-    auto result = col_cmp_res == 0 ? data_id() < rhs.data_id() : col_cmp_res < 0;
+    // When the sequence/LSN column is equal too, fall back to data_id ordering.
+    // Otherwise pick the sort direction by `_small_seq_first`:
+    //   false => larger value sorts first; true => smaller value sorts first.
+    auto result = col_cmp_res == 0 ? (_use_insert_order_when_same ? (data_id() > rhs.data_id())
+                                                                  : (data_id() < rhs.data_id()))
+                                   : (_small_seq_first ? (col_cmp_res > 0) : (col_cmp_res < 0));
 
     if (_is_unique) {
         result ? set_skip(true) : rhs.set_skip(true);
@@ -358,7 +363,8 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_shared<VMergeIteratorContext>(
                 std::move(iter), _sequence_id_idx, _is_unique, _is_reverse,
-                opts.read_orderby_key_columns, _output_schema);
+                opts.use_insert_order_when_same, opts.read_orderby_key_columns, _output_schema,
+                _small_seq_first);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -453,12 +459,14 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows, SchemaSPtr output_schema) {
+                                       uint64_t* merged_rows, SchemaSPtr output_schema,
+                                       bool small_seq_first) {
     // when the size of inputs is 1, we also need to use VMergeIterator, because the
     // next_block_view function only be implemented in VMergeIterator. The reason why
     // the size of inputs is 1 is that the segment was filtered out by zone map or others.
     return std::make_unique<VMergeIterator>(std::move(inputs), sequence_id_idx, is_unique,
-                                            is_reverse, merged_rows, std::move(output_schema));
+                                            is_reverse, merged_rows, std::move(output_schema),
+                                            small_seq_first);
 }
 
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,

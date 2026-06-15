@@ -206,7 +206,7 @@ struct ArrayAggregateImpl {
                 ArrayAggregateFunctionCreator<operation, AggregateFunctionTraits<operation>>;
 
         const ColumnType* column =
-                data->is_nullable()
+                is_column_nullable(*data)
                         ? check_and_get_column<ColumnType>(
                                   static_cast<const ColumnNullable*>(data)->get_nested_column())
                         : check_and_get_column<ColumnType>(&*data);
@@ -233,7 +233,7 @@ struct ArrayAggregateImpl {
             }
             function->reset(guard.data());
             function->add_batch_range(start, end - 1, guard.data(), columns, arena,
-                                      data->is_nullable());
+                                      is_column_nullable(*data));
             function->insert_result_into(guard.data(), res_column->assert_mutable_ref());
         }
         res_ptr = std::move(res_column);
@@ -430,7 +430,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
                 AggregateFunctionTraitsWithResultType<operation>>;
 
         const ColumnType* column =
-                data->is_nullable()
+                is_column_nullable(*data)
                         ? check_and_get_column<ColumnType>(
                                   static_cast<const ColumnNullable*>(data)->get_nested_column())
                         : check_and_get_column<ColumnType>(&*data);
@@ -458,7 +458,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
             }
             function->reset(guard.data());
             function->add_batch_range(start, end - 1, guard.data(), columns, arena,
-                                      data->is_nullable());
+                                      is_column_nullable(*data));
             function->insert_result_into(guard.data(), res_column->assert_mutable_ref());
         }
         res_ptr = std::move(res_column);
@@ -494,7 +494,7 @@ public:
         const auto& typed_column = block.get_by_position(arguments[0]);
         auto ptr = typed_column.column->convert_to_full_column_if_const();
         const typename Impl::column_type* column_array;
-        if (ptr->is_nullable()) {
+        if (is_column_nullable(*ptr)) {
             column_array = assert_cast<const typename Impl::column_type*>(
                     assert_cast<const ColumnNullable*>(ptr.get())->get_nested_column_ptr().get());
         } else {

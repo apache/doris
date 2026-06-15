@@ -185,7 +185,7 @@ public class StmtExecutor {
 
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
-    private final StatementContext statementContext;
+    private StatementContext statementContext;
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
@@ -549,6 +549,16 @@ public class StmtExecutor {
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
+    }
+
+    /**
+     * Replace the executor statement context and synchronize it to the owning ConnectContext.
+     */
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
+        this.statementContext.setConnectContext(context);
+        this.statementContext.setOriginStatement(originStmt);
+        this.context.setStatementContext(statementContext);
     }
 
     public boolean isHandleQueryInFe() {
@@ -949,6 +959,16 @@ public class StmtExecutor {
                         + " but we need at least " + originStmt.idx + " statements.");
             }
             parsedStmt = statements.get(originStmt.idx);
+        }
+        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
+        // without a parsedStatement. Propagate it so that downstream code like
+        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
+        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
+        // Coordinator (which would fail with "fragment has no children").
+        // Only do this when isProxy is true, because other code paths like
+        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
+        if (isProxy) {
+            this.context.getStatementContext().setParsedStatement(parsedStmt);
         }
     }
 

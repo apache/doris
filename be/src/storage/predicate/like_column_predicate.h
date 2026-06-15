@@ -96,7 +96,7 @@ private:
 
     template <bool is_and>
     void _evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
@@ -155,7 +155,7 @@ private:
 
         std::vector<bool> tmp_res(column.dict_size(), false);
         for (int i = 0; i < column.dict_size(); i++) {
-            StringRef cell_value = column.get_shrink_value(i);
+            StringRef cell_value = column.get_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
                     &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));

@@ -19,6 +19,8 @@
 
 #include <gen_cpp/data.pb.h>
 
+#include <utility>
+
 #include "core/block/block.h"
 #include "format/native/native_format.h"
 #include "io/file_factory.h"
@@ -38,6 +40,16 @@ NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& 
           _io_ctx(io_ctx),
           _state(state) {}
 
+NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                           const TFileRangeDesc& range,
+                           std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state)
+        : _profile(profile),
+          _scan_params(params),
+          _scan_range(range),
+          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _state(state) {}
+
 NativeReader::~NativeReader() {
     (void)close();
 }
@@ -45,7 +57,8 @@ NativeReader::~NativeReader() {
 namespace {
 
 Status validate_and_consume_header(io::FileReaderSPtr file_reader, const TFileRangeDesc& range,
-                                   int64_t* file_size, int64_t* current_offset, bool* eof) {
+                                   int64_t* file_size, int64_t* current_offset, bool* eof,
+                                   const io::IOContext* io_ctx) {
     *file_size = file_reader->size();
     *current_offset = 0;
     *eof = (*file_size == 0);
@@ -63,7 +76,7 @@ Status validate_and_consume_header(io::FileReaderSPtr file_reader, const TFileRa
     char header[HEADER_SIZE];
     Slice header_slice(header, sizeof(header));
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(file_reader->read_at(0, header_slice, &bytes_read));
+    RETURN_IF_ERROR(file_reader->read_at(0, header_slice, &bytes_read, io_ctx));
     if (bytes_read != sizeof(header)) {
         return Status::InternalError(
                 "failed to read Doris Native header from file {}, expect {} bytes, got {} bytes",
@@ -126,21 +139,26 @@ Status NativeReader::init_reader() {
 
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(_state, file_description);
-    auto reader_res = io::DelegateReader::create_file_reader(
-            _profile, system_properties, file_description, reader_options,
-            io::DelegateReader::AccessMode::RANDOM, _io_ctx);
+    auto reader_res =
+            _io_ctx_holder ? io::DelegateReader::create_file_reader(
+                                     _profile, system_properties, file_description, reader_options,
+                                     io::DelegateReader::AccessMode::RANDOM,
+                                     std::static_pointer_cast<const io::IOContext>(_io_ctx_holder))
+                           : io::DelegateReader::create_file_reader(
+                                     _profile, system_properties, file_description, reader_options,
+                                     io::DelegateReader::AccessMode::RANDOM, _io_ctx);
     if (!reader_res.has_value()) {
         return reader_res.error();
     }
     _file_reader = reader_res.value();
 
-    if (_io_ctx) {
+    if (_io_ctx && _io_ctx->file_reader_stats) {
         _file_reader =
                 std::make_shared<io::TracingFileReader>(_file_reader, _io_ctx->file_reader_stats);
     }
 
     RETURN_IF_ERROR(validate_and_consume_header(_file_reader, _scan_range, &_file_size,
-                                                &_current_offset, &_eof));
+                                                &_current_offset, &_eof, _io_ctx));
     return Status::OK();
 }
 
@@ -310,7 +328,7 @@ Status NativeReader::_read_next_pblock(std::string* buff, bool* eof) {
     uint64_t len = 0;
     Slice len_slice(reinterpret_cast<char*>(&len), sizeof(len));
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(_file_reader->read_at(_current_offset, len_slice, &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(_current_offset, len_slice, &bytes_read, _io_ctx));
     if (bytes_read == 0) {
         *eof = true;
         return Status::OK();
@@ -332,7 +350,7 @@ Status NativeReader::_read_next_pblock(std::string* buff, bool* eof) {
     buff->assign(len, '\0');
     Slice data_slice(buff->data(), len);
     bytes_read = 0;
-    RETURN_IF_ERROR(_file_reader->read_at(_current_offset, data_slice, &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(_current_offset, data_slice, &bytes_read, _io_ctx));
     if (bytes_read != len) {
         return Status::InternalError(
                 "Failed to read native block body from file {}, expect {}, "

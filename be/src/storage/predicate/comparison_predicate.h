@@ -280,7 +280,12 @@ public:
             if (bf->is_ngram_bf()) {
                 return true;
             }
-            if constexpr (is_string_type(Type)) {
+            if constexpr (Type == TYPE_CHAR) {
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
+                // pruning for CHAR entirely and let the scan filter the rows.
+                return true;
+            } else if constexpr (is_string_type(Type)) {
                 return bf->test_bytes(_value.data(), _value.size());
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
@@ -392,7 +397,7 @@ public:
             try_reset_judge_selectivity();
         });
 
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
             const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
@@ -485,7 +490,7 @@ public:
 
 private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
             const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
@@ -538,7 +543,7 @@ private:
     template <bool is_and>
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
             const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();

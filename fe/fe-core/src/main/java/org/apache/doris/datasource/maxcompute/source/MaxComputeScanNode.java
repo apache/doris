@@ -707,6 +707,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         long getOdpsTableTime = System.currentTimeMillis();
         LOG.info("MaxComputeScanNode getSplits: getOdpsTable cost {} ms", getOdpsTableTime - startTime);
 
+        if (MaxComputeExternalTable.isUnsupportedOdpsTable(odpsTable)) {
+            throw new UserException("Reading MaxCompute external table or logical view is not supported: "
+                    + table.getDbName() + "." + table.getName());
+        }
+
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }

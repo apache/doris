@@ -148,7 +148,10 @@ public class QueryStatsUtil {
         request.setType(TQueryStatsType.TABLET);
         request.setReplicaId(replicaId);
         for (TQueryStatsResult other : getStats(request)) {
-            queryHits += other.getTabletStats().get(replicaId);
+            Long remoteCount = other.getTabletStats().get(replicaId);
+            if (remoteCount != null) {
+                queryHits += remoteCount;
+            }
         }
         return queryHits;
     }

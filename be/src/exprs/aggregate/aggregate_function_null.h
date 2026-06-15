@@ -465,7 +465,7 @@ public:
             return;
         }
 
-        DCHECK(columns[0]->is_nullable()) << columns[0]->get_name();
+        DCHECK(is_column_nullable(*columns[0])) << columns[0]->get_name();
         const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
 

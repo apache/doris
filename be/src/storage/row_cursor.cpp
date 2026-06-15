@@ -48,23 +48,6 @@ void RowCursor::_init_schema(TabletSchemaSPtr schema, uint32_t column_count) {
     _schema.reset(new Schema(schema->columns(), columns));
 }
 
-void RowCursor::_init_schema(const std::shared_ptr<Schema>& shared_schema, uint32_t column_count) {
-    _schema.reset(new Schema(*shared_schema));
-}
-
-Status RowCursor::init(TabletSchemaSPtr schema, size_t num_columns) {
-    if (num_columns > schema->num_columns()) {
-        return Status::Error<INVALID_ARGUMENT>(
-                "Input param are invalid. Column count is bigger than num_columns of schema. "
-                "column_count={}, schema.num_columns={}",
-                num_columns, schema->num_columns());
-    }
-    _init_schema(schema, cast_set<uint32_t>(num_columns));
-    // Initialize all fields as null (TYPE_NULL).
-    _fields.resize(num_columns);
-    return Status::OK();
-}
-
 Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple) {
     size_t key_size = tuple.size();
     if (key_size > schema->num_columns()) {
@@ -74,20 +57,7 @@ Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple) {
                 key_size, schema->num_columns());
     }
     _init_schema(schema, cast_set<uint32_t>(key_size));
-    return from_tuple(tuple);
-}
-
-Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple,
-                       const std::shared_ptr<Schema>& shared_schema) {
-    size_t key_size = tuple.size();
-    if (key_size > schema->num_columns()) {
-        return Status::Error<INVALID_ARGUMENT>(
-                "Input param are invalid. Column count is bigger than num_columns of schema. "
-                "column_count={}, schema.num_columns={}",
-                key_size, schema->num_columns());
-    }
-    _init_schema(shared_schema, cast_set<uint32_t>(key_size));
-    return from_tuple(tuple);
+    return _from_tuple(tuple);
 }
 
 Status RowCursor::init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fields) {
@@ -103,7 +73,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fiel
     return Status::OK();
 }
 
-Status RowCursor::from_tuple(const OlapTuple& tuple) {
+Status RowCursor::_from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "column count does not match. tuple_size={}, field_count={}", tuple.size(),
@@ -121,17 +91,6 @@ RowCursor RowCursor::clone() const {
     result._schema = std::make_unique<Schema>(*_schema);
     result._fields = _fields;
     return result;
-}
-
-void RowCursor::pad_char_fields() {
-    for (size_t i = 0; i < _fields.size(); ++i) {
-        const TabletColumn* col = _schema->column(cast_set<uint32_t>(i));
-        if (col->type() == FieldType::OLAP_FIELD_TYPE_CHAR && !_fields[i].is_null()) {
-            String padded = _fields[i].get<TYPE_CHAR>();
-            padded.resize(col->length(), '\0');
-            _fields[i] = Field::create_field<TYPE_CHAR>(std::move(padded));
-        }
-    }
 }
 
 std::string RowCursor::to_string() const {

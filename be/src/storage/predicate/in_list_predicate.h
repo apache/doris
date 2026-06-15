@@ -68,18 +68,16 @@ public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     InListPredicateBase(uint32_t column_id, std::string col_name,
-                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
-                        size_t char_length = 0)
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite)
             : ColumnPredicate(column_id, col_name, Type, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);
 
         // String types need a copy because:
-        // 1. The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
-        //    StringSet<FixedContainer<std::string, N>> for small-set optimization — different
-        //    C++ types, cannot share the pointer.
-        // 2. CHAR type additionally needs padding to char_length.
+        // The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
+        // StringSet<FixedContainer<std::string, N>> for small-set optimization — different
+        // C++ types, cannot share the pointer.
         //
         // Date/DECIMALV2 types do NOT need a copy: their ElementType (CppType) is identical
         // between the caller's HybridSet and InListPredicateBase's, and InListPredicateBase
@@ -93,13 +91,7 @@ public:
             HybridSetBase::IteratorBase* iter = hybrid_set->begin();
             while (iter->has_next()) {
                 const auto* value = (const StringRef*)(iter->get_value());
-                if constexpr (Type == TYPE_CHAR) {
-                    std::string padded(std::max(char_length, value->size), '\0');
-                    memcpy(padded.data(), value->data, value->size);
-                    _values->insert((void*)padded.data(), padded.length());
-                } else {
-                    _values->insert((void*)value->data, value->size);
-                }
+                _values->insert((void*)value->data, value->size);
                 iter->next();
             }
         } else {
@@ -207,7 +199,7 @@ public:
     template <bool is_and>
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
@@ -350,6 +342,12 @@ public:
             if (bf->is_ngram_bf()) {
                 return true;
             }
+            if constexpr (Type == TYPE_CHAR) {
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
+                // pruning for CHAR entirely.
+                return true;
+            }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (is_string_type(Type)) {
@@ -460,7 +458,7 @@ private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         int16_t new_size = 0;
 
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();

@@ -464,8 +464,7 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
 
             // This value-extraction logic is preserved from your original function
             // to maintain consistency, especially for handling nullability mismatches.
-            if (data[i].column && data[i].type->is_nullable() &&
-                !data[i].column->is_concrete_nullable()) {
+            if (data[i].column && data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                 // This branch handles a specific internal representation of nullable columns.
                 // The original code would assert here if allow_null_mismatch is false.
                 assert(allow_null_mismatch);
@@ -530,7 +529,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             std::string s;
             if (data[i].column) { // column may be const
                 // for code inside `default_implementation_for_nulls`, there's could have: type = null, col != null
-                if (data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
+                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                     assert(allow_null_mismatch);
                     s = assert_cast<const DataTypeNullable*>(data[i].type.get())
                                 ->get_nested_type()
@@ -1256,21 +1255,6 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_rese
         temp_block->insert({std::move(column), d.type, d.name});
     }
     return temp_block;
-}
-
-void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
-    for (auto idx : char_type_idx) {
-        if (idx < data.size()) {
-            auto& col_and_name = this->get_by_position(idx);
-            if (col_and_name.column->is_exclusive()) {
-                col_and_name.column->assert_mutable()->shrink_padding_chars();
-            } else {
-                auto mutable_col = std::move(*col_and_name.column).mutate();
-                mutable_col->shrink_padding_chars();
-                col_and_name.column = std::move(mutable_col);
-            }
-        }
-    }
 }
 
 size_t MutableBlock::allocated_bytes() const {

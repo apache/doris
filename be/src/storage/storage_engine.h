@@ -61,7 +61,6 @@ class MemTableFlushExecutor;
 class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
-class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class StreamLoadRecorder;
 class TCloneReq;
@@ -231,7 +230,7 @@ public:
 
     void jsonfy_compaction_status(std::string* result);
 
-    std::vector<TabletSharedPtr> pick_topn_tablets_for_compaction(
+    std::vector<TabletCompactionContext> pick_topn_tablets_for_compaction(
             TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
             const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
 
@@ -242,6 +241,7 @@ private:
     Registry _tablet_submitted_cumu_compaction;
     Registry _tablet_submitted_base_compaction;
     Registry _tablet_submitted_full_compaction;
+    Registry _tablet_submitted_binlog_compaction;
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -342,11 +342,7 @@ public:
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response);
 
-    bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
-
     bool get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends);
-
-    bool should_fetch_from_peer(int64_t tablet_id);
 
     const std::shared_ptr<StreamLoadRecorder>& get_stream_load_recorder() {
         return _stream_load_recorder;
@@ -439,26 +435,25 @@ private:
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
+    void _binlog_compaction_tasks_producer_callback();
 
-    void _update_replica_infos_callback();
-
-    std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
-                                                            std::vector<DataDir*>& data_dirs,
-                                                            bool check_score);
+    std::vector<TabletCompactionContext> _generate_compaction_tasks(
+            CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score);
     void _update_cumulative_compaction_policy();
+    CumuCompactionPolicyTable _snapshot_cumulative_compaction_policy();
+    std::shared_ptr<CumulativeCompactionPolicy> _get_cumulative_compaction_policy(
+            std::string_view compaction_policy);
 
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force, int trigger_method = 0);
+                                   bool force, int trigger_method = 0,
+                                   int8_t prefer_compaction_level = -1);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
                             CompactionType compaction_type, int64_t permits, bool force,
                             int64_t compaction_id = 0);
-
-    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
-                                                  CompactionType compaction_type);
 
     void _adjust_compaction_thread_num();
 
@@ -525,7 +520,7 @@ private:
     std::shared_ptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
     std::shared_ptr<Thread> _compaction_tasks_producer_thread;
-    std::shared_ptr<Thread> _update_replica_infos_thread;
+    std::shared_ptr<Thread> _binlog_compaction_tasks_producer_thread;
     std::shared_ptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<std::shared_ptr<Thread>> _path_gc_threads;
@@ -545,7 +540,7 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _binlog_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
@@ -561,17 +556,13 @@ private:
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
 
-    std::mutex _peer_replica_infos_mutex;
-    // key: tabletId
-    std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
-    std::string _token;
-
     std::atomic<int32_t> _wakeup_producer_flag {0};
 
     std::mutex _compaction_producer_sleep_mutex;
     std::condition_variable _compaction_producer_sleep_cv;
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
+    std::mutex _cumulative_compaction_policy_mtx;
     CumuCompactionPolicyTable _cumulative_compaction_policies;
 
     std::shared_ptr<Thread> _cooldown_tasks_producer_thread;

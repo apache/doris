@@ -74,6 +74,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     LockGuard lock(_conjuncts_lock);
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
@@ -81,6 +82,14 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
             return a->execute_cost() < b->execute_cost();
         });
     };
+    // Only re-run partition pruning when try_append_late_arrival_runtime_filter
+    // actually appended new conjuncts. Otherwise this hook would re-scan all
+    // partition boundaries on every scheduler pass while there are still
+    // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
+    // CPU re-evaluating the same set of RFs against the same boundaries.
+    if (_conjuncts.size() > conjuncts_before) {
+        RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
     return Status::OK();
 }
 
@@ -90,6 +99,37 @@ Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjun
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
+    }
+    return Status::OK();
+}
+
+bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
+    return _rf_partition_pruner.is_partition_pruned(partition_id);
+}
+
+Status ScanLocalStateBase::_on_runtime_filter_update() {
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed != nullptr && !parsed->empty()) {
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
+    }
+    return Status::OK();
+}
+
+Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
+    if (!_state->query_options().enable_runtime_filter_partition_prune) {
+        return Status::OK();
+    }
+    const auto* parsed = _parent->parsed_partition_boundaries();
+    if (parsed == nullptr || parsed->empty()) {
+        return Status::OK();
+    }
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_partition_pruner.prune_by_runtime_filters(
+            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            &newly_pruned));
+    if (newly_pruned > 0) {
+        COUNTER_SET(_partitions_pruned_by_rf_counter,
+                    _rf_partition_pruner.pruned_partition_count());
     }
     return Status::OK();
 }
@@ -190,7 +230,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
+    size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+    if (_conjuncts.size() > conjuncts_before) {
+        RETURN_IF_ERROR(_on_runtime_filter_update());
+    }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
     if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
@@ -425,12 +469,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                                                     status);
                             }
                             break;
-                        case TExprNodeType::BITMAP_PRED:
-                            RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                                        context, root, slot,
-                                                        _slot_id_to_predicates[slot->id()], &pdt),
-                                                status);
-                            break;
                         case TExprNodeType::BLOOM_PRED:
                             RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
                                                         context, root, slot,
@@ -523,34 +561,6 @@ Status ScanLocalStateBase::_normalize_topn_filter(
     return Status::OK();
 }
 
-Status ScanLocalStateBase::_normalize_bitmap_filter(
-        VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
-        std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
-    std::shared_ptr<ColumnPredicate> pred = nullptr;
-    Defer defer = [&]() {
-        if (pred) {
-            DCHECK(*pdt != PushDownType::UNACCEPTABLE) << root->debug_string();
-            predicates.emplace_back(pred);
-        } else {
-            // If exception occurs during processing, do not push down
-            *pdt = PushDownType::UNACCEPTABLE;
-        }
-    };
-    DCHECK(TExprNodeType::BITMAP_PRED == root->node_type());
-    auto expr = root->is_rf_wrapper() ? root->get_impl() : root;
-    *pdt = _should_push_down_bitmap_filter();
-    if (*pdt != PushDownType::UNACCEPTABLE) {
-        DCHECK(expr->get_num_children() == 1);
-        DCHECK(root->is_rf_wrapper());
-        pred = create_bitmap_filter_predicate(
-                _parent->intermediate_row_desc().get_column_id(slot->id()), slot->col_name(),
-                slot->type()->get_primitive_type() == TYPE_VARIANT ? expr->get_child(0)->data_type()
-                                                                   : slot->type(),
-                expr->get_bitmap_filter_func());
-    }
-    return Status::OK();
-}
-
 Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
                                                        PushDownType* pdt) {
     auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
@@ -608,7 +618,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
     if (_slot_id_to_value_range.end() == sid_to_range) {
         return false;
     }
-    if (remove_nullable((*slot_desc)->type())->get_primitive_type() == TYPE_VARBINARY) {
+    if (!_parent->cast<typename Derived::Parent>().can_push_down_column_predicate(*slot_desc)) {
         return false;
     }
     *range = &(sid_to_range->second);
@@ -1080,6 +1090,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     _condition_cache_filtered_rows_counter =
             ADD_COUNTER(_scanner_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
 
+    _partitions_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "PartitionsPrunedByRuntimeFilter", TUnit::UNIT);
+    _total_partitions_rf_counter =
+            ADD_COUNTER(custom_profile(), "TotalPartitionsForRFPruning", TUnit::UNIT);
+
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_ROWS, TUnit::UNIT, 1);
@@ -1250,11 +1265,6 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
     for (auto id : _topn_filter_source_node_ids) {
-        if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-            // compatible with older versions fe
-            continue;
-        }
-
         int cid = -1;
         if (state->get_query_ctx()->get_runtime_predicate(id).target_is_slot(node_id())) {
             auto s = _slot_id_to_slot_desc[state->get_query_ctx()
@@ -1263,11 +1273,10 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
                                                    .nodes[0]
                                                    .slot_ref.slot_id];
             DCHECK(s != nullptr);
-            if (remove_nullable(s->type())->get_primitive_type() == TYPE_VARBINARY) {
-                continue;
+            if (can_push_down_column_predicate(s)) {
+                auto col_name = s->col_name();
+                cid = get_column_id(col_name);
             }
-            auto col_name = s->col_name();
-            cid = get_column_id(col_name);
         }
         RETURN_IF_ERROR(state->get_query_ctx()->get_runtime_predicate(id).init_target(
                 node_id(), _slot_id_to_slot_desc, cid));
@@ -1305,7 +1314,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status ScanOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

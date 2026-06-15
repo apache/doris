@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.executor;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectLimitAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
@@ -124,6 +126,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectBetweenTopNAndAgg;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectExprUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -395,6 +398,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("Push project and filter on cte consumer to cte producer",
                                     topDown(
                                             new CollectFilterAboveConsumer(),
+                                            new CollectLimitAboveConsumer(),
                                             new CollectCteConsumerOutput())
                             ),
                             topic("eliminate join according unique or foreign key",
@@ -716,7 +720,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new PullUpProjectUnderTopN(),
                                 new PullUpProjectUnderLimit()
-                        )
+                        ),
+                        custom(RuleType.PULL_UP_PROJECT_EXPR_UNDER_TOPN,
+                                PullUpProjectExprUnderTopN::new)
                 ),
                 // TODO: these rules should be implementation rules, and generate alternative physical plans.
                 topic("Table/Physical optimization",
@@ -775,6 +781,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
+                                new CollectLimitAboveConsumer(),
                                 new CollectCteConsumerOutput()
                         )
                 ),
@@ -892,12 +899,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-                    rewriteJobs.add(
-                            topic("normalize olap table stream scan",
-                                    custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
-                                            NormalizeOlapTableStreamScan::new)
-                            )
-                    );
+                    if (Config.enable_table_stream) {
+                        rewriteJobs.addAll(jobs(
+                                        topic("normalize olap table stream scan",
+                                                topDown(new NormalizeOlapTableStreamScan())
+                                        )
+                                )
+                        );
+                    }
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),

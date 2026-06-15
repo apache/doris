@@ -23,6 +23,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 
+#include "util/defer_op.h"
+
 #define private public
 #define protected public
 #include "io/cache/block_file_cache_test_common.h"
@@ -55,12 +57,30 @@ void verify_meta_key(CacheBlockMetaStore& meta_store, int64_t tablet_id,
 } // namespace
 
 TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
+    const auto old_enable_evict = config::enable_evict_file_cache_in_advance;
+    const auto old_disk_limit_percent = config::file_cache_enter_disk_resource_limit_mode_percent;
+    const auto old_dump_interval_ms = config::file_cache_background_lru_dump_interval_ms;
+    const auto old_dump_update_cnt_threshold =
+            config::file_cache_background_lru_dump_update_cnt_threshold;
+    const auto old_dump_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_replay_interval_ms = config::file_cache_background_lru_log_replay_interval_ms;
+    Defer defer {[old_enable_evict, old_disk_limit_percent, old_dump_interval_ms,
+                  old_dump_update_cnt_threshold, old_dump_tail_record_num, old_replay_interval_ms] {
+        config::enable_evict_file_cache_in_advance = old_enable_evict;
+        config::file_cache_enter_disk_resource_limit_mode_percent = old_disk_limit_percent;
+        config::file_cache_background_lru_dump_interval_ms = old_dump_interval_ms;
+        config::file_cache_background_lru_dump_update_cnt_threshold = old_dump_update_cnt_threshold;
+        config::file_cache_background_lru_dump_tail_record_num = old_dump_tail_record_num;
+        config::file_cache_background_lru_log_replay_interval_ms = old_replay_interval_ms;
+    }};
+
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
     config::file_cache_background_lru_dump_interval_ms = 3000;
     config::file_cache_background_lru_dump_update_cnt_threshold = 0;
     config::file_cache_background_lru_dump_tail_record_num =
             2; // only dump last 2, to check dump works with meta store
+    config::file_cache_background_lru_log_replay_interval_ms = 60 * 60 * 1000;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -239,8 +259,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         ASSERT_EQ(cache._lru_recorder->_disposable_lru_log_queue.size_approx(), 5);
 
         // then check the log replay
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-                2 * config::file_cache_background_lru_log_replay_interval_ms));
+        ASSERT_EQ(cache.replay_lru_logs_once(), 20);
         ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
@@ -251,12 +270,13 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             cache.remove_if_cached(key2); // remove all element from index queue
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-                2 * config::file_cache_background_lru_log_replay_interval_ms));
+        ASSERT_EQ(cache.replay_lru_logs_once(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 0);
         ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
         ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        EXPECT_EQ(cache.replay_lru_logs_once(), 0);
+        EXPECT_EQ(cache._lru_recorder_log_replay_idle_metrics->get_value(), 1);
 
         // check the meta store to see the content
         {

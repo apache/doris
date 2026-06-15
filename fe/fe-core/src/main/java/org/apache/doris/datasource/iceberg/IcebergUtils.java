@@ -135,6 +135,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -635,6 +636,8 @@ public class IcebergUtils {
                                 icebergTypeToDorisType(x.type(), enableMappingVarbinary, enableMappingTimestampTz)))
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
+            case VARIANT:
+                return Type.UNSUPPORTED;
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -704,6 +707,57 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
+    public static List<String> getIdentityPartitionColumns(Table table) {
+        LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
+        for (PartitionSpec spec : table.specs().values()) {
+            for (PartitionField partitionField : spec.fields()) {
+                if (!partitionField.transform().isIdentity()) {
+                    continue;
+                }
+                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                if (columnName != null) {
+                    partitionColumns.add(columnName.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return new ArrayList<>(partitionColumns);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Table table, String timeZone) {
+        Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        List<PartitionField> partitionFields = partitionSpec.fields();
+        Preconditions.checkArgument(fields.size() == partitionFields.size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            PartitionField partitionField = partitionFields.get(i);
+            if (!partitionField.transform().isIdentity()) {
+                continue;
+            }
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                continue;
+            }
+
+            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            if (columnName == null) {
+                continue;
+            }
+            Object value = partitionData.get(i);
+            try {
+                partitionInfoMap.put(columnName.toLowerCase(Locale.ROOT),
+                        serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
+            }
+        }
+        return partitionInfoMap;
+    }
+
     public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
             String timeZone) {
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
@@ -749,8 +803,6 @@ public class IcebergUtils {
             case BOOLEAN:
             case INTEGER:
             case LONG:
-            case FLOAT:
-            case DOUBLE:
             case STRING:
             case UUID:
             case DECIMAL:
@@ -758,6 +810,16 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary, fixed should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:
@@ -905,9 +967,9 @@ public class IcebergUtils {
                 case LONG:
                     return Long.parseLong(valueStr);
                 case FLOAT:
-                    return Float.parseFloat(valueStr);
+                    return Float.parseFloat(normalizeFloatingPointPartitionValue(valueStr));
                 case DOUBLE:
-                    return Double.parseDouble(valueStr);
+                    return Double.parseDouble(normalizeFloatingPointPartitionValue(valueStr));
                 case BOOLEAN:
                     return Boolean.parseBoolean(valueStr);
                 case DATE:
@@ -924,6 +986,20 @@ public class IcebergUtils {
             throw new IllegalArgumentException(String.format("Failed to convert partition value '%s' to type %s",
                     valueStr, icebergType), e);
         }
+    }
+
+    private static String normalizeFloatingPointPartitionValue(String valueStr) {
+        if ("nan".equalsIgnoreCase(valueStr)) {
+            return "NaN";
+        }
+        if ("inf".equalsIgnoreCase(valueStr) || "+inf".equalsIgnoreCase(valueStr)
+                || "infinity".equalsIgnoreCase(valueStr) || "+infinity".equalsIgnoreCase(valueStr)) {
+            return "Infinity";
+        }
+        if ("-inf".equalsIgnoreCase(valueStr) || "-infinity".equalsIgnoreCase(valueStr)) {
+            return "-Infinity";
+        }
+        return valueStr;
     }
 
     /**
@@ -1081,12 +1157,7 @@ public class IcebergUtils {
 
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
-        String fileFormatName;
-        if (properties.containsKey(WRITE_FORMAT)) {
-            fileFormatName = properties.get(WRITE_FORMAT);
-        } else {
-            fileFormatName = properties.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, PARQUET_NAME);
-        }
+        String fileFormatName = resolveFileFormatName(icebergTable, properties);
         FileFormat fileFormat;
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
@@ -1096,6 +1167,39 @@ public class IcebergUtils {
             throw new RuntimeException("Unsupported input format type: " + fileFormatName);
         }
         return fileFormat;
+    }
+
+    private static String resolveFileFormatName(Table icebergTable, Map<String, String> properties) {
+        // 1. Check "write-format" (nickname in Flink and Spark)
+        if (properties.containsKey(WRITE_FORMAT)) {
+            return properties.get(WRITE_FORMAT);
+        }
+        // 2. Check "write.format.default" (standard Iceberg property)
+        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
+        }
+        // 3. Last resort: infer from the actual data files in the current snapshot.
+        //    This handles migrated tables where none of the above properties are set.
+        return inferFileFormatFromDataFiles(icebergTable);
+    }
+
+    private static String inferFileFormatFromDataFiles(Table icebergTable) {
+        if (icebergTable.currentSnapshot() == null) {
+            LOG.info("Iceberg table {} has no snapshot, defaulting to {}", icebergTable.name(), PARQUET_NAME);
+            return PARQUET_NAME;
+        }
+        try (CloseableIterable<FileScanTask> files = icebergTable.newScan().planFiles()) {
+            java.util.Iterator<FileScanTask> it = files.iterator();
+            if (it.hasNext()) {
+                String format = it.next().file().format().name().toLowerCase();
+                LOG.info("Iceberg table {} inferred file format {} from data files", icebergTable.name(), format);
+                return format;
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
+                    icebergTable.name(), PARQUET_NAME, e);
+        }
+        return PARQUET_NAME;
     }
 
 
@@ -1128,9 +1232,13 @@ public class IcebergUtils {
         }
         String dataLocation = properties.get(TableProperties.WRITE_DATA_LOCATION);
         if (dataLocation == null) {
-            dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+            dataLocation = Boolean.parseBoolean(properties.get(TableProperties.OBJECT_STORE_ENABLED))
+                    ? properties.get(TableProperties.OBJECT_STORE_PATH) : null;
             if (dataLocation == null) {
-                dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+                dataLocation = properties.get(TableProperties.WRITE_FOLDER_STORAGE_LOCATION);
+                if (dataLocation == null) {
+                    dataLocation = String.format("%s/data", LocationUtil.stripTrailingSlash(table.location()));
+                }
             }
         }
         return dataLocation;
