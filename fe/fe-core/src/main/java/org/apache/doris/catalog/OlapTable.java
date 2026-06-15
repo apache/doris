@@ -2110,6 +2110,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
+
+        if (tableProperty != null && tableProperty.hasInvalidDynamicPartition()) {
+            LOG.warn("Table [{}-{}] has incomplete dynamic partition properties {}, "
+                    + "treat it as a non-dynamic-partition table.",
+                    name, id, tableProperty.getOriginDynamicPartitionProperty());
+        }
     }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
