@@ -26,6 +26,7 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 public class LiteralExprUtils {
 
@@ -110,10 +111,13 @@ public class LiteralExprUtils {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid decimal literal: " + value, e);
         }
-        // Do not silently round partition boundary values. If a user specifies
-        // VALUES LESS THAN ('10.005') on a DECIMAL(10,2) column, the rounded
-        // boundary (10.01) might not be what they intended.
-        if (decimalValue.scale() > scalarType.getScalarScale()) {
+        // Reject partition values that cannot be exactly represented at the column's
+        // scale. Trailing zeros (e.g. '10.000' for DECIMAL(10,2)) are exact and pass;
+        // non-zero digits beyond the target scale (e.g. '10.005' for DECIMAL(10,2))
+        // would be silently rounded by the old code and now throw an AnalysisException.
+        try {
+            decimalValue = decimalValue.setScale(scalarType.getScalarScale(), RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException e) {
             throw new AnalysisException(String.format(
                     "Partition value %s has scale %d which exceeds column scale %d for type %s",
                     value, decimalValue.scale(), scalarType.getScalarScale(), type));
