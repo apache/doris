@@ -48,7 +48,7 @@ private:
     ColumnDictI32(const ColumnDictI32& src) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "copy not supported in ColumnDictionary");
     }
-    ColumnDictI32(FieldType type) : _type(type) {}
+    ColumnDictI32() = default;
 
 public:
     using Self = ColumnDictI32;
@@ -106,7 +106,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
-        return create(_type);
+        return create();
     }
 
     void insert(const Field& x) override {
@@ -453,7 +453,6 @@ private:
     bool _dict_code_converted = false;
     Dictionary _dict;
     Container _codes;
-    FieldType _type;
     std::pair<RowsetId, uint32_t> _rowset_segment_id;
     std::vector<StringRef> _strings;
 };

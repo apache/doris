@@ -663,8 +663,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
                     // Here, cid will not go out of bounds
                     // because the size of _current_return_columns equals _schema->tablet_columns().size()
                     _current_return_columns[cid] = Schema::get_predicate_column_ptr(
-                            storage_column_type->get_storage_field_type(),
-                            storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
+                            storage_column_type, _opts.io_ctx.reader_type));
             _current_return_columns[cid]->set_rowset_segment_id(
                     {_segment->rowset_id(), _segment->id()});
             _current_return_columns[cid]->reserve(nrows_reserve_limit);
@@ -1308,8 +1307,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred.get()) != nullptr ||
-        dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred.get()) != nullptr) {
+    if (dynamic_cast<LikeColumnPredicate*>(pred.get()) != nullptr) {
         return false;
     }
 

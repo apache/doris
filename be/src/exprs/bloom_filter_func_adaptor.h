@@ -84,6 +84,11 @@ struct CommonFindOp {
                                            const doris::IColumn& column, const uint8_t* nullmap,
                                            uint16_t* offsets, int number,
                                            const bool is_parse_column) {
+        // This path reinterpret-casts the column's raw data as a contiguous T[], which is only
+        // valid for fixed-length types. String types (StringRef/String) are not laid out this way
+        // and must go through StringFindOp instead.
+        static_assert(!std::is_same_v<T, StringRef> && !std::is_same_v<T, String>,
+                      "find_batch_olap_engine does not support string types; use StringFindOp");
         const T* __restrict data = reinterpret_cast<const T*>(column.get_raw_data().data);
         return find_batch_olap_impl<fixed_len_to_uint32_method>(
                 bloom_filter, [data](int i) { return data[i]; }, nullmap, offsets, number,
