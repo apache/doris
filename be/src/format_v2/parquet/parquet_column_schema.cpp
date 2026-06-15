@@ -225,8 +225,10 @@ Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
 }
 
 // Resolves the repeated entry group of a MAP/MAP_KEY_VALUE node. Unlike LIST, MAP has no supported
-// two-level form in this reader: Doris requires a repeated group with exactly required key and
-// value children, then folds that physical entry group out of ParquetColumnSchema.
+// two-level form in this reader: Doris requires a repeated group with exactly key and value
+// children, then folds that physical entry group out of ParquetColumnSchema. Some external writers
+// emit optional MAP keys even though standard Parquet MAP keys are required; keep the key's
+// definition levels and expose it as nullable for compatibility with the old reader.
 Status resolve_map_entry_group(const ::parquet::schema::GroupNode& map_group,
                                const SchemaBuildContext& map_context, MapEntryResolution* result) {
     if (result == nullptr) {
@@ -248,10 +250,6 @@ Status resolve_map_entry_group(const ::parquet::schema::GroupNode& map_group,
     const auto& entry_group = static_cast<const ::parquet::schema::GroupNode&>(entry_node);
     if (entry_group.field_count() != 2) {
         return Status::NotSupported("Unsupported parquet MAP key_value layout for column {}",
-                                    map_group.name());
-    }
-    if (entry_group.field(0)->repetition() != ::parquet::Repetition::REQUIRED) {
-        return Status::NotSupported("Unsupported nullable parquet MAP key for column {}",
                                     map_group.name());
     }
     result->entry_group = &entry_group;
