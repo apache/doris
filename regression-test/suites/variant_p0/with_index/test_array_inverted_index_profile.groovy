@@ -36,7 +36,7 @@ suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
         conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
                 (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
         conn.setRequestProperty("Authorization", "Basic ${encoding}")
         return conn.getInputStream().getText()
@@ -46,7 +46,7 @@ suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
             def dst = 'http://' + context.config.feHttpAddress
             def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
             conn.setRequestMethod("GET")
-            def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+            def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
                     (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
             conn.setRequestProperty("Authorization", "Basic ${encoding}")
             return conn.getInputStream().getText()
@@ -75,9 +75,8 @@ suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
         return getProfile(profileId).toString()
     }
 
-    // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    // Pin enable_segment_limit_pushdown to keep inverted-index pushdown stable under fuzzy testing
+    sql """ set enable_segment_limit_pushdown = true; """
     sql """ set enable_profile = true;"""
     sql """ set profile_level = 2;"""
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {

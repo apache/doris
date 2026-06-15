@@ -18,8 +18,8 @@
 suite("test_search_null_semantics", "p0") {
     def tableName = "search_null_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
-    sql """ set enable_common_expr_pushdown = true """
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -63,30 +63,30 @@ suite("test_search_null_semantics", "p0") {
     // search('title:"Ronald" or (content:ALL("Selma Blair"))', '{"mode":"standard"}') should match
     // title match "Ronald" or (content match_all "Selma Blair")
     qt_test_case_1_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:Ronald OR (content:ALL(Selma Blair))', '{"mode":"standard"}')
     """
 
     qt_test_case_1_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Ronald" or (content match_all "Selma Blair")
     """
 
     // Test Case 2: NOT query consistency - Original Issue Reproduction
     // search('not content:"Round"', '{"mode":"standard"}') should match not search('content:"Round"', '{"mode":"standard"}')
     qt_test_case_2_internal_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT content:Round', '{"mode":"standard"}')
     """
 
     qt_test_case_2_external_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE not search('content:Round', '{"mode":"standard"}')
     """
 
     // Test Case 2b: Phrase NOT queries must treat NULL rows as UNKNOWN
     qt_test_case_2_phrase_not """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
         WHERE NOT search('content:"Selma Blair"', '{"mode":"standard"}')
         ORDER BY id
     """
@@ -94,7 +94,7 @@ suite("test_search_null_semantics", "p0") {
     // Test Case 3: NULL handling in OR queries
     // Verify that NULL OR TRUE = TRUE logic works
     qt_test_case_3_or_with_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:Ronald OR content:biography', '{"mode":"standard"}')
         ORDER BY id
     """
@@ -102,42 +102,42 @@ suite("test_search_null_semantics", "p0") {
     // Test Case 4: NULL handling in AND queries
     // Verify that NULL AND TRUE = NULL logic works
     qt_test_case_4_and_with_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content FROM ${tableName}
         WHERE search('title:Ronald AND content:biography', '{"mode":"standard"}')
         ORDER BY id
     """
 
     // Test Case 5: Complex OR query with multiple NULL scenarios
     qt_test_case_5_complex_or_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:Unknown OR content:mascot OR category:Test', '{"mode":"standard"}')
     """
 
     qt_test_case_5_complex_or_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Unknown" or content match "mascot" or category match "Test"
     """
 
     // Test Case 6: NOT query with different field types
     qt_test_case_6_not_title_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT title:Ronald', '{"mode":"standard"}')
     """
 
     qt_test_case_6_not_title_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE not search('title:Ronald', '{"mode":"standard"}')
     """
 
     // Test Case 7: Mixed boolean operations
     qt_test_case_7_mixed """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('(title:Ronald OR content:Selma) AND NOT category:Unknown', '{"mode":"standard"}')
     """
 
     // Test Case 8: Edge case - all NULL fields
     qt_test_case_8_all_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:NonExistent OR content:NonExistent OR category:NonExistent', '{"mode":"standard"}')
     """
 
@@ -205,69 +205,69 @@ suite("test_search_null_semantics", "p0") {
     Thread.sleep(10000)
 
     qt_nested_1_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE search('(field_a:alpha OR field_b:beta) AND (field_c:gamma OR field_d:delta)', '{"mode":"standard"}')
     """
 
     qt_nested_1_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE (field_a match "alpha" OR field_b match "beta") AND (field_c match "gamma" OR field_d match "delta")
     """
 
     qt_nested_1_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, field_a, field_b, field_c, field_d
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, field_a, field_b, field_c, field_d
         FROM ${nestedTable}
         WHERE search('(field_a:alpha OR field_b:beta) AND (field_c:gamma OR field_d:delta)', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_nested_2_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE search('field_a:target OR (field_b:beta AND (field_c:gamma OR field_d:delta))', '{"mode":"standard"}')
     """
 
     qt_nested_2_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE field_a match "target" OR (field_b match "beta" AND (field_c match "gamma" OR field_d match "delta"))
     """
 
     qt_nested_3_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE search('NOT (field_a:forbidden OR field_b:forbidden)', '{"mode":"standard"}')
     """
 
     qt_nested_3_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE NOT (field_a match "forbidden" OR field_b match "forbidden")
     """
 
     qt_nested_4_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE search('(field_a:alpha OR field_b:beta) AND NOT (field_c:exclude OR field_d:exclude)', '{"mode":"standard"}')
     """
 
     qt_nested_4_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE (field_a match "alpha" OR field_b match "beta") AND NOT (field_c match "exclude" OR field_d match "exclude")
     """
 
     qt_nested_5_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE search('field_a:alpha OR field_b:beta OR field_c:gamma OR field_d:delta', '{"mode":"standard"}')
     """
 
     qt_nested_5_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE field_a match "alpha" OR field_b match "beta" OR field_c match "gamma" OR field_d match "delta"
     """
 
     qt_nested_6_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE search('field_a:alpha AND (field_b:beta OR (field_c:gamma AND field_d:delta))', '{"mode":"standard"}')
     """
 
     qt_nested_6_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${nestedTable}
         WHERE field_a match "alpha" AND (field_b match "beta" OR (field_c match "gamma" AND field_d match "delta"))
     """
 
@@ -327,79 +327,79 @@ suite("test_search_null_semantics", "p0") {
     Thread.sleep(10000)
 
     qt_ternary_1_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('title:Ronald OR content:Selma', '{"mode":"standard"}')
     """
 
     qt_ternary_1_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE title match "Ronald" OR content match "Selma"
     """
 
     qt_ternary_1_search_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content, category FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content, category FROM ${ternaryTable}
         WHERE search('title:Ronald OR content:Selma', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_ternary_1_match_rows """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content, category FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, content, category FROM ${ternaryTable}
         WHERE title match "Ronald" OR content match "Selma"
         ORDER BY id
     """
 
     qt_ternary_2_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('title:Ronald AND category:politics', '{"mode":"standard"}')
     """
 
     qt_ternary_2_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE title match "Ronald" AND category match "politics"
     """
 
     qt_ternary_3_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('NOT content:spam', '{"mode":"standard"}')
     """
 
     qt_ternary_3_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE NOT search('content:spam', '{"mode":"standard"}')
     """
 
     qt_ternary_4_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('title:Ronald OR content:Selma OR category:biography', '{"mode":"standard"}')
     """
 
     qt_ternary_4_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE title match "Ronald" OR content match "Selma" OR category match "biography"
     """
 
     qt_ternary_5_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('(title:Ronald OR content:Selma) AND category:politics', '{"mode":"standard"}')
     """
 
     qt_ternary_5_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE (title match "Ronald" OR content match "Selma") AND category match "politics"
     """
 
     qt_ternary_6_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('title:Ronald OR NOT content:spam', '{"mode":"standard"}')
     """
 
     qt_ternary_6_match """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE title match "Ronald" OR NOT content match "spam"
     """
 
     qt_ternary_7_all_null """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${ternaryTable}
         WHERE search('title:NonExistent OR content:NonExistent OR category:NonExistent', '{"mode":"standard"}')
     """
 

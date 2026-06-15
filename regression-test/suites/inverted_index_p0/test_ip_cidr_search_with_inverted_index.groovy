@@ -47,7 +47,7 @@ suite("test_ip_cidr_search_with_inverted_index", "nonConcurrent"){
 
     qt_sql """ select count() from tc_ip_cidr_search_with_inverted_index"""
     // without inverted index query
-    sql """ set enable_common_expr_pushdown = false; """
+    sql """ set enable_segment_limit_pushdown = false; """
     sql """ set enable_inverted_index_query=false; """
     // select ipv6 in ipv4 cidr
     qt_sql_without_ii_0 """  select id, ipv4, ipv6, is_ip_address_in_range(ipv6, '255.255.255.255/12') from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, '255.255.255.255/12') order by id; """
@@ -68,8 +68,8 @@ suite("test_ip_cidr_search_with_inverted_index", "nonConcurrent"){
     qt_sql_without_ii_9 """  select id, ipv4, ipv6, is_ip_address_in_range(ipv6, null) from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, null) order by id; """
 
     // with inverted index query
-    // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
-    sql """ set enable_common_expr_pushdown = true; """
+    // Pin enable_segment_limit_pushdown to keep inverted-index pushdown stable under fuzzy testing
+    sql """ set enable_segment_limit_pushdown = true; """
     sql """ set enable_inverted_index_query=true; """
     sql """ set inverted_index_skip_threshold = 0; """ // set skip threshold to 0
 
