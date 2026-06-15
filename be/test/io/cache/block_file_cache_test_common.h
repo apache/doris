@@ -48,6 +48,7 @@
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
