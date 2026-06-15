@@ -43,12 +43,12 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
     export PATH=$(brew --prefix llvm@16)/bin:$PATH
 fi
 
-if [[ -z $(command -v clang-format) ]]; then
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format)}"
+
+if [[ -z $(command -v "${CLANG_FORMAT}") ]]; then
     echo "clang-format not found, please install clang-format"
     exit 1
 fi
-
-CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format)}"
 
 CLANG_FORMAT_VERSION=$("${CLANG_FORMAT}" --version | perl -nle 'print $& if m{version \K[0-9]+}')
 if [[ ${CLANG_FORMAT_VERSION} -ne 16 ]]; then
