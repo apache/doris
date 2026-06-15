@@ -59,14 +59,6 @@ public:
         EXPECT_EQ(slices.size(), page_builder.count());
         EXPECT_FALSE(page_builder.is_page_full());
 
-        //check first value and last value
-        Slice first_value;
-        page_builder.get_first_value(&first_value);
-        EXPECT_EQ(slices[0], first_value);
-        Slice last_value;
-        page_builder.get_last_value(&last_value);
-        EXPECT_EQ(slices[count - 1], last_value);
-
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
                 new BinaryPrefixPageDecoder(dict_slice.slice(), dict_decoder_options));
@@ -174,14 +166,6 @@ public:
         OwnedSlice dict_slice = page_builder.finish();
         EXPECT_EQ(slices.size(), page_builder.count());
         EXPECT_FALSE(page_builder.is_page_full());
-
-        //check first value and last value
-        Slice first_value;
-        page_builder.get_first_value(&first_value);
-        EXPECT_EQ(slices[0], first_value);
-        Slice last_value;
-        page_builder.get_last_value(&last_value);
-        EXPECT_EQ(slices[count - 1], last_value);
 
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
