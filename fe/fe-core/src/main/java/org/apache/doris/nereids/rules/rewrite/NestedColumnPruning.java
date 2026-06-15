@@ -204,7 +204,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
     private static Map<Integer, AccessPathInfo> pruneDataType(
             Map<Slot, List<CollectAccessPathResult>> slotToAccessPaths,
-            boolean skipDataSkippingOnlyAccessPath) {
+            boolean ignoreMetaPath) {
         Map<Integer, AccessPathInfo> result = new LinkedHashMap<>();
         Map<Slot, DataTypeAccessTree> slotIdToAllAccessTree = new LinkedHashMap<>();
         Map<Slot, DataTypeAccessTree> slotIdToPredicateAccessTree = new LinkedHashMap<>();
@@ -236,8 +236,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 continue;
             }
-            if (skipDataSkippingOnlyAccessPath
-                    && containsDataSkippingOnlyAccessPath(collectAccessPathResults)) {
+            if (ignoreMetaPath && containsMetaPath(collectAccessPathResults)) {
                 // An MV rewrite child context optimizes a temporary plan fragment rather
                 // than the final plan. A nested metadata-only path such as
                 // [s, city, NULL] or [s, city, OFFSET] would otherwise prune the scan slot
@@ -278,7 +277,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
             if (slot.getDataType().isStringLikeType()) {
                 if (accessTree.hasStringOffsetOnlyAccess()) {
-                    if (skipDataSkippingOnlyAccessPath) {
+                    if (ignoreMetaPath) {
                         continue;
                     }
                     // Offset-only access (e.g. length(str_col)): type stays varchar,
@@ -289,7 +288,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     result.put(slot.getExprId().asInt(),
                             new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
                 } else if (accessTree.hasNullCheckOnlyAccess()) {
-                    if (skipDataSkippingOnlyAccessPath) {
+                    if (ignoreMetaPath) {
                         continue;
                     }
                     // Null-check-only access (e.g. str_col IS NULL): type stays varchar,
@@ -304,7 +303,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
             if ((slot.getDataType().isArrayType() || slot.getDataType().isMapType())
                     && accessTree.hasStringOffsetOnlyAccess()) {
-                if (skipDataSkippingOnlyAccessPath) {
+                if (ignoreMetaPath) {
                     continue;
                 }
                 // Offset-only access (e.g. length(arr_col) / length(map_col)): type stays unchanged,
@@ -318,7 +317,7 @@ public class NestedColumnPruning implements CustomRewriter {
             // Null-check-only access (e.g. col IS NULL / col IS NOT NULL): type stays unchanged,
             // but we must send the [col, NULL] access path to BE so it only reads the null flag.
             if (accessTree.hasNullCheckOnlyAccess()) {
-                if (skipDataSkippingOnlyAccessPath) {
+                if (ignoreMetaPath) {
                     continue;
                 }
                 List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
@@ -328,7 +327,7 @@ public class NestedColumnPruning implements CustomRewriter {
             }
 
             if (slot.getDataType().isMapType() && accessTree.hasMapValueOffsetOnlyAccess()) {
-                if (skipDataSkippingOnlyAccessPath) {
+                if (ignoreMetaPath) {
                     continue;
                 }
                 // length(map_col['key']): keys read in full (element lookup) + values offset-only.
@@ -340,7 +339,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
                 ColumnAccessPath valsOffsetColumnPath = ColumnAccessPath.data(
                         new ArrayList<>(ImmutableList.of(colName, AccessPathInfo.ACCESS_MAP_VALUES,
-                                AccessPathInfo.ACCESS_STRING_OFFSET)));
+                                AccessPathInfo.ACCESS_OFFSET)));
 
                 result.put(slot.getExprId().asInt(), new AccessPathInfo(
                         slot.getDataType(),
@@ -409,23 +408,23 @@ public class NestedColumnPruning implements CustomRewriter {
         return result;
     }
 
-    private static boolean containsDataSkippingOnlyAccessPath(
+    private static boolean containsMetaPath(
             List<CollectAccessPathResult> collectAccessPathResults) {
         for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
-            if (isDataSkippingOnlyAccessPath(collectAccessPathResult.getPath())) {
+            if (isMetaPath(collectAccessPathResult.getPath())) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean isDataSkippingOnlyAccessPath(List<String> path) {
+    private static boolean isMetaPath(List<String> path) {
         if (path.isEmpty()) {
             return false;
         }
         String lastComponent = path.get(path.size() - 1);
         return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
-                || AccessPathInfo.ACCESS_STRING_OFFSET.equals(lastComponent);
+                || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 
     /**
@@ -440,11 +439,20 @@ public class NestedColumnPruning implements CustomRewriter {
     private static OffsetPathRewrite analyzeOffsetPathRewrite(
             DataType slotType, List<String> path, List<List<String>> nonOffsetPaths) {
         if (path.isEmpty()
-                || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+                || !AccessPathInfo.ACCESS_OFFSET.equals(path.get(path.size() - 1))) {
             return OffsetPathRewrite.keep();
         }
         List<String> prefix = path.subList(0, path.size() - 1);
-        return analyzePrefixCoverage(slotType, prefix, nonOffsetPaths);
+        // Filter out the path itself to prevent self-coverage removal.
+        // A deeper OFFSET path (e.g. [aa, *, OFFSET]) covering a shallower one
+        // (e.g. [aa, OFFSET]) is still handled — they are different paths.
+        List<List<String>> filteredNonOffsetPaths = new ArrayList<>();
+        for (List<String> p : nonOffsetPaths) {
+            if (!p.equals(path)) {
+                filteredNonOffsetPaths.add(p);
+            }
+        }
+        return analyzePrefixCoverage(slotType, prefix, filteredNonOffsetPaths);
     }
 
     private static OffsetPathRewrite analyzePrefixCoverage(
@@ -491,15 +499,30 @@ public class NestedColumnPruning implements CustomRewriter {
         List<List<String>> nonOffsetPaths = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
             List<String> path = p.second;
-            if (path.isEmpty()
-                    || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+            if (path.isEmpty()) {
+                continue;
+            }
+            boolean isOffset = AccessPathInfo.ACCESS_OFFSET.equals(
+                    path.get(path.size() - 1));
+            if (!isOffset) {
+                nonOffsetPaths.add(path);
+            } else if (path.size() > 2) {
+                // Deeper OFFSET paths that traverse into array/map items (e.g.
+                // [aa, *, OFFSET]) must read through the container structure,
+                // therefore they cover the container's own [aa, OFFSET] path.
                 nonOffsetPaths.add(path);
             }
         }
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
             List<String> path = p.second;
-            if (path.isEmpty()
-                    || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+            if (path.isEmpty()) {
+                continue;
+            }
+            boolean isOffset = AccessPathInfo.ACCESS_OFFSET.equals(
+                    path.get(path.size() - 1));
+            if (!isOffset) {
+                nonOffsetPaths.add(path);
+            } else if (path.size() > 2) {
                 nonOffsetPaths.add(path);
             }
         }
@@ -605,12 +628,12 @@ public class NestedColumnPruning implements CustomRewriter {
 
         List<List<String>> fullAccessPaths = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            if (!isDataSkippingOnlyAccessPath(p.second)) {
+            if (!isMetaPath(p.second)) {
                 fullAccessPaths.add(p.second);
             }
         }
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            if (!isDataSkippingOnlyAccessPath(p.second)) {
+            if (!isMetaPath(p.second)) {
                 fullAccessPaths.add(p.second);
             }
         }
@@ -618,7 +641,7 @@ public class NestedColumnPruning implements CustomRewriter {
         List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
             List<String> path = p.second;
-            if (!isDataSkippingOnlyAccessPath(path)) {
+            if (!isMetaPath(path)) {
                 continue;
             }
             List<String> prefix = path.subList(0, path.size() - 1);
@@ -819,8 +842,21 @@ public class NestedColumnPruning implements CustomRewriter {
             boolean covered = false;
             for (Pair<ColumnAccessPathType, List<String>> q : slotPaths) {
                 List<String> other = q.second;
-                if (other.isEmpty()
-                        || AccessPathInfo.ACCESS_NULL.equals(other.get(other.size() - 1))) {
+                if (other.isEmpty()) {
+                    continue;
+                }
+                if (other == path) {
+                    continue;
+                }
+                if (AccessPathInfo.ACCESS_NULL.equals(other.get(other.size() - 1))) {
+                    // A deeper NULL path (e.g. [a, *, NULL]) covers a shallower one
+                    // (e.g. [a, NULL]) because reading the deeper path requires
+                    // traversing the container, which materializes the container's
+                    // null information.
+                    if (hasStrictPrefix(other, prefix)) {
+                        covered = true;
+                        break;
+                    }
                     continue;
                 }
                 if (other.equals(prefix)) {
@@ -832,7 +868,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     break;
                 }
                 if (other.size() == prefix.size() + 1
-                        && AccessPathInfo.ACCESS_STRING_OFFSET.equals(other.get(other.size() - 1))
+                        && AccessPathInfo.ACCESS_OFFSET.equals(other.get(other.size() - 1))
                         && other.subList(0, prefix.size()).equals(prefix)) {
                     covered = true;
                     break;
@@ -941,15 +977,18 @@ public class NestedColumnPruning implements CustomRewriter {
         // if access 's.a.b' the node 's' and 'a' has accessPartialChild, and node 'b' has accessAll
         private boolean accessPartialChild;
         private boolean accessAll;
-        // True when this string-typed node is accessed ONLY via the offset array
-        // (e.g. length(str_col) or length(element_at(c_struct,'f3'))).
-        // When this flag is set and accessAll is NOT set, pruneDataType() returns BigIntType
-        // to signal that the BE only needs to read the offset array, not the chars data.
-        private boolean isStringOffsetOnly;
-        // True when this column node is accessed ONLY via IS NULL / IS NOT NULL.
-        // When this flag is set and accessAll is NOT set, the BE only needs to read the null flag,
-        // not the actual column data.
-        private boolean isNullCheckOnly;
+        // Cached marker set by setAccessByPath() when a path component is OFFSET.
+        // Avoids scanning the multimap: hasStringOffsetOnlyAccess() reads this flag in
+        // O(1) instead of checking every path for an OFFSET suffix. Used for array, map,
+        // and string-like types (they share offset-based storage in BE).
+        // When set without accessAll, pruneDataType() keeps the node's type so that BE
+        // reads only the offset structure, skipping element / key-value / chars data.
+        private boolean hasOffsetPath;
+        // Cached marker set by setAccessByPath() when a path component is NULL.
+        // Same purpose as hasOffsetPath — O(1) flag read instead of multimap scan
+        // in hasNullCheckOnlyAccess(). When set without accessAll, BE reads only the
+        // null bitmap, skipping actual column data.
+        private boolean hasNullPath;
         // for the future, only access the meta of the column,
         // e.g. `is not null` can only access the column's offset, not need to read the data
         private ColumnAccessPathType pathType;
@@ -1012,7 +1051,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 return false;
             }
             // Values must be accessed offset-only (no deeper element reads).
-            if (!valsChild.isStringOffsetOnly || valsChild.accessAll) {
+            if (!valsChild.hasOffsetPath || valsChild.accessAll) {
                 return false;
             }
             if (valsChild.type.isStringLikeType()) {
@@ -1034,7 +1073,7 @@ public class NestedColumnPruning implements CustomRewriter {
         public boolean hasStringOffsetOnlyAccess() {
             if (isRoot) {
                 DataTypeAccessTree child = children.values().iterator().next();
-                if (!child.isStringOffsetOnly || child.accessAll) {
+                if (!child.hasOffsetPath || child.accessAll) {
                     return false;
                 }
                 if (child.type.isStringLikeType()) {
@@ -1054,7 +1093,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return false;
             }
-            return type.isStringLikeType() && isStringOffsetOnly && !accessAll;
+            return type.isStringLikeType() && hasOffsetPath && !accessAll;
         }
 
         /** True when the column is accessed ONLY via IS NULL / IS NOT NULL,
@@ -1062,10 +1101,10 @@ public class NestedColumnPruning implements CustomRewriter {
         public boolean hasNullCheckOnlyAccess() {
             if (isRoot) {
                 DataTypeAccessTree child = children.values().iterator().next();
-                return child.isNullCheckOnly && !child.accessAll
-                        && !child.isStringOffsetOnly && !child.accessPartialChild;
+                return child.hasNullPath && !child.accessAll
+                        && !child.hasOffsetPath && !child.accessPartialChild;
             }
-            return isNullCheckOnly && !accessAll && !isStringOffsetOnly && !accessPartialChild;
+            return hasNullPath && !accessAll && !hasOffsetPath && !accessPartialChild;
         }
 
         /** pruneCastType */
@@ -1163,7 +1202,7 @@ public class NestedColumnPruning implements CustomRewriter {
             // Mark null-check-only and return without setting accessAll or accessPartialChild,
             // so that parent nodes can distinguish "null-only leaf" from "has real sub-access".
             if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_NULL)) {
-                isNullCheckOnly = true;
+                hasNullPath = true;
                 return;
             }
 
@@ -1180,9 +1219,9 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return;
             } else if (this.type.isArrayType()) {
-                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
+                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_OFFSET)) {
                     // length(array_col) — only the offset array is needed, not element data.
-                    isStringOffsetOnly = true;
+                    hasOffsetPath = true;
                     return;
                 }
                 DataTypeAccessTree child = children.get(AccessPathInfo.ACCESS_ALL);
@@ -1193,9 +1232,9 @@ public class NestedColumnPruning implements CustomRewriter {
                 return;
             } else if (this.type.isMapType()) {
                 String fieldName = path.get(accessIndex);
-                if (fieldName.equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
+                if (fieldName.equals(AccessPathInfo.ACCESS_OFFSET)) {
                     // length(map_col) — only the offset array is needed, not key/value data.
-                    isStringOffsetOnly = true;
+                    hasOffsetPath = true;
                     return;
                 }
                 if (fieldName.equals(AccessPathInfo.ACCESS_ALL)) {
@@ -1225,8 +1264,8 @@ public class NestedColumnPruning implements CustomRewriter {
             } else if (type.isStringLikeType()) {
                 // String leaf accessed via the offset array (e.g. path ends in "offset").
                 // Mark offset-only so pruneDataType() can return BigIntType instead of full data.
-                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
-                    isStringOffsetOnly = true;
+                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_OFFSET)) {
+                    hasOffsetPath = true;
                     return; // do NOT set accessAll — offset-only is distinguishable from full access
                 }
                 // Any other sub-path on a string column means full data is needed.
@@ -1269,10 +1308,10 @@ public class NestedColumnPruning implements CustomRewriter {
                 return children.values().iterator().next().pruneDataType();
             } else if (accessAll) {
                 return Optional.of(type);
-            } else if (isStringOffsetOnly && !accessPartialChild) {
+            } else if (hasOffsetPath && !accessPartialChild) {
                 // Only the offset array is accessed (e.g. length(str_col)).
                 return Optional.of(type);
-            } else if (isNullCheckOnly && !accessPartialChild) {
+            } else if (hasNullPath && !accessPartialChild) {
                 // Only the null flag is accessed (e.g. col IS NULL / element_at(s,'f') IS NULL).
                 // Return the node's type so that parent nodes include this child in their pruned type,
                 // while the access path (ending in NULL) tells BE to skip actual data reading.

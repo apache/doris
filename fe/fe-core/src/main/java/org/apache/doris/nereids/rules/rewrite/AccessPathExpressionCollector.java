@@ -205,7 +205,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 && context.accessPathBuilder.isEmpty()) {
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             return arg.accept(this, offsetContext);
         }
         // fall through to default (recurse into children with fresh contexts)
@@ -219,7 +219,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         if (argType.isMapType() && context.accessPathBuilder.isEmpty()) {
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             return arg.accept(this, offsetContext);
         }
         return visit(mapSize, context);
@@ -234,7 +234,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         if ((argType.isArrayType() || argType.isMapType()) && context.accessPathBuilder.isEmpty()) {
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
             Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)

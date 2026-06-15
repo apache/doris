@@ -200,6 +200,33 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDeeperOffsetPathCoversShallowerOffsetPath() throws Exception {
+        // cardinality(a) on ARRAY<ARRAY<INT>> generates [a, OFFSET]
+        // cardinality(element_at(a, 1)) generates [a, *, OFFSET]
+        // [a, *, OFFSET] traverses into the outer array's items, so it must read
+        // through the outer array structure. The shallower [a, OFFSET] is therefore
+        // redundant and should be stripped.
+        assertAllAccessPathsContain(
+                "select cardinality(a), cardinality(element_at(a, 1)) from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "OFFSET")));
+    }
+
+    @Test
+    public void testDeeperNullPathCoversShallowerNullPath() throws Exception {
+        // a IS NULL on ARRAY<ARRAY<INT>> generates [a, NULL]
+        // element_at(a, 1) IS NULL generates [a, *, NULL]
+        // [a, *, NULL] traverses into the outer array's items, which requires
+        // reading the outer array's null bitmap. Therefore [a, NULL] is redundant
+        // and should be stripped.
+        assertAllAccessPathsContain(
+                "select a is null, element_at(a, 1) is null from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "NULL")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+
+    @Test
     public void testCardinalityMapElementKeepsValueOffsetPath() throws Exception {
         assertColumn("select cardinality(map_arr_col['a']) from map_array_tbl",
                 "map<text,array<int>>",

@@ -417,6 +417,6 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         }
         String lastComponent = path.get(path.size() - 1);
         return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
-                || AccessPathInfo.ACCESS_STRING_OFFSET.equals(lastComponent);
+                || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 }
