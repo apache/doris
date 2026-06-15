@@ -54,7 +54,7 @@ be/src/storage/olap_common.h                                 @gavinchou @yiguole
 be/src/storage/cache                                         @liaoxin01 @gavinchou
 be/src/storage/compaction                                    @luwei16 @gavinchou
 be/src/storage/delete                                        @luwei16 @gavinchou
-be/src/storage/index                                         @airbone12
+be/src/storage/index                                         @airborne12
 be/src/storage/iterator                                      @yiguolei @gavinchou
 be/src/storage/predicate                                     @yiguolei @gavinchou
 be/src/storage/rowset                                        @gavinchou
@@ -79,7 +79,7 @@ be/test/storage                                              @gavinchou
 be/test/storage/cache                                        @liaoxin01 @gavinchou
 be/test/storage/compaction                                   @luwei16 @gavinchou
 be/test/storage/delete                                       @gavinchou
-be/test/storage/index                                        @airbone12
+be/test/storage/index                                        @airborne12
 be/test/storage/iterator                                     @yiguolei @gavinchou
 be/test/storage/predicate                                    @yiguolei @gavinchou
 be/test/storage/rowset                                       @gavinchou
@@ -97,7 +97,7 @@ fe/fe-core/src/main/java/org/apache/doris/cloud/alter        @luwei16 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/backup       @luwei16 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/catalog      @morningman @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/common       @gavinchou
-fe/fe-core/src/main/java/org/apache/doris/cloud/datasource   @mingyuchen @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/cloud/datasource   @morningman @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/load         @liaoxin01 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/master       @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/persist      @gavinchou
