@@ -1429,7 +1429,7 @@ struct TExchangeNode {
 }
 
 struct TLocalExchangeNode {
-  1: required Partitions.TLocalPartitionType partition_type
+  1: optional Partitions.TLocalPartitionType partition_type
   // when partition_type in (GLOBAL_EXECUTION_HASH_SHUFFLE, LOCAL_EXECUTION_HASH_SHUFFLE, BUCKET_HASH_SHUFFLE),
   // the distribute_expr_lists is not null, and the legacy `TPlanNode.distribute_expr_lists` is deprecated
   //

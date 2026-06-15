@@ -87,7 +87,8 @@ public class LocalExchangeNode extends PlanNode {
         msg.setIsSerialOperator(false);
 
         msg.node_type = TPlanNodeType.LOCAL_EXCHANGE_NODE;
-        msg.local_exchange_node = new TLocalExchangeNode(exchangeType.toThrift());
+        msg.local_exchange_node = new TLocalExchangeNode();
+        msg.local_exchange_node.setPartitionType(exchangeType.toThrift());
 
         if (exchangeType.isHashShuffle()) {
             List<TExpr> thriftDistributeExprLists = new ArrayList<>();
