@@ -224,6 +224,7 @@ public abstract class PartitionDefinition {
         String value = ((Literal) expression).getStringValue();
         try {
             if (targetType.isDateTimeType() || targetType.isDateTimeV2Type() || targetType.isTimeStampTzType()) {
+                // TODO we need some lossless‌ cast check
                 return convertPartitionLiteral(value, targetType).checkedCastTo(targetType);
             }
             validateCharacterLength(value, targetType);
@@ -255,7 +256,7 @@ public abstract class PartitionDefinition {
             return new DateTimeV2Literal(value);
         }
         if (targetType.isTimeStampTzType()) {
-            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) targetType, value);
+            return TimestampTzLiteral.fromSessionTimeZone(TimeStampTzType.forTypeFromString(value), value);
         }
         throw new AnalysisException("Unsupported partition literal conversion for type: " + targetType);
     }
