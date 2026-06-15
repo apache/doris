@@ -188,7 +188,6 @@ public:
             RuntimeState* /*state*/) const;
 
 protected:
-    [[nodiscard]] static bool is_hash_shuffle(TLocalPartitionType::type exchange_type);
     [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
 
     OperatorPtr _child = nullptr;
