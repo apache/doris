@@ -139,7 +139,8 @@ TEST(UtilTest, stage_wrapper) {
 }
 
 TEST(UtilTest, delay) {
-    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    // Keep the two delayed tasks occupying the pool before the cancel task can run.
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(2);
     s3_producer_pool->start();
     // test normal execute
     {
