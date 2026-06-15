@@ -301,4 +301,42 @@ public class StmtExecutorTest extends TestWithFeService {
 
         Mockito.verify(resultFileSink).setDeleteExistingFiles(false);
     }
+
+    @Test
+    public void testParseByNereidsSetsParsedStatementOnStatementContext() throws Exception {
+        // This test verifies the fix for a bug in multi-FE environments where
+        // parseByNereids() did not propagate the parsed statement to the
+        // StatementContext. In the proxy flow (e.g., when a follower FE forwards
+        // a query to the master FE), the StmtExecutor is created via the proxy
+        // constructor which creates a fresh StatementContext without a
+        // parsedStatement. Without the fix, statementContext.getParsedStatement()
+        // remains null, causing SessionVariable.canUseNereidsDistributePlanner()
+        // to return false, which leads EnvFactory.createCoordinator() to create
+        // a legacy Coordinator instead of NereidsCoordinator, resulting in
+        // "fragment has no children" error.
+
+        // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                new OriginStatement("select 1", 0), true);
+
+        // Before parsing, statementContext should exist but parsedStatement should be null
+        Assertions.assertNotNull(connectContext.getStatementContext());
+        Assertions.assertNull(connectContext.getStatementContext().getParsedStatement(),
+                "ParsedStatement should be null before parseByNereids() in proxy flow");
+
+        // Trigger parseByNereids via reflection (it's private)
+        Method parseByNereidsMethod = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parseByNereidsMethod.setAccessible(true);
+        parseByNereidsMethod.invoke(executor);
+
+        // After parsing, parsedStatement should be set on the StatementContext
+        org.apache.doris.analysis.StatementBase parsedStatement
+                = connectContext.getStatementContext().getParsedStatement();
+        Assertions.assertNotNull(parsedStatement,
+                "ParsedStatement should not be null after parseByNereids() in proxy flow");
+        Assertions.assertTrue(
+                parsedStatement instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter,
+                "ParsedStatement should be a LogicalPlanAdapter after parseByNereids(), but was: "
+                        + (parsedStatement == null ? "null" : parsedStatement.getClass().getName()));
+    }
 }
