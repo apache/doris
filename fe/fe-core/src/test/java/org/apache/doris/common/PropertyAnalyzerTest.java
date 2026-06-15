@@ -303,8 +303,10 @@ public class PropertyAnalyzerTest {
 
             Map<String, String> propertiesWithV1 = new HashMap<>();
             propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
-            result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1);
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1),
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
+                            + " Please use inverted index V2.");
 
             Map<String, String> propertiesWithV2 = new HashMap<>();
             propertiesWithV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v2");
