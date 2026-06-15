@@ -18,7 +18,6 @@
 #include "format_v2/parquet/parquet_statistics.h"
 
 #include <parquet/api/reader.h>
-#include <parquet/api/schema.h>
 #include <parquet/bloom_filter.h>
 #include <parquet/bloom_filter_reader.h>
 #include <parquet/column_page.h>
@@ -41,7 +40,6 @@
 #include "common/config.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "format_v2/parquet/parquet_column_schema.h"

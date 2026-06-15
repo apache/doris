@@ -17,9 +17,6 @@
 
 #include "format_v2/parquet/reader/list_column_reader.h"
 
-#include <parquet/api/schema.h>
-
-#include <algorithm>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -28,10 +25,7 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
-#include "format_v2/parquet/reader/map_column_reader.h"
 #include "format_v2/parquet/reader/nested_column_materializer.h"
-#include "format_v2/parquet/reader/scalar_column_reader.h"
-#include "format_v2/parquet/reader/struct_column_reader.h"
 
 namespace doris::parquet {
 namespace {

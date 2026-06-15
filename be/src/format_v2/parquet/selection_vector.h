@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "common/check.h"
@@ -108,7 +109,7 @@ public:
         if (batch_rows < 0) {
             return Status::InvalidArgument("Negative parquet selection batch rows {}", batch_rows);
         }
-        if (count > static_cast<size_t>(batch_rows)) {
+        if (std::cmp_greater(count, batch_rows)) {
             return Status::InvalidArgument("Parquet selection count {} exceeds batch rows {}",
                                            count, batch_rows);
         }
@@ -119,7 +120,7 @@ public:
         size_t previous = 0;
         for (size_t idx = 0; idx < count; ++idx) {
             const size_t current = get_index(idx);
-            if (current >= static_cast<size_t>(batch_rows)) {
+            if (std::cmp_greater_equal(current, batch_rows)) {
                 return Status::InvalidArgument(
                         "Parquet selection index {} out of range [0, {}) at position {}", current,
                         batch_rows, idx);
@@ -156,11 +157,11 @@ inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selectio
             previous = current;
             continue;
         }
-        ranges.push_back(RowRange {range_start, previous - range_start + 1});
+        ranges.push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
         range_start = current;
         previous = current;
     }
-    ranges.push_back(RowRange {range_start, previous - range_start + 1});
+    ranges.push_back(RowRange {.start = range_start, .length = previous - range_start + 1});
     return ranges;
 }
 

@@ -41,7 +41,6 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_reader.h"
-#include "io/io_common.h"
 #include "roaring/roaring64map.hh"
 #include "util/string_util.h"
 
