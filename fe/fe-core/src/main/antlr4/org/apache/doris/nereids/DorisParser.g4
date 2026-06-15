@@ -539,6 +539,7 @@ supportedOtherStatement
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?
+            onTablesClause?
             properties=propertyClause?                                              #warmUpCluster
     | explain? WARM UP SELECT namedExpressionSeq
       FROM warmUpSingleTableRef whereClause?                                        #warmUpSelect
@@ -548,7 +549,15 @@ supportedOtherStatement
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
- warmUpItem
+onTablesClause
+    : ON TABLES LEFT_PAREN onTablesFilterRule (COMMA onTablesFilterRule)* RIGHT_PAREN
+    ;
+
+onTablesFilterRule
+    : (INCLUDE | EXCLUDE) STRING_LITERAL
+    ;
+
+warmUpItem
     : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
     ;
 
@@ -2164,6 +2173,7 @@ nonReserved
     | IMMEDIATE
     | INCREMENTAL
     | INTEGRATION
+    | INCLUDE
     | INDEXES
     | INSERT
     | INVERTED

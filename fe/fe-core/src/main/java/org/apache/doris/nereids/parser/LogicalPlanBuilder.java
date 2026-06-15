@@ -55,6 +55,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -9417,7 +9418,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             isForce = true;
         }
         ImmutableMap<String, String> properties = ImmutableMap.copyOf(visitPropertyClause(ctx.properties));
-        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties);
+        List<TableFilterRule> onTablesRules = new ArrayList<>();
+        if (ctx.onTablesClause() != null) {
+            for (DorisParser.OnTablesFilterRuleContext ruleContext
+                    : ctx.onTablesClause().onTablesFilterRule()) {
+                TableFilterRule.RuleType ruleType = ruleContext.INCLUDE() != null
+                        ? TableFilterRule.RuleType.INCLUDE
+                        : TableFilterRule.RuleType.EXCLUDE;
+                onTablesRules.add(new TableFilterRule(
+                        ruleType, stripQuotes(ruleContext.STRING_LITERAL().getText())));
+            }
+        }
+        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce,
+                isWarmUpWithTable, properties, onTablesRules);
     }
 
     void fileCacheAdmissionCheck(DorisParser.WarmUpSelectContext ctx) {
