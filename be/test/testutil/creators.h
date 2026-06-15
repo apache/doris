@@ -38,6 +38,7 @@
 #include "runtime/query_context.h"
 #include "storage/binlog.h"
 #include "storage/tablet_info.h"
+#include "storage/utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -220,6 +221,12 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
     row_binlog_schema.columns.push_back(
             create_tablet_column({std::string(kRowBinlogTimestampColName), TPrimitiveType::BIGINT,
                                   false, true, TAggregationType::NONE}));
+    for (auto& col : row_binlog_schema.columns) {
+        if (col.column_name == BINLOG_LSN_COL || col.column_name == BINLOG_OP_COL ||
+            col.column_name == BINLOG_TIMESTAMP_COL) {
+            col.__set_is_allow_null(true);
+        }
+    }
     request->__set_row_binlog_schema(row_binlog_schema);
 }
 
