@@ -24,14 +24,13 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <boost/process.hpp>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
-
-#include "udf/python/boost_process_compat.h"
 #ifdef BE_TEST
 #include <atomic>
 #endif
