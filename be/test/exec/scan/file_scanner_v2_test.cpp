@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/scan/file_scanner_v2.h"
+
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
@@ -29,7 +31,6 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
-#include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
@@ -111,20 +112,18 @@ TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported
     const auto unsupported_table = range_with_format("hudi", TFileFormatType::FORMAT_PARQUET);
     const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_ORC);
 
-    LocalSplitSourceConnector all_supported({scan_range_param(supported),
-                                             scan_range_param(range_with_format(
-                                                     "iceberg", TFileFormatType::FORMAT_PARQUET))},
-                                            1);
+    LocalSplitSourceConnector all_supported(
+            {scan_range_param(supported),
+             scan_range_param(range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET))},
+            1);
     EXPECT_TRUE(all_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
 
-    LocalSplitSourceConnector table_mismatch({scan_range_param(supported),
-                                              scan_range_param(unsupported_table)},
-                                             1);
+    LocalSplitSourceConnector table_mismatch(
+            {scan_range_param(supported), scan_range_param(unsupported_table)}, 1);
     EXPECT_FALSE(table_mismatch.all_scan_ranges_match(params, FileScannerV2::is_supported));
 
-    LocalSplitSourceConnector format_mismatch({scan_range_param(supported),
-                                               scan_range_param(unsupported_format)},
-                                              1);
+    LocalSplitSourceConnector format_mismatch(
+            {scan_range_param(supported), scan_range_param(unsupported_format)}, 1);
     EXPECT_FALSE(format_mismatch.all_scan_ranges_match(params, FileScannerV2::is_supported));
 }
 
@@ -176,10 +175,10 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
     categorized_regular.__set_category(TColumnCategory::REGULAR);
     EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(categorized_regular, "regular_col"));
 
-    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition,
-                                                       BeConsts::GLOBAL_ROWID_COL));
-    EXPECT_FALSE(FileScannerV2::TEST_is_partition_slot(legacy_partition,
-                                                       BeConsts::ICEBERG_ROWID_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::GLOBAL_ROWID_COL));
+    EXPECT_FALSE(
+            FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::ICEBERG_ROWID_COL));
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to

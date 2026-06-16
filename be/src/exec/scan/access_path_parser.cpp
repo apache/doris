@@ -403,8 +403,8 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
     case TYPE_ARRAY: {
         if (node.children.size() != 1 || !node.children.contains("*")) {
             return Status::NotSupported(
-                    "AccessPathParser does not support access path {} for slot {}",
-                    path, column->name);
+                    "AccessPathParser does not support access path {} for slot {}", path,
+                    column->name);
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
         const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
