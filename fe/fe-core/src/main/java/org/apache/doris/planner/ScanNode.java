@@ -418,27 +418,35 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         try {
             return LiteralExprUtils.createLiteral(value.getStringValue(), columnType);
         } catch (AnalysisException e) {
-            // String-based re-parsing failed (e.g. DATETIME literal for a
-            // DATE partition column). For date-like types, construct a
-            // target-typed literal directly from the source literal's fields.
-            // This ensures ColumnBound.compareTo() receives same-type
-            // literals and partition pruning works correctly.
+            // String-based re-parsing failed (e.g. a date-only literal for
+            // a DATETIME column, or a DATETIME literal for a DATE column).
+            // For date-like types, construct a target-typed literal directly
+            // from the source literal's fields — but ONLY for up-converts:
+            // adding midnight time/zero micros is safe because midnight is
+            // the earliest instant on any given day.  We never down-convert
+            // (DATETIME → DATE) because stripping time information would
+            // produce an incorrect partition bound for range predicates
+            // (e.g. CAST(k AS DATETIME) < '2024-01-01 12:00:00' on a DATE
+            // column would incorrectly exclude the partition starting at
+            // midnight 2024-01-01).
             if (value instanceof DateLiteral && columnType.isDateType()) {
                 DateLiteral dateLit = (DateLiteral) value;
-                if (columnType.isDate() || columnType.isDateV2()) {
-                    return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
-                            dateLit.getDay(), columnType);
+                Type srcType = value.getType();
+                // Only up-convert: DATE / DATEV2 → DATETIME / DATETIMEV2 / TIMESTAMPTZ
+                if (srcType.isDate() || srcType.isDateV2()) {
+                    if (columnType.isDatetime() || columnType.isDatetimeV2()) {
+                        return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                                dateLit.getDay(), 0, 0, 0, columnType);
+                    }
+                    if (columnType.isTimeStampTz()) {
+                        return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                                dateLit.getDay(), 0, 0, 0, 0, columnType);
+                    }
                 }
-                if (columnType.isDatetime() || columnType.isDatetimeV2()) {
-                    return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
-                            dateLit.getDay(), dateLit.getHour(), dateLit.getMinute(),
-                            dateLit.getSecond(), columnType);
-                }
-                if (columnType.isTimeStampTz()) {
-                    return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
-                            dateLit.getDay(), dateLit.getHour(), dateLit.getMinute(),
-                            dateLit.getSecond(), dateLit.getMicrosecond(), columnType);
-                }
+                // Down-converts (DATETIME → DATE) are intentionally skipped:
+                // the original literal is returned unchanged and the
+                // subsequent cross-type comparison will fail (CONVERT_FAILURE
+                // in ColumnRanges), which is safer than incorrect pruning.
             }
             // For other type families, return the original value as a
             // best-effort fallback. If the types still differ, the caller

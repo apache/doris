@@ -136,29 +136,22 @@ public class ScanNodePartitionTypeNormalizationTest {
 
     // ---- normalizePartitionFilterLiteral: cross-type date normalization ----
     //
-    // After the fix, normalizePartitionFilterLiteral constructs target-typed
-    // DateLiteral instances directly from the source literal's fields when
-    // string-based re-parsing fails.  This is correct because:
+    // normalizePartitionFilterLiteral handles date-type family mismatches
+    // (e.g. CAST predicates that produce a DATETIME literal for a DATE
+    // partition column).  Only up-converts are performed:
     //
-    // 1. PartitionKey.compareLiteralExpr (and therefore ColumnBound.compareTo)
-    //    now rejects cross-type comparisons (e.g. DATETIMEV2 vs DATEV2).
-    //    Every bound MUST be typed identically to the partition column.
+    //   DATE / DATEV2 → DATETIME / DATETIMEV2 / TIMESTAMPTZ  (safe: adds midnight)
     //
-    // 2. For partition pruning, a conservative approximation is safe: we may
-    //    include partitions that don't actually match, but we must NEVER
-    //    exclude a partition that could match.  Converting a DATETIME literal
-    //    to DATE (stripping the time component) is conservative because the
-    //    DATE partition covers the entire day — the partition may contain rows
-    //    matching the original DATETIME predicate.  Converting DATE to
-    //    DATETIME (adding 00:00:00) is exact for the DATE → DATETIME cast
-    //    semantics.
-    //
-    // 3. Cross-type date predicates arise from CAST expressions, e.g.
-    //    CAST(k AS DATETIMEV2) = DATETIMEV2 '2024-01-01 00:00:00' on a
-    //    DATEV2 column.  CastExpr.canHashPartition() returns true for
-    //    same-family casts, so getSlotBinding() accepts them; without
-    //    normalization the DATETIMEV2 literal would fail to compare against
-    //    DATEV2 partition bounds.
+    // Down-converts (DATETIME → DATE) are intentionally skipped because
+    // stripping time changes the value and can cause incorrect pruning for
+    // range predicates.  For example, on a DATEV2 partition column with
+    // partition [2024-01-01, 2024-01-02), the predicate
+    //   CAST(k AS DATETIMEV2) < '2024-01-01 12:00:00'
+    // can match rows in that partition because the DATE value casts to
+    // midnight.  Normalising the bound to DATEV2 '2024-01-01' and building
+    // Range.lessThan() would incorrectly exclude the partition.  By
+    // returning the original literal unchanged, the cross-type comparison
+    // produces CONVERT_FAILURE — no pruning — which is conservative.
 
     @Test
     void testNormalizeDateToDateTimeV2() throws AnalysisException {
@@ -180,35 +173,32 @@ public class ScanNodePartitionTypeNormalizationTest {
     }
 
     @Test
-    void testNormalizeDateTimeV2ToDateType() throws AnalysisException {
-        // DATETIMEV2 -> DATEV2: string re-parse "2024-06-15 12:30:45" as
-        // DATEV2 fails (DATEV2 rejects time component).  The catch block
-        // constructs a DATEV2 literal from the date fields, stripping the
-        // time.  This is conservative for partition pruning: the DATEV2
-        // partition on 2024-06-15 covers the entire day.
+    void testNormalizeDateTimeV2ToDateV2_DownConvertRejected() throws AnalysisException {
+        // DATETIMEV2 → DATEV2: down-convert is unsafe because stripping
+        // the time component changes the value.  For a predicate such as
+        // CAST(k AS DATETIMEV2) < '2024-06-15 12:30:45' on a DATEV2
+        // partition column, normalising to DATEV2 '2024-06-15' and
+        // building Range.lessThan() would incorrectly exclude the
+        // partition [2024-06-15, 2024-06-16).  The helper therefore
+        // returns the original DATETIMEV2 literal unchanged; the
+        // cross-type comparison will produce CONVERT_FAILURE which is
+        // safer than incorrect pruning.
         DateLiteral datetimeLiteral = new DateLiteral(2024, 6, 15, 12, 30, 45, 0, Type.DATETIMEV2);
         LiteralExpr result = ScanNode.normalizePartitionFilterLiteral(datetimeLiteral, Type.DATEV2);
-        // Result must be DATEV2 so it can compare against DATEV2 partition bounds.
-        Assertions.assertEquals(Type.DATEV2, result.getType());
-        Assertions.assertTrue(result instanceof DateLiteral);
-        DateLiteral resultDate = (DateLiteral) result;
-        Assertions.assertEquals(2024, resultDate.getYear());
-        Assertions.assertEquals(6, resultDate.getMonth());
-        Assertions.assertEquals(15, resultDate.getDay());
+        // Down-convert is rejected — original returned unchanged.
+        Assertions.assertEquals(Type.DATETIMEV2, result.getType());
+        Assertions.assertSame(datetimeLiteral, result,
+                "down-convert DATETIMEV2->DATEV2 must return original literal");
     }
 
     @Test
-    void testNormalizeDatetimeToDate() throws AnalysisException {
-        // DATETIME -> DATE: string re-parse fails (DATE rejects time part).
-        // The catch block constructs a DATE literal, stripping the time.
+    void testNormalizeDatetimeToDate_DownConvertRejected() throws AnalysisException {
+        // DATETIME → DATE: down-convert is unsafe (same rationale as above).
         DateLiteral datetimeLiteral = new DateLiteral(2024, 12, 31, 23, 59, 59, Type.DATETIME);
         LiteralExpr result = ScanNode.normalizePartitionFilterLiteral(datetimeLiteral, Type.DATE);
-        Assertions.assertEquals(Type.DATE, result.getType());
-        Assertions.assertTrue(result instanceof DateLiteral);
-        DateLiteral resultDate = (DateLiteral) result;
-        Assertions.assertEquals(2024, resultDate.getYear());
-        Assertions.assertEquals(12, resultDate.getMonth());
-        Assertions.assertEquals(31, resultDate.getDay());
+        // Down-convert is rejected — original returned unchanged.
+        Assertions.assertEquals(Type.DATETIME, result.getType());
+        Assertions.assertSame(datetimeLiteral, result);
     }
 
     @Test
@@ -229,33 +219,27 @@ public class ScanNodePartitionTypeNormalizationTest {
     }
 
     @Test
-    void testNormalizeDateTimeV2ToDateV2_WithTime() throws AnalysisException {
-        // DATETIMEV2 with non-midnight time -> DATEV2.  Time is stripped.
-        // Example: CAST(k AS DATETIMEV2) = '2024-06-15 12:30:45' on a DATEV2
-        // partition column.  The DATEV2 partition '2024-06-15' covers the
-        // entire day, so including it is conservative (safe).
+    void testNormalizeDateTimeV2ToDateV2_WithTime_DownConvertRejected() throws AnalysisException {
+        // DATETIMEV2 with non-midnight time → DATEV2: unsafe down-convert.
         DateLiteral dtV2 = new DateLiteral(2024, 6, 15, 12, 30, 45, 0, Type.DATETIMEV2);
         LiteralExpr result = ScanNode.normalizePartitionFilterLiteral(dtV2, Type.DATEV2);
-        Assertions.assertEquals(Type.DATEV2, result.getType());
-        Assertions.assertTrue(result instanceof DateLiteral);
-        DateLiteral resultDate = (DateLiteral) result;
-        Assertions.assertEquals(2024, resultDate.getYear());
-        Assertions.assertEquals(6, resultDate.getMonth());
-        Assertions.assertEquals(15, resultDate.getDay());
+        // Down-convert is rejected — original returned unchanged.
+        Assertions.assertEquals(Type.DATETIMEV2, result.getType());
+        Assertions.assertSame(dtV2, result);
     }
 
     @Test
-    void testNormalizeDatetimeV2ToDate_Midnight() throws AnalysisException {
-        // DATETIMEV2 midnight -> DATE.  Even midnight gets correctly
-        // converted to a DATE literal.
+    void testNormalizeDatetimeV2ToDate_Midnight_DownConvertRejected() throws AnalysisException {
+        // DATETIMEV2 midnight → DATE: still unsafe because the helper
+        // does not know the operator — even midnight can cause incorrect
+        // pruning for ≤ predicates (e.g. ≤ '2024-06-14 00:00:00' would
+        // become ≤ '2024-06-14' which is the identical boundary, but see
+        // the operator-agnostic comment above).
         DateLiteral dtV2 = new DateLiteral(2024, 6, 15, 0, 0, 0, 0, Type.DATETIMEV2);
         LiteralExpr result = ScanNode.normalizePartitionFilterLiteral(dtV2, Type.DATE);
-        Assertions.assertEquals(Type.DATE, result.getType());
-        Assertions.assertTrue(result instanceof DateLiteral);
-        DateLiteral resultDate = (DateLiteral) result;
-        Assertions.assertEquals(2024, resultDate.getYear());
-        Assertions.assertEquals(6, resultDate.getMonth());
-        Assertions.assertEquals(15, resultDate.getDay());
+        // Down-convert is rejected — original returned unchanged.
+        Assertions.assertEquals(Type.DATETIMEV2, result.getType());
+        Assertions.assertSame(dtV2, result);
     }
 
     @Test
@@ -280,19 +264,51 @@ public class ScanNodePartitionTypeNormalizationTest {
     }
 
     @Test
-    void testNormalizeDatetimeV2WithMicrosToDateV2() throws AnalysisException {
-        // DATETIMEV2 with microseconds -> DATEV2: microseconds and time
-        // stripped, only date preserved.  Conservative for pruning.
+    void testNormalizeDatetimeV2WithMicrosToDateV2_DownConvertRejected() throws AnalysisException {
+        // DATETIMEV2 with microseconds → DATEV2: unsafe down-convert.
         DateLiteral dtV2 = new DateLiteral(2024, 6, 15, 23, 59, 59, 999999, Type.DATETIMEV2);
         LiteralExpr result = ScanNode.normalizePartitionFilterLiteral(dtV2, Type.DATEV2);
-        Assertions.assertEquals(Type.DATEV2, result.getType());
-        Assertions.assertTrue(result instanceof DateLiteral);
-        DateLiteral resultDate = (DateLiteral) result;
-        Assertions.assertEquals(2024, resultDate.getYear());
-        Assertions.assertEquals(6, resultDate.getMonth());
-        Assertions.assertEquals(15, resultDate.getDay());
+        // Down-convert is rejected — original returned unchanged.
+        Assertions.assertEquals(Type.DATETIMEV2, result.getType());
+        Assertions.assertSame(dtV2, result);
     }
 
+    /**
+     * Verifies that DATETIMEV2 → DATEV2 down-convert is rejected so that
+     * a less-than range predicate on a DATEV2 partition column does not
+     * incorrectly exclude the partition whose lower bound equals the
+     * (stripped) date value.
+     *
+     * <p>Scenario: DATEV2 partition column k with partition
+     * [2024-01-01, 2024-01-02).  Predicate:
+     * CAST(k AS DATETIMEV2) &lt; DATETIMEV2 '2024-01-01 12:00:00'.
+     * If the DATETIMEV2 bound were normalised to DATEV2 '2024-01-01',
+     * Range.lessThan(DATEV2 '2024-01-01') would exclude the partition
+     * that starts at 2024-01-01 — incorrect pruning.
+     */
+    @Test
+    void testDatePredicateRangeIncorrectPruningPrevented() throws AnalysisException {
+        // Partition column: DATEV2, partition [2024-01-01, 2024-01-02)
+        // Filter: CAST(k AS DATETIMEV2) < DATETIMEV2 '2024-01-01 12:00:00'
+        DateLiteral filterBound = new DateLiteral(2024, 1, 1, 12, 0, 0, Type.DATETIMEV2);
+        LiteralExpr normalized = ScanNode.normalizePartitionFilterLiteral(
+                filterBound, Type.DATEV2);
+
+        // Down-convert must be rejected: returning DATETIMEV2 unchanged.
+        // The cross-type comparison produces CONVERT_FAILURE — no pruning —
+        // which is conservative.
+        Assertions.assertEquals(Type.DATETIMEV2, normalized.getType(),
+                "DATETIMEV2→DATEV2 down-convert must be rejected; "
+                + "cross-type pruning failure is safer than incorrect exclusion");
+        Assertions.assertSame(filterBound, normalized);
+
+        // The partition lower bound (DATEV2 '2024-01-01') would compare
+        // against the filter bound — since types differ, ColumnBound.compareTo
+        // rejects the cross-type comparison, producing CONVERT_FAILURE (safe).
+        DateLiteral partitionLower = new DateLiteral(2024, 1, 1, Type.DATEV2);
+        Assertions.assertEquals(-1, filterBound.compareLiteral(partitionLower),
+                "cross-type compareLiteral must reject comparison");
+    }
 
     // ---- Integration: ColumnBound.compareTo after normalization ----
 

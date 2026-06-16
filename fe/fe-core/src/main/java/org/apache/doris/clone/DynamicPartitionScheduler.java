@@ -335,7 +335,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue),
                         Collections.singletonList(partitionColumn));
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
-            } catch (AnalysisException e) {
+            } catch (AnalysisException | IllegalArgumentException e) {
                 // Range.closedOpen: lb is greater than ub for this partition index;
                 // skip it gracefully.
                 LOG.warn("Error in gen addPartitionKeyRange (range bounds). db: {}, table: {}, partition idx: {}",
