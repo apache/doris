@@ -183,6 +183,10 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
             scale = 6;
             result->time_unit = ParquetTimeUnit::MICROS;
             result->extra_type_info = ParquetExtraTypeInfo::UNIT_MICROS;
+        } else if (timestamp_type.time_unit() == ::parquet::LogicalType::TimeUnit::NANOS) {
+            scale = 6;
+            result->time_unit = ParquetTimeUnit::NANOS;
+            result->extra_type_info = ParquetExtraTypeInfo::UNIT_NS;
         } else {
             return nullptr;
         }

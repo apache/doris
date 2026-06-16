@@ -121,6 +121,16 @@ void append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
     data.push_back(datetime_value);
 }
 
+int64_t decoded_timestamp_micros(const DecodedColumnView& view, int64_t value) {
+    if (view.time_unit == DecodedTimeUnit::MILLIS) {
+        return value * 1000;
+    }
+    if (view.time_unit == DecodedTimeUnit::NANOS) {
+        return value / 1000;
+    }
+    return value;
+}
+
 } // namespace
 
 // NOLINTBEGIN(readability-function-size)
@@ -566,13 +576,12 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
     const auto* values = reinterpret_cast<const int64_t*>(view.values);
     static const auto utc_timezone = cctz::utc_time_zone();
     const auto& timezone = view.timezone == nullptr ? utc_timezone : *view.timezone;
-    const int64_t second_mask = view.time_unit == DecodedTimeUnit::MILLIS ? 1000 : 1000000;
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {
             data.push_back(DateV2Value<DateTimeV2ValueType>());
             continue;
         }
-        const int64_t timestamp_micros = values[row] * (1000000 / second_mask);
+        const int64_t timestamp_micros = decoded_timestamp_micros(view, values[row]);
         if (view.timestamp_is_adjusted_to_utc) {
             append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, timezone);
         } else {
