@@ -449,7 +449,11 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
         // called when an existing vault's conf is unchanged. Check it here so that dynamically
         // modified s3_{get,put}_* rate limiter configs take effect within
         // refresh_s3_info_interval_s even when no vault is created or its conf does not change.
-        check_s3_rate_limiter_config_changed();
+        // Gate it behind enable_s3_rate_limiter so that clusters with rate limiting disabled
+        // (e.g. HDFS-only vaults) do not force-initialize S3ClientFactory / the AWS SDK here.
+        if (config::enable_s3_rate_limiter) {
+            check_s3_rate_limiter_config_changed();
+        }
     }
 }
 
