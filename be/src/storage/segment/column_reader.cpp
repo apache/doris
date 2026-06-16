@@ -323,8 +323,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
                     ? assert_cast<ColumnNullable*>(dst.get())->get_nested_column_ptr().get()
                     : dst.get();
 
-    /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
-    /// So here only check `CoumnVector<TYPE_INT>`
+    /// Only verify when the destination column carries Field-accessible TYPE_INT data.
     if (check_and_get_column<ColumnVector<TYPE_INT>>(non_nullable_column) == nullptr) {
         return;
     }

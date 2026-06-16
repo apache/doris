@@ -16,13 +16,17 @@
 // under the License.
 
 #pragma once
+#include <concepts>
 #include <tuple>
+#include <type_traits>
 #include <variant>
+#include <vector>
 
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -32,27 +36,55 @@ namespace doris {
 
 // Utility tools for convenient column execution
 
-// ColumnElementView is used to distinguish between scalar columns and string columns
+// Per-row read view over a column.  The pointer returned by ptr_at on the
+// string specialization is valid only until the next ptr_at call.
+namespace detail {
+
 template <PrimitiveType PType>
-struct ColumnElementView {
+struct NumericElementView {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     using ElementType = typename ColumnType::value_type;
     const typename ColumnType::Container& data;
+
+    NumericElementView(const IColumn& column)
+            : data(assert_cast<const ColumnType&>(column).get_data()) {}
+
     ElementType get_element(size_t idx) const { return data[idx]; }
     const ElementType* get_data() const { return data.data(); }
-
-    ColumnElementView(const IColumn& column)
-            : data(assert_cast<const ColumnType&>(column).get_data()) {}
+    ElementType operator[](size_t idx) const { return data[idx]; }
+    const ElementType* ptr_at(size_t idx) const { return data.data() + idx; }
+    size_t size() const { return data.size(); }
 };
 
-template <>
-struct ColumnElementView<TYPE_STRING> {
+struct StringElementView {
     using ColumnType = ColumnString;
     using ElementType = StringRef;
     const ColumnString& string_column;
-    ColumnElementView(const IColumn& column)
+    mutable StringRef _cell {}; // staging for ptr_at
+
+    StringElementView(const IColumn& column)
             : string_column(assert_cast<const ColumnString&>(column)) {}
+
     StringRef get_element(size_t idx) const { return string_column.get_data_at(idx); }
+    StringRef operator[](size_t idx) const { return string_column.get_data_at(idx); }
+    const StringRef* ptr_at(size_t idx) const {
+        _cell = string_column.get_data_at(idx);
+        return &_cell;
+    }
+    size_t size() const { return string_column.size(); }
+};
+
+} // namespace detail
+
+template <PrimitiveType PType>
+using ColumnElementView = std::conditional_t<is_string_type(PType), detail::StringElementView,
+                                             detail::NumericElementView<PType>>;
+
+template <typename T>
+concept ColumnElementSubscriptable = requires(const T& v, size_t i) {
+    typename T::ElementType;
+    { v[i] } -> std::convertible_to<typename T::ElementType>;
+    { v.size() } -> std::convertible_to<size_t>;
 };
 
 // ColumnView is used to handle the nullable and const properties of a column.

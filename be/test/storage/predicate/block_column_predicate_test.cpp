@@ -32,7 +32,7 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/type_limit.h"
@@ -77,7 +77,7 @@ public:
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto value = Field::create_field<TYPE_INT>(5);
     int rows = 10;
@@ -97,13 +97,13 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
 
     selected_size = single_column_block_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value.template get<TYPE_INT>());
 }
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -131,13 +131,13 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -165,13 +165,13 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 10);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -208,7 +208,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 4);
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[2]], 2);
@@ -237,7 +237,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     MutableColumns block;
-    block.push_back(PredicateColumnType<TYPE_INT>::create());
+    block.push_back(ColumnInt32::create());
 
     auto less_value = Field::create_field<TYPE_INT>(5);
     auto great_value = Field::create_field<TYPE_INT>(3);
@@ -274,7 +274,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
 
-    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 
