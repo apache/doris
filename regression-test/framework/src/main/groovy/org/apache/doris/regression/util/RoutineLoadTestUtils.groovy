@@ -215,9 +215,15 @@ class RoutineLoadTestUtils {
         }
     }
 
-    static void checkTxnTimeoutMatchesTaskTimeout(Closure sqlRunner, String jobName, String expectedTimeoutMs, int maxAttempts = 60) {
+    static void checkTxnTimeoutMatchesTaskTimeout(Closure sqlRunner, KafkaProducer producer, List<String> topics,
+                                                  String jobName, String expectedTimeoutMs, int maxAttempts = 60) {
         def count = 0
         while (true) {
+            // Verifying the txn timeout requires SHOW TRANSACTION on an active txn (txnId != -1), which
+            // only exists while a task is actually consuming data. Feed a small batch each round so a
+            // live task txn recurs and is observable; otherwise the task drains and stays idle
+            // (txnId == -1) for the whole poll window, making this check flaky.
+            sendTestDataToKafka(producer, topics)
             def taskRes = sqlRunner.call("SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'")
             if (taskRes.size() > 0) {
                 def txnId = taskRes[0][1].toString()
