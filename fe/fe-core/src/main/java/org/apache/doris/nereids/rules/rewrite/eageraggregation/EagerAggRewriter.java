@@ -170,8 +170,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private Pair<Boolean, Boolean> decideJoinPushSide(
             LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
-        if (join.getJoinType().isAsofJoin()) {
-            // do nothing for asof join
+        if (join.getJoinType().isAsofJoin() || join.isMarkJoin()) {
+            // do nothing for asof join and mark join
             return Pair.of(false, false);
         }
 
