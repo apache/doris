@@ -97,13 +97,10 @@ public class AdminCreateClusterSnapshotCommandTest {
         properties.add(Pair.of(ImmutableMap.of("ttl", "a", "label", "a"), "Invalid value"));
         properties.add(Pair.of(ImmutableMap.of("ttl", "0", "label", "a"), "Property 'ttl' must be positive"));
         properties.add(Pair.of(ImmutableMap.of("ttl", "3600", "label", ""), "Property 'label' cannot be empty"));
-        properties.add(Pair.of(ImmutableMap.of("ttl", "3600", "label", "a", "vault_name", ""),
-                "Property 'vault_name' cannot be empty"));
         // unknown property
         properties.add(Pair.of(ImmutableMap.of("ttl", "0", "a", "b"), "Unknown property"));
         // normal case
         properties.add(Pair.of(ImmutableMap.of("ttl", "3600", "label", "abc"), ""));
-        properties.add(Pair.of(ImmutableMap.of("ttl", "3600", "label", "abc", "vault_name", "vault_1"), ""));
 
         for (Pair<Map<String, String>, String> entry : properties) {
             AdminCreateClusterSnapshotCommand command0 = new AdminCreateClusterSnapshotCommand(entry.first);

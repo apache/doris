@@ -62,7 +62,7 @@ public class CloudSnapshotHandler extends MasterDaemon {
         // do nothing
     }
 
-    public void submitJob(long ttl, String label, String vaultName) throws Exception {
+    public void submitJob(long ttl, String label) throws Exception {
         throw new NotImplementedException("submitJob is not implemented");
     }
 
