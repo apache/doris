@@ -329,7 +329,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
     std::vector<uint16_t> null_map;
     NullMap* map_data_column = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
-    if (doris_column->is_nullable()) {
+    if (is_column_nullable(*doris_column)) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
@@ -411,7 +411,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
     MutableColumnPtr data_column;
     NullMap* map_data_column = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
-    if (doris_column->is_nullable()) {
+    if (is_column_nullable(*doris_column)) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
@@ -661,7 +661,7 @@ Status ArrayColumnReader::read_column_data(
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
-    if (doris_column->is_nullable()) {
+    if (is_column_nullable(*doris_column)) {
         auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
@@ -717,7 +717,7 @@ Status MapColumnReader::read_column_data(
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
-    if (doris_column->is_nullable()) {
+    if (is_column_nullable(*doris_column)) {
         auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
@@ -794,7 +794,7 @@ Status StructColumnReader::read_column_data(
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
-    if (doris_column->is_nullable()) {
+    if (is_column_nullable(*doris_column)) {
         auto mutable_column = doris_column->assert_mutable();
         auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();

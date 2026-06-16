@@ -651,6 +651,12 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
+    auto resolve_binlog_scan_type = [](const TPaloScanRange& scan_range) {
+        if (scan_range.__isset.binlog_scan_type) {
+            return scan_range.binlog_scan_type;
+        }
+        return TBinlogScanType::NONE;
+    };
     bool read_row_binlog =
             p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
 
@@ -722,11 +728,10 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
+        const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
         int64_t version = 0;
-        std::from_chars(_scan_ranges[scan_range_idx]->version.data(),
-                        _scan_ranges[scan_range_idx]->version.data() +
-                                _scan_ranges[scan_range_idx]->version.size(),
-                        version);
+        std::from_chars(palo_scan_range.version.data(),
+                        palo_scan_range.version.data() + palo_scan_range.version.size(), version);
         std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
         int size_based_scanners_per_tablet = 1;
 
@@ -754,18 +759,26 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner =
-                    OlapScanner::create_shared(this, OlapScanner::Params {
-                                                             state(),
-                                                             _scanner_profile.get(),
-                                                             scanner_ranges,
-                                                             _tablets[scan_range_idx].tablet,
-                                                             version,
-                                                             _read_sources[scan_range_idx],
-                                                             p._limit,
-                                                             p._olap_scan_node.is_preaggregation,
-                                                             read_row_binlog,
-                                                     });
+
+            auto scanner = OlapScanner::create_shared(
+                    this, OlapScanner::Params {
+                                  state(),
+                                  _scanner_profile.get(),
+                                  scanner_ranges,
+                                  _tablets[scan_range_idx].tablet,
+                                  version,
+                                  _read_sources[scan_range_idx],
+                                  p._limit,
+                                  p._olap_scan_node.is_preaggregation,
+                                  read_row_binlog,
+                                  resolve_binlog_scan_type(palo_scan_range),
+                                  palo_scan_range.__isset.start_tso
+                                          ? std::make_optional(palo_scan_range.start_tso)
+                                          : std::nullopt,
+                                  palo_scan_range.__isset.end_tso
+                                          ? std::make_optional(palo_scan_range.end_tso)
+                                          : std::nullopt,
+                          });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }

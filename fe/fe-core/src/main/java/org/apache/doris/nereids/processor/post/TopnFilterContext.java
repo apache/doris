@@ -23,6 +23,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.ScanNode;
@@ -71,10 +72,19 @@ public class TopnFilterContext {
     public void translateTarget(PhysicalRelation relation, ScanNode legacyScan,
             PlanTranslatorContext translatorContext) {
         for (TopnFilter filter : filters.values()) {
-            if (filter.hasTargetRelation(relation)) {
-                Expr expr = ExpressionTranslator.translate(filter.targets.get(relation), translatorContext);
-                filter.legacyTargets.put(legacyScan, expr);
+            translateTarget(filter, relation, legacyScan, translatorContext);
+            if (relation instanceof PhysicalLazyMaterializeOlapScan) {
+                translateTarget(filter, ((PhysicalLazyMaterializeOlapScan) relation).getScan(),
+                        legacyScan, translatorContext);
             }
+        }
+    }
+
+    private void translateTarget(TopnFilter filter, PhysicalRelation relation, ScanNode legacyScan,
+            PlanTranslatorContext translatorContext) {
+        if (filter.hasTargetRelation(relation)) {
+            Expr expr = ExpressionTranslator.translate(filter.targets.get(relation), translatorContext);
+            filter.legacyTargets.put(legacyScan, expr);
         }
     }
 

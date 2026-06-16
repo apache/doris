@@ -42,6 +42,9 @@ void PaimonOrcReader::_init_paimon_profile() {
 Status PaimonOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
     const orc::Type* orc_type_ptr = nullptr;
     RETURN_IF_ERROR(get_file_type(&orc_type_ptr));
 
@@ -175,6 +178,9 @@ void PaimonParquetReader::_init_paimon_profile() {
 Status PaimonParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
     DCHECK(field_desc != nullptr);

@@ -299,6 +299,7 @@ Status PartitionedHashJoinSinkLocalState::_finish_spilling(RuntimeState* state) 
 /// because we use limit 1MB here. So we need to force spill all memory to disk to make sure we can make progress.
 Status PartitionedHashJoinSinkLocalState::_execute_spill_partitioned_blocks(RuntimeState* state,
                                                                             bool force_spill) {
+    RETURN_IF_CANCELLED(state);
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
         auto status = Status::InternalError(
                 "fault_inject partitioned_hash_join_sink revoke_memory canceled");
@@ -513,7 +514,7 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
 
 #undef UPDATE_COUNTER_FROM_INNER
 
-Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status PartitionedHashJoinSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     const auto rows = in_block->rows();

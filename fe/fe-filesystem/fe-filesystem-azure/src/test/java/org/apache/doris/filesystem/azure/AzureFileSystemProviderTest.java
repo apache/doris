@@ -43,6 +43,13 @@ class AzureFileSystemProviderTest {
     }
 
     @Test
+    void supports_returnsFalseForPlainAwsAccessKeyWithoutAzureSignal() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ACCESS_KEY", "aws-account");
+        Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
     void supports_returnsFalseForUnknownEndpointSuffix() {
         Map<String, String> props = new HashMap<>();
         props.put("AZURE_ENDPOINT", "https://myaccount.s3.amazonaws.com");

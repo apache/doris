@@ -147,7 +147,8 @@ public class MetaServiceProxy {
         String address = Config.meta_service_endpoint;
         address = address.replaceAll("^[\"']|[\"']$", "");
         MetaServiceClient service = serviceMap.get(address);
-        if (service != null && service.isNormalState() && !service.isConnectionAgeExpired()) {
+        if (service != null && service.isNormalState() && !service.isConnectionAgeExpired()
+                && service.isUsingLatestChannelConfig()) {
             return service;
         }
 
@@ -167,6 +168,11 @@ public class MetaServiceProxy {
                 service = null;
             }
             if (service != null && service.isConnectionAgeExpired()) {
+                serviceMap.remove(address);
+                removedClient = service;
+                service = null;
+            }
+            if (service != null && !service.isUsingLatestChannelConfig()) {
                 serviceMap.remove(address);
                 removedClient = service;
                 service = null;

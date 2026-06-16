@@ -20,6 +20,11 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
+import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
+import org.apache.doris.auth.certificate.ForwardedCertificateInfo;
+import org.apache.doris.auth.certificate.StreamLoadCertificateAuthHelper;
 import org.apache.doris.backup.BackupJobInfo;
 import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Snapshot;
@@ -29,6 +34,7 @@ import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -150,6 +156,7 @@ import org.apache.doris.thrift.TBeginRemoteTxnResult;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
+import org.apache.doris.thrift.TCertBasedAuth;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumnDef;
@@ -355,6 +362,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -362,6 +370,8 @@ import java.util.stream.Collectors;
 // thrift protocol
 public class FrontendServiceImpl implements FrontendService.Iface {
     private static final Logger LOG = LogManager.getLogger(FrontendServiceImpl.class);
+    private static final CertificateRuntimeAuthService CERT_RUNTIME_AUTH_SERVICE =
+            CertificateRuntimeAuthFactory.getInstance();
 
     private static final String NOT_MASTER_ERR_MSG = "FE is not master";
 
@@ -1196,42 +1206,82 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return checkPasswordAndPrivs(user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
+    private UserIdentity checkSingleTablePasswordAndPrivs(String user, String passwd, String db, String tbl,
+            String clientIp, PrivPredicate predicate, ForwardedCertificateInfo certInfo)
+            throws AuthenticationException {
+        return checkPasswordAndPrivs(user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate, certInfo);
+    }
+
     private UserIdentity checkDbPasswordAndPrivs(String user, String passwd, String db, String clientIp,
             PrivPredicate predicate) throws AuthenticationException {
         return checkPasswordAndPrivs(user, passwd, db, null, clientIp, predicate);
     }
 
+    private UserIdentity checkDbPasswordAndPrivs(String user, String passwd, String db, String clientIp,
+            PrivPredicate predicate, ForwardedCertificateInfo certInfo) throws AuthenticationException {
+        return checkPasswordAndPrivs(user, passwd, db, null, clientIp, predicate, certInfo);
+    }
+
     private UserIdentity checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
+        return checkPasswordAndPrivs(user, passwd, db, tables, clientIp, predicate, null);
+    }
+
+    private UserIdentity checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
+            String clientIp, PrivPredicate predicate, ForwardedCertificateInfo certInfo)
+            throws AuthenticationException {
 
         final String fullUserName = user;
         final String fullDbName = db;
-        List<UserIdentity> currentUser = Lists.newArrayList();
-        Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
-
-        Preconditions.checkState(currentUser.size() == 1);
+        UserIdentity currentUser = resolveForwardedAuthUserIdentity(fullUserName, passwd, clientIp, certInfo);
         if (tables == null || tables.isEmpty()) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(currentUser.get(0), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, predicate)) {
+                    .checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, predicate)) {
                 throw new AuthenticationException(
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
             }
-            Preconditions.checkState(currentUser.size() == 1);
-            return currentUser.get(0);
+            return currentUser;
         }
 
         for (String tbl : tables) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(currentUser.get(0), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, tbl,
+                    .checkTblPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, tbl,
                             predicate)) {
                 throw new AuthenticationException(
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
             }
         }
+        return currentUser;
+    }
+
+    private UserIdentity resolveForwardedAuthUserIdentity(String fullUserName, String passwd, String clientIp,
+            ForwardedCertificateInfo certInfo) throws AuthenticationException {
+        CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
+                CERT_RUNTIME_AUTH_SERVICE, fullUserName, clientIp, certInfo);
+        if (certDecision.isReject()) {
+            throw new AuthenticationException(certDecision.getErrorMessage() == null
+                    ? "TLS certificate verification failed"
+                    : certDecision.getErrorMessage());
+        }
+        if (certDecision.shouldSkipPasswordVerification()) {
+            return certDecision.getUserIdentity();
+        }
+
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        if (certDecision.isVerified()) {
+            Env.getCurrentEnv().getAuth().checkPlainPasswordForUserIdentity(
+                    certDecision.getUserIdentity(), passwd, currentUser);
+        } else {
+            Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
+        }
         Preconditions.checkState(currentUser.size() == 1);
         return currentUser.get(0);
+    }
+
+    private ForwardedCertificateInfo toForwardedCertificateInfo(TCertBasedAuth certAuth) {
+        return StreamLoadCertificateAuthHelper.fromThrift(certAuth);
     }
 
     private void checkPassword(String user, String passwd, String clientIp)
@@ -1247,6 +1297,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive txn begin request: {}, backend: {}", request, clientAddr);
+        }
+        if (request.isSetCertBasedAuth()) {
+            TCertBasedAuth certAuth = request.getCertBasedAuth();
+            LOG.info("loadTxnBegin forwarded cert auth: san={}, subject={}, issuer={}",
+                    certAuth.isSetSan() ? certAuth.getSan() : "",
+                    certAuth.isSetSubject() ? certAuth.getSubject() : "",
+                    certAuth.isSetIssuer() ? certAuth.getIssuer() : "");
+        } else {
+            LOG.info("loadTxnBegin forwarded cert auth: absent");
         }
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
@@ -1296,8 +1355,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
+                    toForwardedCertificateInfo(request.getCertBasedAuth()));
         } else {
             if (!checkToken(request.getToken())) {
                 throw new AuthenticationException("Invalid token: " + request.getToken());
@@ -1569,17 +1628,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new AuthenticationException("Invalid token: " + request.getToken());
             }
         } else {
-            // refactoring it
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
-                for (String tbl : request.getTbls()) {
-                    checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                            tbl,
-                            request.getUserIp(), PrivPredicate.LOAD);
-                }
+                checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), request.getTbls(),
+                        request.getUserIp(), PrivPredicate.LOAD,
+                        toForwardedCertificateInfo(request.getCertBasedAuth()));
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                        request.getTbl(),
-                        request.getUserIp(), PrivPredicate.LOAD);
+                        request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
+                        toForwardedCertificateInfo(request.getCertBasedAuth()));
             }
         }
 
@@ -1683,7 +1739,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // check auth
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     table.getName(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+                    request.getUserIp(), PrivPredicate.LOAD,
+                    toForwardedCertificateInfo(request.getCertBasedAuth()));
         }
 
         if (txnOperation.equalsIgnoreCase("commit")) {
@@ -1760,10 +1817,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                        request.getTbls(), request.getUserIp(), PrivPredicate.LOAD);
+                        request.getTbls(), request.getUserIp(), PrivPredicate.LOAD,
+                        toForwardedCertificateInfo(request.getCertBasedAuth()));
             } else {
                 checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
-                        request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                        request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
+                        toForwardedCertificateInfo(request.getCertBasedAuth()));
             }
         }
         if (request.groupCommit) {
@@ -4478,6 +4537,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
+        boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
+        final boolean hasBeEndpoint = request.isSetBeEndpoint();
+        // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
+        String cachedClusterId = null;
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
             // For thread safety, we preserve the tablet distribution information of each partition
@@ -4501,16 +4564,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tPartition.setNumBuckets(index.getTablets().size());
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            boolean randomDistribution =
+                    partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
+            boolean cacheLoadTabletIdx = loadToSingleTablet && randomDistribution;
             partitions.add(tPartition);
             // tablet
+            AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                    partitionSlaveTablets)) {
+                                    partitionSlaveTablets, cachedLoadTabletIdx)) {
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
+                }
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
                 continue;
+            }
+            if (cacheLoadTabletIdx) {
+                try {
+                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                            .getCurrentTabletLoadIndex(dbId, olapTable.getId(), partition);
+                    tPartition.setLoadTabletIdx(tabletIndex);
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send create partition error status: {}", result);
+                    return result;
+                }
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
@@ -4521,9 +4603,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
-                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
-                            bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
+                        if (tablet instanceof CloudTablet) {
+                            CloudTablet cloudTablet = (CloudTablet) tablet;
+                            if (hasBeEndpoint) {
+                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            } else {
+                                if (cachedClusterId == null) {
+                                    cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                            .getCurrentClusterId();
+                                }
+                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                            }
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -4575,9 +4665,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (needUseCache) {
-                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
+                long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                partitionSlaveTablets);
+                                partitionSlaveTablets, loadTabletIdx);
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedTabletIdx);
+                }
             }
 
             tablets.addAll(partitionTablets);
@@ -4795,6 +4889,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
+        final boolean replaceHasBeEndpoint = request.isSetBeEndpoint();
+        // Lazy: resolved on the first CloudTablet that needs it.
+        String replaceCachedClusterId = null;
         for (long partitionId : resultPartitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
             // For thread safety, we preserve the tablet distribution information of each partition
@@ -4820,16 +4918,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tPartition.setNumBuckets(index.getTablets().size());
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            boolean randomDistribution =
+                    partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
+            boolean cacheLoadTabletIdx = loadToSingleTablet && randomDistribution;
             partitions.add(tPartition);
             // tablet
+            AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache && txnId != 0
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                    partitionSlaveTablets)) {
+                                    partitionSlaveTablets, cachedLoadTabletIdx)) {
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
+                }
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
                 continue;
+            }
+            if (cacheLoadTabletIdx) {
+                try {
+                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                            .getCurrentTabletLoadIndex(dbId, olapTable.getId(), partition);
+                    tPartition.setLoadTabletIdx(tabletIndex);
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send replace partition error status: {}", result);
+                    return result;
+                }
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
@@ -4840,9 +4957,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // BE id -> path hash
                     Multimap<Long, Long> bePathsMap;
                     try {
-                        if (Config.isCloudMode() && request.isSetBeEndpoint()) {
-                            bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMap(request.be_endpoint);
+                        if (tablet instanceof CloudTablet) {
+                            CloudTablet cloudTablet = (CloudTablet) tablet;
+                            if (replaceHasBeEndpoint) {
+                                bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            } else {
+                                if (replaceCachedClusterId == null) {
+                                    replaceCachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                            .getCurrentClusterId();
+                                }
+                                bePathsMap = cloudTablet
+                                        .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
+                            }
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -4898,9 +5024,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (needUseCache) {
-                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
+                long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                partitionSlaveTablets);
+                                partitionSlaveTablets, loadTabletIdx);
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedTabletIdx);
+                }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
                             + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),

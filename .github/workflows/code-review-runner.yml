@@ -1,0 +1,500 @@
+name: Code Review Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install Codex
+        run: |
+          for attempt in 1 2 3; do
+            if npm install -g @openai/codex; then
+              codex --version
+              exit 0
+            fi
+            echo "Install attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "All install attempts failed"
+          exit 1
+
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
+      - name: Configure Codex auth
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/codex-home"
+          printf 'CODEX_HOME=%s\n' "$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_AUTH_OBJECT" "$RUNNER_TEMP/codex-home/auth.json"
+          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
+          test -s "$RUNNER_TEMP/codex-home/auth.json"
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$RUNNER_TEMP/codex-home/auth.json" >/dev/null
+
+          cat > "$RUNNER_TEMP/codex-home/config.toml" <<EOF
+          cli_auth_credentials_store = "file"
+          approval_policy = "never"
+
+          [features]
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
+          [shell_environment_policy]
+          inherit = "all"
+
+          [otel]
+          environment = "github-actions"
+          exporter = "none"
+          metrics_exporter = "none"
+          trace_exporter = "none"
+          EOF
+          chmod 600 "$RUNNER_TEMP/codex-home/config.toml"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
+
+      - name: Sync Codex memories from OSS
+        continue-on-error: true
+        run: |
+          install -m 700 -d "$CODEX_HOME/memories"
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+
+          if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_MEMORIES_OBJECT" "$archive"; then
+            tar -tzf "$archive" | awk '
+              $0 != "memories" && $0 !~ /^memories\// { bad = 1 }
+              END { exit bad }
+            '
+            tar -xzf "$archive" -C "$CODEX_HOME"
+            install -m 700 -d "$CODEX_HOME/memories"
+            chmod -R go-rwx "$CODEX_HOME/memories" || true
+          else
+            echo "No Codex memories archive could be downloaded; continuing with empty memories."
+          fi
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
+
+      - name: Prepare review context directory
+        run: |
+          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.code-review.XXXXXX")"
+          review_context_rel="$(basename "$review_context_dir")"
+          printf 'REVIEW_CONTEXT_DIR=%s\n' "$review_context_dir" >> "$GITHUB_ENV"
+          printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
+
+      - name: Fetch existing PR review threads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          MAX_THREADS=30
+          MAX_BODY_CHARS=1200
+
+          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" 2>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq 'add | sort_by((.in_reply_to_id // .id), .id)' "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" > "$REVIEW_CONTEXT_DIR/pr_review_comments.json" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq -r '
+              def shorten($limit):
+                if (. // "" | length) > $limit then
+                  .[0:$limit] + "...(truncated)"
+                else
+                  . // ""
+                end;
+              if length == 0 then
+                "No existing inline review comments or replies were found for this PR."
+              else
+                group_by(.in_reply_to_id // .id)
+                | sort_by(.[0].created_at // "")
+                | reverse
+                | .[:$max_threads]
+                | map(
+                    . as $thread
+                    | $thread[0] as $root
+                    | "### " + ($root.path // "(unknown path)") + ":" + (($root.line // $root.original_line // "n/a") | tostring)
+                    + "\nURL: " + ($root.html_url // "")
+                    + "\nComments:\n"
+                    + (
+                        $thread
+                        | map(
+                            "- " + (.user.login // "unknown")
+                            + " at " + (.created_at // "")
+                            + (if .in_reply_to_id then " (reply):" else " (original comment):" end)
+                            + "\n"
+                            + ((.body | shorten($max_body_chars)) | split("\n") | map("    " + .) | join("\n"))
+                          )
+                        | join("\n")
+                      )
+                )
+                | join("\n\n")
+              end
+            ' --argjson max_threads "$MAX_THREADS" --argjson max_body_chars "$MAX_BODY_CHARS" "$REVIEW_CONTEXT_DIR/pr_review_comments.json" > "$REVIEW_CONTEXT_DIR/pr_review_threads.md" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"; then
+            echo "Fetched existing PR review threads successfully."
+          else
+            printf '%s\n\n' \
+              'Existing PR review threads could not be fetched or formatted for this run.' \
+              'Proceed with the automated review without this auxiliary context.' \
+              > "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            if [ -s "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" ]; then
+              {
+                printf '\n%s\n' 'Fetch/format error details:'
+                sed 's/^/    /' "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"
+              } >> "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            fi
+          fi
+
+      - name: Prepare user review focus
+        env:
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+        run: |
+          if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$REVIEW_FOCUS" > "$REVIEW_CONTEXT_DIR/review_focus.txt"
+          else
+            printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
+          fi
+
+      - name: Prepare required AGENTS guides
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+        run: |
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
+
+          helper="$RUNNER_TEMP/prepare_review_agents.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/prepare_review_agents.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --changed-files "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
+            --required-agents "$REVIEW_CONTEXT_DIR/required_agents.txt" \
+            --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt"
+
+          echo "Required AGENTS.md files for this review:"
+          sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
+
+      - name: Prepare review prompt
+        run: |
+          cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
+          The current directory is the code repository for the PR to be reviewed.
+          You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
+          You can comment on the pull request.
+          Proceed with all subsequent research at the HIGHEST level of thought, aiming to identify all issues and submit all comments in JSON format.
+
+          Context:
+          - Repository: PLACEHOLDER_REPO
+          - PR number: PLACEHOLDER_PR_NUMBER
+          - PR Head SHA: PLACEHOLDER_HEAD_SHA
+          - PR Base SHA: PLACEHOLDER_BASE_SHA
+          - Existing inline review threads: PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md
+          - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
+          - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
+          - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
+          - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
+
+          Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
+          Required AGENTS.md files for this PR:
+          PLACEHOLDER_REQUIRED_AGENTS_BLOCK
+          Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
+          Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
+          Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
+          You MUST also read PLACEHOLDER_CONTEXT_DIR/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file.
+          In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
+          In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
+
+          ## Final response format
+          - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
+              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
+          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
+              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
+              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
+              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
+              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          - A complete and detailed review of the entire PR must be conducted, identifying all potential issues and submitting corresponding comments. Only then can the review work be considered finished. If this standard is not strictly met, the review of the remaining parts must continue.
+          PROMPT
+          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
+          import sys
+          from pathlib import Path
+
+          prompt_path = Path(sys.argv[1])
+          required_agents_path = Path(sys.argv[2])
+          prompt = prompt_path.read_text()
+          required_agents = required_agents_path.read_text().rstrip()
+          prompt_path.write_text(prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents))
+          PY
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+
+      - name: Run automated code review
+        id: review
+        timeout-minutes: 115
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REASONING_EFFORT: xhigh
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
+          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          set +e
+          # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
+          # Codex uses bubblewrap for that mode and uid maps can be unavailable.
+          codex exec "$PROMPT" \
+            --cd "$GITHUB_WORKSPACE" \
+            --model "gpt-5.5" \
+            --config "model_reasoning_effort=\"${REASONING_EFFORT}\"" \
+            --sandbox danger-full-access \
+            --color never \
+            --json \
+            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+          status=$?
+          set -e
+
+          failure_reason=""
+          if [ "$status" -ne 0 ]; then
+            if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+              failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              if [ -z "$failure_reason" ]; then
+                failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
+              fi
+            fi
+            if [ -z "$failure_reason" ] && [ -s "$REVIEW_CONTEXT_DIR/codex-stderr.log" ]; then
+              failure_reason="$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/codex-stderr.log")"
+            fi
+            if [ -z "$failure_reason" ]; then
+              failure_reason="Codex exited with status $status"
+            fi
+          fi
+
+          if [ -z "$failure_reason" ]; then
+            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
+            reviews_api_ok=false
+            review_verified=false
+            for attempt in 1 2 3 4 5 6; do
+              if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
+                reviews_api_ok=true
+                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
+                  (add // [])
+                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
+                  | length > 0
+                ' "$reviews_file" >/dev/null; then
+                  review_verified=true
+                  break
+                fi
+              fi
+              sleep 5
+            done
+
+            if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
+              failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
+            elif [ "$review_verified" != "true" ]; then
+              failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
+            fi
+          fi
+
+          if [ -n "$failure_reason" ]; then
+            {
+              echo "failure_reason<<EOF"
+              printf '%s\n' "$failure_reason"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Record review I/O to Litefuse
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PK }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SK }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+          REASONING_EFFORT: xhigh
+        run: |
+          if [ ! -s "$REVIEW_CONTEXT_DIR/review_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+            echo "Review prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
+            exit 0
+          fi
+
+          helper="$RUNNER_TEMP/emit_litefuse_otel_io.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/emit_litefuse_otel_io.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --input-file "$REVIEW_CONTEXT_DIR/review_prompt.txt" \
+            --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
+            --output-file "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
+            --trace-name "doris-ai-review" \
+            --session-id "$GITHUB_RUN_ID" \
+            --repository "$REPO" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --model "gpt-5.5" \
+            --reasoning-effort "$REASONING_EFFORT" \
+            --environment "github-actions" \
+            --max-payload-bytes 4000000 \
+            --min-observations 4 \
+            --min-step-observations 2 \
+            --verify-attempts 24 \
+            --verify-sleep-seconds 5 \
+            --verify
+
+      - name: Sync Codex memories back to OSS
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          if [ ! -d "$CODEX_HOME/memories" ]; then
+            echo "No Codex memories directory found; skipping memories sync."
+            exit 0
+          fi
+
+          archive="$RUNNER_TEMP/codex-memories.tar.gz"
+          tar -C "$CODEX_HOME" -czf "$archive" memories
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$archive" "$OSS_CODEX_MEMORIES_OBJECT"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
+
+      - name: Sync Codex auth back to OSS
+        if: ${{ always() }}
+        run: |
+          if [ ! -s "$CODEX_HOME/auth.json" ]; then
+            echo "No Codex auth file found; skipping OSS auth sync."
+            exit 0
+          fi
+
+          jq -e '
+            .auth_mode == "chatgpt"
+            and (.tokens.access_token | type == "string" and length > 0)
+            and (.tokens.refresh_token | type == "string" and length > 0)
+          ' "$CODEX_HOME/auth.json" >/dev/null
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$CODEX_HOME/auth.json" "$OSS_CODEX_AUTH_OBJECT"
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
+
+      - name: Comment PR on review failure
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
+          Codex automated review failed and did not complete.
+
+          Error: ${error_msg}
+          Workflow run: ${RUN_URL}
+
+          Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
+          EOF
+          )"
+
+      - name: Fail workflow if review failed
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          echo "Codex automated review failed: ${error_msg}"
+          exit 1

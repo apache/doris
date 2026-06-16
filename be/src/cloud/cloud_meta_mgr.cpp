@@ -65,6 +65,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/client_cache.h"
+#include "util/client_connection_provider.h"
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -309,6 +310,7 @@ private:
         }
 
         brpc::ChannelOptions options;
+        RETURN_IF_ERROR(doris::client::configure_brpc_channel_options(&options));
         options.connection_group =
                 fmt::format("ms_{}", index.fetch_add(1, std::memory_order_relaxed));
         if (channel->Init(endpoint.c_str(), load_balancer_name, &options) != 0) {
@@ -1524,7 +1526,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
                   << ", with timeout: " << timeout_ms << " ms";
     }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-    manager.warm_up_rowset(rs_meta, timeout_ms);
+    manager.warm_up_rowset(rs_meta, table_id, timeout_ms);
     return st;
 }
 

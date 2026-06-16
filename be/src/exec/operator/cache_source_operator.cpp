@@ -118,7 +118,7 @@ std::string CacheSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

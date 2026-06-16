@@ -73,9 +73,10 @@ void TransactionalHiveReader::_init_transactional_hive_profile() {
 Status TransactionalHiveReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
-    for (auto& desc : *ctx->column_descs) {
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             _col_names.push_back(desc.name);
@@ -283,8 +284,7 @@ Status TransactionalHiveReader::on_before_read_block(Block* block) {
         DataTypePtr data_type = get_data_type_with_default_argument(
                 DataTypeFactory::instance().create_data_type(i.type, false));
         MutableColumnPtr data_column = data_type->create_column();
-        (*col_name_to_block_idx_ref())[i.column_lower_case] =
-                static_cast<uint32_t>(block->columns());
+        (*col_name_to_block_idx_ref())[i.column_lower_case] = block->columns();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, i.column_lower_case));
     }

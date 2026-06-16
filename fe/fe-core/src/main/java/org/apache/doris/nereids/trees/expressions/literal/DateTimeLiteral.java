@@ -37,11 +37,16 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
+import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneRules;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -271,10 +276,33 @@ public class DateTimeLiteral extends DateLiteral {
 
     private static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
             long second, ZoneId fromZone, ZoneId toZone) {
-        return LocalDateTime.of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second)
-                .atZone(fromZone)
-                .withZoneSameInstant(toZone)
-                .toLocalDateTime();
+        LocalDateTime localDateTime = LocalDateTime.of((int) year, (int) month, (int) day,
+                (int) hour, (int) minute, (int) second);
+        Instant instant = convertLocalToInstant(localDateTime, fromZone);
+        return LocalDateTime.ofInstant(instant, toZone);
+    }
+
+    /**
+     * Convert a local civil datetime in {@code fromZone} to an instant with the same DST transition
+     * policy as BE cctz::convert(civil_second, zone).
+     *
+     * <p>For normal local times, there is one valid offset. For fall-back overlap times, two offsets
+     * are valid and the first one is the pre-transition offset. For spring-forward gap times, the
+     * local time does not exist, so any value inside the skipped interval maps to the transition
+     * instant.
+     */
+    public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
+        ZoneRules rules = fromZone.getRules();
+        List<ZoneOffset> validOffsets = rules.getValidOffsets(localDateTime);
+        int size = validOffsets.size();
+        // Match BE cctz::convert(civil_second, zone) semantics for constant folding.
+        // Normal local time has one offset; repeated local time uses the pre-transition offset.
+        if (size == 1 || size == 2) {
+            return localDateTime.atOffset(validOffsets.get(0)).toInstant();
+        }
+        // Skipped local time maps to the transition instant, e.g. 2021-03-28 02:15 Europe/Paris.
+        ZoneOffsetTransition transition = rules.getTransition(localDateTime);
+        return transition.getInstant();
     }
 
     public boolean checkRange() {
@@ -290,6 +318,10 @@ public class DateTimeLiteral extends DateLiteral {
     @Override
     public Long getValue() {
         return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+    }
+
+    public long timePartToMicroSecond() {
+        return ((hour * 60L + minute) * 60L + second) * 1000L * 1000L + microSecond;
     }
 
     @Override

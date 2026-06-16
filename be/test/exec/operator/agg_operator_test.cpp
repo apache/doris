@@ -104,7 +104,7 @@ class MockDistributionOperator final : public OperatorX<MockLocalState> {
 public:
     MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
 
-    Status get_block(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
+    Status get_block_impl(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
         *eos = true;
         return Status::OK();
     }

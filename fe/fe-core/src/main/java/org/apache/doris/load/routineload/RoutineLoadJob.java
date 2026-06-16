@@ -1001,6 +1001,9 @@ public abstract class RoutineLoadJob
         return 0L;
     }
 
+    public void updateLag() throws UserException {
+    }
+
     protected abstract RoutineLoadTaskInfo unprotectRenewTask(
             RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
 

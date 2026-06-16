@@ -77,7 +77,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregat
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -270,7 +269,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             StructType structType = (StructType) dataType;
             StructField field = structType.getField(dereferenceExpression.fieldName);
             if (field != null) {
-                return new StructElement(expression, dereferenceExpression.child(1));
+                return new ElementAt(expression, dereferenceExpression.child(1));
             }
         } else if (dataType.isMapType()) {
             return new ElementAt(expression, dereferenceExpression.child(1));
@@ -339,7 +338,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 if (firstBound.getDataType() instanceof NestedColumnPrunable
                         || firstBound.getDataType().isVariantType()) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
-                } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
+                } else if (firstBound.containsType(ElementAt.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 }
                 if (firstBound instanceof Alias) {
@@ -1257,7 +1256,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     throw new AnalysisException("No such struct field '" + fieldName + "' in '" + lastFieldName + "'");
                 }
                 lastFieldName = fieldName;
-                expression = new StructElement(expression, new StringLiteral(fieldName));
+                expression = new ElementAt(expression, new StringLiteral(fieldName));
                 continue;
             } else if (dataType.isMapType()) {
                 expression = new ElementAt(expression, new StringLiteral(fieldName));

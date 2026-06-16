@@ -358,7 +358,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 input_block.rows(), rows, input_block.dump_structure());
     }
     auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
+        if (is_column_nullable(*to) && !is_column_nullable(*from)) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
@@ -729,13 +729,15 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 }
 
 template <typename LocalStateType>
-Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StreamingOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                          bool* eos) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(state, block, eos));
     return pull(state, block, eos);
 }
 
 template <typename LocalStateType>
-Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                         bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(

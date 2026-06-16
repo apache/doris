@@ -466,11 +466,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             HiveSplit hiveSplit = (HiveSplit) fileSplit;
             isACID = hiveSplit.isACID();
         }
-        List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                ? FilePartitionUtils.parseColumnsFromPath(fileSplit.getPathString(), pathPartitionKeys,
-                false, isACID) : fileSplit.getPartitionValues();
+        FilePartitionUtils.ParsedColumnsFromPath partitionValuesFromPath =
+                fileSplit.getPartitionValues() == null
+                        ? FilePartitionUtils.parseColumnsFromPathWithNullInfo(
+                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                        : FilePartitionUtils.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
-        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
+        TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath.getValues(),
+                pathPartitionKeys, partitionValuesFromPath.getIsNull());
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
         // set file format type, and the type might fall back to native format in setScanParams
@@ -547,7 +550,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys) {
+                                               List<String> columnsFromPathKeys,
+                                               List<Boolean> columnsFromPathIsNull) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
         rangeDesc.setSize(fileSplit.getLength());
@@ -557,6 +561,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (!columnsFromPathKeys.isEmpty()) {
             rangeDesc.setColumnsFromPath(columnsFromPath);
             rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+            rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
         }
 
         rangeDesc.setFileType(fileSplit.getLocationType());

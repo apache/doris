@@ -203,6 +203,10 @@ public class BinlogConfig {
         return enable && binlogFormat == BinlogFormat.ROW;
     }
 
+    public boolean isRowFormat() {
+        return enable && binlogFormat == BinlogFormat.ROW;
+    }
+
     public TBinlogConfig toThrift() {
         TBinlogConfig tBinlogConfig = new TBinlogConfig();
         tBinlogConfig.setEnable(enable);
