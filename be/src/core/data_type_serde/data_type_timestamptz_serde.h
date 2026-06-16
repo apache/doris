@@ -21,8 +21,8 @@
 
 #include <cstdint>
 
-#include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/data_type_number_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
 

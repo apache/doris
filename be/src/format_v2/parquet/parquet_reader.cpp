@@ -77,8 +77,8 @@ DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {
             const bool nullable =
                     column_schema->type != nullptr && column_schema->type->is_nullable();
             const auto scale = timestamp_tz_scale(column_schema->type_descriptor);
-            column_schema->type = DataTypeFactory::instance().create_data_type(
-                    TYPE_TIMESTAMPTZ, nullable, 0, scale);
+            column_schema->type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ,
+                                                                               nullable, 0, scale);
             column_schema->type_descriptor.doris_type = column_schema->type;
         }
         return column_schema->type;
@@ -92,24 +92,21 @@ DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {
 
     if (column_schema->kind == ParquetColumnSchemaKind::LIST) {
         DORIS_CHECK(child_types.size() == 1);
-        column_schema->type =
-                nullable_like_original(column_schema->type,
-                                       std::make_shared<DataTypeArray>(child_types[0]));
+        column_schema->type = nullable_like_original(
+                column_schema->type, std::make_shared<DataTypeArray>(child_types[0]));
     } else if (column_schema->kind == ParquetColumnSchemaKind::MAP) {
         DORIS_CHECK(child_types.size() == 2);
-        column_schema->type =
-                nullable_like_original(column_schema->type,
-                                       std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
-                                                                     make_nullable(child_types[1])));
+        column_schema->type = nullable_like_original(
+                column_schema->type, std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
+                                                                   make_nullable(child_types[1])));
     } else if (column_schema->kind == ParquetColumnSchemaKind::STRUCT) {
         Strings child_names;
         child_names.reserve(column_schema->children.size());
         for (const auto& child : column_schema->children) {
             child_names.push_back(child->name);
         }
-        column_schema->type =
-                nullable_like_original(column_schema->type,
-                                       std::make_shared<DataTypeStruct>(child_types, child_names));
+        column_schema->type = nullable_like_original(
+                column_schema->type, std::make_shared<DataTypeStruct>(child_types, child_names));
     }
     return column_schema->type;
 }

@@ -3530,19 +3530,20 @@ TEST(TableReaderTest, RuntimeFilterOnConstantPartitionIsNotPreExecuted) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     set_name_identifiers(&projected_columns);
     TableReader reader;
-    ASSERT_TRUE(reader.init({
-                                    .projected_columns = projected_columns,
-                                    .column_predicates = {},
-                                    .conjuncts = {prepared_conjunct(
-                                            &state, runtime_filter_wrapper_expr(
-                                                            table_int32_greater_than_expr(0, 0, 1)))},
-                                    .format = FileFormat::PARQUET,
-                                    .scan_params = nullptr,
-                                    .io_ctx = nullptr,
-                                    .runtime_state = &state,
-                                    .scanner_profile = nullptr,
-                            })
-                        .ok());
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = {prepared_conjunct(
+                                        &state, runtime_filter_wrapper_expr(
+                                                        table_int32_greater_than_expr(0, 0, 1)))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                        })
+                    .ok());
 
     auto split_options = build_split_options(file_path);
     split_options.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
