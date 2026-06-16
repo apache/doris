@@ -51,11 +51,6 @@ class IColumn;
 namespace parquet {
 struct ParquetColumnSchema;
 
-struct ParquetPageSkipProfile {
-    RuntimeProfile::Counter* skipped_pages = nullptr;
-    RuntimeProfile::Counter* skipped_bytes = nullptr;
-};
-
 // Doris 的 Parquet column reader 抽象。
 // 该类包装 Arrow Parquet RecordReader，负责将 file-local Parquet leaf column 读取成
 // Doris-owned column。它不理解 Iceberg/global schema，也不处理 table-level

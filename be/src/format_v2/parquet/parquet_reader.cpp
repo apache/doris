@@ -290,52 +290,12 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
             _state->file_schema, *request_snapshot, scan_range, _state->enable_bloom_filter,
             &row_group_plan, _state->timezone));
     if (_profile != nullptr) {
-        const auto& pruning_stats = row_group_plan.pruning_stats;
-        COUNTER_UPDATE(_parquet_profile.filtered_row_groups,
-                       pruning_stats.total_row_groups - pruning_stats.selected_row_groups);
-        COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_min_max,
-                       pruning_stats.filtered_row_groups_by_statistics);
-        COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_dictionary,
-                       pruning_stats.filtered_row_groups_by_dictionary);
-        COUNTER_UPDATE(_parquet_profile.filtered_row_groups_by_bloom_filter,
-                       pruning_stats.filtered_row_groups_by_bloom_filter);
-        COUNTER_UPDATE(_parquet_profile.to_read_row_groups, pruning_stats.selected_row_groups);
-        COUNTER_UPDATE(_parquet_profile.total_row_groups, pruning_stats.total_row_groups);
-        COUNTER_UPDATE(_parquet_profile.selected_row_ranges, pruning_stats.selected_row_ranges);
-        COUNTER_UPDATE(_parquet_profile.filtered_group_rows, pruning_stats.filtered_group_rows);
-        COUNTER_UPDATE(_parquet_profile.filtered_page_rows, pruning_stats.filtered_page_rows);
-        COUNTER_UPDATE(_parquet_profile.page_index_read_calls, pruning_stats.page_index_read_calls);
-        COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time,
-                       pruning_stats.bloom_filter_read_time);
-        COUNTER_UPDATE(_parquet_profile.row_group_filter_time, pruning_stats.row_group_filter_time);
-        COUNTER_UPDATE(_parquet_profile.page_index_filter_time,
-                       pruning_stats.page_index_filter_time);
-        COUNTER_UPDATE(_parquet_profile.read_page_index_time, pruning_stats.read_page_index_time);
+        _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }
     _state->scan_plan = row_group_plan;
-    _state->scheduler.set_page_skip_profile(
-            {.skipped_pages = _parquet_profile.pages_skipped_by_data_page_filter,
-             .skipped_bytes = _parquet_profile.data_page_filter_skip_bytes});
+    _state->scheduler.set_page_skip_profile(_parquet_profile.page_skip_profile());
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
-    _state->scheduler.set_scan_profile({
-            .raw_rows_read = _parquet_profile.raw_rows_read,
-            .selected_rows = _parquet_profile.selected_rows,
-            .rows_filtered_by_conjunct = _parquet_profile.rows_filtered_by_conjunct,
-            .lazy_read_filtered_rows = _parquet_profile.lazy_read_filtered_rows,
-            .total_batches = _parquet_profile.total_batches,
-            .empty_selection_batches = _parquet_profile.empty_selection_batches,
-            .range_gap_skipped_rows = _parquet_profile.range_gap_skipped_rows,
-            .column_read_time = _parquet_profile.column_read_time,
-            .predicate_filter_time = _parquet_profile.predicate_filter_time,
-            .column_reader_profile =
-                    {
-                            .reader_read_rows = _parquet_profile.reader_read_rows,
-                            .reader_skip_rows = _parquet_profile.reader_skip_rows,
-                            .reader_select_rows = _parquet_profile.reader_select_rows,
-                            .arrow_read_records_time = _parquet_profile.arrow_read_records_time,
-                            .materialization_time = _parquet_profile.materialization_time,
-                    },
-    });
+    _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
     _state->scheduler.set_plan(std::move(row_group_plan));
     _eof = _state->scheduler.empty();
     return Status::OK();
@@ -442,127 +402,7 @@ Status ParquetReader::close() {
 }
 
 void ParquetReader::_init_profile() {
-    if (_profile != nullptr) {
-        static const char* parquet_profile = "ParquetReader";
-        ADD_TIMER_WITH_LEVEL(_profile, parquet_profile, 1);
-
-        _parquet_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupsFiltered", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.filtered_row_groups_by_min_max = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupsFilteredByMinMax", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.filtered_row_groups_by_dictionary = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupsFilteredByDictionary", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupsFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupsReadNum", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowGroupsTotalNum", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.selected_row_ranges = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "SelectedRowRanges", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "FilteredRowsByPage", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PagesSkippedByDataPageFilter", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.data_page_filter_skip_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "DataPageFilterSkipBytes", TUnit::BYTES, parquet_profile, 1);
-        _parquet_profile.selected_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "SelectedRows", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RowsFilteredByConjunct", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.total_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "TotalBatches", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.empty_selection_batches = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "EmptySelectionBatches", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.range_gap_skipped_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RangeGapSkippedRows", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.reader_read_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ReaderReadRows", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.reader_skip_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ReaderSkipRows", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.reader_select_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ReaderSelectRows", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.arrow_read_records_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ArrowReadRecordsTime", parquet_profile, 1);
-        _parquet_profile.materialization_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "MaterializationTime", parquet_profile, 1);
-        _parquet_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "FilteredBytes", TUnit::BYTES, parquet_profile, 1);
-        _parquet_profile.raw_rows_read = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.column_read_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", parquet_profile, 1);
-        _parquet_profile.parse_meta_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ParseMetaTime", parquet_profile, 1);
-        _parquet_profile.parse_footer_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ParseFooterTime", parquet_profile, 1);
-        _parquet_profile.file_reader_create_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileReaderCreateTime", parquet_profile, 1);
-        _parquet_profile.open_file_num =
-                ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_index_read_calls =
-                ADD_COUNTER_WITH_LEVEL(_profile, "PageIndexReadCalls", TUnit::UNIT, 1);
-        _parquet_profile.page_index_filter_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexFilterTime", parquet_profile, 1);
-        _parquet_profile.read_page_index_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexReadTime", parquet_profile, 1);
-        _parquet_profile.parse_page_index_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexParseTime", parquet_profile, 1);
-        _parquet_profile.row_group_filter_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
-        _parquet_profile.file_footer_read_calls =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
-        _parquet_profile.file_footer_hit_cache =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
-        _parquet_profile.decompress_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecompressTime", parquet_profile, 1);
-        _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "DecompressCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_read_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageReadCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheWriteCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_compressed_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheCompressedWriteCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_decompressed_write_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheDecompressedWriteCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheHitCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_missing_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheMissingCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_compressed_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheCompressedHitCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.page_cache_decompressed_hit_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "PageCacheDecompressedHitCount", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.decode_header_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageHeaderDecodeTime", parquet_profile, 1);
-        _parquet_profile.read_page_header_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageHeaderReadTime", parquet_profile, 1);
-        _parquet_profile.decode_value_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", parquet_profile, 1);
-        _parquet_profile.decode_dict_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeDictTime", parquet_profile, 1);
-        _parquet_profile.decode_level_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeLevelTime", parquet_profile, 1);
-        _parquet_profile.decode_null_map_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", parquet_profile, 1);
-        _parquet_profile.skip_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
-        _parquet_profile.predicate_filter_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
-        _parquet_profile.dict_filter_rewrite_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
-        _parquet_profile.convert_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ConvertTime", parquet_profile, 1);
-        _parquet_profile.bloom_filter_read_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "BloomFilterReadTime", parquet_profile, 1);
-    }
+    _parquet_profile.init(_profile);
 }
 
 } // namespace doris::parquet
