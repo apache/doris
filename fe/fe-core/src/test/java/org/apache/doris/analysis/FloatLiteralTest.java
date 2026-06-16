@@ -50,14 +50,14 @@ public class FloatLiteralTest {
         Assertions.assertEquals("-Infinity", new FloatLiteral(Double.NEGATIVE_INFINITY, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("NaN", new FloatLiteral(Double.NaN, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("1234567890123456", new FloatLiteral(1234567890123456.12345, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
-        Assertions.assertEquals("1.234567890123457e+16", new FloatLiteral(12345678901234567.12345, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
-        Assertions.assertEquals("0.0001234567890123457", new FloatLiteral(0.0001234567890123456789, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("1.2345678901234568e+16", new FloatLiteral(12345678901234567.12345, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("0.00012345678901234567", new FloatLiteral(0.0001234567890123456789, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("1.234567890123456e-15", new FloatLiteral(0.000000000000001234567890123456, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("123.456", new FloatLiteral(123.456000, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("123", new FloatLiteral(123.000, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("-1234567890123456", new FloatLiteral(-1234567890123456.12345, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
-        Assertions.assertEquals("-1.234567890123457e+16", new FloatLiteral(-12345678901234567.12345, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
-        Assertions.assertEquals("-0.0001234567890123457", new FloatLiteral(-0.0001234567890123456789, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("-1.2345678901234568e+16", new FloatLiteral(-12345678901234567.12345, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
+        Assertions.assertEquals("-0.00012345678901234567", new FloatLiteral(-0.0001234567890123456789, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("-1.234567890123456e-15", new FloatLiteral(-0.000000000000001234567890123456, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("-123.456", new FloatLiteral(-123.456000, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         Assertions.assertEquals("-123", new FloatLiteral(-123.000, Type.DOUBLE).accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));

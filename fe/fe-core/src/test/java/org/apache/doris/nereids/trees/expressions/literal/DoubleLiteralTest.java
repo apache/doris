@@ -352,14 +352,14 @@ class DoubleLiteralTest {
         Assertions.assertEquals("-Infinity", ((StringLiteral) (new DoubleLiteral(Double.NEGATIVE_INFINITY).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("NaN", ((StringLiteral) (new DoubleLiteral(Double.NaN).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("1234567890123456", ((StringLiteral) (new DoubleLiteral(1234567890123456.12345).uncheckedCastTo(StringType.INSTANCE))).getValue());
-        Assertions.assertEquals("1.234567890123457e+16", ((StringLiteral) (new DoubleLiteral(12345678901234567.12345).uncheckedCastTo(StringType.INSTANCE))).getValue());
-        Assertions.assertEquals("0.0001234567890123457", ((StringLiteral) (new DoubleLiteral(0.0001234567890123456789).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1.2345678901234568e+16", ((StringLiteral) (new DoubleLiteral(12345678901234567.12345).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("0.00012345678901234567", ((StringLiteral) (new DoubleLiteral(0.0001234567890123456789).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("1.234567890123456e-15", ((StringLiteral) (new DoubleLiteral(0.000000000000001234567890123456).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("123.456", ((StringLiteral) (new DoubleLiteral(123.456000).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("123", ((StringLiteral) (new DoubleLiteral(123.000).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("-1234567890123456", ((StringLiteral) (new DoubleLiteral(-1234567890123456.12345).uncheckedCastTo(StringType.INSTANCE))).getValue());
-        Assertions.assertEquals("-1.234567890123457e+16", ((StringLiteral) (new DoubleLiteral(-12345678901234567.12345).uncheckedCastTo(StringType.INSTANCE))).getValue());
-        Assertions.assertEquals("-0.0001234567890123457", ((StringLiteral) (new DoubleLiteral(-0.0001234567890123456789).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1.2345678901234568e+16", ((StringLiteral) (new DoubleLiteral(-12345678901234567.12345).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-0.00012345678901234567", ((StringLiteral) (new DoubleLiteral(-0.0001234567890123456789).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("-1.234567890123456e-15", ((StringLiteral) (new DoubleLiteral(-0.000000000000001234567890123456).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("-123.456", ((StringLiteral) (new DoubleLiteral(-123.456000).uncheckedCastTo(StringType.INSTANCE))).getValue());
         Assertions.assertEquals("-123", ((StringLiteral) (new DoubleLiteral(-123.000).uncheckedCastTo(StringType.INSTANCE))).getValue());
