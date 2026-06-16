@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/orc/vorc_reader.h"
-
 #include <gtest/gtest.h>
 
+#include "format/orc/vorc_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
 
@@ -110,7 +109,8 @@ TEST_F(ORCFileInputStreamTest, set_file_reader_updates_tracing_with_io_ctx) {
                               config::orc_natural_read_size_mb << 20, 0);
 
     // Initially _tracing_file_reader wraps _inner_reader via TracingFileReader
-    auto* initial_tracing = dynamic_cast<io::TracingFileReader*>(stream.get_tracing_file_reader().get());
+    auto* initial_tracing =
+            dynamic_cast<io::TracingFileReader*>(stream.get_tracing_file_reader().get());
     ASSERT_TRUE(initial_tracing != nullptr);
     EXPECT_EQ(initial_tracing->inner_reader().get(), _mock_inner.get());
 
@@ -121,14 +121,15 @@ TEST_F(ORCFileInputStreamTest, set_file_reader_updates_tracing_with_io_ctx) {
     // via set_file_reader
     auto ranges = std::make_shared<io::LinearProbeRangeFinder>(
             std::vector<io::PrefetchRange> {{0, 2048}});
-    auto range_cache_reader = std::make_shared<io::RangeCacheFileReader>(
-            nullptr, counting_inner, ranges);
+    auto range_cache_reader =
+            std::make_shared<io::RangeCacheFileReader>(nullptr, counting_inner, ranges);
 
     stream.set_file_reader(range_cache_reader);
 
     // After set_file_reader, _tracing_file_reader should now wrap the NEW
     // _file_reader (RangeCacheFileReader), not the old inner reader
-    auto* updated_tracing = dynamic_cast<io::TracingFileReader*>(stream.get_tracing_file_reader().get());
+    auto* updated_tracing =
+            dynamic_cast<io::TracingFileReader*>(stream.get_tracing_file_reader().get());
     ASSERT_TRUE(updated_tracing != nullptr);
     EXPECT_EQ(updated_tracing->inner_reader().get(), range_cache_reader.get());
 
@@ -156,8 +157,8 @@ TEST_F(ORCFileInputStreamTest, set_file_reader_updates_tracing_without_io_ctx) {
     auto counting_inner = std::make_shared<CountingFileReader>(_mock_inner);
     auto ranges = std::make_shared<io::LinearProbeRangeFinder>(
             std::vector<io::PrefetchRange> {{0, 2048}});
-    auto range_cache_reader = std::make_shared<io::RangeCacheFileReader>(
-            nullptr, counting_inner, ranges);
+    auto range_cache_reader =
+            std::make_shared<io::RangeCacheFileReader>(nullptr, counting_inner, ranges);
 
     stream.set_file_reader(range_cache_reader);
 
@@ -188,8 +189,8 @@ TEST_F(ORCFileInputStreamTest, set_file_reader_preserves_inner_reader) {
     auto counting_inner = std::make_shared<CountingFileReader>(_mock_inner);
     auto ranges = std::make_shared<io::LinearProbeRangeFinder>(
             std::vector<io::PrefetchRange> {{0, 2048}});
-    auto range_cache_reader = std::make_shared<io::RangeCacheFileReader>(
-            nullptr, counting_inner, ranges);
+    auto range_cache_reader =
+            std::make_shared<io::RangeCacheFileReader>(nullptr, counting_inner, ranges);
 
     stream.set_file_reader(range_cache_reader);
 
