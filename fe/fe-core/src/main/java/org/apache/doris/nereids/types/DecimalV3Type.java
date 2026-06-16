@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -212,6 +213,19 @@ public class DecimalV3Type extends FractionalType {
         } else {
             return DecimalV3Type.createDecimalV3Type(range + scale, scale);
         }
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof DecimalV2Type) {
+            DecimalV2Type decimalV2Type = (DecimalV2Type) target;
+            return decimalV2Type.getRange() >= this.getRange() && decimalV2Type.getScale() >= this.getScale();
+        }
+        if (target instanceof DecimalV3Type) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) target;
+            return decimalV3Type.getRange() >= this.getRange() && decimalV3Type.getScale() >= this.getScale();
+        }
+        return target instanceof CharacterType;
     }
 
     @Override
