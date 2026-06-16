@@ -804,6 +804,10 @@ public abstract class DataType {
 
     public abstract int width();
 
+    public boolean isInjectiveCastTo(DataType target) {
+        return this.equals(target);
+    }
+
     public static List<DataType> trivialTypes() {
         return Type.getTrivialTypes()
                 .stream()
