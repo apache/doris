@@ -561,7 +561,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    public Optional<AdaptiveRandomBucketSinkContext> getAdaptiveRandomBucketSinkContext() {
+    public Optional<AdaptiveRandomBucketSinkContext> getAdaptiveRandomBucketSinkContext(long tableId) {
         Set<Long> sinkBackendIds = new TreeSet<>();
         int planFragmentNum = 0;
         for (PipelineExecContext context : pipelineExecContexts.values()) {
@@ -571,6 +571,9 @@ public class Coordinator implements CoordInterface {
                 continue;
             }
             TOlapTableSink sink = params.getFragment().getOutputSink().getOlapTableSink();
+            if (sink.getTableId() != tableId) {
+                continue;
+            }
             if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
                 continue;
             }

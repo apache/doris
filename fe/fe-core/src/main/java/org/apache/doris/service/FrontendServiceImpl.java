@@ -4586,7 +4586,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
                 }
-                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
                         enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
@@ -4684,7 +4684,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     tPartition.setLoadTabletIdx(cachedTabletIdx);
                 }
             }
-            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
                     enableAdaptiveRandomBucket);
 
             tablets.addAll(partitionTablets);
@@ -4950,7 +4950,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
                 }
-                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
                         enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
@@ -5058,7 +5058,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             partitionTablets.size(), partitionSlaveTablets.size());
                 }
             }
-            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, queryId,
+            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
                     enableAdaptiveRandomBucket);
 
             tablets.addAll(partitionTablets);
@@ -5786,7 +5786,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return new AdaptiveBucketSinkContext(false, Lists.newArrayList(), 1);
     }
 
-    private static AdaptiveBucketSinkContext collectAdaptiveBucketSinkContext(TUniqueId queryId) {
+    private static AdaptiveBucketSinkContext collectAdaptiveBucketSinkContext(TUniqueId queryId, long tableId) {
         if (queryId == null) {
             return disabledAdaptiveBucketSinkContext();
         }
@@ -5796,7 +5796,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (!(coordinator instanceof NereidsCoordinator)) {
             Optional<Coordinator.AdaptiveRandomBucketSinkContext> context =
-                    coordinator.getAdaptiveRandomBucketSinkContext();
+                    coordinator.getAdaptiveRandomBucketSinkContext(tableId);
             if (context.isPresent()) {
                 return new AdaptiveBucketSinkContext(
                         true, context.get().getSinkBackendIds(), context.get().getPlanFragmentNum());
@@ -5811,6 +5811,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 continue;
             }
             OlapTableSink sink = (OlapTableSink) distributedPlan.getFragmentJob().getFragment().getSink();
+            if (sink.getDstTable().getId() != tableId) {
+                continue;
+            }
             if (!sink.shouldAssignAdaptiveRandomBucket()) {
                 continue;
             }
@@ -5826,23 +5829,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private static void assignAdaptiveBucketToPartition(TOlapTablePartition partition,
-            List<TTabletLocation> partitionTablets, long currentBeId, TUniqueId queryId,
+            List<TTabletLocation> partitionTablets, long currentBeId, long tableId, TUniqueId queryId,
             boolean enableAdaptiveRandomBucket) {
         if (!enableAdaptiveRandomBucket || !Config.enable_adaptive_random_bucket_load
                 || !partition.isSetLoadTabletIdx() || currentBeId <= 0) {
             return;
         }
-        AdaptiveBucketSinkContext sinkContext = collectAdaptiveBucketSinkContext(queryId);
+        AdaptiveBucketSinkContext sinkContext = collectAdaptiveBucketSinkContext(queryId, tableId);
         if (!sinkContext.enableAdaptiveRandomBucket) {
             sinkContext = new AdaptiveBucketSinkContext(true, Lists.newArrayList(currentBeId), 1);
             LOG.warn("Adaptive random bucket sink context not found for runtime partition {}, "
-                            + "fallback to currentBeId={}, queryId={}",
-                    partition.getId(), currentBeId, queryId);
+                            + "fallback to currentBeId={}, tableId={}, queryId={}",
+                    partition.getId(), currentBeId, tableId, queryId);
         }
         if (LOG.isInfoEnabled()) {
-            LOG.info("Adaptive random bucket replanning partition={}, currentBeId={}, queryId={}, "
+            LOG.info("Adaptive random bucket replanning partition={}, currentBeId={}, tableId={}, queryId={}, "
                             + "sinkBackendIds={}, planFragmentNum={}",
-                    partition.getId(), currentBeId, queryId, sinkContext.sinkBackendIds,
+                    partition.getId(), currentBeId, tableId, queryId, sinkContext.sinkBackendIds,
                     sinkContext.planFragmentNum);
         }
         Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
@@ -5852,8 +5855,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments = assignments.get(currentBeId);
         if (partitionAssignments == null || !partitionAssignments.containsKey(partition.getId())) {
             LOG.warn("Adaptive random bucket found no partition assignment for partition {}, currentBeId={}, "
-                            + "queryId={}, sinkBackendIds={}, fallback to current BE only",
-                    partition.getId(), currentBeId, queryId, sinkContext.sinkBackendIds);
+                            + "tableId={}, queryId={}, sinkBackendIds={}, fallback to current BE only",
+                    partition.getId(), currentBeId, tableId, queryId, sinkContext.sinkBackendIds);
             assignments = OlapTableSink.computeAdaptiveRandomBucketAssignments(
                     Lists.newArrayList(currentBeId), Lists.newArrayList(partition), partitionTablets, 1);
             partitionAssignments = assignments.get(currentBeId);
@@ -5861,17 +5864,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (partitionAssignments != null && partitionAssignments.containsKey(partition.getId())) {
             OlapTableSink.AdaptiveBucketAssignment assignment = partitionAssignments.get(partition.getId());
             if (LOG.isInfoEnabled()) {
-                LOG.info("Adaptive random bucket replan result partition={}, currentBeId={}, bucketBeId={}, "
-                                + "loadTabletIdx={}, localBucketSeqs={}",
-                        partition.getId(), currentBeId, assignment.getBucketBeId(),
+                LOG.info("Adaptive random bucket replan result partition={}, currentBeId={}, tableId={}, "
+                                + "bucketBeId={}, loadTabletIdx={}, localBucketSeqs={}",
+                        partition.getId(), currentBeId, tableId, assignment.getBucketBeId(),
                         assignment.getLoadTabletIdx(), assignment.getLocalBucketSeqs());
             }
             OlapTableSink.applyAdaptiveRandomBucketAssignments(
                     Lists.newArrayList(partition), partitionAssignments);
         } else {
             LOG.warn("Adaptive random bucket fallback still found no partition assignment for partition {}, "
-                            + "currentBeId={}, queryId={}",
-                    partition.getId(), currentBeId, queryId);
+                            + "currentBeId={}, tableId={}, queryId={}",
+                    partition.getId(), currentBeId, tableId, queryId);
         }
     }
 
