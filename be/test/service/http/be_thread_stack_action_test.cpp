@@ -239,8 +239,11 @@ TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     EXPECT_THAT(body, testing::HasSubstr("thread_count: 2\n"));
     EXPECT_THAT(body, testing::HasSubstr("max_signal_threads: unlimited_for_thread_id_filter\n"));
     EXPECT_THAT(body, testing::HasSubstr("dwarf_location_info_mode: disabled\n"));
-    EXPECT_THAT(body, testing::HasSubstr("signal_handler_unwinder: frame_pointer_only\n"));
-    EXPECT_THAT(body, testing::HasSubstr("capture_method=frame_pointer"));
+    EXPECT_THAT(body,
+                testing::HasSubstr(
+                        "signal_handler_unwinder: "
+                        "frame_pointer_with_coordinator_signal_context_libunwind_fallback\n"));
+    EXPECT_THAT(body, testing::HasSubstr("capture_method="));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(first.tid())));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(second.tid())));
     EXPECT_THAT(body, testing::HasSubstr("summary: captured=2 skipped=0 timed_out=0 "
@@ -263,7 +266,7 @@ TEST_F(BeThreadStackActionTest, TidAliasRemainsSupported) {
     ASSERT_EQ(200, http_status);
     EXPECT_THAT(body, testing::HasSubstr("thread_count: 1\n"));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(marker.tid())));
-    EXPECT_THAT(body, testing::HasSubstr("capture_method=frame_pointer"));
+    EXPECT_THAT(body, testing::HasSubstr("capture_method="));
     EXPECT_THAT(body, testing::HasSubstr("fp_status="));
     EXPECT_EQ(1, count_thread_headers(body));
 
@@ -281,7 +284,7 @@ TEST_F(BeThreadStackActionTest, ExplicitExitedTidIsReported) {
     EXPECT_THAT(body, testing::HasSubstr("status=thread_exited"));
 }
 
-TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsSkippedWithoutSignal) {
+TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsCapturedByDefault) {
     BlockingReadThread reader;
     ASSERT_TRUE(reader.start());
     ASSERT_TRUE(wait_until_syscall(reader.tid(), SYS_read));
@@ -293,6 +296,27 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsSkippedWithoutSignal) {
                    &http_status, &body)
                     .ok());
     ASSERT_EQ(200, http_status);
+    EXPECT_THAT(thread_result_line(body, reader.tid()), testing::HasSubstr("status=ok"));
+    EXPECT_THAT(thread_result_line(body, reader.tid()), testing::HasSubstr("capture_method="));
+    EXPECT_THAT(body, testing::HasSubstr("summary: captured=1 skipped=0 timed_out=0 "
+                                         "remote_signal_attempts=1\n"));
+
+    reader.stop();
+}
+
+TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
+    BlockingReadThread reader;
+    ASSERT_TRUE(reader.start());
+    ASSERT_TRUE(wait_until_syscall(reader.tid(), SYS_read));
+
+    long http_status = 0;
+    std::string body;
+    ASSERT_TRUE(do_get("/api/stack_trace?thread_id=" + std::to_string(reader.tid()) +
+                               "&mode=disabled&skip_blocking_syscalls=true",
+                       &http_status, &body)
+                        .ok());
+    ASSERT_EQ(200, http_status);
+    EXPECT_THAT(body, testing::HasSubstr("skip_blocking_syscalls: true\n"));
     EXPECT_THAT(thread_result_line(body, reader.tid()),
                 testing::HasSubstr("status=skipped_blocking_syscall syscall=read "
                                    "syscall_number=0"));
@@ -346,8 +370,10 @@ TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
             {"/api/stack_trace?timeout_ms=0", "invalid timeout_ms: 0"},
             {"/api/stack_trace?timeout_ms=10001", "invalid timeout_ms: 10001"},
             {"/api/stack_trace?max_signal_threads=-1", "invalid max_signal_threads: -1"},
-            {"/api/stack_trace?max_signal_threads=1025", "invalid max_signal_threads: 1025"},
+            {"/api/stack_trace?max_signal_threads=65537", "invalid max_signal_threads: 65537"},
             {"/api/stack_trace?mode=unknown", "invalid dwarf_location_info_mode: unknown"},
+            {"/api/stack_trace?skip_blocking_syscalls=maybe",
+             "invalid skip_blocking_syscalls: maybe"},
     };
 
     for (const auto& c : cases) {
