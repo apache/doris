@@ -1429,10 +1429,9 @@ Status OrcReader::_init_orc_row_reader() {
                         std::move(prefetch_merge_ranges));
                 auto* orc_input_stream_ptr = static_cast<ORCFileInputStream*>(_reader->getStream());
                 orc_input_stream_ptr->set_all_tiny_stripes();
-                auto& orc_file_reader = orc_input_stream_ptr->get_file_reader();
                 auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
-                orc_file_reader = std::make_shared<io::RangeCacheFileReader>(
-                        _profile, orc_inner_reader, range_finder);
+                orc_input_stream_ptr->set_file_reader(std::make_shared<io::RangeCacheFileReader>(
+                        _profile, orc_inner_reader, range_finder));
             }
         }
 
