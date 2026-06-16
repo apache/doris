@@ -331,8 +331,12 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
         // Write a NULL placeholder.
         IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
-        auto* ts_nullable_column = assert_cast<ColumnNullable*>(ts_col_ptr);
-        ts_nullable_column->insert_many_defaults(num_rows); // NULL placeholder (value + null map)
+        auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
+        if (ts_nullable_column != nullptr) {
+            ts_nullable_column->insert_many_defaults(num_rows);
+        } else {
+            assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_defaults(num_rows);
+        }
 
         // finally update null map for op column (timestamp null map set by insert_many_defaults)
         for (int i = 0; i < num_rows; i++) {
