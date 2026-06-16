@@ -389,6 +389,15 @@ private:
             }
             break;
         }
+        case simdjson::ondemand::json_type::string: {
+            // Extract the raw (unescaped) string value rather than its JSON
+            // representation. simdjson::to_json_string would keep the surrounding
+            // double quotes (e.g. "2026-05-20"), which leaks into the result and
+            // makes scalar-string variants inconsistent with structured ones.
+            std::string_view value_str = value.get_string().value();
+            column->insert_data(value_str.data(), value_str.length());
+            break;
+        }
         default: {
             auto value_str = simdjson::to_json_string(value).value();
             column->insert_data(value_str.data(), value_str.length());
