@@ -658,7 +658,7 @@ public class TypeCoercionUtils {
                 TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
                 if (timeStampTzType.getScale() < 0) {
                     timeStampTzType = TimeStampTzType.forTypeFromString(value);
-                } else if (dataType == TimeStampTzType.MAX && !DateTimeChecker.hasTimeZone(value)) {
+                } else if (dataType.equals(TimeStampTzType.MAX) && !DateTimeChecker.hasTimeZone(value)) {
                     timeStampTzType = TimeStampTzType.forTypeFromString(value);
                 }
                 ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);

@@ -152,9 +152,9 @@ public class AlterMultiPartitionOp extends AlterTableOp {
     private void validateBoundaryValueCount() {
         ensurePartitionTypesInitialized();
         if (fromExpression.size() > partitionTypes.size() || toExpression.size() > partitionTypes.size()) {
-            throw new AnalysisException("partition column number in multi partition clause must be one but start "
-                    + "column size is " + fromExpression.size() + ", end column size is " + toExpression.size()
-                    + ".");
+            throw new AnalysisException("Number of partition boundary values ("
+                    + fromExpression.size() + " start, " + toExpression.size() + " end)"
+                    + " exceeds partition column count (" + partitionTypes.size() + ")");
         }
     }
 }

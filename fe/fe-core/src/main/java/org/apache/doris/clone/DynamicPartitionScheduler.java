@@ -317,15 +317,28 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     LiteralExprUtils.createLiteral(prevBorder, partitionColumn.getType()));
                 upperValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(nextBorder, partitionColumn.getType()));
+            } catch (AnalysisException e) {
+                // Normalization or literal creation error: should not happen for
+                // valid dynamic partition configurations.
+                LOG.warn("Error normalizing partition values. db: {}, table: {}, partition idx: {}",
+                        db.getFullName(), olapTable.getName(), idx, e);
+                if (executeFirstTime) {
+                    throw new DdlException("error normalizing partition values, error: "
+                        + e.getMessage());
+                }
+                continue;
+            }
+
+            try {
                 PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue),
                         Collections.singletonList(partitionColumn));
                 PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue),
                         Collections.singletonList(partitionColumn));
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
-            } catch (Exception e) {
-                // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
-                // IllegalArgumentException: lb is greater than ub
-                LOG.warn("Error in gen addPartitionKeyRange. db: {}, table: {}, partition idx: {}",
+            } catch (AnalysisException e) {
+                // Range.closedOpen: lb is greater than ub for this partition index;
+                // skip it gracefully.
+                LOG.warn("Error in gen addPartitionKeyRange (range bounds). db: {}, table: {}, partition idx: {}",
                         db.getFullName(), olapTable.getName(), idx, e);
                 if (executeFirstTime) {
                     throw new DdlException("maybe dynamic_partition.start is too small, error: "

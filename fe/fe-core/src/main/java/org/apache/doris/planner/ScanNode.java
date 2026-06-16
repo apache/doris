@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -417,6 +418,34 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         try {
             return LiteralExprUtils.createLiteral(value.getStringValue(), columnType);
         } catch (AnalysisException e) {
+            // String-based re-parsing failed (e.g. DATETIME literal for a
+            // DATE partition column). For date-like types, construct a
+            // target-typed literal directly from the source literal's fields.
+            // This ensures ColumnBound.compareTo() receives same-type
+            // literals and partition pruning works correctly.
+            if (value instanceof DateLiteral && columnType.isDateType()) {
+                DateLiteral dateLit = (DateLiteral) value;
+                if (columnType.isDate() || columnType.isDateV2()) {
+                    return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                            dateLit.getDay(), columnType);
+                }
+                if (columnType.isDatetime() || columnType.isDatetimeV2()) {
+                    return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                            dateLit.getDay(), dateLit.getHour(), dateLit.getMinute(),
+                            dateLit.getSecond(), columnType);
+                }
+                if (columnType.isTimeStampTz()) {
+                    return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                            dateLit.getDay(), dateLit.getHour(), dateLit.getMinute(),
+                            dateLit.getSecond(), dateLit.getMicrosecond(), columnType);
+                }
+            }
+            // For other type families, return the original value as a
+            // best-effort fallback. If the types still differ, the caller
+            // will skip this predicate (cross-type comparisons are rejected
+            // by PartitionKey.compareLiteralExpr).
+            LOG.debug("Failed to normalize partition filter literal from {} to {},"
+                    + " pruning may be incomplete", value.getStringValue(), columnType);
             return value;
         }
     }

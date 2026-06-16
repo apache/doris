@@ -543,6 +543,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         // Type mismatch (e.g. old metadata without serialized type):
                         // fall back to the catalog type.
                         key.setType(Type.fromPrimitiveType(type));
+                    } else if (existingType.isWildcardVarchar() || existingType.isWildcardChar()
+                            || existingType.isWildcardDecimal()) {
+                        // Primitive type matches but the deserialized type carries
+                        // wildcard parameterized info (e.g. VARCHAR(-1) with len=-1).
+                        // Fall back to the catalog type to avoid silently losing
+                        // parameterized information.
+                        key.setType(Type.fromPrimitiveType(type));
                     }
                     // Otherwise the deserialized type already carries the correct
                     // precision/scale/length from the persisted payload; keep it.
