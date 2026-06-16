@@ -216,13 +216,13 @@ public class ColStatsDataTest {
         values.set(8, "0");
         row = new ResultRow(values);
         data = new ColStatsData(row);
-        Assertions.assertFalse(data.isValid());
+        Assertions.assertTrue(data.isValid());
 
         // Set min to null, min/max is not null
         values.set(10, null);
         row = new ResultRow(values);
         data = new ColStatsData(row);
-        Assertions.assertFalse(data.isValid());
+        Assertions.assertTrue(data.isValid());
 
         // Set max to null, min/max are all null
         values.set(11, null);
@@ -234,7 +234,7 @@ public class ColStatsDataTest {
         values.set(10, "min");
         row = new ResultRow(values);
         data = new ColStatsData(row);
-        Assertions.assertFalse(data.isValid());
+        Assertions.assertTrue(data.isValid());
 
         // Set min and max to null, nullNum = 0
         values.set(9, "0");
@@ -262,7 +262,7 @@ public class ColStatsDataTest {
     }
 
     @Test
-    public void testIsValidSample() {
+    public void testSuspiciousStatsPattern() {
         List<String> values = Lists.newArrayList();
         values.add("id");
         values.add("10000");
@@ -280,17 +280,15 @@ public class ColStatsDataTest {
         values.add("500");
         values.add(null);
 
-        // Case 1: isSample = false (FULL analyze). ndv = 0, min/max not null, nullCount != count.
-        // It should remain 0 and isValid() should be false.
         ResultRow row = new ResultRow(values);
-        ColStatsData dataFull = new ColStatsData(row, false);
-        Assertions.assertEquals(0, dataFull.ndv);
-        Assertions.assertFalse(dataFull.isValid());
+        ColStatsData data = new ColStatsData(row);
+        Assertions.assertEquals(0, data.ndv);
+        Assertions.assertTrue(data.isValid());
 
-        // Case 2: isSample = true (SAMPLE analyze). ndv = 0, min/max not null, nullCount != count.
-        // It should clamp ndv to 1, and isValid() should be true.
-        ColStatsData dataSample = new ColStatsData(row, true);
-        Assertions.assertEquals(1, dataSample.ndv);
-        Assertions.assertTrue(dataSample.isValid());
+        ColumnStatistic columnStatisticFromData = data.toColumnStatistic();
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatisticFromData);
+
+        ColumnStatistic columnStatisticFromRow = ColumnStatistic.fromResultRow(row);
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatisticFromRow);
     }
 }

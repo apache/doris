@@ -95,23 +95,15 @@ public class ColStatsData {
     }
 
     public ColStatsData(ResultRow row) {
-        this(row, false);
-    }
-
-    public ColStatsData(ResultRow row, boolean isSample) {
         this.statsId = new StatsId(row);
         this.count = (long) Double.parseDouble(row.getWithDefault(7, "0"));
-        long tmpNdv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
+        this.ndv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
         this.nullCount = (long) Double.parseDouble(row.getWithDefault(9, "0"));
         this.minLit = row.get(10);
         this.maxLit = row.get(11);
         this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));
         this.updateTime = row.get(13);
         this.hotValues = row.get(14);
-        if (isSample && tmpNdv == 0 && (!isNull(minLit) || !isNull(maxLit))) {
-            tmpNdv = 1;
-        }
-        this.ndv = tmpNdv;
     }
 
     public ColStatsData(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId,
@@ -146,6 +138,9 @@ public class ColStatsData {
     }
 
     public ColumnStatistic toColumnStatistic() {
+        if (ColumnStatistic.isSuspiciousStats(ndv, isNull(minLit), isNull(maxLit), nullCount, count)) {
+            return ColumnStatistic.UNKNOWN;
+        }
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);
@@ -205,12 +200,6 @@ public class ColStatsData {
     public boolean isValid() {
         if (ndv > 10 * count) {
             String message = String.format("ColStatsData ndv too large. %s", toSQL(true));
-            LOG.warn(message);
-            return false;
-        }
-        if (ndv == 0 && (!isNull(minLit) || !isNull(maxLit)) && nullCount != count) {
-            String message = String.format("ColStatsData ndv 0 but min/max is not null and nullCount != count. %s",
-                    toSQL(true));
             LOG.warn(message);
             return false;
         }

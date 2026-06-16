@@ -647,8 +647,7 @@ public abstract class BaseAnalysisTask {
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
-            boolean isSample = info.analysisMethod == AnalysisInfo.AnalysisMethod.SAMPLE || tableSample != null;
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0), isSample);
+            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
