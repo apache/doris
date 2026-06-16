@@ -31,7 +31,7 @@ namespace doris {
 namespace {
 
 void append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
-                                             int64_t timestamp_micros) {
+                                              int64_t timestamp_micros) {
     static constexpr int64_t MICROS_PER_SECOND = 1000000;
     static const auto UTC = cctz::utc_time_zone();
 
@@ -298,8 +298,7 @@ Status DataTypeTimeStampTzSerDe::read_column_from_decoded_values(
             data.push_back(TimestampTzValue());
             continue;
         }
-        append_timestamptz_from_utc_epoch_micros(data,
-                                                 decoded_timestamp_micros(view, values[row]));
+        append_timestamptz_from_utc_epoch_micros(data, decoded_timestamp_micros(view, values[row]));
     }
     return Status::OK();
 }
