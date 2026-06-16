@@ -34,6 +34,12 @@ namespace {
 constexpr const char* kMixedPositionDeleteFile =
         "./be/test/exec/test_data/iceberg_mixed_position_delete_parquet/"
         "mixed_encoding_position_delete.parquet";
+constexpr const char* kOptionalNonNullPositionDeleteFile =
+        "./be/test/exec/test_data/iceberg_optional_position_delete_parquet/"
+        "optional_non_null_position_delete.parquet";
+constexpr const char* kOptionalNullPositionDeleteFile =
+        "./be/test/exec/test_data/iceberg_optional_position_delete_parquet/"
+        "optional_null_position_delete.parquet";
 constexpr const char* kTargetDataFilePath =
         "s3://warehouse/wh/test_db/000_target_data_file.parquet";
 
@@ -105,6 +111,70 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFi
     const std::vector<int64_t> expected_positions = {0,  2,  4,  6,  8,  10, 12, 14,
                                                      16, 18, 20, 22, 24, 26, 28, 30};
     EXPECT_EQ(it->second, expected_positions);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, ReadOptionalParquetPositionDeleteFileWithoutNulls) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+    FileMetaCache meta_cache(1024);
+    IcebergDeleteFileIOContext io_context(&runtime_state);
+
+    TFileScanRangeParams scan_params;
+    scan_params.file_type = TFileType::FILE_LOCAL;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.path = kOptionalNonNullPositionDeleteFile;
+    delete_file.file_format = TFileFormatType::FORMAT_PARQUET;
+    delete_file.__isset.file_format = true;
+
+    IcebergDeleteFileReaderOptions options;
+    options.state = &runtime_state;
+    options.profile = &profile;
+    options.scan_params = &scan_params;
+    options.io_ctx = &io_context.io_ctx;
+    options.meta_cache = &meta_cache;
+    options.batch_size = 1024;
+
+    CollectPositionDeleteVisitor visitor;
+    auto st = read_iceberg_position_delete_file(delete_file, options, &visitor);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(visitor.total_rows, 4);
+
+    const auto it = visitor.delete_rows.find(kTargetDataFilePath);
+    ASSERT_NE(it, visitor.delete_rows.end());
+
+    const std::vector<int64_t> expected_positions = {0, 2, 4};
+    EXPECT_EQ(it->second, expected_positions);
+}
+
+TEST(IcebergDeleteFileReaderHelperTest, RejectOptionalParquetPositionDeleteFileWithNulls) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+    FileMetaCache meta_cache(1024);
+    IcebergDeleteFileIOContext io_context(&runtime_state);
+
+    TFileScanRangeParams scan_params;
+    scan_params.file_type = TFileType::FILE_LOCAL;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.path = kOptionalNullPositionDeleteFile;
+    delete_file.file_format = TFileFormatType::FORMAT_PARQUET;
+    delete_file.__isset.file_format = true;
+
+    IcebergDeleteFileReaderOptions options;
+    options.state = &runtime_state;
+    options.profile = &profile;
+    options.scan_params = &scan_params;
+    options.io_ctx = &io_context.io_ctx;
+    options.meta_cache = &meta_cache;
+    options.batch_size = 1024;
+
+    CollectPositionDeleteVisitor visitor;
+    auto st = read_iceberg_position_delete_file(delete_file, options, &visitor);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("has null values"), std::string::npos) << st;
 }
 
 } // namespace doris
