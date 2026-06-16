@@ -189,6 +189,18 @@ suite("test_delete_bitmap_metrics", "p0") {
         def ms_delete_bitmap_count = 0
         def local_delete_bitmap_cardinality = 0;
         def ms_delete_bitmap_cardinality = 0;
+        // The aggregated delete-bitmap cache is populated lazily, and only on the
+        // replica that actually served a query. On a multi-replica cluster
+        // (force_olap_table_replication_num) the qt_sql above warms only one replica,
+        // so the per-replica agg-cache assertions below fail on the other replicas.
+        // Warm every replica by pinning the read to each replica ordinal in turn.
+        int warm_replica_num = tablets.size()
+        for (int ri = 0; ri < warm_replica_num; ri++) {
+            sql "set use_fix_replica=${ri};"
+            sql "select * from ${testTable};"
+        }
+        sql "set use_fix_replica=-1;"
+        sql "sync"
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
