@@ -114,6 +114,40 @@ class RoutineLoadTestUtils {
         }
     }
 
+    // Verify that the adaptive task timeout converges to expectedTimeout when the job is caught up
+    // (EOF). The adaptive timeout is only (re)computed when a task is actually scheduled WITH data
+    // to consume; once a job drains its data the renewed task stays idle (txnId == -1) and keeps the
+    // timeout from the previous schedule round, so the EOF timeout is never observed on its own.
+    // Drive a fresh small batch each round to force an isEof task to be scheduled and recompute the
+    // timeout, then read whatever task is visible (the running task, or the renewed idle one that
+    // inherits the just-converged value). Unlike checkTaskTimeout we do NOT skip txnId == -1 here,
+    // because after EOF the converged value naturally settles on an idle task.
+    static void checkTaskTimeoutWithData(Closure sqlRunner, KafkaProducer producer, List<String> topics,
+                                         String jobName, String expectedTimeout, int maxAttempts = 60) {
+        def count = 0
+        while (true) {
+            sendTestDataToKafka(producer, topics)
+            def res = sqlRunner.call("SHOW ROUTINE LOAD TASK WHERE JobName = '${jobName}'")
+            if (res.size() > 0) {
+                def txnId = res[0][1].toString()
+                def timeout = res[0][6].toString()
+                logger.info("res: ${res[0].toString()}")
+                logger.info("txnId: ${txnId}, timeout: ${timeout}, expected: ${expectedTimeout}")
+                if (timeout == expectedTimeout) {
+                    Assert.assertEquals(expectedTimeout, timeout)
+                    break;
+                }
+            }
+            if (count > maxAttempts) {
+                Assert.fail("Timeout waiting for task timeout to converge to ${expectedTimeout} for job ${jobName}")
+                break;
+            } else {
+                sleep(1000)
+                count++
+            }
+        }
+    }
+
     static int waitForTaskFinish(Closure sqlRunner, String job, String tableName, int expectedMinRows = 0, int maxAttempts = 60) {
         return waitForTaskFinishInternal(sqlRunner, job, tableName, expectedMinRows, maxAttempts, false)
     }
