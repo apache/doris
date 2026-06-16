@@ -74,8 +74,12 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
                 
                 logger.info("---test adaptively increase---")
                 RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
-                RoutineLoadTestUtils.checkTaskTimeout(runSql, job, "3600")
-                RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, job, "3600000")
+                // Drive data each round: the converged adaptive timeout (3600) lives on the renewed
+                // idle task (txnId == -1), and the increase batch begins only a single sub-second txn,
+                // so a txnId != -1 gate is racy. Feed small batches so the value is observed (and a live
+                // txn recurs for the txn-timeout check) instead of relying on catching one transient txn.
+                RoutineLoadTestUtils.checkTaskTimeoutWithData(runSql, producer, kafkaCsvTpoics, job, "3600")
+                RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, producer, kafkaCsvTpoics, job, "3600000")
                 RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
             } finally {
                 GetDebugPoint().disableDebugPointForAllFEs(injection)
