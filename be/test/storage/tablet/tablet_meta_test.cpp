@@ -28,6 +28,8 @@
 #include "storage/file_header.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
+#include "testutil/creators.h"
 #include "testutil/mock_rowset.h"
 
 namespace doris {
@@ -401,6 +403,100 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
     EXPECT_EQ(d.cardinality(), 500);
     subset_delete_map.get({rowset_id2, 1, 9}, &d);
     EXPECT_EQ(d.cardinality(), 500);
+}
+
+TEST(TabletMetaTest, test_row_binlog_schema_binlog_col_idx) {
+    // 1. Create TCreateTabletReq
+    TCreateTabletReq request;
+    request.tablet_id = 10086;
+
+    // Manually construct the base tablet_schema
+    TTabletSchema base_schema;
+    base_schema.keys_type = TKeysType::UNIQUE_KEYS;
+    base_schema.short_key_column_count = 1;
+
+    // Add normal column k1
+    TColumn k1_col;
+    k1_col.column_name = "k1";
+    TColumnType k1_type;
+    k1_type.type = TPrimitiveType::INT;
+    k1_col.column_type = k1_type;
+    k1_col.is_key = true;
+    k1_col.is_allow_null = false;
+    base_schema.columns.push_back(k1_col);
+
+    // Add normal column v1
+    TColumn v1_col;
+    v1_col.column_name = "v1";
+    TColumnType v1_type;
+    v1_type.type = TPrimitiveType::INT;
+    v1_col.column_type = v1_type;
+    v1_col.is_key = false;
+    v1_col.is_allow_null = true;
+    v1_col.aggregation_type = TAggregationType::NONE;
+    base_schema.columns.push_back(v1_col);
+
+    request.tablet_schema = base_schema;
+
+    // Enable row binlog
+    testutil::enable_row_binlog(&request);
+
+    // Get the full schema including binlog columns
+    TTabletSchema row_binlog_schema = request.row_binlog_schema;
+
+    // Dynamically find the actual indices of binlog columns
+    int expected_lsn_idx = -1;
+    int expected_ts_idx = -1;
+    for (size_t i = 0; i < row_binlog_schema.columns.size(); ++i) {
+        if (row_binlog_schema.columns[i].column_name == BINLOG_LSN_COL) {
+            expected_lsn_idx = static_cast<int>(i);
+        }
+        if (row_binlog_schema.columns[i].column_name == BINLOG_TIMESTAMP_COL) {
+            expected_ts_idx = static_cast<int>(i);
+        }
+    }
+
+    // Ensure binlog columns are found
+    ASSERT_NE(expected_lsn_idx, -1) << "Failed to find " << BINLOG_LSN_COL;
+    ASSERT_NE(expected_ts_idx, -1) << "Failed to find " << BINLOG_TIMESTAMP_COL;
+
+    // Set col_unique_id
+    for (size_t i = 0; i < row_binlog_schema.columns.size(); ++i) {
+        row_binlog_schema.columns[i].col_unique_id = static_cast<int32_t>(i);
+    }
+
+    // Build col_ordinal_to_unique_id mapping
+    std::unordered_map<uint32_t, uint32_t> col_ordinal_to_unique_id;
+    for (uint32_t i = 0; i < row_binlog_schema.columns.size(); ++i) {
+        col_ordinal_to_unique_id[i] = i;
+    }
+
+    // Construct SchemaCreateOptions
+    TabletMeta::SchemaCreateOptions options = {
+            .col_ordinal_to_unique_id = col_ordinal_to_unique_id,
+            .compression_type = TCompressionType::LZ4F,
+            .inverted_index_file_storage_format = TInvertedIndexFileStorageFormat::V2,
+            .next_unique_id = static_cast<uint32_t>(row_binlog_schema.columns.size())};
+
+    // Call the function under test
+    TabletSchemaPB schema_pb;
+    TabletMeta::init_schema_from_thrift(row_binlog_schema, options, &schema_pb);
+
+    // Verify binlog column indices match the dynamically found values
+    EXPECT_EQ(schema_pb.binlog_lsn_col_idx(), expected_lsn_idx);
+    EXPECT_EQ(schema_pb.binlog_timestamp_col_idx(), expected_ts_idx);
+
+    // Create TabletSchema object from PB
+    TabletSchemaSPtr tablet_schema_ptr = std::make_shared<TabletSchema>();
+    tablet_schema_ptr->init_from_pb(schema_pb);
+
+    // Verify indices are correct after deserialization
+    EXPECT_EQ(tablet_schema_ptr->binlog_lsn_col_idx(), expected_lsn_idx);
+    EXPECT_EQ(tablet_schema_ptr->binlog_timestamp_col_idx(), expected_ts_idx);
+
+    // Verify the column names at the found indices
+    EXPECT_EQ(tablet_schema_ptr->column(expected_lsn_idx).name(), BINLOG_LSN_COL);
+    EXPECT_EQ(tablet_schema_ptr->column(expected_ts_idx).name(), BINLOG_TIMESTAMP_COL);
 }
 
 } // namespace doris

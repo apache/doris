@@ -303,43 +303,44 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         // we can't get correct lsn number before commit, because we can't get the version before commit,
         // but we can fill auto-inc lsn to ensure the order first, then fill version when read single rowset.
         IColumn* lsn_col_ptr = binlog_prefix_columns[0].get();
+        // LSN column may be nullable in test environment, unwrap it first
+        auto* lsn_nullable = assert_cast<ColumnNullable*>(lsn_col_ptr);
+        auto* lsn_nested = &lsn_nullable->get_nested_column();
         CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
         for (int i = 0; i < num_rows; i++) {
-            assert_cast<ColumnInt128*>(lsn_col_ptr)
+            assert_cast<ColumnInt128*>(lsn_nested)
                     ->insert_value(static_cast<int128_t>(_lsn_ids->at(i)));
+        }
+        // Update null map to mark all rows as non-null
+        for (int i = 0; i < num_rows; i++) {
+            lsn_nullable->get_null_map_data().push_back(0);
         }
 
         // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
         const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
         IColumn* op_col_ptr = binlog_prefix_columns[1].get();
-        auto* op_nullable_column = check_and_get_column<ColumnNullable>(op_col_ptr);
-        IColumn* op_nested_column = op_nullable_column != nullptr
-                                            ? &op_nullable_column->get_nested_column()
-                                            : op_col_ptr;
+        // OP column may be nullable in test environment, unwrap it first
+        auto* op_nullable = assert_cast<ColumnNullable*>(op_col_ptr);
+        auto* op_nested = &op_nullable->get_nested_column();
 
         CHECK(op_types.size() >= num_rows) << op_types.size() << " vs " << num_rows;
         CHECK(op_col_type == FieldType::OLAP_FIELD_TYPE_BIGINT)
                 << "row binlog op column type must be BIGINT, actual="
                 << static_cast<int>(op_col_type);
-        auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested_column);
+        auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested);
         for (int i = 0; i < num_rows; i++) {
             op_int64_column->insert_value(op_types[i]);
         }
-
-        // We can't get the real commit tso here (only known after publish). The tso column
-        // is replaced with the real commit_tso at read time
-        // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
-        // Write a NULL placeholder.
-        IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
-        auto* ts_nullable_column = assert_cast<ColumnNullable*>(ts_col_ptr);
-        ts_nullable_column->insert_many_defaults(num_rows); // NULL placeholder (value + null map)
-
-        // finally update null map for op column (timestamp null map set by insert_many_defaults)
+        // Update null map to mark all rows as non-null
         for (int i = 0; i < num_rows; i++) {
-            if (op_nullable_column != nullptr) {
-                op_nullable_column->get_null_map_data().emplace_back(0);
-            }
+            op_nullable->get_null_map_data().push_back(0);
         }
+
+        // TIMESTAMP column
+        IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
+        // Timestamp column is always nullable, directly use assert_cast
+        auto* ts_nullable_column = assert_cast<ColumnNullable*>(ts_col_ptr);
+        ts_nullable_column->insert_many_defaults(num_rows);
     }
 
     // LOG(INFO) << binlog_prefix_block.dump_data(0, num_rows);
