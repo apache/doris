@@ -118,8 +118,9 @@ private:
                 end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
                                      std::numeric_limits<float>::digits10 + 1);
             } else {
-                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<double>::digits10 + 1);
+                // shortest round-trip, fixed-precision %g would expose IEEE-754
+                // residual error e.g. round(23900/293, 2) -> "81.56999999999999".
+                end = fmt::format_to(buffer, "{}", value);
             }
         }
         *end = '\0';

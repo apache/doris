@@ -325,4 +325,66 @@ suite("test_round") {
     qt_sql """
         SELECT dfloor(col1, col2) AS r FROM test_dfloor_null order by id;
     """
+
+    sql """ DROP TABLE IF EXISTS test_round_float_print; """
+    sql """
+        CREATE TABLE test_round_float_print (
+            id INT,
+            a_int   BIGINT,
+            b_int   BIGINT,
+            d_dou   DOUBLE,
+            d_flo   FLOAT,
+            d_p1    DOUBLE,
+            d_p2    DOUBLE
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+        INSERT INTO test_round_float_print VALUES
+            (1, 23900,  293,
+                cast(23900 as double) / cast(293 as double),
+                cast(cast(23900 as double) / cast(293 as double) as float),
+                cast(0.1 as double),
+                cast(0.2 as double)),
+            (2, 23800,  293,  0, 0, 0, 0),
+            (3, 22400,  277,  0, 0, 0, 0),
+            (4, 45800,  486,  0, 0, 0, 0),
+            (5, 103300, 1101, 0, 0, 0, 0);
+    """
+
+    qt_round_div_int_int """
+        SELECT cast(round(a_int / b_int, 2) as varchar(32))
+        FROM test_round_float_print WHERE id = 1 ORDER BY id;
+    """
+    qt_round_div_double """
+        SELECT cast(round(cast(a_int as double) / cast(b_int as double), 2) as varchar(32))
+        FROM test_round_float_print WHERE id = 1 ORDER BY id;
+    """
+    qt_round_double_col """
+        SELECT cast(round(d_dou, 2) as varchar(32))
+        FROM test_round_float_print WHERE id = 1 ORDER BY id;
+    """
+    qt_float_print_imprecise_sum """
+        SELECT cast(d_p1 + d_p2 as varchar(32))
+        FROM test_round_float_print WHERE id = 1 ORDER BY id;
+    """
+    qt_round_div_int_int_extra """
+        SELECT id, cast(round(a_int / b_int, 2) as varchar(32))
+        FROM test_round_float_print
+        WHERE id BETWEEN 2 AND 5
+        ORDER BY id;
+    """
+    qt_round_float_col """
+        SELECT cast(round(d_flo, 2) as varchar(32))
+        FROM test_round_float_print WHERE id = 1 ORDER BY id;
+    """
+
+    sql """ DROP TABLE IF EXISTS test_round_float_print; """
+
+    qt_fe_round_div_int_int   """ select round(23900/293, 2); """
+    qt_fe_round_div_bigint    """ select round(cast(23900 as bigint)/cast(293 as bigint), 2); """
+    qt_fe_round_div_double    """ select round(cast(23900 as double)/cast(293 as double), 2); """
+    qt_fe_round_45800_486     """ select round(45800/486, 2); """
+    qt_fe_round_103300_1101   """ select round(103300/1101, 2); """
+    qt_fe_imprecise_sum       """ select cast(0.1 as double) + cast(0.2 as double); """
 }

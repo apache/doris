@@ -18,18 +18,20 @@
 package org.apache.doris.common;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 /**
  * Util class for float/double to string.
  */
 public class FractionalFormat {
 
+    // FLT_DIG + 1; precision <= this value means float-equivalent rendering.
+    private static final int FLOAT_MAX_SIGNIFICANT_DIGITS = 7;
+
     /**
      * Get string of double/float value for cast to string and output to mysql.
      *
      * @param value The double/float value.
-     * @param precision precision
+     * @param precision precision (use {@code <= FLOAT_MAX_SIGNIFICANT_DIGITS} for float).
      * @param sciFormat format for string with scientific form.
      * @return string value.
      */
@@ -49,8 +51,13 @@ public class FractionalFormat {
         int expLower = -4;
         int exponent = (int) Math.floor(Math.log10(Math.abs(value)));
         if (exponent < precision && exponent >= expLower) {
-            BigDecimal bd = new BigDecimal(value);
-            bd = bd.setScale(precision - bd.precision() + bd.scale(), RoundingMode.HALF_UP);
+            // shortest round-trip; new BigDecimal(double) would capture the exact
+            // IEEE-754 value and setScale(16,HALF_UP) would expose its tail,
+            // e.g. round(23900/293, 2) -> "81.56999999999999".
+            String shortest = (precision <= FLOAT_MAX_SIGNIFICANT_DIGITS)
+                    ? Float.toString((float) value)
+                    : Double.toString(value);
+            BigDecimal bd = new BigDecimal(shortest).stripTrailingZeros();
             String result = bd.toPlainString();
             if (result.contains(".")) {
                 result = result.replaceAll("0+$", "");

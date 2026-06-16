@@ -349,3 +349,41 @@ false	\N	4434.410000000
 15.75
 0
 
+-- !round_div_int_int --
+81.57
+
+-- !round_div_double --
+81.57
+
+-- !round_double_col --
+81.57
+
+-- !float_print_imprecise_sum --
+0.30000000000000004
+
+-- !round_div_int_int_extra --
+2	81.23
+3	80.87
+4	94.24
+5	93.82
+
+-- !round_float_col --
+81.57
+
+-- !fe_round_div_int_int --
+81.57
+
+-- !fe_round_div_bigint --
+81.57
+
+-- !fe_round_div_double --
+81.57
+
+-- !fe_round_45800_486 --
+94.24
+
+-- !fe_round_103300_1101 --
+93.82
+
+-- !fe_imprecise_sum --
+0.30000000000000004
