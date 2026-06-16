@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 
 /**
@@ -79,6 +80,7 @@ public class FractionalFormat {
         // IEEE-754 value and setScale(16,HALF_UP) would expose its tail,
         // e.g. round(23900/293, 2) -> "81.56999999999999".
         BigDecimal bd = new BigDecimal(Double.toString(value)).stripTrailingZeros();
+        bd = trimToShortestRoundTrip(value, bd);
         int expLower = -4;
         int exponent = (int) Math.floor(Math.log10(Math.abs(value)));
         if (exponent < precision && exponent >= expLower) {
@@ -92,6 +94,18 @@ public class FractionalFormat {
             return result;
         }
         return formatScientific(bd);
+    }
+
+    private static BigDecimal trimToShortestRoundTrip(double value, BigDecimal bd) {
+        while (bd.precision() > 1) {
+            BigDecimal shorter = bd.round(new MathContext(bd.precision() - 1, RoundingMode.HALF_EVEN))
+                    .stripTrailingZeros();
+            if (Double.compare(Double.parseDouble(shorter.toString()), value) != 0) {
+                break;
+            }
+            bd = shorter;
+        }
+        return bd;
     }
 
     /** Format the BigDecimal as "<sig>.<digits>e[+|-]NN" with at least two exponent digits. */
