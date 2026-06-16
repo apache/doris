@@ -1026,7 +1026,13 @@ static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinitio
         }
         return nullptr;
     default:
-        if (const auto* file_child = matcher_for_mode(mode).find(table_child, file_parent.children);
+        // Hive BY_INDEX is a top-level column matching rule. Once a complex root is selected by
+        // file position, nested struct children follow Hive reader's historical name matching
+        // semantics; their integer identifiers can be field ids, not file positions.
+        const auto nested_mode =
+                mode == TableColumnMappingMode::BY_INDEX ? TableColumnMappingMode::BY_NAME : mode;
+        if (const auto* file_child =
+                    matcher_for_mode(nested_mode).find(table_child, file_parent.children);
             file_child != nullptr) {
             return file_child;
         }
@@ -1047,8 +1053,8 @@ static const ColumnDefinition* find_file_child_for_mapping(const ColumnDefinitio
         // Some callers only carry the full complex DataType for a projected table column, without
         // expanded nested ColumnDefinitions. In that case we can still preserve full materialization
         // by walking table/file struct fields by ordinal. This is a fallback only: explicit
-        // ColumnDefinition children keep using field-id/name/position mapping, which is required
-        // for precise Iceberg evolution.
+        // ColumnDefinition children keep using the requested table-format matching rule, which is
+        // required for precise schema evolution.
         if (allow_ordinal_fallback && table_child_idx < file_parent.children.size()) {
             return &file_parent.children[table_child_idx];
         }
