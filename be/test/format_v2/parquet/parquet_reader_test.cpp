@@ -266,9 +266,9 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
 
 void write_int96_timestamp_parquet_file(const std::string& file_path) {
     auto field = arrow::field("ts_tz", arrow::timestamp(arrow::TimeUnit::MICRO), true);
-    auto array = build_timestamp_array(
-            arrow::timestamp(arrow::TimeUnit::MICRO),
-            {1735660800000000LL, 1735660800123456LL, 1735689600000000LL});
+    auto array =
+            build_timestamp_array(arrow::timestamp(arrow::TimeUnit::MICRO),
+                                  {1735660800000000LL, 1735660800123456LL, 1735689600000000LL});
     auto table = arrow::Table::Make(arrow::schema({field}), {array});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
@@ -281,9 +281,9 @@ void write_int96_timestamp_parquet_file(const std::string& file_path) {
     writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
     ::parquet::ArrowWriterProperties::Builder arrow_builder;
     arrow_builder.enable_force_write_int96_timestamps();
-    PARQUET_THROW_NOT_OK(
-            ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, ROW_COUNT,
-                                         writer_builder.build(), arrow_builder.build()));
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, writer_builder.build(),
+                                                      arrow_builder.build()));
 }
 
 void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group_size = ROW_COUNT) {
