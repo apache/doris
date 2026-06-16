@@ -759,6 +759,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
                            << ", node_id=" << _node_id;
                 continue;
             }
+            _adaptive_partition_compat_tablets[partition_id] = selected_ordered_tablets.front();
             auto* random_bucket_partition = request->add_random_bucket_partitions();
             random_bucket_partition->set_partition_id(partition_id);
             for (auto tablet_id : selected_ordered_tablets) {
@@ -896,8 +897,18 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
     }
     auto* row_part_tablet_ids = payload->row_part_tablet_ids;
     for (uint32_t route_idx : payload->route_idxs) {
-        _cur_add_block_request->add_partition_ids(row_part_tablet_ids->partition_ids[route_idx]);
-        if (!_parent->_tablet_finder->is_adaptive_random_bucket()) {
+        auto partition_id = row_part_tablet_ids->partition_ids[route_idx];
+        _cur_add_block_request->add_partition_ids(partition_id);
+        if (_parent->_tablet_finder->is_adaptive_random_bucket()) {
+            auto tablet_it = _adaptive_partition_compat_tablets.find(partition_id);
+            if (tablet_it == _adaptive_partition_compat_tablets.end()) {
+                return Status::InternalError(
+                        "{}, err: missing adaptive random bucket compatible tablet, "
+                        "partition_id={}",
+                        channel_info(), partition_id);
+            }
+            _cur_add_block_request->add_tablet_ids(tablet_it->second);
+        } else {
             _cur_add_block_request->add_tablet_ids(row_part_tablet_ids->tablet_ids[route_idx]);
         }
     }

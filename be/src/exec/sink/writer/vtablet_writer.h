@@ -399,6 +399,10 @@ protected:
 
     std::vector<TTabletWithPartition> _all_tablets;
     std::vector<TTabletWithPartition> _tablets_wait_open;
+    // For rolling-upgrade compatibility, adaptive random bucket add-block RPCs also carry
+    // tablet_ids. New receivers ignore them and route by partition id, while old receivers use
+    // this local tablet id instead of failing on an empty tablet_ids list.
+    std::unordered_map<int64_t, int64_t> _adaptive_partition_compat_tablets;
     // map from tablet_id to node_id where slave replicas locate in
     std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
