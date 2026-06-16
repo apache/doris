@@ -98,7 +98,6 @@ import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TBrokerScanRange;
-import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
@@ -630,9 +629,9 @@ public class Coordinator implements CoordInterface {
     }
 
     private static TOlapTableSink deepCopyOlapTableSinkForCurrentBackend(TPipelineFragmentParams sinkParam) {
-        TDataSink copiedOutputSink = sinkParam.getFragment().getOutputSink().deepCopy();
-        sinkParam.getFragment().setOutputSink(copiedOutputSink);
-        return copiedOutputSink.getOlapTableSink();
+        TPlanFragment copiedFragment = sinkParam.getFragment().deepCopy();
+        sinkParam.setFragment(copiedFragment);
+        return copiedFragment.getOutputSink().getOlapTableSink();
     }
 
     // Initialize
