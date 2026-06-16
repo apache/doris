@@ -45,13 +45,15 @@ public class CreateTableStreamTest extends TestWithFeService {
         createDatabase("test_stream");
         // create base sql
         String sql = "create table if not exists test_stream.tbl1\n" + "(k1 int, k2 int)\n" + "unique key(k1)\n"
-                + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'); ";
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true'); ";
         createTable(sql);
         // create default stream
         ExceptionChecker
                 .expectThrowsNoException(() ->
                         createTable("create stream if not exists test_stream.s1 on table test_stream.tbl1\n"
-                                + "properties('type' = 'default', 'show_initial_rows' = 'true'); "));
+                                + "properties('show_initial_rows' = 'true'); "));
         // create append_only stream
         ExceptionChecker
                 .expectThrowsNoException(() ->
@@ -67,7 +69,7 @@ public class CreateTableStreamTest extends TestWithFeService {
         ExceptionChecker
                 .expectThrowsNoException(() ->
                         createTable("create stream if not exists test_stream.s1 on table test_stream.tbl1\n"
-                                + "properties('type' = 'default', 'show_initial_rows' = 'true'); "));
+                                + "properties('show_initial_rows' = 'true'); "));
         dropDatabase("test_stream");
     }
 
@@ -76,13 +78,15 @@ public class CreateTableStreamTest extends TestWithFeService {
         createDatabase("test_stream");
         // create base sql
         String sql = "create table if not exists test_stream.tbl1\n" + "(k1 int, k2 int)\n" + "unique key(k1)\n"
-                + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1'); ";
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true'); ";
         createTable(sql);
         // create default stream
         ExceptionChecker
                 .expectThrowsNoException(() ->
                         createTable("create stream if not exists test_stream.s1 on table test_stream.tbl1\n"
-                                + "properties('type' = 'default', 'show_initial_rows' = 'true'); "));
+                                + "properties('show_initial_rows' = 'true'); "));
         // base table not exist
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown table 'tbl2'",
                 () -> createTable("create stream if not exists test_stream.s2 on table test_stream.tbl2\n"

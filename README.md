@@ -237,19 +237,19 @@ Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://gi
 
 ### 📚 Docs
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
+All Documentation: 🔗[Docs](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
 
 ### ⬇️ Download 
 
-All release and binary version 🔗[Download](https://doris.apache.org/download) 
+All release and binary versions: 🔗[Download](https://doris.apache.org/download) 
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker))
+See how to compile: 🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker)
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/preparation/env-checking) 
+See how to install and deploy: 🔗[Installation and deployment](https://doris.apache.org/docs/install/preparation/env-checking) 
 
 ## 🧩 Components
 
@@ -274,7 +274,7 @@ If you meet any questions, feel free to file a 🔗[GitHub Issue](https://github
 
 ### 🍻 How to Contribute
 
-We welcome your suggestions, comments (including criticisms), comments and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
+We welcome your suggestions, comments (including criticisms) and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
 
 ### ⌨️ Doris Improvement Proposals (DSIP)
 
@@ -305,7 +305,6 @@ Contact us through the following mailing list.
 
 > **Note**
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
-some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
-
+some Doris features to comply with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
 
 

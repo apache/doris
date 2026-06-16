@@ -75,6 +75,24 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(0, literal.minute);
         Assertions.assertEquals(0, literal.second);
         Assertions.assertEquals(0, literal.microSecond);
+
+        literal = new TimestampTzLiteral(TimeStampTzType.of(6), "2024-03-10 02:30:00 America/New_York");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(3, literal.month);
+        Assertions.assertEquals(10, literal.day);
+        Assertions.assertEquals(7, literal.hour);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(0, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
+
+        literal = new TimestampTzLiteral(TimeStampTzType.of(6), "2024-11-03 01:30:00 America/New_York");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(11, literal.month);
+        Assertions.assertEquals(3, literal.day);
+        Assertions.assertEquals(5, literal.hour);
+        Assertions.assertEquals(30, literal.minute);
+        Assertions.assertEquals(0, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
     }
 
     @Test

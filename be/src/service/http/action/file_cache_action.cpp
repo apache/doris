@@ -59,6 +59,8 @@ constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
 constexpr static std::string_view DUMP = "dump";
 constexpr static std::string_view VALUE = "value";
 constexpr static std::string_view RELOAD = "reload";
+constexpr static std::string_view SYNC_CLEAR_UNSUPPORTED_MSG =
+        "sync clear_file_cache is no longer supported in http api, running async clear instead";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     const std::string header_json(HEADER_JSON);
@@ -85,11 +87,17 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         const std::string& sync = req->param(std::string(SYNC));
         const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
-            io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+            io::FileCacheFactory::instance()->clear_file_caches(false);
         } else {
             io::UInt128Wrapper hash = io::BlockFileCache::hash(segment_path);
             io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
-            cache->remove_if_cached(hash);
+            cache->remove_if_cached_async(hash);
+        }
+        if (to_lower(sync) == "true") {
+            EasyJson json;
+            json["status"] = "OK";
+            json["msg"] = std::string(SYNC_CLEAR_UNSUPPORTED_MSG);
+            *json_metrics = json.ToString();
         }
     } else if (operation == RESET) {
         std::string capacity = req->param(std::string(CAPACITY));

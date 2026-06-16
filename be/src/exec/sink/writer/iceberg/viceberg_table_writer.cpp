@@ -651,7 +651,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     //1) get the partition column ptr
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
     CHECK(col_ptr);
-    if (col_ptr->is_nullable()) {
+    if (is_column_nullable(*col_ptr)) {
         const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(col_ptr.get());
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {

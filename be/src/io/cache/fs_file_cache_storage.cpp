@@ -85,6 +85,12 @@ struct BatchLoadArgs {
     bool is_tmp;
 };
 
+FSFileCacheStorage::FSFileCacheStorage() {
+    for (auto& shard : _writer_shards) {
+        shard = std::make_unique<WriterShard>();
+    }
+}
+
 FDCache* FDCache::instance() {
     return ExecEnv::GetInstance()->file_cache_open_fd_cache();
 }
@@ -188,9 +194,10 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
 Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     FileWriter* writer = nullptr;
     {
-        std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
-        if (auto iter = _key_to_writer.find(file_writer_map_key); iter != _key_to_writer.end()) {
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        if (auto iter = shard.map.find(file_writer_map_key); iter != shard.map.end()) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache_v3(key.hash);
@@ -203,7 +210,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             FileWriterOptions opts {.sync_file_data = false};
             RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
             writer = file_writer.get();
-            _key_to_writer.emplace(file_writer_map_key, std::move(file_writer));
+            shard.map.emplace(file_writer_map_key, std::move(file_writer));
         }
     }
     DCHECK_NE(writer, nullptr);
@@ -213,10 +220,11 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
 Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
-        std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
-        auto iter = _key_to_writer.find(file_writer_map_key);
-        if (iter == _key_to_writer.end()) {
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        auto iter = shard.map.find(file_writer_map_key);
+        if (iter == shard.map.end()) {
             return Status::InternalError(
                     "file cache finalize missing writer, hash={}, offset={}, type={}, "
                     "expiration={}",
@@ -224,7 +232,7 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
                     key.meta.expiration_time);
         }
         file_writer = std::move(iter->second);
-        _key_to_writer.erase(iter);
+        shard.map.erase(iter);
     }
     if (file_writer->state() != FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(file_writer->close());
@@ -905,7 +913,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         args.is_tmp = false;
 
         CacheContext ctx;
-        ctx.cache_type = static_cast<FileCacheType>(meta_value.type);
+        ctx.cache_type = meta_value.type;
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
@@ -1031,7 +1039,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     CacheContext context_original;
     context_original.query_id = TUniqueId();
     context_original.expiration_time = block_meta->ttl;
-    context_original.cache_type = static_cast<FileCacheType>(block_meta->type);
+    context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
 
     if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,

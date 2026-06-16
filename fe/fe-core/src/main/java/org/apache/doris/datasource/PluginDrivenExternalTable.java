@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
@@ -76,8 +77,32 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        // Keep plugin-driven preload limited to JDBC until other connector types are validated.
+        return "jdbc".equalsIgnoreCase(((PluginDrivenExternalCatalog) catalog).getType());
+    }
+
+    @Override
     public Optional<SchemaCacheValue> initSchema() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        // Keep the JDBC schema delay debug point available for manual regression verification.
+        if ("jdbc".equalsIgnoreCase(pluginCatalog.getType())
+                && DebugPointUtil.isEnable("PluginDrivenExternalTable.initSchema.sleep")) {
+            long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                    "PluginDrivenExternalTable.initSchema.sleep", "sleepMs", 0L);
+            if (sleepMs > 0) {
+                LOG.info("debug point PluginDrivenExternalTable.initSchema.sleep hit for {}.{}, sleep {}ms",
+                        db != null ? db.getRemoteName() : "", getRemoteName(), sleepMs);
+                try {
+                    Thread.sleep(sleepMs);
+                } catch (InterruptedException ignore) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
@@ -125,7 +150,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return -1;
         }
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
-                .getCachedRowCount(catalog.getId(), dbId, id);
+                .getCachedRowCount(catalog.getId(), dbId, id, false);
     }
 
     @Override

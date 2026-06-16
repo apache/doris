@@ -36,8 +36,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class OlapTableStream extends BaseTableStream {
@@ -48,8 +50,12 @@ public class OlapTableStream extends BaseTableStream {
     @SerializedName("pct")
     private Map<Long, Long> partitionConsumptionTime;
 
+    // temporary var, would be removed after full implementation
     @SerializedName("hpo")
     private Map<Long, Long> historicalPartitionOffset;
+
+    @SerializedName("hpt")
+    private Map<Long, Long> historicalPartitionTSO;
 
     // for persist
     public OlapTableStream() {
@@ -62,6 +68,7 @@ public class OlapTableStream extends BaseTableStream {
         this.partitionOffset = new HashMap<>();
         this.partitionConsumptionTime = new HashMap<>();
         this.historicalPartitionOffset = new HashMap<>();
+        this.historicalPartitionTSO = new HashMap<>();
         this.baseTable = baseTable;
     }
 
@@ -77,10 +84,9 @@ public class OlapTableStream extends BaseTableStream {
     @Override
     public OlapTable getBaseTableNullable() {
         TableIf baseTable = super.getBaseTableNullable();
-        if (baseTable == null) {
+        if (baseTable == null || !(baseTable instanceof OlapTable)) {
             return null;
         }
-        Preconditions.checkState(baseTable instanceof OlapTable);
         return (OlapTable) baseTable;
     }
 
@@ -91,12 +97,17 @@ public class OlapTableStream extends BaseTableStream {
         // set offset according to baseTable
         if (!showInitialRows) {
             // set partition offset
-            // todo(TsukiokaKogane): change offset from partition version to commit tso
             ((OlapTable) baseTable).getPartitions()
-                    .forEach(p -> partitionOffset.put(p.getId(), p.getVisibleVersion()));
+                    .forEach(p -> partitionOffset.put(p.getId(), p.getTso()));
         } else {
             ((OlapTable) baseTable).getPartitions()
-                    .forEach(p -> historicalPartitionOffset.put(p.getId(), p.getVisibleVersion()));
+                    .stream()
+                    .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
+                    .forEach(p -> {
+                                historicalPartitionOffset.put(p.getId(), p.getVisibleVersion());
+                                historicalPartitionTSO.put(p.getId(), p.getTso());
+                                    }
+                    );
         }
     }
 
@@ -140,7 +151,8 @@ public class OlapTableStream extends BaseTableStream {
                         // LAG
                         trow.addToColumnValue(new TCell()
                                 .setStringVal(String.valueOf(
-                                        entry.getValue().getVisibleVersion() - partitionOffset.get(entry.getKey()))));
+                                        entry.getValue().getTso()
+                                                - partitionOffset.get(entry.getKey()))));
                         // LAST_CONSUMPTION_TIME
                         if (partitionConsumptionTime.containsKey(entry.getKey())) {
                             trow.addToColumnValue(new TCell()
@@ -152,8 +164,12 @@ public class OlapTableStream extends BaseTableStream {
                         // CONSUMPTION_STATUS
                         trow.addToColumnValue(new TCell().setStringVal("N/A"));
                         // LAG
-                        trow.addToColumnValue(new TCell().setStringVal((String.valueOf(
-                                entry.getValue().getVisibleVersion()))));
+                        if (entry.getValue().hasData()) {
+                            // for partition with data and no consumption yet, lag is N/A
+                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                        } else {
+                            trow.addToColumnValue(new TCell().setStringVal("0"));
+                        }
                         // LAST_CONSUMPTION_TIME
                         trow.addToColumnValue(new TCell().setLongVal(-1));
                     }
@@ -167,23 +183,17 @@ public class OlapTableStream extends BaseTableStream {
 
     public boolean hasData(Partition partition) {
         // if all available visible data has been consumed, return false
-        // todo(TsukiokaKogane): change offset from partition version to commit tso
         return  (!partitionOffset.containsKey(partition.getId())
-                || !partitionOffset.get(partition.getId()).equals(partition.getVisibleVersion()))
+                || !partitionOffset.get(partition.getId()).equals(partition.getTso()))
                 && partition.hasData();
     }
 
+    public boolean hasHistoricalData(long partitionId) {
+        return historicalPartitionOffset.containsKey(partitionId);
+    }
+
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
-        Long next = null;
-        Long prev = null;
-        if (historicalPartitionOffset.containsKey(partitionId)) {
-            next = historicalPartitionOffset.get(partitionId);
-        } else {
-            // todo(TsukiokaKogane): update next version with stepping
-            next = ((OlapTable) baseTable).getPartition(partitionId).getVisibleVersion();
-        }
-        prev = partitionOffset.get(partitionId);
-        return Pair.of(prev, next);
+        return Pair.of(partitionOffset.get(partitionId), historicalPartitionOffset.get(partitionId));
     }
 
     @Override
@@ -201,12 +211,58 @@ public class OlapTableStream extends BaseTableStream {
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             if (historicalPartitionOffset.containsKey(entry.getKey())) {
                 historicalPartitionOffset.remove(entry.getKey());
-                partitionOffset.put(entry.getKey(), entry.getValue());
+                if (historicalPartitionTSO == null) {
+                    partitionOffset.put(entry.getKey(), entry.getValue());
+                } else {
+                    partitionOffset.put(entry.getKey(), historicalPartitionTSO.get(entry.getKey()));
+                    historicalPartitionTSO.remove(entry.getKey());
+                }
             } else {
-                // todo(TsukiokaKogane): update partition offset with tso
                 partitionOffset.put(entry.getKey(), entry.getValue());
             }
             partitionConsumptionTime.put(entry.getKey(), ts);
+        }
+    }
+
+    Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {
+        Preconditions.checkState(isWriteLockHeldByCurrentThread(),
+                "unprotectedCollectStalePartitionOffsetIds must be called with write lock held");
+        Set<Long> stalePartitionIds = new HashSet<>();
+        for (Long partitionId : partitionOffset.keySet()) {
+            if (!validPartitionIds.contains(partitionId)) {
+                stalePartitionIds.add(partitionId);
+            }
+        }
+        for (Long partitionId : partitionConsumptionTime.keySet()) {
+            if (!validPartitionIds.contains(partitionId)) {
+                stalePartitionIds.add(partitionId);
+            }
+        }
+        for (Long partitionId : historicalPartitionOffset.keySet()) {
+            if (!validPartitionIds.contains(partitionId)) {
+                stalePartitionIds.add(partitionId);
+            }
+        }
+        if (historicalPartitionTSO != null) {
+            for (Long partitionId : historicalPartitionTSO.keySet()) {
+                if (!validPartitionIds.contains(partitionId)) {
+                    stalePartitionIds.add(partitionId);
+                }
+            }
+        }
+        return stalePartitionIds;
+    }
+
+    void unprotectedPrunePartitionOffsets(Set<Long> partitionIds) {
+        Preconditions.checkState(isWriteLockHeldByCurrentThread(),
+                "unprotectedPrunePartitionOffsets must be called with write lock held");
+        for (Long partitionId : partitionIds) {
+            partitionOffset.remove(partitionId);
+            partitionConsumptionTime.remove(partitionId);
+            historicalPartitionOffset.remove(partitionId);
+            if (historicalPartitionTSO != null) {
+                historicalPartitionTSO.remove(partitionId);
+            }
         }
     }
 }

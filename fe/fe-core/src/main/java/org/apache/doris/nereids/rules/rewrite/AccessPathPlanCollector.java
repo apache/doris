@@ -231,7 +231,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         AccessPathExpressionCollector exprCollector
                 = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false);
         for (NamedExpression output : project.getProjects()) {
-            // e.g. select struct_element(s, 'city') from (select s from tbl)a;
+            // e.g. select element_at(s, 'city') from (select s from tbl)a;
             // we will not treat the inner `s` access all path
             if (output instanceof Slot && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
                 continue;
@@ -313,7 +313,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         // now we will not prune complex type through union, because we can not prune the complex type's literal,
         // for example, we can not prune the literal now: array(map(1, named_struct('a', 100, 'b', 100))),
         // so we can not prune this sql:
-        // select struct_element(map_values(s[0]), 'a')
+        // select element_at(map_values(s[0]), 'a')
         // from (
         //     select s from tbl
         //     union all

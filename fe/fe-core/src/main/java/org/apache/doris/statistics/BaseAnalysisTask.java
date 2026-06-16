@@ -105,6 +105,25 @@ public abstract class BaseAnalysisTask {
             +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
             + "SELECT * FROM cte2 CROSS JOIN cte3";
 
+    protected static final String FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE =
+            "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            +     "${catalogId} AS `catalog_id`, "
+            +     "${dbId} AS `db_id`, "
+            +     "${tblId} AS `tbl_id`, "
+            +     "${idxId} AS `idx_id`, "
+            +     "'${colId}' AS `col_id`, "
+            +     "NULL AS `part_id`, "
+            +     "COUNT(1) AS `row_count`, "
+            +     "NDV(`${colName}`) AS `ndv`, "
+            +     "COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
+            +     "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
+            +     "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
+            +     "${dataSizeFunction} AS `data_size`, "
+            +     "NOW() AS `update_time`, "
+            +     "null as `hot_value` "
+            + "FROM (SELECT `${colName}`${lengthAssert} "
+            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}) __lc_t";
+
     protected static final String LINEAR_ANALYZE_TEMPLATE = "WITH cte1 AS ("
             +     "SELECT `${colName}`${lengthAssert} "
             +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit} ${preAggHint}), "
@@ -575,6 +594,10 @@ public abstract class BaseAnalysisTask {
     }
 
     protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
+
+    protected boolean shouldCollectHotValue() {
+        return Boolean.TRUE.equals(info.collectHotValue);
+    }
 
     protected String getPartitionInfo(String partitionName) {
         return "";

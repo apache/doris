@@ -61,7 +61,6 @@
 #include "load/stream_load/stream_load_recorder.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
-#include "storage/compaction/single_replica_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/id_manager.h"
 #include "storage/olap_common.h"
@@ -257,6 +256,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     stop();
 }
 
@@ -743,7 +743,7 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    THREAD_JOIN(_update_replica_infos_thread);
+    THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -771,8 +771,8 @@ void StorageEngine::stop() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
+    if (_binlog_compaction_thread_pool) {
+        _binlog_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {
@@ -1593,23 +1593,6 @@ PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& 
     return _pending_remote_rowsets.add(ctx.rowset_id);
 }
 
-bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
-                                          std::string* token) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
-        return false;
-    }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.contains(tablet_id) &&
-        _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
-        *replica = _peer_replica_infos[tablet_id];
-        *token = _token;
-        return true;
-    }
-    return false;
-}
-
 bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -1650,7 +1633,6 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                      << tablet_id;
         return false;
     }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
         if (reps.empty()) [[unlikely]] {
@@ -1684,25 +1666,6 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                 .tag("tablet id", tablet_id)
                 .tag("replica num", backends->size());
         return true;
-    }
-    return false;
-}
-
-bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
-#ifdef BE_TEST
-    if (tablet_id % 2 == 0) {
-        return true;
-    }
-    return false;
-#endif
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
-        return false;
-    }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.contains(tablet_id)) {
-        return _peer_replica_infos[tablet_id].replica_id != tablet->replica_id();
     }
     return false;
 }

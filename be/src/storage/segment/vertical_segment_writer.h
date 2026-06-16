@@ -129,7 +129,8 @@ public:
     }
 
 private:
-    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
+    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                           const ColumnWriterOptions& opts);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
     uint64_t _estimated_remaining_size();
@@ -198,8 +199,12 @@ private:
     Status _check_column_writer_disk_capacity(size_t cid);
     Status _finalize_column_writer_and_update_meta(size_t cid);
 
-    bool _is_mow();
-    bool _is_mow_with_cluster_key();
+    bool _is_mow() {
+        return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
+    }
+    bool _is_mow_with_cluster_key() {
+        return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
+    }
 
 private:
     friend class ::doris::BlockAggregator;

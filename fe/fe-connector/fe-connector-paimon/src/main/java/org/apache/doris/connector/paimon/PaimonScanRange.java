@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -213,16 +214,15 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (partValues != null && !partValues.isEmpty()) {
             List<String> pathKeys = new ArrayList<>();
             List<String> pathValues = new ArrayList<>();
-            List<Boolean> pathIsNull = new ArrayList<>();
             for (Map.Entry<String, String> entry : partValues.entrySet()) {
                 pathKeys.add(entry.getKey());
-                pathValues.add(entry.getValue() != null
-                        ? entry.getValue() : "");
-                pathIsNull.add(entry.getValue() == null);
+                pathValues.add(entry.getValue());
             }
+            ConnectorPartitionValues.Normalized normalized =
+                    ConnectorPartitionValues.normalize(pathValues);
             rangeDesc.setColumnsFromPathKeys(pathKeys);
-            rangeDesc.setColumnsFromPath(pathValues);
-            rangeDesc.setColumnsFromPathIsNull(pathIsNull);
+            rangeDesc.setColumnsFromPath(normalized.getValues());
+            rangeDesc.setColumnsFromPathIsNull(normalized.getIsNull());
         }
     }
 

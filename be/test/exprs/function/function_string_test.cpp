@@ -4003,4 +4003,20 @@ TEST(function_string_test, function_unicode_normalize_invalid_mode) {
     EXPECT_NE(Status::OK(), st);
 }
 
+TEST(function_string_test, function_regexp_count_mixed_const_test) {
+    std::string func_name = "regexp_count";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("a.b:c;d"), std::string("[.:;]")}, std::int32_t(3)},
+            {{std::string("a1b2346c3d"), std::string("\\d+")}, std::int32_t(3)},
+            {{std::string("abcd"), std::string("")}, std::int32_t(0)},
+            {{std::string("book keeper"), std::string("oo|ee")}, std::int32_t(2)},
+            {{Null(), std::string("\\d+")}, Null()},
+            {{std::string("abcd"), Null()}, Null()},
+    };
+
+    check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris

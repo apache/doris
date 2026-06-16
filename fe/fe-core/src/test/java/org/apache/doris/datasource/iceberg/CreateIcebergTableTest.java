@@ -28,9 +28,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -100,6 +103,40 @@ public class CreateIcebergTableTest {
         Assert.assertEquals(1, schema.columns().size());
         Assert.assertEquals(PartitionSpec.unpartitioned(), table.spec());
         Assert.assertEquals("b", table.properties().get("a"));
+    }
+
+    @Test
+    public void testDefaultProperties() throws UserException {
+        TableIdentifier tb = TableIdentifier.of(dbName, getTableName());
+        String sql = "create table " + tb + " (id int) engine = iceberg";
+        createTable(sql);
+        Table table = ops.getCatalog().loadTable(tb);
+        Assert.assertEquals(2, getFormatVersion(table));
+        Assert.assertEquals(RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                table.properties().get(TableProperties.DELETE_MODE));
+        Assert.assertEquals(RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                table.properties().get(TableProperties.UPDATE_MODE));
+        Assert.assertEquals(RowLevelOperationMode.MERGE_ON_READ.modeName(),
+                table.properties().get(TableProperties.MERGE_MODE));
+    }
+
+    @Test
+    public void testExplicitProperties() throws UserException {
+        TableIdentifier tb = TableIdentifier.of(dbName, getTableName());
+        String sql = "create table " + tb + " (id int) engine = iceberg properties("
+                + "\"format-version\"=\"1\", "
+                + "\"write.delete.mode\"=\"copy-on-write\", "
+                + "\"write.update.mode\"=\"copy-on-write\", "
+                + "\"write.merge.mode\"=\"copy-on-write\")";
+        createTable(sql);
+        Table table = ops.getCatalog().loadTable(tb);
+        Assert.assertEquals(1, getFormatVersion(table));
+        Assert.assertEquals(RowLevelOperationMode.COPY_ON_WRITE.modeName(),
+                table.properties().get(TableProperties.DELETE_MODE));
+        Assert.assertEquals(RowLevelOperationMode.COPY_ON_WRITE.modeName(),
+                table.properties().get(TableProperties.UPDATE_MODE));
+        Assert.assertEquals(RowLevelOperationMode.COPY_ON_WRITE.modeName(),
+                table.properties().get(TableProperties.MERGE_MODE));
     }
 
     @Test
@@ -189,6 +226,11 @@ public class CreateIcebergTableTest {
     public String getTableName() {
         String s = "test_tb_" + UUID.randomUUID();
         return s.replaceAll("-", "");
+    }
+
+    private int getFormatVersion(Table table) {
+        Assert.assertTrue(table instanceof BaseTable);
+        return ((BaseTable) table).operations().current().formatVersion();
     }
 
     @Test

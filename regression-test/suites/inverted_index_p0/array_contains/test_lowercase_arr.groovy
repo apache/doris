@@ -21,8 +21,7 @@ suite("test_lowercase_arr", "array_contains_inverted_index"){
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     // prepare test table
     def indexTblName = "lowercase_test1_arr"

@@ -468,6 +468,9 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             return Collections.emptyIterator();
         }
 
+        // A split is finished only after its high-watermark event has been consumed.
+        refreshCompletedSplits();
+
         if (completedSplitIds.size() >= snapshotReaderContexts.size()) {
             LOG.info("All {} snapshot splits have been completed", snapshotReaderContexts.size());
             return Collections.emptyIterator();
@@ -515,6 +518,11 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                             Fetcher<SourceRecords, SourceSplitBase>,
                             SnapshotSplitState>
                     context = snapshotReaderContexts.get(index);
+            // Skip splits already drained to high-watermark; otherwise their poll futures spin
+            // returning null and starve siblings.
+            if (completedSplitIds.contains(context.getSplit().splitId())) {
+                continue;
+            }
 
             CompletableFuture<PollResult> future =
                     CompletableFuture.supplyAsync(
@@ -569,11 +577,12 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     snapshot.remove(future);
                     PollResult result = future.get();
                     if (result != null) {
+                        // Split completion is determined later by splitState.getHighWatermark()
+                        // != null, not by receiving a non-empty batch.
                         LOG.info(
                                 "Got result from reader {}, {} futures remaining",
                                 result.context.getSplit().splitId(),
                                 snapshot.size());
-                        completedSplitIds.add(result.context.getSplit().splitId());
                         return result;
                     }
                     // If result is null (no data), continue checking other futures
@@ -837,6 +846,35 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         Offset highWatermark = sourceSplitState.asSnapshotSplitState().getHighWatermark();
         Map<String, String> offsetRes = new HashMap<>(highWatermark.getOffset());
         return offsetRes;
+    }
+
+    @Override
+    public boolean isSnapshotFinished() {
+        if (snapshotReaderContexts.isEmpty()) {
+            return true;
+        }
+        for (SnapshotReaderContext<
+                        org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>,
+                        SnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void refreshCompletedSplits() {
+        for (SnapshotReaderContext<
+                        org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>,
+                        SnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() != null) {
+                completedSplitIds.add(context.getSplit().splitId());
+            }
+        }
     }
 
     @Override

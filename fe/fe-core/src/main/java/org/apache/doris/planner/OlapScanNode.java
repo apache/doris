@@ -21,11 +21,14 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -33,23 +36,30 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.IndexToThriftConvertor;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -58,6 +68,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.planner.normalize.Normalizer;
@@ -66,15 +78,18 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TAggregationType;
+import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TNormalizedOlapScanNode;
 import org.apache.doris.thrift.TNormalizedPlanNode;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TPaloScanRange;
+import org.apache.doris.thrift.TPartitionBoundary;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -113,6 +128,10 @@ public class OlapScanNode extends ScanNode {
 
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
+
+    public static final String OLAP_START_TIMESTAMP = "startTimestamp";
+    public static final String OLAP_END_TIMESTAMP = "endTimestamp";
+    public static final String OLAP_INCREMENT_TYPE = "incrementType";
 
     /*
      * When the field value is ON, the storage engine can return the data directly
@@ -158,6 +177,7 @@ public class OlapScanNode extends ScanNode {
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
     private OlapTable olapTable = null;
+    private String tableNameInPlan = null;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
@@ -210,10 +230,13 @@ public class OlapScanNode extends ScanNode {
 
     private Column globalRowIdColumn;
 
+    protected TableScanParams scanParams;
+
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
         super(id, desc, planNodeName, scanContext);
         olapTable = (OlapTable) desc.getTable();
+        tableNameInPlan = olapTable.getName();
         distributionColumnIds = Sets.newTreeSet();
 
         Set<String> distColumnName = getDistributionColumnNames();
@@ -317,6 +340,10 @@ public class OlapScanNode extends ScanNode {
         return olapTable;
     }
 
+    public String getTableNameInPlan() {
+        return tableNameInPlan;
+    }
+
     /**
      * Init OlapScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
@@ -370,9 +397,20 @@ public class OlapScanNode extends ScanNode {
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
         if (pruneTablesByNereids) {
-            return nereidsPrunedTabletIds.isEmpty()
-                    ? null
-                    : new ArrayList<>(nereidsPrunedTabletIds);
+            if (nereidsPrunedTabletIds.isEmpty()) {
+                return null;
+            }
+            // Filter to tablets belonging to this partition. Without this, the caller's
+            // per-partition loop in computeTabletInfo becomes O(partitionNum * globalPrunedSize)
+            // getTablet hash lookups (most returning null), which dominates plan time
+            // when both partition count and pruned tablet count are large.
+            List<Long> result = new ArrayList<>();
+            for (Long id : tabletIdsInOrder) {
+                if (nereidsPrunedTabletIds.contains(id)) {
+                    result.add(id);
+                }
+            }
+            return result;
         }
         DistributionPruner distributionPruner = null;
         switch (distributionInfo.getType()) {
@@ -444,8 +482,9 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
-        // if partition offset is set, use the next offset to set the visible version
-        if (olapTable instanceof OlapTableStreamWrapper) {
+        if (olapTable instanceof OlapTableStreamWrapper
+                && ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second != null) {
+            // legacy support, will be removed after full olap table stream history function ready
             visibleVersion = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second;
         }
         // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
@@ -475,6 +514,8 @@ public class OlapScanNode extends ScanNode {
         ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
+        // Lazy: resolved on the first CloudReplica that needs it.
+        String cachedClusterId = null;
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
             long tabletVisibleVersion = partitionVisibleVersion;
@@ -503,6 +544,24 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
+            if (olapTable instanceof RowBinlogTableWrapper) {
+                TBinlogScanType binlogScanType =
+                        parseBinlogScanType(scanParams, ((RowBinlogTableWrapper) olapTable).getOriginTable());
+                if (((RowBinlogTableWrapper) olapTable).getParent().isPresent()) {
+                    Pair<Long, Long> update = getStreamUpdate(partition.getId());
+                    if (update.first != null) {
+                        paloRange.setStartTso(update.first);
+                    }
+                    if (update.second != null) {
+                        paloRange.setEndTso(update.second);
+                    } else {
+                        paloRange.setEndTso(partition.getTso());
+                    }
+                }
+                if (binlogScanType != TBinlogScanType.NONE) {
+                    paloRange.setBinlogScanType(binlogScanType);
+                }
+            }
 
             // random shuffle List && only collect one copy
             //
@@ -543,7 +602,16 @@ public class OlapScanNode extends ScanNode {
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
-                    long beId = replica.getBackendId();
+                    long beId;
+                    if (replica instanceof CloudReplica) {
+                        if (cachedClusterId == null) {
+                            cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                    .getCurrentClusterId();
+                        }
+                        beId = ((CloudReplica) replica).getBackendIdWithClusterId(cachedClusterId);
+                    } else {
+                        beId = replica.getBackendId();
+                    }
                     Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
@@ -597,7 +665,15 @@ public class OlapScanNode extends ScanNode {
                 Backend backend = null;
                 long backendId = -1;
                 try {
-                    backendId = replica.getBackendId();
+                    if (replica instanceof CloudReplica) {
+                        if (cachedClusterId == null) {
+                            cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                    .getCurrentClusterId();
+                        }
+                        backendId = ((CloudReplica) replica).getBackendIdWithClusterId(cachedClusterId);
+                    } else {
+                        backendId = replica.getBackendId();
+                    }
                     backend = allBackends.get(backendId);
                 } catch (ComputeGroupException e) {
                     LOG.warn("failed to get backend {} for replica {}", backendId, replica.getId(), e);
@@ -918,8 +994,9 @@ public class OlapScanNode extends ScanNode {
             boolean notExistsSampleAndPrunedTablets = sampleTabletIds.isEmpty() && nereidsPrunedTabletIds.isEmpty();
             if (prunedTabletIds != null) {
                 for (Long id : prunedTabletIds) {
-                    if (selectedTable.getTablet(id) != null) {
-                        tablets.add(selectedTable.getTablet(id));
+                    Tablet tablet = selectedTable.getTablet(id);
+                    if (tablet != null) {
+                        tablets.add(tablet);
                         scanTabletIds.add(id);
                     } else if (notExistsSampleAndPrunedTablets) {
                         // The tabletID specified in query does not exist in this partition, skip scan partition.
@@ -1239,11 +1316,172 @@ public class OlapScanNode extends ScanNode {
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
-        if (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex()) {
+        if (parseBinlogScanType(scanParams, olapTable) != TBinlogScanType.NONE
+                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex())) {
             msg.olap_scan_node.setReadRowBinlog(true);
         }
 
+        // Populate partition boundaries for BE-side runtime filter partition pruning.
+        // Only serialize when this scan node actually has at least one runtime
+        // filter whose target expression can drive partition pruning according
+        // to the FE-side classifier, so we don't bloat thrift for tables with
+        // many partitions but no usable RF target.
+        // Gated by session variable `enable_runtime_filter_partition_prune`.
+        ConnectContext rfPruneCtx = ConnectContext.get();
+        if (rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()
+                && hasRfDrivingPartitionPruning()) {
+            setPartitionBoundaries(msg.olap_scan_node);
+        }
+
         super.toThrift(msg);
+    }
+
+    private boolean hasRfDrivingPartitionPruning() {
+        if (selectedPartitionIds == null || selectedPartitionIds.size() < 2) {
+            return false;
+        }
+        PlanNodeId myId = this.getId();
+        for (RuntimeFilter rf : runtimeFilters) {
+            if (rf.canPrunePartitionsFor(myId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void setPartitionBoundaries(TOlapScanNode olapScanNode) {
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        PartitionType partType = partitionInfo.getType();
+        if (partType != PartitionType.RANGE && partType != PartitionType.LIST) {
+            return;
+        }
+        List<Column> partColumns = partitionInfo.getPartitionColumns();
+        if (partColumns.isEmpty()) {
+            return;
+        }
+
+        // Build partition column name → slot ID mapping
+        Map<String, Integer> partColToSlotId = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getColumn() == null) {
+                continue;
+            }
+            for (Column partCol : partColumns) {
+                if (slot.getColumn().getName().equalsIgnoreCase(partCol.getName())) {
+                    partColToSlotId.put(partCol.getName(), slot.getId().asInt());
+                    break;
+                }
+            }
+        }
+        if (partColToSlotId.isEmpty()) {
+            return;
+        }
+
+        List<TPartitionBoundary> boundaries = new ArrayList<>();
+        for (Long partitionId : selectedPartitionIds) {
+            PartitionItem item = partitionInfo.getItem(partitionId);
+            if (item == null) {
+                continue;
+            }
+            if (item instanceof RangePartitionItem) {
+                addRangeBoundaries(boundaries, partitionId, (RangePartitionItem) item,
+                        partColumns, partColToSlotId);
+            } else if (item instanceof ListPartitionItem) {
+                addListBoundaries(boundaries, partitionId, (ListPartitionItem) item,
+                        partColumns, partColToSlotId);
+            }
+        }
+        if (!boundaries.isEmpty()) {
+            olapScanNode.setPartitionBoundaries(boundaries);
+        }
+    }
+
+    private void addRangeBoundaries(List<TPartitionBoundary> boundaries, long partitionId,
+            RangePartitionItem rangeItem, List<Column> partColumns,
+            Map<String, Integer> partColToSlotId) {
+        // We always project a (possibly multi-column) RANGE partition onto its
+        // first partition column, since the BE pruner only consumes per-column
+        // boundaries. Projection rules (lex compare semantics):
+        //
+        //   single column [L, U):
+        //       projection = [L, U)              → range_end_inclusive = false
+        //
+        //   multi-column [(L1, L2, ...), (U1, U2, ...)):
+        //       k1 = L1 is reachable (inner tuple can be ≥ (L2, ...))
+        //       k1 ∈ (L1, U1) is fully reachable
+        //       k1 = U1 may be reachable via inner tuple < (U2, ...)
+        //       projection = [L1, U1] (CLOSED both ends, conservative)
+        //                                        → range_end_inclusive = true
+        //
+        // The half-open form [L1, U1) for multi-column would be a strict
+        // UNDER-approximation. Example: partition [(1,1), (1,5)) projects to
+        // {1}, but [1, 1) is empty and would let the BE wrongly prune the
+        // partition for an RF like k1 = 1.
+        String colName = partColumns.get(0).getName();
+        Integer slotId = partColToSlotId.get(colName);
+        if (slotId == null) {
+            return;
+        }
+        com.google.common.collect.Range<PartitionKey> range = rangeItem.getItems();
+        TPartitionBoundary boundary = new TPartitionBoundary();
+        boundary.setPartitionId(partitionId);
+        boundary.setSlotId(slotId);
+        if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
+            LiteralExpr lower = range.lowerEndpoint().getKeys().get(0);
+            if (!(lower instanceof MaxLiteral)) {
+                boundary.setRangeStart(
+                        ExprToThriftVisitor.treeToThrift(lower).getNodes().get(0));
+            }
+        }
+        if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
+            LiteralExpr upper = range.upperEndpoint().getKeys().get(0);
+            if (!(upper instanceof MaxLiteral)) {
+                boundary.setRangeEnd(
+                        ExprToThriftVisitor.treeToThrift(upper).getNodes().get(0));
+            }
+        }
+        if (partColumns.size() > 1) {
+            boundary.setRangeEndInclusive(true);
+        }
+        boundaries.add(boundary);
+    }
+
+    private void addListBoundaries(List<TPartitionBoundary> boundaries, long partitionId,
+            ListPartitionItem listItem, List<Column> partColumns,
+            Map<String, Integer> partColToSlotId) {
+        if (listItem.isDefaultPartition()) {
+            return;
+        }
+        List<PartitionKey> partitionKeys = listItem.getItems();
+        // For LIST partitions, emit per-column distinct value sets. NULL keys
+        // are emitted as NULL_LITERAL TExprNode so the BE parser can translate
+        // them into ColumnValueRange::set_contain_null(true) rather than
+        // treating NULL as an ordinary fixed value (which would crash the
+        // typed value extractor in the parser).
+        for (int i = 0; i < partColumns.size(); i++) {
+            String colName = partColumns.get(i).getName();
+            Integer slotId = partColToSlotId.get(colName);
+            if (slotId == null) {
+                continue;
+            }
+            TPartitionBoundary boundary = new TPartitionBoundary();
+            boundary.setPartitionId(partitionId);
+            boundary.setSlotId(slotId);
+            List<TExprNode> listValues = new ArrayList<>(partitionKeys.size());
+            for (PartitionKey pk : partitionKeys) {
+                LiteralExpr literalExpr = pk.getKeys().get(i);
+                if (literalExpr.isNullLiteral()) {
+                    listValues.add(ExprToThriftVisitor.treeToThrift(
+                            NullLiteral.create(literalExpr.getType())).getNodes().get(0));
+                } else {
+                    listValues.add(
+                            ExprToThriftVisitor.treeToThrift(literalExpr).getNodes().get(0));
+                }
+            }
+            boundary.setListValues(listValues);
+            boundaries.add(boundary);
+        }
     }
 
     @Override
@@ -1444,13 +1682,90 @@ public class OlapScanNode extends ScanNode {
         Map<Long, Long> prev = Maps.newHashMap();
         Map<Long, Long> next = Maps.newHashMap();
         for (Long partitionId : getSelectedPartitionIds()) {
-            Pair<Long, Long> streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
+            Pair<Long, Long> streamUpdate = getStreamUpdate(partitionId);
             if (streamUpdate.first != null) {
-                // prev could be null, ignore
+                // prev could be null, in case of historical scan
                 prev.put(partitionId, streamUpdate.first);
             }
-            next.put(partitionId, streamUpdate.second);
+            if (streamUpdate.second != null) {
+                next.put(partitionId, streamUpdate.second);
+            } else {
+                // next could be null, in case of incremental scan
+                next.put(partitionId, olapTable.getPartition(partitionId).getTso());
+            }
         }
         return new OlapTableStreamUpdate(prev, next);
+    }
+
+    private Pair<Long, Long> getStreamUpdate(Long partitionId) {
+        // unprotected assume partitionId is in SelectedPartitionIds
+        Pair<Long, Long> streamUpdate;
+        if (olapTable instanceof RowBinlogTableWrapper) {
+            streamUpdate = ((RowBinlogTableWrapper) olapTable).getParent().get().getStreamUpdate(partitionId);
+        } else {
+            streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
+        }
+        return streamUpdate;
+    }
+
+    public boolean isChangeScan() {
+        return scanParams != null && scanParams.incrementalRead() && !isIncrementalScan();
+    }
+
+    public boolean isIncrementalScan() {
+        return (olapTable instanceof RowBinlogTableWrapper)
+                && ((RowBinlogTableWrapper) olapTable).getParent().isPresent();
+    }
+
+    public void setScanParams(TableScanParams scanParams) {
+        this.scanParams = scanParams;
+    }
+
+    public long getIncrementalScanEndTime() {
+        if (scanParams != null && scanParams.incrementalRead()
+                && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {
+            return parseChangeTimestamp(scanParams.getMapParams().get(OLAP_END_TIMESTAMP));
+        }
+        return 0;
+    }
+
+    public static long parseChangeTimestamp(String ts) {
+        if (ts != null) {
+            long changeTimestamp;
+            if (ts.equals("0")) {
+                changeTimestamp = 0;
+            } else {
+                changeTimestamp = TimeUtils.timeStringToLong(ts);
+            }
+            if (changeTimestamp < 0) {
+                throw new ParseException("Invalid TIMESTAMP format in incr clause: " + ts);
+            }
+            return changeTimestamp;
+        }
+        throw new ParseException("Invalid timestamp:" + ts);
+    }
+
+    public static TBinlogScanType parseBinlogScanType(TableScanParams scanParams, OlapTable olapTable)
+            throws ParseException {
+        if (scanParams == null) {
+            return TBinlogScanType.NONE;
+        }
+        TBinlogScanType scanType = TBinlogScanType.MIN_DELTA;
+        if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
+            scanType = TBinlogScanType.APPEND_ONLY;
+        }
+        if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_INCREMENT_TYPE)) {
+            String info = scanParams.getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE).toUpperCase();
+            if ("APPEND_ONLY".equals(info) || olapTable.getKeysType() == KeysType.DUP_KEYS) {
+                scanType = TBinlogScanType.APPEND_ONLY;
+            } else if ("MIN_DELTA".equals(info)) {
+                scanType = TBinlogScanType.MIN_DELTA;
+            } else if ("DETAIL".equals(info)) {
+                scanType = TBinlogScanType.DETAIL;
+            } else {
+                throw new ParseException("Unsupported increment type in incr query: " + info);
+            }
+        }
+        return scanType;
     }
 }

@@ -56,7 +56,12 @@ using uint128_t = unsigned __int128;
 
 using TabletUid = UniqueId;
 
-enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
+enum CompactionType {
+    BASE_COMPACTION = 1,
+    CUMULATIVE_COMPACTION = 2,
+    FULL_COMPACTION = 3,
+    BINLOG_COMPACTION = 4
+};
 
 enum DataDirType {
     SPILL_DISK_DIR,
@@ -411,6 +416,10 @@ struct OlapReaderStatistics {
     int64_t rows_ann_index_range_filtered = 0;
     int64_t ann_index_range_cache_hits = 0;
     int64_t ann_fall_back_brute_force_cnt = 0;
+    int64_t ann_topn_fallback_by_small_candidate_cnt = 0;
+    int64_t ann_topn_fallback_small_candidate_rows = 0;
+    int64_t ann_range_fallback_by_small_candidate_cnt = 0;
+    int64_t ann_range_fallback_small_candidate_rows = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

@@ -49,6 +49,7 @@ import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlChunkSplitter
 import org.apache.flink.cdc.connectors.mysql.source.assigners.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetKind;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
@@ -143,7 +144,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
-        // Initialize thread pool for parallel polling
         int parallelism =
                 Integer.parseInt(
                         config.getOrDefault(
@@ -489,6 +489,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             return Collections.emptyIterator();
         }
 
+        // A split is finished only after its high-watermark event has been consumed.
+        refreshCompletedSplits();
+
         if (completedSplitIds.size() >= snapshotReaderContexts.size()) {
             LOG.info("All {} snapshot splits have been completed", snapshotReaderContexts.size());
             return Collections.emptyIterator();
@@ -533,6 +536,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             final int index = i;
             SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
                     context = snapshotReaderContexts.get(index);
+            // Skip splits already drained to high-watermark; otherwise their poll futures spin
+            // returning null and starve siblings.
+            if (completedSplitIds.contains(context.getSplit().splitId())) {
+                continue;
+            }
 
             CompletableFuture<PollResult> future =
                     CompletableFuture.supplyAsync(
@@ -587,11 +595,12 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     snapshot.remove(future);
                     PollResult result = future.get();
                     if (result != null) {
+                        // Split completion is determined later by splitState.getHighWatermark()
+                        // != null, not by receiving a non-empty batch.
                         LOG.info(
                                 "Got result from reader {}, {} futures remaining",
                                 result.context.getSplit().splitId(),
                                 snapshot.size());
-                        completedSplitIds.add(result.context.getSplit().splitId());
                         return result;
                     }
                     // If result is null (no data), continue checking other futures
@@ -815,39 +824,54 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config, int subtaskId) {
-        MySqlSourceConfig sourceConfig = getSourceConfig(config);
+        MySqlSourceConfig sourceConfig = getSourceConfig(config, subtaskId);
+        LOG.info(
+                "MySQL CDC snapshot reader[{}] for job {} using server_id={}",
+                subtaskId,
+                config.getJobId(),
+                sourceConfig.getServerIdRange().getServerId(subtaskId));
         final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
         final BinaryLogClient binaryLogClient =
                 DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
         final StatefulTaskContext statefulTaskContext =
                 new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-        SnapshotSplitReader snapshotReader =
-                new SnapshotSplitReader(statefulTaskContext, subtaskId);
-        return snapshotReader;
+        return new SnapshotSplitReader(statefulTaskContext, subtaskId);
     }
 
     private BinlogSplitReader getBinlogSplitReader(JobBaseConfig config) {
-        MySqlSourceConfig sourceConfig = getSourceConfig(config);
+        MySqlSourceConfig sourceConfig = getSourceConfig(config, 0);
+        LOG.info(
+                "MySQL CDC binlog reader for job {} using server_id={}",
+                config.getJobId(),
+                sourceConfig.getServerIdRange().getStartServerId());
         final MySqlConnection jdbcConnection = DebeziumUtils.createMySqlConnection(sourceConfig);
         final BinaryLogClient binaryLogClient =
                 DebeziumUtils.createBinaryClient(sourceConfig.getDbzConfiguration());
         final StatefulTaskContext statefulTaskContext =
                 new StatefulTaskContext(sourceConfig, binaryLogClient, jdbcConnection);
-        BinlogSplitReader binlogReader = new BinlogSplitReader(statefulTaskContext, 0);
-        return binlogReader;
+        int readerTag = Math.abs(config.getJobId().hashCode());
+        LOG.info(
+                "create binlog reader for job {}, thread tag = binlog-reader-{}",
+                config.getJobId(),
+                readerTag);
+        return new BinlogSplitReader(statefulTaskContext, readerTag);
     }
 
     private MySqlSourceConfig getSourceConfig(JobBaseConfig config) {
         return generateMySqlConfig(config);
     }
 
-    /** Generate MySQL source config from JobBaseConfig */
-    private MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
-        return generateMySqlConfig(config.getConfig(), ConfigUtil.getServerId(config.getJobId()));
+    private MySqlSourceConfig getSourceConfig(JobBaseConfig config, int subtaskId) {
+        return generateMySqlConfig(config.getConfig(), config.getJobId(), subtaskId);
     }
 
-    /** Generate MySQL source config from Map config */
-    private MySqlSourceConfig generateMySqlConfig(Map<String, String> cdcConfig, String serverId) {
+    private MySqlSourceConfig generateMySqlConfig(JobBaseConfig config) {
+        return generateMySqlConfig(config.getConfig(), config.getJobId(), 0);
+    }
+
+    // Per-subtask config so each reader binds a distinct server_id from the resolved range.
+    private MySqlSourceConfig generateMySqlConfig(
+            Map<String, String> cdcConfig, String jobId, int subtaskId) {
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
         ConnectionUrl cu =
                 ConnectionUrl.getConnectionUrlInstance(
@@ -858,7 +882,15 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
         String databaseName = cdcConfig.get(DataSourceConfigKeys.DATABASE);
         configFactory.databaseList(databaseName);
-        configFactory.serverId(serverId);
+        int parallelism =
+                Integer.parseInt(
+                        cdcConfig.getOrDefault(
+                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+        ServerIdRange serverIdRange =
+                ConfigUtil.resolveServerIdRange(
+                        jobId, parallelism, cdcConfig.get(DataSourceConfigKeys.SERVER_ID));
+        configFactory.serverId(serverIdRange.toString());
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
@@ -950,6 +982,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     "trustCertificateKeyStorePassword", SmallFileMgr.TRUSTSTORE_PASSWORD);
         }
 
+        // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
+        dbzProps.setProperty("enable.time.adjuster", "false");
+
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
@@ -974,7 +1009,11 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
-        return configFactory.createConfig(0);
+        // FE injects "true" on TVF path; from-to leaves it absent → default false.
+        configFactory.skipSnapshotBackfill(
+                Boolean.parseBoolean(cdcConfig.get(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL)));
+
+        return configFactory.createConfig(subtaskId);
     }
 
     private BinlogOffset initializeEffectiveOffset(
@@ -993,6 +1032,29 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         MySqlSnapshotSplitState snapshotState = (MySqlSnapshotSplitState) splitState;
         BinlogOffset highWatermark = snapshotState.getHighWatermark();
         return new HashMap<>(highWatermark.getOffset());
+    }
+
+    @Override
+    public boolean isSnapshotFinished() {
+        if (snapshotReaderContexts.isEmpty()) {
+            return true;
+        }
+        for (SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void refreshCompletedSplits() {
+        for (SnapshotReaderContext<MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() != null) {
+                completedSplitIds.add(context.getSplit().splitId());
+            }
+        }
     }
 
     @Override

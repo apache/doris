@@ -68,7 +68,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
     if (!is_scalar_type(_type)) {
         return Status::NotSupported("unsupported typeinfo, type={}", _meta.data_type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type, _meta.encoding(), {}, &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type, _meta.encoding(), &_encoding_info));
     _value_key_coder = get_key_coder(_type);
 
     // read and parse ordinal index page when exists

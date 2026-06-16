@@ -123,6 +123,42 @@ struct CreateTabletRequestColumnDef {
     TAggregationType::type aggregation_type = TAggregationType::NONE;
 };
 
+// Append a ColumnPB to `schema_pb`. Currently only INT and STRING columns are supported.
+inline ColumnPB* add_column_pb(TabletSchemaPB* schema_pb, int32_t unique_id,
+                               const std::string& name, const std::string& type, bool is_key,
+                               bool nullable) {
+    ColumnPB* column = schema_pb->add_column();
+    column->set_unique_id(unique_id);
+    column->set_name(name);
+    column->set_type(type);
+    column->set_is_key(is_key);
+    column->set_is_nullable(nullable);
+    if (type == "INT") {
+        column->set_length(4);
+        column->set_index_length(4);
+    } else if (type == "STRING") {
+        column->set_length(65535);
+        column->set_index_length(0);
+    } else {
+        DCHECK(false) << "add_column_pb only supports INT/STRING columns for now, got: " << type;
+    }
+    column->set_precision(0);
+    column->set_frac(0);
+    return column;
+}
+
+inline TabletMetaPB create_tablet_meta_pb(int64_t tablet_id, int32_t schema_hash,
+                                          int64_t replica_id, int64_t table_id,
+                                          int64_t partition_id) {
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.set_tablet_id(tablet_id);
+    tablet_meta_pb.set_schema_hash(schema_hash);
+    tablet_meta_pb.set_replica_id(replica_id);
+    tablet_meta_pb.set_table_id(table_id);
+    tablet_meta_pb.set_partition_id(partition_id);
+    return tablet_meta_pb;
+}
+
 inline TColumn create_tablet_column(const CreateTabletRequestColumnDef& column_def) {
     TColumn column;
     column.column_name = column_def.column_name;

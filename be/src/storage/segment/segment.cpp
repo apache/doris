@@ -121,6 +121,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
     TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
     std::shared_ptr<Segment> segment(
             new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
+    segment->_seg_path = path;
     if (st) {
         segment->_fs = fs;
         segment->_file_reader = std::move(file_reader);
@@ -240,12 +241,25 @@ Status Segment::_open(OlapReaderStatistics* stats) {
 }
 
 Status Segment::_open_index_file_reader() {
+    // Derive the index path from `_seg_path`, not `_file_reader->path()`: remote FS normalizes the
+    // latter to an absolute path that won't match the relative keys in PackedFileSystem's index map.
     _index_file_reader = std::make_shared<IndexFileReader>(
-            _fs,
-            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                    _file_reader->path().native())},
+            _fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(_seg_path)},
             _tablet_schema->get_inverted_index_storage_format(), _idx_file_info, _tablet_id);
     return Status::OK();
+}
+
+bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
+                                     const StorageReadOptions& read_options) const {
+    if (read_options.version.first != read_options.version.second) {
+        return false;
+    }
+    if (read_options.io_ctx.reader_type != ReaderType::READER_BINLOG &&
+        read_options.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+        return false;
+    }
+    // tso_col_idx() is -1 for non-binlog schemas, so this returns false there.
+    return cid == schema.tso_col_idx();
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -274,6 +288,28 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         // should be OK
         DCHECK(reader != nullptr);
         if (!reader->has_zone_map()) {
+            continue;
+        }
+        // Placeholder tso column on a single-version binlog segment: its zonemap reflects the
+        // NULL placeholder (replaced with commit_tso at read time), so skip pruning by
+        // zonemap (min == max == commit_tso) and reuse the predicate's own zonemap matching:
+        // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
+        // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
+        // support zonemap return true (conservative: not pruned, row-level eval handles them).
+        if (read_options.col_id_to_predicates.contains(column_id) &&
+            is_tso_placeholder_col(column_id, *schema, read_options)) {
+            const Int64 commit_tso =
+                    read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
+            ZoneMap zone_map;
+            zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
+            zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
+            zone_map.has_not_null = true;
+            if (!entry.second->evaluate_and(zone_map)) {
+                // any condition not satisfied, return.
+                *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                read_options.stats->filtered_segment_number++;
+                return Status::OK();
+            }
             continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
@@ -811,8 +847,53 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
         // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
         const std::string rowset_id =
                 index_meta->index_type() == IndexType::ANN ? _rowset_id.to_string() : "";
-        RETURN_IF_ERROR(reader->new_index_iterator(_index_file_reader, index_meta, rowset_id,
-                                                   _segment_id, _num_rows, iter));
+        const bool need_binding_diagnostic = tablet_column.is_variant_type() ||
+                                             tablet_column.is_extracted_column() ||
+                                             !index_meta->get_index_suffix().empty();
+        bool index_file_exists = false;
+        Status probe_status;
+        if (need_binding_diagnostic) {
+            probe_status = _index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                    &read_options.io_ctx);
+            if (probe_status.ok()) {
+                probe_status = _index_file_reader->index_file_exist(index_meta, &index_file_exists);
+            }
+            const auto diagnostic = fmt::format(
+                    "[VariantSearchBinding] phase=index_file_probe tablet_id={} rowset_id={} "
+                    "segment_id={} column={} logical_path={} index_id={} suffix={} exists={} "
+                    "status={}",
+                    read_options.tablet_id, _rowset_id.to_string(), _segment_id,
+                    tablet_column.name(),
+                    tablet_column.has_path_info() ? tablet_column.path_info_ptr()->get_path()
+                                                  : tablet_column.name(),
+                    index_meta->index_id(), index_meta->get_index_suffix(), index_file_exists,
+                    probe_status.ok() ? "OK" : probe_status.to_string());
+            VLOG_DEBUG << diagnostic;
+            if (read_options.stats != nullptr) {
+                read_options.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+            }
+        }
+        Status iter_status = reader->new_index_iterator(_index_file_reader, index_meta, rowset_id,
+                                                        _segment_id, _num_rows, iter);
+        if (!iter_status.ok()) {
+            if (need_binding_diagnostic) {
+                const auto diagnostic = fmt::format(
+                        "[VariantSearchBinding] phase=index_iterator_create result=reject "
+                        "tablet_id={} rowset_id={} segment_id={} column={} logical_path={} "
+                        "index_id={} suffix={} reason={}",
+                        read_options.tablet_id, _rowset_id.to_string(), _segment_id,
+                        tablet_column.name(),
+                        tablet_column.has_path_info() ? tablet_column.path_info_ptr()->get_path()
+                                                      : tablet_column.name(),
+                        index_meta->index_id(), index_meta->get_index_suffix(),
+                        iter_status.to_string());
+                VLOG_DEBUG << diagnostic;
+                if (read_options.stats != nullptr) {
+                    read_options.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+                }
+            }
+            return iter_status;
+        }
         return Status::OK();
     }
     return Status::OK();

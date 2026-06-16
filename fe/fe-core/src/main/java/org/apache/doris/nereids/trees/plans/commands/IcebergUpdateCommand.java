@@ -114,6 +114,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         }
 
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
 
         // Verify table format version (must be v2+ for update support)
         // org.apache.iceberg.Table icebergTableObj = icebergTable.getIcebergTable();
@@ -305,10 +306,12 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         if (!(table instanceof IcebergExternalTable)) {
             throw new AnalysisException("Table must be IcebergExternalTable in UPDATE command");
         }
+        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
         long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
         ctx.setIcebergRowIdTargetTableId(table.getId());
         try {
-            return buildMergePlan(ctx, logicalQuery, assignments, (IcebergExternalTable) table);
+            return buildMergePlan(ctx, logicalQuery, assignments, icebergTable);
         } finally {
             ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }

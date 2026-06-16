@@ -147,6 +147,23 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
                    : DataDistribution(ExchangeType::NOOP);
 }
 
+bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
+    return exchange_type == ExchangeType::HASH_SHUFFLE ||
+           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+}
+
+bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {
+    if (!_child) {
+        return false;
+    }
+    if (_child->is_serial_operator()) {
+        return true;
+    }
+    const auto child_distribution = _child->required_data_distribution(state);
+    return child_distribution.need_local_exchange() &&
+           !is_hash_shuffle(child_distribution.distribution_type);
+}
+
 const RowDescriptor& OperatorBase::row_desc() const {
     return _child->row_desc();
 }
@@ -341,7 +358,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 input_block.rows(), rows, input_block.dump_structure());
     }
     auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
+        if (is_column_nullable(*to) && !is_column_nullable(*from)) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
@@ -712,13 +729,15 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 }
 
 template <typename LocalStateType>
-Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StreamingOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                          bool* eos) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(state, block, eos));
     return pull(state, block, eos);
 }
 
 template <typename LocalStateType>
-Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                         bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(

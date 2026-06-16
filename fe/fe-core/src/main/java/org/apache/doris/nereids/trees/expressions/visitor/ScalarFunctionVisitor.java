@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayContainsAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCrossProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
@@ -248,6 +249,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -338,6 +340,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Levenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -395,9 +398,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U64V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
@@ -523,7 +528,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StripNullValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
@@ -671,6 +675,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayCount(ArrayCount arrayCount, C context) {
         return visitScalarFunction(arrayCount, context);
+    }
+
+    default R visitArrayCrossProduct(ArrayCrossProduct arrayCrossProduct, C context) {
+        return visitScalarFunction(arrayCrossProduct, context);
     }
 
     default R visitArrayCumSum(ArrayCumSum arrayCumSum, C context) {
@@ -1898,6 +1906,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(locate, context);
     }
 
+    default R visitHammingDistance(HammingDistance hammingDistance, C context) {
+        return visitScalarFunction(hammingDistance, context);
+    }
+
+    default R visitLevenshtein(Levenshtein levenshtein, C context) {
+        return visitScalarFunction(levenshtein, context);
+    }
+
     default R visitLog(Log log, C context) {
         return visitScalarFunction(log, context);
     }
@@ -2002,6 +2018,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(function, context);
     }
 
+    default R visitMurmurHash3128(MurmurHash3128 murmurHash3128, C context) {
+        return visitScalarFunction(murmurHash3128, context);
+    }
+
     default R visitMurmurHash332(MurmurHash332 murmurHash332, C context) {
         return visitScalarFunction(murmurHash332, context);
     }
@@ -2012,6 +2032,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMurmurHash364V2(MurmurHash364V2 murmurHash364V2, C context) {
         return visitScalarFunction(murmurHash364V2, context);
+    }
+
+    default R visitMurmurHash3U128(MurmurHash3U128 murmurHash3U128, C context) {
+        return visitScalarFunction(murmurHash3U128, context);
     }
 
     default R visitMurmurHash3U64V2(MurmurHash3U64V2 murmurHash3U64V2, C context) {
@@ -2860,10 +2884,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCreateNamedStruct(CreateNamedStruct createNamedStruct, C context) {
         return visitScalarFunction(createNamedStruct, context);
-    }
-
-    default R visitStructElement(StructElement structElement, C context) {
-        return visitScalarFunction(structElement, context);
     }
 
     default R visitMultiMatch(MultiMatch multiMatch, C context) {

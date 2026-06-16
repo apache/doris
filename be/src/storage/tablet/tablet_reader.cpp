@@ -37,7 +37,6 @@
 #include "core/arena.h"
 #include "core/block/block.h"
 #include "exec/common/variant_util.h"
-#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
@@ -156,6 +155,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
+    _reader_context.use_insert_order_when_same =
+            read_params.use_insert_order_when_same ||
+            read_params.reader_type == ReaderType::READER_BINLOG ||
+            read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
+    _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
@@ -296,6 +300,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
@@ -348,11 +353,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 scan_key_size, _tablet_schema->num_columns());
     }
 
-    std::vector<uint32_t> columns(scan_key_size);
-    std::iota(columns.begin(), columns.end(), 0);
-
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet_schema->columns(), columns);
-
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
@@ -360,8 +360,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res =
-                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
+        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -378,7 +377,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -450,8 +449,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
               std::inserter(predicates, predicates.begin()));
     // Function filter push down to storage engine
     auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
-        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred.get()) != nullptr ||
-               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred.get()) != nullptr;
+        return dynamic_cast<LikeColumnPredicate*>(_pred.get()) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {

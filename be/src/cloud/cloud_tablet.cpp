@@ -93,6 +93,17 @@ bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_fallback_c
 
 static constexpr int LOAD_INITIATOR_ID = -1;
 
+namespace {
+
+bool is_schema_change_output_rowset(const RowsetSharedPtr& rowset,
+                                    const std::vector<RowsetSharedPtr>& output_rowsets) {
+    return std::ranges::any_of(output_rowsets, [&rowset](const RowsetSharedPtr& output_rowset) {
+        return output_rowset->rowset_id() == rowset->rowset_id();
+    });
+}
+
+} // namespace
+
 bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_size(
         "file_cache_cloud_tablet_submitted_segment_size");
 bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_num(
@@ -277,6 +288,18 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
+        DBUG_EXECUTE_IF("CloudTablet::sync_rowsets.stale_local_max_for_query_version", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            auto stale_version = dp->param<int64_t>("version", -1);
+            if (target_tablet_id == tablet_id() && stale_version >= 0) {
+                std::unique_lock wlock(_meta_lock);
+                LOG(INFO) << "override cloud tablet local max_version for query_version sync"
+                          << ", tablet_id=" << tablet_id() << ", old_max_version=" << _max_version
+                          << ", stale_version=" << stale_version
+                          << ", query_version=" << options.query_version;
+                _max_version = stale_version;
+            }
+        });
         auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
         if (stats) {
@@ -491,7 +514,8 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
-                                                   std::unique_lock<std::shared_mutex>&) {
+                                                   std::unique_lock<std::shared_mutex>&,
+                                                   bool recycle_deleted_rowsets) {
     if (to_delete.empty()) {
         return;
     }
@@ -514,8 +538,35 @@ void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetShare
     // the other hits a DCHECK(false) in delete_expired_stale_rowsets().
     _tablet_meta->modify_rs_metas({}, rs_metas, true);
 
-    // Schedule for direct cache cleanup. MS has already recycled these rowsets.
-    add_unused_rowsets(to_delete);
+    if (recycle_deleted_rowsets) {
+        // Schedule for direct cache cleanup. MS has already recycled these rowsets.
+        add_unused_rowsets(to_delete);
+    }
+}
+
+void CloudTablet::replace_rowsets_with_schema_change_output(
+        const std::vector<RowsetSharedPtr>& output_rowsets, int64_t alter_version,
+        std::unique_lock<std::shared_mutex>& meta_lock, const char* stage,
+        bool recycle_deleted_rowsets) {
+    std::vector<RowsetSharedPtr> to_delete;
+    for (auto& [v, rs] : _rs_version_map) {
+        if (v.first >= 2 && v.second <= alter_version &&
+            !is_schema_change_output_rowset(rs, output_rowsets)) {
+            to_delete.push_back(rs);
+        }
+    }
+    if (!to_delete.empty()) {
+        LOG_INFO(
+                "schema change: delete {} local rowsets in [2, {}] before adding SC output, "
+                "tablet_id={}, stage={}, versions=[{}]",
+                to_delete.size(), alter_version, tablet_id(), stage,
+                fmt::join(to_delete | std::views::transform([](const auto& rs) {
+                              return rs->version().to_string();
+                          }),
+                          ", "));
+        delete_rowsets_for_schema_change(to_delete, meta_lock, recycle_deleted_rowsets);
+    }
+    add_rowsets(output_rowsets, true, meta_lock, false);
 }
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {

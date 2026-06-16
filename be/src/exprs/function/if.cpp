@@ -72,14 +72,13 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column_const<ColumnUInt8>(col.get())) {
+    if (const auto* const_col = check_and_get_column<ColumnConst>(col.get())) {
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }
 
     auto count = col->size();
-    if (col->is_nullable()) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
                 ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
@@ -240,7 +239,7 @@ public:
             return Status::OK();
         }
 
-        const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+        const auto* cond_col = check_and_get_column<ColumnUInt8>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
                 check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 

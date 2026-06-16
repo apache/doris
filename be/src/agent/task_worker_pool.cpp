@@ -1005,18 +1005,6 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->set_binlog_config(new_binlog_config);
             need_to_save = true;
         }
-        if (tablet_meta_info.__isset.enable_single_replica_compaction) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->tablet_meta()->mutable_tablet_schema()->set_enable_single_replica_compaction(
-                    tablet_meta_info.enable_single_replica_compaction);
-            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
-                        tablet_meta_info.enable_single_replica_compaction);
-            }
-            tablet->tablet_schema_unlocked()->set_enable_single_replica_compaction(
-                    tablet_meta_info.enable_single_replica_compaction);
-            need_to_save = true;
-        }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
@@ -1619,6 +1607,8 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
         compaction_type = CompactionType::CUMULATIVE_COMPACTION;
     } else if (compaction_req.type == "full") {
         compaction_type = CompactionType::FULL_COMPACTION;
+    } else if (compaction_req.type == "binlog") {
+        compaction_type = CompactionType::BINLOG_COMPACTION;
     } else {
         LOG(WARNING) << "unknown compaction type: " << compaction_req.type
                      << ", tablet_id=" << compaction_req.tablet_id;
@@ -1641,6 +1631,17 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
                                                       /*trigger_method=*/1);
         if (!status.ok()) {
             LOG(WARNING) << "failed to submit full compaction task. tablet_id="
+                         << tablet_ptr->tablet_id() << ", error=" << status;
+        }
+        return;
+    }
+
+    if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+        Status status = engine.submit_compaction_task(tablet_ptr, CompactionType::BINLOG_COMPACTION,
+                                                      /*force=*/false, /*eager=*/true,
+                                                      /*trigger_method=*/1);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to submit binlog compaction task. tablet_id="
                          << tablet_ptr->tablet_id() << ", error=" << status;
         }
         return;

@@ -50,6 +50,22 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         super(statementContext, fragment, ImmutableList.of(), exchangeToChildJob);
     }
 
+    /**
+     * Compute assigned jobs for a shuffle (data redistribution) fragment.
+     * The instance count is determined by the parallelism of the largest child
+     * fragment. When the expected instance count is lower than the child count
+     * (e.g. due to session variable limits or query cache constraints), workers
+     * are shuffled to spread instances across different backends for load balancing.
+     * When more instances are needed, worker assignment follows the child layout.
+     * <p>
+     * If {@code useSerialSource} is true, multiple local shuffle instances are
+     * created per worker to add intra-machine parallelism without rescanning data.
+     *
+     * @param distributeContext the distribute context for worker selection
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs,
+     *                  used to determine the largest child fragment's instance layout
+     * @return assigned shuffle jobs with workers selected from child fragment layout
+     */
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {

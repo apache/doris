@@ -17,6 +17,7 @@
 
 #include "storage/segment/variant/variant_column_reader.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
@@ -41,6 +43,7 @@
 #include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
 #include "storage/key_coder.h"
+#include "storage/olap_common.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -63,6 +66,14 @@ namespace {
 bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
     return opts != nullptr && (ColumnReader::is_compaction_reader_type(opts->io_ctx.reader_type) ||
                                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
+}
+
+void add_variant_search_binding_diagnostic(OlapReaderStatistics* stats,
+                                           const std::string& diagnostic) {
+    VLOG_DEBUG << diagnostic;
+    if (stats != nullptr) {
+        stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
+    }
 }
 
 // Nested-group whole/root-merge iterators dereference NestedGroupReader state that is owned by
@@ -294,7 +305,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         // only collect subcolumns that belong to this bucket to avoid extra IO.
         if (bucket_index.has_value()) {
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
-            uint32_t N = static_cast<uint32_t>(_binary_column_reader->num_buckets());
+            uint32_t N = _binary_column_reader->num_buckets();
             if (N > 1) {
                 uint32_t b = variant_util::variant_binary_shard_of(
                         StringRef {path.data(), path.size()}, N);
@@ -1416,11 +1427,14 @@ Status VariantColumnReader::load_external_meta_once() {
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
-                                                                 const DataTypePtr& data_type) {
+                                                                 const DataTypePtr& data_type,
+                                                                 OlapReaderStatistics* stats) {
     TabletSchema::SubColumnInfo sub_column_info;
     const auto& parent_index = _tablet_schema->inverted_indexs(column.parent_unique_id());
     auto relative_path = column.path_info_ptr()->copy_pop_front();
     DataTypePtr index_data_type = data_type;
+    const std::string logical_path = column.path_info_ptr()->get_path();
+    const std::string relative_path_str = relative_path.get_path();
 
     if (!relative_path.empty()) {
         auto [found, group_chain, child_path] =
@@ -1441,6 +1455,16 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
     if (variant_util::generate_sub_column_info(*_tablet_schema, column.parent_unique_id(),
                                                relative_path.get_path(), &sub_column_info) &&
         !sub_column_info.indexes.empty()) {
+        for (const auto& index : sub_column_info.indexes) {
+            add_variant_search_binding_diagnostic(
+                    stats,
+                    fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                                "source=direct logical_path={} relative_path={} "
+                                "materialized_column={} index_id={} suffix={} field_pattern={} "
+                                "reason=generated_subcolumn_info",
+                                logical_path, relative_path_str, column.name(), index->index_id(),
+                                index->get_index_suffix(), index->field_pattern()));
+        }
         return sub_column_info.indexes;
     }
 
@@ -1456,6 +1480,31 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
         variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+        for (const auto& index : sub_column_info.indexes) {
+            add_variant_search_binding_diagnostic(
+                    stats,
+                    fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                                "source=parent_inherited logical_path={} relative_path={} "
+                                "materialized_column={} index_id={} suffix={} field_pattern={} "
+                                "reason=no_direct_subcolumn_index",
+                                logical_path, relative_path_str, column.name(), index->index_id(),
+                                index->get_index_suffix(), index->field_pattern()));
+        }
+    } else if (parent_index.empty()) {
+        add_variant_search_binding_diagnostic(
+                stats,
+                fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                            "source=none logical_path={} relative_path={} materialized_column={} "
+                            "reason=parent_index_missing",
+                            logical_path, relative_path_str, column.name()));
+    } else {
+        add_variant_search_binding_diagnostic(
+                stats,
+                fmt::format("[VariantSearchBinding] phase=subcolumn_index_candidates "
+                            "source=none logical_path={} relative_path={} materialized_column={} "
+                            "data_type={} reason=unsupported_inherited_index_type",
+                            logical_path, relative_path_str, column.name(),
+                            index_data_type ? index_data_type->get_name() : "null"));
     }
     // Return shared_ptr directly to maintain object lifetime
     return sub_column_info.indexes;
@@ -1502,12 +1551,13 @@ Status VariantColumnReader::infer_data_type_for_path(DataTypePtr* type, const Ta
 Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
                                                        MutableColumnPtr& root_column,
                                                        const DataTypePtr& most_common_type) {
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
+    auto& obj = is_column_nullable(*dst)
+                        ? assert_cast<ColumnVariant&>(
+                                  assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
 
     // fill nullmap
-    if (root_column->is_nullable() && dst->is_nullable()) {
+    if (is_column_nullable(*root_column) && is_column_nullable(*dst)) {
         ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
         ColumnUInt8& src_null_map =
                 assert_cast<ColumnNullable&>(*root_column).get_null_map_column();
@@ -1537,9 +1587,10 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
 
 Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     // read root column
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
+    auto& obj = is_column_nullable(*dst)
+                        ? assert_cast<ColumnVariant&>(
+                                  assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
 
     auto most_common_type =
             obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
@@ -1552,9 +1603,10 @@ Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, b
 Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                  MutableColumnPtr& dst) {
     // read root column
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
+    auto& obj = is_column_nullable(*dst)
+                        ? assert_cast<ColumnVariant&>(
+                                  assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
 
     auto most_common_type =
             obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)

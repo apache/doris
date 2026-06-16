@@ -154,7 +154,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_partition_exprs.empty()) {
@@ -163,8 +163,9 @@ public:
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(
                                      state);
         }
+        const bool child_breaks_distribution = child_breaks_local_key_distribution(state);
         if (!_needs_finalize && !state->enable_local_exchange_before_agg() &&
-            !(_is_merge && _child && _child->is_serial_operator())) {
+            !child_breaks_distribution) {
             return DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(state);
         }
         return _is_colocate && _require_bucket_distribution

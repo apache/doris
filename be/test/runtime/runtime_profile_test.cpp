@@ -24,12 +24,32 @@
 
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "runtime/runtime_profile_counter_names.h"
 
 using namespace std;
 
 namespace doris {
 
 class RuntimeProfileTest : public testing::Test {};
+
+TEST(RuntimeProfileTest, CpuTimeCounterNamesAreMarked) {
+    RuntimeProfile profile("ProfileWithCpuTime");
+    ADD_TIMER(&profile, profile::TASK_CPU_TIME)->set(int64_t {1000});
+    ADD_TIMER(&profile, profile::SCANNER_CPU_TIME)->set(int64_t {2000});
+
+    EXPECT_NE(profile.get_counter("TaskCpuTime"), nullptr);
+    EXPECT_NE(profile.get_counter("ScannerCpuTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("TaskCpuTime (Cpu Time)"), nullptr);
+    EXPECT_EQ(profile.get_counter("ScannerCpuTime (Cpu Time)"), nullptr);
+
+    std::stringstream ss;
+    profile.pretty_print(&ss);
+    const auto profile_text = ss.str();
+    EXPECT_NE(profile_text.find("- TaskCpuTime:"), std::string::npos);
+    EXPECT_NE(profile_text.find("- ScannerCpuTime:"), std::string::npos);
+    EXPECT_EQ(profile_text.find("- TaskCpuTime (Cpu Time):"), std::string::npos);
+    EXPECT_EQ(profile_text.find("- ScannerCpuTime (Cpu Time):"), std::string::npos);
+}
 
 TEST(RuntimeProfileTest, Basic) {
     RuntimeProfile profile_a("ProfileA");

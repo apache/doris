@@ -25,8 +25,6 @@ DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
 DEFINE_mString(meta_service_endpoint, "");
 DEFINE_mBool(enable_meta_service_endpoint_consistency_check, "true");
-DEFINE_Bool(meta_service_use_load_balancer, "false");
-DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
 DEFINE_mInt64(meta_service_connection_pool_size, "20");
 DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
@@ -107,15 +105,13 @@ DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "true");
 
-DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
-
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "100");
 
 DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "true");
 
 DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
 
@@ -134,7 +130,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
-DEFINE_mBool(enable_packed_file, "false");
+DEFINE_mBool(enable_packed_file, "true");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms

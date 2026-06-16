@@ -16,6 +16,7 @@
 // under the License.
 
 suite("check_rf") {
+    sql "set parallel_pipeline_task_num=2"
     sql """
         drop table if exists t1;
         set disable_join_reorder=true;

@@ -160,6 +160,35 @@ public class ConfigBase {
         }
         replacedByEnv(props);
         setFields(props, isLdapConfig);
+        warnUnknownConfigKeys(confFile, props);
+    }
+
+    // Keys that start with an uppercase letter and consist only of uppercase letters,
+    // digits and underscores (e.g. JAVA_OPTS, LOG_DIR) are exported as environment
+    // variables by bin/start_fe.sh and are not Doris config fields, so they must not
+    // be reported as unknown.
+    private static final Pattern ENV_STYLE_KEY_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]*");
+
+    // Emit a warning for every key present in the config file that does not correspond
+    // to a known config field. Such keys (typos or configs removed in a newer version)
+    // are silently ignored by setFields(), so without this warning operators would have
+    // no feedback that the value is not taking effect. FE startup is not affected.
+    private void warnUnknownConfigKeys(String confFile, Properties props) {
+        Map<String, Field> fieldMap = isLdapConfig ? ldapConfFields : confFields;
+        if (fieldMap == null) {
+            return;
+        }
+        for (String key : props.stringPropertyNames()) {
+            if (ENV_STYLE_KEY_PATTERN.matcher(key).matches()) {
+                continue;
+            }
+            if (fieldMap.containsKey(key)) {
+                continue;
+            }
+            System.err.println(String.format(
+                    "[WARN] Unknown config '%s' in %s is ignored, please check whether it is a typo "
+                            + "or has been removed in this version.", key, confFile));
+        }
     }
 
     public static HashMap<String, String> dump() {

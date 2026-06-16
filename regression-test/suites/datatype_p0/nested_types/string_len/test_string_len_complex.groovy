@@ -29,6 +29,7 @@ suite("test_string_len_complex") {
     create_table_array_one_level()
     sql """
     set enable_insert_strict = false;
+    set enable_strict_cast = false;
     """
     sql """
     insert into test_string_len_array_one_level values (1, ['12345678901', '12345678902', '12345678903x']),
@@ -40,6 +41,7 @@ suite("test_string_len_complex") {
     create_table_array_one_level()
     sql """
     set enable_insert_strict = true;
+    set enable_strict_cast = true;
     """
     test {
         sql """
@@ -64,6 +66,7 @@ suite("test_string_len_complex") {
     create_table_array_two_level()
     sql """
     set enable_insert_strict = false;
+    set enable_strict_cast = false;
     """
     sql """
     insert into test_string_len_array_two_level values (1, [['12345678901', '12345678902'], ['12345678903x']]),
@@ -75,6 +78,7 @@ suite("test_string_len_complex") {
     create_table_array_two_level()
     sql """
     set enable_insert_strict = true;
+    set enable_strict_cast = true;
     """
     test {
         sql """
@@ -99,6 +103,7 @@ suite("test_string_len_complex") {
 
     sql """
     set enable_insert_strict = false;
+    set enable_strict_cast = false;
     """
     create_table_struct_one_level()
     sql """
@@ -108,6 +113,7 @@ suite("test_string_len_complex") {
 
     sql """
     set enable_insert_strict = true;
+    set enable_strict_cast = true;
     """
     create_table_struct_one_level()
     test {
@@ -131,6 +137,7 @@ suite("test_string_len_complex") {
     create_table_struct_two_level()
     sql """
     set enable_insert_strict = false;
+    set enable_strict_cast = false;
     """
     sql """
     insert into test_string_len_struct_two_level values (1, {'12345678901', {'12345678902', '12345678903'}}),
@@ -142,6 +149,7 @@ suite("test_string_len_complex") {
     create_table_struct_two_level()
     sql """
     set enable_insert_strict = true;
+    set enable_strict_cast = true;
     """
     test {
         sql """
@@ -168,6 +176,7 @@ suite("test_string_len_complex") {
     create_table_map_one_level()
     sql """
     set enable_insert_strict = false;
+    set enable_strict_cast = false;
     """
     sql """
     insert into test_string_len_map_one_level values (1, {'01234567891':'12345678901', '01234567892':'12345678902'}), 
@@ -179,6 +188,7 @@ suite("test_string_len_complex") {
     create_table_map_one_level()
     sql """
     set enable_insert_strict = true;
+    set enable_strict_cast = true;
     """
     test {
         sql """
@@ -204,6 +214,7 @@ suite("test_string_len_complex") {
     create_table_map_two_level()
     sql """
     set enable_insert_strict = false;
+    set enable_strict_cast = false;
     """
     sql """
     insert into test_string_len_map_two_level values (1, { {'01234567891':'12345678901'}:{'11234567891':'12345678901'}, {'01234567892':'12345678902'}:{'11234567892':'12345678902'} } ), 
@@ -215,6 +226,7 @@ suite("test_string_len_complex") {
     create_table_map_two_level()
     sql """
     set enable_insert_strict = true;
+    set enable_strict_cast = true;
     """
     test {
         sql """

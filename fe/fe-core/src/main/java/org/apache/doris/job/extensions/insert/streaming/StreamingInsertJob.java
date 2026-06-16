@@ -276,6 +276,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (!sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
             sourceProperties.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_LATEST);
         }
+        // from-to is at-least-once; default-skip in-snapshot backfill.
+        sourceProperties.putIfAbsent(DataSourceConfigKeys.SKIP_SNAPSHOT_BACKFILL, "true");
     }
 
     private List<String> createTableIfNotExists() throws Exception {

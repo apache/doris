@@ -50,7 +50,7 @@ public:
     ~MinMaxNumFunc() override = default;
 
     void insert_fixed_len(const ColumnPtr& column, size_t start) override {
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column_ptr();
             const auto& nullmap = nullable->get_null_map_data();

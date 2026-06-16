@@ -32,6 +32,9 @@ namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 class ObjectPool;
+namespace iceberg {
+class Schema;
+}
 
 namespace io {
 class FileSystem;
@@ -103,6 +106,7 @@ private:
     RuntimeState* _state = nullptr;
     std::shared_ptr<io::FileSystem> _fs;
     io::FileWriterPtr _file_writer;
+    std::unique_ptr<iceberg::Schema> _position_delete_schema;
     std::unique_ptr<VFileFormatTransformer> _file_format_transformer;
 
     int32_t _partition_spec_id = 0;
