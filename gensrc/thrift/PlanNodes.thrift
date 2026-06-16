@@ -80,6 +80,14 @@ struct TKeyRange {
 // - T<subclass>: all other operational parameters that are the same across
 //   all plan fragments
 
+enum TBinlogScanType {
+  NONE = 0,
+  APPEND_ONLY = 1,
+  MIN_DELTA = 2,
+  DETAIL = 3,
+  UNKNOWN = 4
+}
+
 struct TPaloScanRange {
   1: required list<Types.TNetworkAddress> hosts
   2: required string schema_hash
@@ -90,6 +98,9 @@ struct TPaloScanRange {
   7: optional list<TKeyRange> partition_column_ranges
   8: optional string index_name
   9: optional string table_name
+  10: optional i64 start_tso
+  11: optional i64 end_tso
+  12: optional TBinlogScanType binlog_scan_type
 }
 
 enum TFileFormatType {
@@ -1086,7 +1097,8 @@ struct TNestedLoopJoinNode {
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  // for bitmap filer, don't need to join, but output left child tuple
+  // Deprecated: bitmap runtime filter planning no longer uses this field; for bitmap filer,
+  // don't need to join, but output left child tuple
   5: optional bool is_output_left_side_only
 
   6: optional Exprs.TExpr vjoin_conjunct
@@ -1468,6 +1480,7 @@ enum TRuntimeFilterType {
   BLOOM = 2,
   MIN_MAX = 4,
   IN_OR_BLOOM = 8,
+  // Deprecated: bitmap runtime filters are no longer planned.
   BITMAP = 16
 }
 
@@ -1541,10 +1554,10 @@ struct TRuntimeFilterDesc {
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
 
-  // for bitmap filter target expr
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter target expr
   10: optional Exprs.TExpr bitmap_target_expr
 
-  // for bitmap filter
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf; // Deprecated

@@ -417,8 +417,6 @@ public:
 
         _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), profile::SPILL_WRITE_FILE_CURRENT_BYTES, TUnit::BYTES, 1);
-        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
-                Base::custom_profile(), profile::SPILL_WRITE_FILE_CURRENT_COUNT, TUnit::UNIT, 1);
     }
 
     // Total time of spill, including spill task scheduling time,
@@ -441,9 +439,6 @@ public:
     // Total bytes of spill data written to disk file(after serialized)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     RuntimeProfile::Counter* _spill_file_total_count = nullptr;
-    RuntimeProfile::Counter* _spill_file_current_count = nullptr;
-    // Spilled file total size
-    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Current spilled file size
     RuntimeProfile::Counter* _spill_file_current_size = nullptr;
 
@@ -806,8 +801,6 @@ public:
     RuntimeProfile::Counter*& _spill_write_rows_count = _write_counters.spill_write_rows_count;
 
     // Sink-only counters
-    // Spilled file total size
-    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
     // Total bytes written to spill files (required by SpillFileWriter)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     // Total number of spill files created (required by SpillFileWriter)

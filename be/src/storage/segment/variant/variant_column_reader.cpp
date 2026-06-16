@@ -305,7 +305,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         // only collect subcolumns that belong to this bucket to avoid extra IO.
         if (bucket_index.has_value()) {
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
-            uint32_t N = static_cast<uint32_t>(_binary_column_reader->num_buckets());
+            uint32_t N = _binary_column_reader->num_buckets();
             if (N > 1) {
                 uint32_t b = variant_util::variant_binary_shard_of(
                         StringRef {path.data(), path.size()}, N);
@@ -1551,12 +1551,13 @@ Status VariantColumnReader::infer_data_type_for_path(DataTypePtr* type, const Ta
 Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
                                                        MutableColumnPtr& root_column,
                                                        const DataTypePtr& most_common_type) {
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
+    auto& obj = is_column_nullable(*dst)
+                        ? assert_cast<ColumnVariant&>(
+                                  assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
 
     // fill nullmap
-    if (root_column->is_nullable() && dst->is_nullable()) {
+    if (is_column_nullable(*root_column) && is_column_nullable(*dst)) {
         ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
         ColumnUInt8& src_null_map =
                 assert_cast<ColumnNullable&>(*root_column).get_null_map_column();
@@ -1586,9 +1587,10 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
 
 Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     // read root column
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
+    auto& obj = is_column_nullable(*dst)
+                        ? assert_cast<ColumnVariant&>(
+                                  assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
 
     auto most_common_type =
             obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
@@ -1601,9 +1603,10 @@ Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, b
 Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                  MutableColumnPtr& dst) {
     // read root column
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
+    auto& obj = is_column_nullable(*dst)
+                        ? assert_cast<ColumnVariant&>(
+                                  assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                        : assert_cast<ColumnVariant&>(*dst);
 
     auto most_common_type =
             obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)

@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.local;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -27,7 +28,7 @@ import java.util.Map;
  * SPI provider for the local filesystem (file:// and local:// URIs).
  * For unit-testing only — not intended for production use.
  */
-public class LocalFileSystemProvider implements FileSystemProvider {
+public class LocalFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
     @Override
     public boolean supports(Map<String, String> properties) {

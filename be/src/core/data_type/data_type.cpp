@@ -34,6 +34,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 class BufferWritable;
@@ -44,6 +45,10 @@ namespace doris {
 IDataType::IDataType() = default;
 
 IDataType::~IDataType() = default;
+
+doris::FieldType IDataType::get_storage_field_type() const {
+    return TabletColumn::get_field_type_by_type(get_primitive_type());
+}
 
 String IDataType::get_name() const {
     return do_get_name();

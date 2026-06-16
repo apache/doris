@@ -54,6 +54,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -326,6 +327,16 @@ public class MaxComputeExternalTable extends ExternalTable {
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getOdpsTable())
                 .orElse(null);
+    }
+
+    public boolean isUnsupportedOdpsTable() {
+        Table odpsTable = getOdpsTable();
+        return isUnsupportedOdpsTable(odpsTable);
+    }
+
+    public static boolean isUnsupportedOdpsTable(Table odpsTable) {
+        Objects.requireNonNull(odpsTable, "MaxCompute table metadata is not initialized");
+        return odpsTable.isExternalTable() || odpsTable.isVirtualView();
     }
 
     @Override

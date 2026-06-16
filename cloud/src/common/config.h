@@ -207,7 +207,7 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
-CONF_mBool(enable_ms_rate_limit, "true");
+CONF_mBool(enable_ms_rate_limit, "false");
 // Fault injection: randomly return meta service rate limit error for testing.
 // ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_ms_rate_limit_injection, "false");
@@ -332,6 +332,8 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
+// Whether to retry on S3 SlowDown (429/503) errors
+CONF_Bool(s3_client_retry_slow_down, "false");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
@@ -359,6 +361,7 @@ CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
 // This reduces contention during transaction commit by extending delete bitmap locks.
 CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

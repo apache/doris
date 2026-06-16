@@ -48,6 +48,13 @@ suite("test_struct_functions") {
     qt_select_element_at_3 "SELECT element_at(k4,1),element_at(k4,2),element_at(k4,3),element_at(k4,4) FROM ${tableName} ORDER BY k1"
     qt_select_element_at_4 "SELECT element_at(k5,1),element_at(k5,2),element_at(k5,3) FROM ${tableName} ORDER BY k1"
 
+    // #64027: struct_element was merged into element_at. It is kept as an alias of element_at so old
+    // SQL/views still work after upgrade; these must return exactly the same as the element_at cases.
+    qt_select_struct_element_alias_1 "SELECT struct_element(k2,'f1'),struct_element(k2,'f2'),struct_element(k2,'f3'),struct_element(k2,'f4'),struct_element(k2,'f5') FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_alias_2 "SELECT struct_element(k3,'f1'),struct_element(k3,'f2'),struct_element(k3,'f3') FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_alias_3 "SELECT struct_element(k4,1),struct_element(k4,2),struct_element(k4,3),struct_element(k4,4) FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_alias_4 "SELECT struct_element(k5,1),struct_element(k5,2),struct_element(k5,3) FROM ${tableName} ORDER BY k1"
+
     // DORIS-26105: subscript syntax `s['field']` / `s[index]` on STRUCT should work the same as
     // element_at and must not crash the BE (especially for NULL struct rows).
     qt_select_struct_subscript_1 "SELECT k2['f1'],k2['f2'],k2['f3'],k2['f4'],k2['f5'] FROM ${tableName} ORDER BY k1"

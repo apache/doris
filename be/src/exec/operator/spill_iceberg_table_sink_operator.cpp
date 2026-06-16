@@ -19,7 +19,6 @@
 
 #include "common/status.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
-#include "exec/operator/spill_utils.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
@@ -96,7 +95,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
         return status;
     };
 
-    return run_spill_task(state, exception_catch_func);
+    return exception_catch_func();
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
@@ -170,7 +169,6 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileCount", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
-    ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
 }
 
 } // namespace doris

@@ -405,7 +405,7 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         if (slot_primitive == TYPE_INT) {
             return paimon::Literal(static_cast<int32_t>(value));
         }
-        return paimon::Literal(static_cast<int64_t>(value));
+        return paimon::Literal(value);
     }
     case TYPE_DOUBLE: {
         if (literal_primitive != TYPE_DOUBLE && literal_primitive != TYPE_FLOAT) {
