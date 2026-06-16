@@ -280,7 +280,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 if (ignoreMetaPath) {
                     continue;
                 }
-                stripCoveredMetaSuffixPaths(slot, allAccessPaths, allAccessPaths);
+                stripCoveredMetaPaths(slot, allAccessPaths, allAccessPaths);
                 List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
                 result.put(slot.getExprId().asInt(),
                         new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
@@ -292,7 +292,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 continue;
             }
 
-            stripCoveredMetaSuffixPaths(slot, allAccessPaths, allAccessPaths);
+            stripCoveredMetaPaths(slot, allAccessPaths, allAccessPaths);
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             if (shouldSkipAccessInfo(slot, prunedDataType, allPaths, predicateAccessPaths)) {
                 continue;
@@ -312,7 +312,7 @@ public class NestedColumnPruning implements CustomRewriter {
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             normalizeMapValueMetaOnlyAccessPaths(slot, kv.getValue(), predicateAccessPaths);
-            stripCoveredMetaSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
+            stripCoveredMetaPaths(slot, predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
@@ -412,51 +412,108 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Strip redundant metadata-only NULL/OFFSET paths while keeping enough real paths for BE readers.
+     * Strip redundant metadata-only NULL/OFFSET paths, keeping enough real paths for BE
+     * readers to avoid OFFSET_ONLY / NULL_MAP_ONLY modes that skip required child data.
      *
-     * <p>The strip cases are:
+     * <p>Stripping is organised in two levels:
+     *
+     * <p><b>Level 1 — Same-depth priority:</b> when two paths share the same prefix and
+     * differ only in the final meta suffix, the higher-priority one eliminates the lower.
+     * <pre>{@code
+     *   Data  >  OFFSET  >  NULL
+     * }</pre>
      * <ul>
-     *   <li>Map element lookup with value meta-only (OFFSET or NULL) access is normalized first,
-     *       e.g. {@code [m, *, OFFSET]} becomes {@code [m, KEYS]} plus
-     *       {@code [m, VALUES, OFFSET]}, and {@code [m, *, NULL]} becomes
-     *       {@code [m, KEYS]} plus {@code [m, VALUES, NULL]}. This is handled by
-     *       {@link #normalizeMapValueMetaOnlyAccessPaths}.</li>
-     *   <li>Full/data access covers metadata access, e.g. {@code [a]} removes
-     *       {@code [a, NULL]} and {@code [a, OFFSET]}. This is handled by
-     *       {@link #stripExactCoveredDataSkippingSuffixPaths}.</li>
-     *   <li>A deeper data access covers an upper metadata path, e.g. {@code [a, b, c]}
-     *       removes {@code [a, b, NULL]}, and {@code [a, *, field]} removes
-     *       {@code [a, OFFSET]}. Exact NULL/data coverage is handled by
-     *       {@link #stripNullSuffixPaths}; OFFSET/container coverage is handled by
-     *       {@link #stripCoveredOffsetByDataPaths}.</li>
-     *   <li>A deeper OFFSET access covers an upper OFFSET path, e.g.
-     *       {@code [a, *, OFFSET]} removes {@code [a, OFFSET]}. This is handled by
-     *       {@link #stripCoveredOffsetByDeeperOffsetPaths}.</li>
-     *   <li>OFFSET access covers NULL access with the same prefix, e.g.
-     *       {@code [a, OFFSET]} removes {@code [a, NULL]}. This is handled by
-     *       {@link #stripNullSuffixPaths}.</li>
-     *   <li>A deeper NULL access covers an upper NULL path, e.g.
-     *       {@code [a, *, NULL]} removes {@code [a, NULL]}. This is handled by
-     *       {@link #stripNullSuffixPaths}.</li>
-     *   <li>Map value-side coverage may need a supplemental key path, e.g.
-     *       {@code [m, *, OFFSET]} plus {@code [m, VALUES]} becomes
-     *       {@code [m, KEYS]} plus {@code [m, VALUES]}. This is handled by
-     *       {@link #stripCoveredOffsetByDataPaths} via {@link #compareOffsetPrefixCoverage}
-     *       and {@link #buildMapKeysOnlyPath}.</li>
-     *   <li>Array NULL-only paths covered by value/data access may also need supplemental
-     *       map keys, e.g. {@code [m, *, NULL]} plus {@code [m, VALUES, *, field]}
-     *       becomes {@code [m, KEYS]} plus {@code [m, VALUES, *, field]}. This is
-     *       handled by {@link #stripCoveredArrayNullSuffixPaths}.</li>
+     *   <li>{@code Data} strips {@code OFFSET}: {@code [a]} strips {@code [a, OFFSET]}.</li>
+     *   <li>{@code Data} strips {@code NULL}:  {@code [a]} strips {@code [a, NULL]}.</li>
+     *   <li>{@code OFFSET} strips {@code NULL}: {@code [a, OFFSET]} strips
+     *       {@code [a, NULL]}.</li>
      * </ul>
+     *
+     * <p><b>Level 2 — Deeper path covers shallower meta:</b> when a covering path goes
+     * deeper into the type tree, its data reader already materialises the container,
+     * making a shallower meta-only path redundant.
+     * <ul>
+     *   <li>Target suffix {@code OFFSET}, covered by deeper:
+     *     <ul>
+     *       <li>{@code Data}:   {@code [a, *, field]}  strips {@code [a, OFFSET]}.</li>
+     *       <li>{@code OFFSET}: {@code [a, *, OFFSET]} strips {@code [a, OFFSET]}.</li>
+     *       <li>{@code NULL}:   {@code [a, *, NULL]}   strips {@code [a, OFFSET]}.</li>
+     *     </ul>
+     *   </li>
+     *   <li>Target suffix {@code NULL}, covered by deeper:
+     *     <ul>
+     *       <li>{@code Data}:   {@code [a, b, c]}      strips {@code [a, b, NULL]}.</li>
+     *       <li>{@code OFFSET}: {@code [a, *, OFFSET]} strips {@code [a, NULL]}.</li>
+     *       <li>{@code NULL}:   {@code [a, *, NULL]}   strips {@code [a, NULL]}.</li>
+     *     </ul>
+     *   </li>
+     * </ul>
+     *
+     * <p>Pre-condition: caller must invoke {@link #normalizeMapValueMetaOnlyAccessPaths}
+     * first to normalize map element-at meta-only access paths (e.g. {@code [m, *, OFFSET]}
+     * becomes {@code [m, KEYS]} + {@code [m, VALUES, OFFSET]}).
+     *
+     * <p>Map OFFSET stripping may need supplemental key paths (e.g.
+     * {@code [m, *, OFFSET]} + {@code [m, VALUES]} becomes {@code [m, KEYS]} +
+     * {@code [m, VALUES]}), handled via {@link #compareOffsetPrefixCoverage} and
+     * {@link #buildMapKeysOnlyPath}. Array NULL has a similar case in
+     * {@link #stripCoveredArrayNullMetaPaths}.
      */
-    private static void stripCoveredMetaSuffixPaths(
+    private static void stripCoveredMetaPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
-        stripExactCoveredDataSkippingSuffixPaths(slot, targetAccessPaths, coveringAccessPaths);
-        stripCoveredOffsetByDataPaths(slot, targetAccessPaths, coveringAccessPaths);
-        stripCoveredOffsetByDeeperOffsetPaths(slot, targetAccessPaths, coveringAccessPaths);
-        stripCoveredArrayNullSuffixPaths(slot, targetAccessPaths, coveringAccessPaths);
-        stripNullSuffixPaths(slot, targetAccessPaths);
+        // Level 1: same-depth priority — Data > OFFSET > NULL.
+        stripExactPrefixCoveredMetaPaths(slot, targetAccessPaths, coveringAccessPaths);
+        stripNullBySameDepthOffset(slot, targetAccessPaths);
+
+        // Level 2: deeper path covers shallower meta path.
+        stripShallowerOffsetPaths(slot, targetAccessPaths, coveringAccessPaths);
+        stripShallowerNullPaths(slot, targetAccessPaths);
+
+        // Special: array NULL + map key supplementation.
+        stripCoveredArrayNullMetaPaths(slot, targetAccessPaths, coveringAccessPaths);
+    }
+
+    /**
+     * Level 1 — same-depth OFFSET strips NULL: {@code [a, OFFSET]} strips
+     * {@code [a, NULL]}.
+     *
+     * <p>When a NULL and an OFFSET path share the same prefix the OFFSET path is kept
+     * because reading the offset structure already provides null information for
+     * variable-length columns.
+     */
+    private static void stripNullBySameDepthOffset(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = allAccessPaths.get(slotId);
+        if (slotPaths.isEmpty()) {
+            return;
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                continue;
+            }
+            List<String> prefix = path.subList(0, path.size() - 1);
+            for (Pair<ColumnAccessPathType, List<String>> q : slotPaths) {
+                List<String> other = q.second;
+                if (other == path || other.isEmpty()) {
+                    continue;
+                }
+                // Same depth: [a, OFFSET] strips [a, NULL].
+                if (other.size() == path.size()
+                        && AccessPathInfo.ACCESS_OFFSET.equals(other.get(other.size() - 1))
+                        && other.subList(0, prefix.size()).equals(prefix)) {
+                    toRemove.add(p);
+                    break;
+                }
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
+            allAccessPaths.remove(slotId, r);
+        }
     }
 
     /**
@@ -507,19 +564,15 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Remove OFFSET-only paths from {@code targetAccessPaths} when non-meta data paths in
-     * {@code coveringAccessPaths} already read the same array/map/string container or a child
-     * under it.
-     *
-     * <p>Examples:
+     * Level 2 — deeper paths cover shallower OFFSET paths:
      * <ul>
-     *   <li>{@code [arr.OFFSET, arr.*.field]} becomes {@code [arr.*.field]} because the array
-     *       child read must keep BE on the normal data iterator path.</li>
-     *   <li>{@code [map.*.OFFSET, map.VALUES]} becomes {@code [map.KEYS, map.VALUES]} because
-     *       {@code map['k']} still needs full keys for lookup, while values cover the offset.</li>
+     *   <li>Deeper {@code Data}:   delegates to {@link #stripCoveredOffsetByPaths}
+     *       for map key supplementation.</li>
+     *   <li>Deeper {@code OFFSET} / {@code NULL}: delegates to
+     *       {@link #stripCoveredMetaByPrefix}.</li>
      * </ul>
      */
-    private static void stripCoveredOffsetByDataPaths(
+    private static void stripShallowerOffsetPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
         int slotId = slot.getExprId().asInt();
@@ -528,6 +581,7 @@ public class NestedColumnPruning implements CustomRewriter {
             return;
         }
 
+        // Row 1: deeper data paths cover OFFSET (with map key supplementation).
         List<List<String>> dataPaths = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
             List<String> path = p.second;
@@ -541,44 +595,119 @@ public class NestedColumnPruning implements CustomRewriter {
                 dataPaths.add(path);
             }
         }
-
         stripCoveredOffsetByPaths(slot, targetAccessPaths, dataPaths);
-    }
 
-    /**
-     * Remove upper OFFSET-only paths when a deeper OFFSET path traverses the same container.
-     *
-     * <p>Example: {@code [a, *, OFFSET]} removes {@code [a, OFFSET]} because reading the inner
-     * array offset requires traversing the outer array structure.
-     */
-    private static void stripCoveredOffsetByDeeperOffsetPaths(
-            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
-            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
-        int slotId = slot.getExprId().asInt();
-        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
-        if (targetPaths.isEmpty()) {
-            return;
-        }
-
-        List<List<String>> deeperOffsetPaths = new ArrayList<>();
+        // Rows 2+3: deeper OFFSET/NULL paths cover shallower OFFSET.
+        // Merge meta paths from covering + target so both inbound and intra-target
+        // coverage are checked.
+        List<List<String>> deeperMetaPaths = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            List<String> path = p.second;
-            if (isDeeperOffsetPath(path)) {
-                deeperOffsetPaths.add(path);
+            if (!p.second.isEmpty() && isMetaPath(p.second)) {
+                deeperMetaPaths.add(p.second);
             }
         }
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            List<String> path = p.second;
-            if (isDeeperOffsetPath(path)) {
-                deeperOffsetPaths.add(path);
+            if (!p.second.isEmpty() && isMetaPath(p.second)) {
+                deeperMetaPaths.add(p.second);
             }
         }
-
-        stripCoveredOffsetByPaths(slot, targetAccessPaths, deeperOffsetPaths);
+        stripCoveredMetaByPrefix(slotId, AccessPathInfo.ACCESS_OFFSET,
+                deeperMetaPaths, targetAccessPaths);
     }
 
-    private static boolean isDeeperOffsetPath(List<String> path) {
-        return path.size() > 2 && AccessPathInfo.ACCESS_OFFSET.equals(path.get(path.size() - 1));
+    /**
+     * Level 2 — deeper paths cover shallower NULL paths:
+     * <ul>
+     *   <li>Deeper {@code Data}: any deeper non-meta path whose prefix strictly
+     *       contains the NULL path's prefix strips it.</li>
+     *   <li>Deeper {@code OFFSET} / {@code NULL}: delegates to
+     *       {@link #stripCoveredMetaByPrefix}.</li>
+     * </ul>
+     */
+    private static void stripShallowerNullPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = allAccessPaths.get(slotId);
+        if (slotPaths.isEmpty()) {
+            return;
+        }
+
+        // Row 1: deeper data paths cover shallower NULL paths.
+        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                continue;
+            }
+            List<String> prefix = path.subList(0, path.size() - 1);
+            for (Pair<ColumnAccessPathType, List<String>> q : slotPaths) {
+                List<String> other = q.second;
+                if (other == path || other.isEmpty() || isMetaPath(other)) {
+                    continue;
+                }
+                // [a] strips [a, NULL]; [a, b, c] strips [a, b, NULL].
+                if (other.equals(prefix) || hasStrictPrefix(other, prefix)) {
+                    toRemove.add(p);
+                    break;
+                }
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
+            allAccessPaths.remove(slotId, r);
+        }
+
+        // Rows 2+3: deeper OFFSET/NULL paths cover shallower NULL paths.
+        List<List<String>> metaPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
+            if (!p.second.isEmpty() && isMetaPath(p.second)) {
+                metaPaths.add(p.second);
+            }
+        }
+        stripCoveredMetaByPrefix(slotId, AccessPathInfo.ACCESS_NULL,
+                metaPaths, allAccessPaths);
+    }
+
+    /**
+     * Level 2 — for each target path ending with {@code targetSuffix}, remove it
+     * when a strictly deeper meta path (ending with OFFSET or NULL) has the target
+     * prefix as a strict prefix.
+     *
+     * <p>Both target and covering paths have their meta suffix stripped before
+     * comparison, so only genuinely deeper paths match. Same-depth cross-type
+     * (e.g. {@code [a, OFFSET]} vs {@code [a, NULL]}) is handled by
+     * {@link #stripNullBySameDepthOffset} instead.
+     */
+    private static void stripCoveredMetaByPrefix(
+            int slotId, String targetSuffix,
+            List<List<String>> coveringMetaPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths) {
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths =
+                targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty() || coveringMetaPaths.isEmpty()) {
+            return;
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !targetSuffix.equals(path.get(path.size() - 1))) {
+                continue;
+            }
+            List<String> targetPrefix = path.subList(0, path.size() - 1);
+            for (List<String> other : coveringMetaPaths) {
+                if (other == path || other.isEmpty()) {
+                    continue;
+                }
+                List<String> otherPrefix = other.subList(0, other.size() - 1);
+                if (hasStrictPrefix(otherPrefix, targetPrefix)) {
+                    toRemove.add(p);
+                    break;
+                }
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
+            targetAccessPaths.remove(slotId, r);
+        }
     }
 
     private static void stripCoveredOffsetByPaths(
@@ -620,7 +749,7 @@ public class NestedColumnPruning implements CustomRewriter {
      *       {@code [map.KEYS, map.VALUES.*.field]} so map lookup keys are still available.</li>
      * </ul>
      */
-    private static void stripCoveredArrayNullSuffixPaths(
+    private static void stripCoveredArrayNullMetaPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
         int slotId = slot.getExprId().asInt();
@@ -680,7 +809,7 @@ public class NestedColumnPruning implements CustomRewriter {
      *   <li>{@code [map.*, map.*.OFFSET]} becomes {@code [map.*]}.</li>
      * </ul>
      */
-    private static void stripExactCoveredDataSkippingSuffixPaths(
+    private static void stripExactPrefixCoveredMetaPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
         int slotId = slot.getExprId().asInt();
@@ -858,91 +987,6 @@ public class NestedColumnPruning implements CustomRewriter {
 
         private List<List<String>> getSupplementalPaths() {
             return supplementalPaths;
-        }
-    }
-
-    /**
-     * Strip NULL-suffix paths that are redundant because a non-NULL path reads child
-     * data below the same prefix or reads an OFFSET path over the same prefix.
-     *
-     * <p>Examples:
-     * <ul>
-     *   <li>{@code [struct_col.NULL, struct_col.city]} becomes {@code [struct_col.city]}.</li>
-     *   <li>{@code [str_col.NULL, str_col.OFFSET]} becomes {@code [str_col.OFFSET]} because
-     *       the offset read can provide nullness for variable-length columns.</li>
-     * </ul>
-     *
-     * <p>A parent NULL path must also be removed when any child path is required under the
-     * same prefix, e.g. [struct_col, NULL] with [struct_col, city]. This looks like the
-     * parent null map may still be useful for predicates, but it cannot be kept in
-     * allAccessPaths with the current BE iterator contract: Struct/Array/Map iterators
-     * treat a leading NULL sub-path as NULL_MAP_ONLY and skip all children. If FE kept
-     * [struct_col.NULL, struct_col.city] in allAccessPaths, BE would read only the
-     * struct null map and default-fill city instead of routing the city child iterator.
-     * When the NULL path is removed from allAccessPaths, it must also be removed from
-     * predicateAccessPaths so the BE can rely on predicate paths being a subset of all
-     * paths. The normal nullable container read materializes the parent null map
-     * together with required children.
-     */
-    private static void stripNullSuffixPaths(
-            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
-        int slotId = slot.getExprId().asInt();
-        Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = allAccessPaths.get(slotId);
-
-        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
-            List<String> path = p.second;
-            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
-                continue;
-            }
-            // Prefix is the column/subcolumn path without the trailing NULL suffix.
-            // A non-NULL path that equals this prefix means the same column/subcolumn
-            // is read in full, making the NULL-only path redundant.
-            // An OFFSET-suffix path over the same prefix is also enough for the BE to
-            // derive null-ness for variable-length columns, so [col.NULL] is redundant
-            // when [col.OFFSET] already exists.
-            List<String> prefix = path.subList(0, path.size() - 1);
-            boolean covered = false;
-            for (Pair<ColumnAccessPathType, List<String>> q : slotPaths) {
-                List<String> other = q.second;
-                if (other.isEmpty()) {
-                    continue;
-                }
-                if (other == path) {
-                    continue;
-                }
-                if (AccessPathInfo.ACCESS_NULL.equals(other.get(other.size() - 1))) {
-                    // A deeper NULL path (e.g. [a, *, NULL]) covers a shallower one
-                    // (e.g. [a, NULL]) because reading the deeper path requires
-                    // traversing the container, which materializes the container's
-                    // null information.
-                    if (hasStrictPrefix(other, prefix)) {
-                        covered = true;
-                        break;
-                    }
-                    continue;
-                }
-                if (other.equals(prefix)) {
-                    covered = true;
-                    break;
-                }
-                if (hasStrictPrefix(other, prefix)) {
-                    covered = true;
-                    break;
-                }
-                if (other.size() == prefix.size() + 1
-                        && AccessPathInfo.ACCESS_OFFSET.equals(other.get(other.size() - 1))
-                        && other.subList(0, prefix.size()).equals(prefix)) {
-                    covered = true;
-                    break;
-                }
-            }
-            if (covered) {
-                toRemove.add(p);
-            }
-        }
-        for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
-            allAccessPaths.remove(slotId, r);
         }
     }
 
