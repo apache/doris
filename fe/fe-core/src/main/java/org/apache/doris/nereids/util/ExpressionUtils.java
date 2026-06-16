@@ -1136,6 +1136,20 @@ public class ExpressionUtils {
     }
 
     /**
+     * Strip only casts that preserve distinctness of the child expression.
+     */
+    public static Expression getExpressionCoveredBySafetyCast(Expression expression) {
+        while (expression instanceof Cast) {
+            if (((Cast) expression).child().getDataType().isInjectiveCastTo(expression.getDataType())) {
+                expression = ((Cast) expression).child();
+            } else {
+                break;
+            }
+        }
+        return expression;
+    }
+
+    /**
      * the expressions can be used as runtime filter targets
      */
     public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
