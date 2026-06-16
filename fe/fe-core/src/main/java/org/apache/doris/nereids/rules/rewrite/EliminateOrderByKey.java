@@ -31,6 +31,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -94,6 +97,18 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             // based elimination below).
             Set<Expression> partitionKeyConstants = ImmutableSet.copyOf(windowExpression.getPartitionKeys());
             List<OrderKey> retainExpression = eliminate(dataTrait, orderKeys, partitionKeyConstants);
+            // After CheckAndStandardizeWindowFunctionAndFrame every window has a frame, and a frame requires
+            // a non-empty ORDER BY (WindowFunctionChecker.checkWindowFrameBeforeFunc); a ROWS frame also
+            // depends on the physical row sequence that ORDER BY defines. So pruning all order keys away
+            // would leave a framed window without an ORDER BY. Ranking functions (row_number/rank/dense_rank)
+            // ignore the frame, so emptying their order keys is safe and is exactly what lets partition topn
+            // drop the redundant partition key. Frame type cannot tell us this: row_number()/ntile() are
+            // standardized to a default ROWS frame even without a user-written one. For any non-ranking
+            // window function keep one (redundant) order key.
+            if (!orderKeys.isEmpty() && retainExpression.isEmpty()
+                    && !isRankingFunction(windowExpression.getFunction())) {
+                retainExpression = ImmutableList.of(orderKeys.get(0));
+            }
             if (retainExpression.size() == orderKeys.size()) {
                 newNamedExpressions.add(expr);
                 continue;
@@ -107,6 +122,10 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             newNamedExpressions.add(alias.withChildren(ImmutableList.of(newWindowExpression)));
         }
         return changed ? window.withExpressionsAndChild(newNamedExpressions, window.child()) : window;
+    }
+
+    private static boolean isRankingFunction(Expression function) {
+        return function instanceof RowNumber || function instanceof Rank || function instanceof DenseRank;
     }
 
     private static Plan eliminateSort(LogicalSort<Plan> sort) {
