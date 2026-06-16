@@ -191,7 +191,9 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
 
         def tablets = sql_return_maparray """ show tablets from ${testTable}; """
         logger.info("tablets: " + tablets)
-        assertEquals(1, tablets.size())
+        // BUCKETS 1 => exactly one tablet; the cluster may create multiple replicas,
+        // so show tablets returns one row per replica. Assert by distinct tablet id.
+        assertEquals(1, tablets.collect { it.TabletId }.unique().size())
         def tablet = tablets[0]
 
         // 1. write some data
@@ -278,7 +280,9 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
 
         tablets = sql_return_maparray """ show tablets from ${testTable}; """
         logger.info("tablets: " + tablets)
-        assertEquals(1, tablets.size())
+        // BUCKETS 1 => exactly one tablet; the cluster may create multiple replicas,
+        // so show tablets returns one row per replica. Assert by distinct tablet id.
+        assertEquals(1, tablets.collect { it.TabletId }.unique().size())
         tablet = tablets[0]
 
         // 1. write some data
