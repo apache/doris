@@ -626,14 +626,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // registered for the same slot — NestedColumnPruning then incorrectly prunes
         // the complex column to null-only / offset-only instead of reading full data.
         //
+        // Detect usage by scanning the lambda body for ArrayItemSlots matching the
+        // argument name, which is more reliable than getInputSlots() that deliberately
+        // excludes ArrayItemSlot and may falsely match outer slots.
+        //
         // Must use a fresh context: when the body DOES reference some variables
         // (e.g. (x,y) -> x > 0), visitArrayItemSlot mutates context.accessPathBuilder
         // in-place (addPrefix without cleanup). A fresh context isolates the fallback
         // path for unreferenced variables from pollution by referenced ones.
         for (Expression argument : arguments) {
             if (argument instanceof ArrayItemReference) {
-                Expression boundArray = argument.child(0);
-                if (!arguments.get(0).getInputSlots().containsAll(boundArray.getInputSlots())) {
+                String argName = ((ArrayItemReference) argument).getName();
+                boolean isReferenced = arguments.get(0)
+                        .<ArrayItemSlot>collect(e -> e instanceof ArrayItemSlot)
+                        .stream()
+                        .anyMatch(slot -> slot.getName().equals(argName));
+                if (!isReferenced) {
+                    Expression boundArray = argument.child(0);
                     CollectorContext fullAccessCtx = new CollectorContext(
                             context.statementContext, context.bottomFilter);
                     fullAccessCtx.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
