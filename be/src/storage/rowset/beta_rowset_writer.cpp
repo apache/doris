@@ -439,6 +439,12 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                     }
                 }
 
+                DBUG_EXECUTE_IF(
+                        "BetaRowsetWriter.generate_delete_bitmap.sleep_before_load_segments", {
+                            auto sleep_ms = dp->param<int64_t>("sleep_ms", 30000);
+                            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                        });
+
                 OlapStopWatch watch;
                 // Step 2: Build tmp rowset (needs file_writer to be closed)
                 RowsetSharedPtr rowset_ptr;
@@ -1277,6 +1283,13 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
 
 Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     RETURN_IF_ERROR(BaseBetaRowsetWriter::add_segment(segment_id, segstat));
+    DBUG_EXECUTE_IF("BetaRowsetWriter.add_segment.sleep_before_segcompaction", {
+        auto target_segment_id = dp->param<int64_t>("segment_id", -1);
+        if (target_segment_id < 0 || segment_id == target_segment_id) {
+            auto sleep_ms = dp->param<int64_t>("sleep_ms", 200);
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+        }
+    });
     return _segcompaction_if_necessary();
 }
 
