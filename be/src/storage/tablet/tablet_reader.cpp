@@ -449,8 +449,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
               std::inserter(predicates, predicates.begin()));
     // Function filter push down to storage engine
     auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
-        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred.get()) != nullptr ||
-               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred.get()) != nullptr;
+        return dynamic_cast<LikeColumnPredicate*>(_pred.get()) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {
