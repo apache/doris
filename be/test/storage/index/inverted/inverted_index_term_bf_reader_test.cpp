@@ -492,34 +492,21 @@ TEST_F(InvertedIndexTermBfReaderTest, BfObservabilityCountersReflectPath) {
     EXPECT_EQ(present.inverted_index_term_bf_skipped_lookups, 0);
     EXPECT_EQ(present.inverted_index_term_bf_fallthrough, 1);
 
-    // (a) Property gate: an index WITHOUT token_bloom_filter=true is skipped before the fast path
-    // even runs -- no index open, no fileExists("tbf"), so EVERY BF counter stays 0. Without the
-    // gate, flipping the global config on would tax every fulltext index with an extra open.
-    std::map<std::string, std::string> no_bf = {
-            {"parser", "english"}, {"lower_case", "true"}, {"support_phrase", "true"}};
-    TabletIndex idx_nobf;
-    std::string prefix_nobf;
-    build_index("tbf_rs_obs_nobf", 1, no_bf, values, &idx_nobf, &prefix_nobf);
+    // (a) Config gate: with BE config OFF the fast path is skipped before it runs -- no index
+    // open, no fileExists("tbf"), so EVERY BF counter stays 0. The per-index property is no
+    // longer consulted, so the gate behavior depends solely on the BE config; this case proves
+    // the OFF state still produces no IO/observability cost.
+    config::enable_inverted_index_term_bf = false;
     {
-        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix_nobf,
-                                                        InvertedIndexStorageFormatPB::V2);
-        ASSERT_TRUE(reader->init().ok());
-        auto ft_reader = FullTextIndexReader::create_shared(&idx_nobf, reader);
-        io::IOContext io_ctx;
-        OlapReaderStatistics nobf;
-        RuntimeState runtime_state;
-        auto context = make_context(&io_ctx, &nobf, &runtime_state);
-        auto bitmap = std::make_shared<roaring::Roaring>();
-        Field qp = Field::create_field<TYPE_STRING>("zzabsentthree");
-        ASSERT_TRUE(
-                ft_reader->query(context, "1", qp, InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
-                        .ok());
-        EXPECT_EQ(nobf.inverted_index_term_bf_probe, 0);
-        EXPECT_EQ(nobf.inverted_index_term_bf_skipped_lookups, 0);
-        EXPECT_EQ(nobf.inverted_index_term_bf_unavailable, 0);
-        EXPECT_EQ(nobf.inverted_index_term_bf_cache_miss, 0);
-        EXPECT_EQ(nobf.inverted_index_term_bf_load_count, 0);
+        OlapReaderStatistics off;
+        auto bitmap = run("zzabsentthree", InvertedIndexQueryType::MATCH_ANY_QUERY, &off);
+        EXPECT_EQ(off.inverted_index_term_bf_probe, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_skipped_lookups, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_unavailable, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_cache_miss, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_load_count, 0);
     }
+    config::enable_inverted_index_term_bf = true;
 
     // (b) Unavailable: an index WITH token_bloom_filter=true passes the gate, but a read whose
     // analyzer signature differs from the build (A3, lower_case flipped) rejects the loaded BF as
@@ -692,23 +679,26 @@ TEST_F(InvertedIndexTermBfReaderTest, StaleAnalyzerCachedBfRevalidatedOnHit) {
     EXPECT_TRUE(*baseline == *with_bf) << "fall-back result must match the normal query";
 }
 
-// Negative caching: an index whose property passes the gate (token_bloom_filter=true) but whose
-// segment carries no usable "tbf" (e.g. compacted by an older BE, or a build failure) must cache
-// that negative result -- the first query loads-and-fails, and a second query hits the negative
-// marker instead of re-opening the index. Built WITHOUT a tbf on disk, then read with a
-// property=true meta so the gate is passed but the structural load returns nothing.
+// Negative caching: an index whose segment carries no usable "tbf" (e.g. built with the BE config
+// off, then config flipped on at read time, or a build failure) must cache that negative result
+// -- the first query loads-and-fails, and a second query hits the negative marker instead of
+// re-opening the index. Built WITHOUT a tbf on disk (config off at build time), then read with
+// config on so the gate is passed but the structural load returns nothing.
 TEST_F(InvertedIndexTermBfReaderTest, NegativeCacheSkipsRepeatOpenWhenNoTbf) {
     std::vector<Slice> values = {Slice("apple banana"), Slice("cherry date"),
                                  Slice("apple cherry")};
-    // No token_bloom_filter -> the writer emits no "tbf" sub-file.
-    std::map<std::string, std::string> no_bf_props = {
+    // Build with the BE config off so the writer emits no "tbf" sub-file. Property is irrelevant
+    // for the writer gate now -- only the config decides.
+    config::enable_inverted_index_term_bf = false;
+    std::map<std::string, std::string> props = {
             {"parser", "english"}, {"lower_case", "true"}, {"support_phrase", "true"}};
     TabletIndex build_meta;
     std::string prefix;
-    build_index("tbf_rs_neg", 0, no_bf_props, values, &build_meta, &prefix);
+    build_index("tbf_rs_neg", 0, props, values, &build_meta, &prefix);
 
-    // Reader meta WITH token_bloom_filter=true: the property gate passes even though the disk
-    // segment has no tbf.
+    // Read with BE config on: the (sole) gate now passes even though the disk segment has no tbf.
+    config::enable_inverted_index_term_bf = true;
+
     auto read_pb = std::make_unique<TabletIndexPB>();
     read_pb->set_index_type(IndexType::INVERTED);
     read_pb->set_index_id(1);
@@ -718,11 +708,8 @@ TEST_F(InvertedIndexTermBfReaderTest, NegativeCacheSkipsRepeatOpenWhenNoTbf) {
     (*read_pb->mutable_properties())["parser"] = "english";
     (*read_pb->mutable_properties())["lower_case"] = "true";
     (*read_pb->mutable_properties())["support_phrase"] = "true";
-    (*read_pb->mutable_properties())["token_bloom_filter"] = "true";
     TabletIndex read_meta;
     read_meta.init_from_pb(*read_pb.get());
-
-    config::enable_inverted_index_term_bf = true;
 
     auto run = [&](const std::string& term, OlapReaderStatistics* stats) {
         auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
@@ -755,6 +742,119 @@ TEST_F(InvertedIndexTermBfReaderTest, NegativeCacheSkipsRepeatOpenWhenNoTbf) {
     EXPECT_EQ(second.inverted_index_term_bf_unavailable, 1);
     EXPECT_EQ(second.inverted_index_term_bf_load_count, 0);
     EXPECT_EQ(second.inverted_index_term_bf_probe, 0);
+}
+
+// BE-config-priority gate: with the config ON, a fulltext index that does NOT carry the
+// `token_bloom_filter` property must STILL get a "tbf" sub-file from the writer and the reader
+// fast path must engage normally. The legacy property-as-gate behavior is intentionally removed:
+// the BE config alone decides, so cluster operators can roll out the feature without touching
+// every index definition.
+TEST_F(InvertedIndexTermBfReaderTest, BeConfigGateAlonePropertyAbsentStillBuildsAndReadsBf) {
+    std::vector<Slice> values = {Slice("apple banana"), Slice("cherry date"),
+                                 Slice("apple cherry")};
+    // No `token_bloom_filter` property -- with the new gating the writer must still emit the
+    // "tbf" because the BE config is on at build time.
+    config::enable_inverted_index_term_bf = true;
+    std::map<std::string, std::string> props_no_tbf = {
+            {"parser", "english"}, {"lower_case", "true"}, {"support_phrase", "true"}};
+    TabletIndex idx_meta;
+    std::string prefix;
+    build_index("tbf_rs_cfg_only", 0, props_no_tbf, values, &idx_meta, &prefix);
+
+    auto run = [&](const std::string& term, OlapReaderStatistics* stats) {
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+        auto ft_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+        io::IOContext io_ctx;
+        RuntimeState runtime_state;
+        auto context = make_context(&io_ctx, stats, &runtime_state);
+        auto bitmap = std::make_shared<roaring::Roaring>();
+        Field qp = Field::create_field<TYPE_STRING>(term);
+        EXPECT_TRUE(
+                ft_reader->query(context, "1", qp, InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
+                        .ok());
+    };
+
+    // Absent token: load the just-written tbf once, prove absent, skip the searcher entirely.
+    OlapReaderStatistics absent;
+    run("zzconfigonlyabsent", &absent);
+    EXPECT_EQ(absent.inverted_index_term_bf_probe, 1);
+    EXPECT_EQ(absent.inverted_index_term_bf_skipped_lookups, 1);
+    EXPECT_EQ(absent.inverted_index_term_bf_unavailable, 0)
+            << "writer must emit tbf when config is on, even with property absent";
+    EXPECT_EQ(absent.inverted_index_term_bf_cache_miss, 1);
+    EXPECT_EQ(absent.inverted_index_term_bf_load_count, 1);
+    EXPECT_GT(absent.inverted_index_term_bf_load_bytes, 0);
+
+    // Present token: tbf says MAYBE -> fall through to normal lookup, no skip.
+    OlapReaderStatistics present;
+    run("apple", &present);
+    EXPECT_EQ(present.inverted_index_term_bf_probe, 1);
+    EXPECT_EQ(present.inverted_index_term_bf_fallthrough, 1);
+    EXPECT_EQ(present.inverted_index_term_bf_skipped_lookups, 0);
+}
+
+// Flip side of the gate: with the BE config OFF the property alone is no longer enough to engage
+// the writer or the reader. The property is now inert; we keep the constants for FE-side
+// validation/persistence backward compatibility but neither path consults them.
+TEST_F(InvertedIndexTermBfReaderTest, BeConfigOffMakesPropertyInert) {
+    std::vector<Slice> values = {Slice("apple banana"), Slice("cherry date"),
+                                 Slice("apple cherry")};
+    // Build with config OFF and `token_bloom_filter=true` -- the writer must NOT emit a tbf.
+    config::enable_inverted_index_term_bf = false;
+    std::map<std::string, std::string> props_with_tbf = {{"parser", "english"},
+                                                         {"lower_case", "true"},
+                                                         {"support_phrase", "true"},
+                                                         {"token_bloom_filter", "true"}};
+    TabletIndex idx_meta;
+    std::string prefix;
+    build_index("tbf_rs_cfg_off_prop_on", 0, props_with_tbf, values, &idx_meta, &prefix);
+
+    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                    InvertedIndexStorageFormatPB::V2);
+    ASSERT_TRUE(reader->init().ok());
+    auto ft_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+
+    // Reading with config OFF: the gate refuses the fast path before any IO -- all counters 0
+    // even though the property is set to true. The property is inert; only the config matters.
+    {
+        io::IOContext io_ctx;
+        OlapReaderStatistics off;
+        RuntimeState runtime_state;
+        auto context = make_context(&io_ctx, &off, &runtime_state);
+        auto bitmap = std::make_shared<roaring::Roaring>();
+        Field qp = Field::create_field<TYPE_STRING>("zzpropinertabsent");
+        ASSERT_TRUE(
+                ft_reader->query(context, "1", qp, InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
+                        .ok());
+        EXPECT_EQ(off.inverted_index_term_bf_probe, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_skipped_lookups, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_unavailable, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_cache_miss, 0);
+        EXPECT_EQ(off.inverted_index_term_bf_load_count, 0);
+    }
+
+    // Flipping the config ON and re-reading the SAME on-disk segment exposes that no tbf was
+    // emitted at build time (the property was inert there too): the load returns nothing and the
+    // negative-cache "unavailable" path kicks in. This proves the writer gate really is the BE
+    // config, not the property.
+    config::enable_inverted_index_term_bf = true;
+    {
+        io::IOContext io_ctx;
+        OlapReaderStatistics on;
+        RuntimeState runtime_state;
+        auto context = make_context(&io_ctx, &on, &runtime_state);
+        auto bitmap = std::make_shared<roaring::Roaring>();
+        Field qp = Field::create_field<TYPE_STRING>("zzpropinertabsent2");
+        ASSERT_TRUE(
+                ft_reader->query(context, "1", qp, InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
+                        .ok());
+        EXPECT_EQ(on.inverted_index_term_bf_unavailable, 1)
+                << "writer with config off must not have emitted tbf, even with property=true";
+        EXPECT_EQ(on.inverted_index_term_bf_load_count, 0);
+        EXPECT_EQ(on.inverted_index_term_bf_probe, 0);
+    }
 }
 
 } // namespace doris::segment_v2

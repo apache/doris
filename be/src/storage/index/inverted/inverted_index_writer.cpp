@@ -47,10 +47,14 @@ InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::stri
     _should_analyzer =
             inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
     // token-exists Bloom Filter is only meaningful for analyzed (fulltext) indexes; the
-    // keyword/exact path is intentionally left out (see A4 read-side guard).
-    _enable_term_bf =
-            _should_analyzer && get_parser_token_bf_from_properties(_index_meta->properties()) ==
-                                        INVERTED_INDEX_PARSER_TOKEN_BF_YES;
+    // keyword/exact path is intentionally left out (see A4 read-side guard). The single gate is
+    // the BE config (`enable_inverted_index_term_bf`), so any fulltext index in a cluster with the
+    // config on emits the "tbf" sub-file by default -- the per-index `token_bloom_filter` property
+    // is no longer consulted here. The mBool config is snapshotted at writer-construction time so
+    // every column writer in the same segment-write batch agrees on the gate (a runtime flip
+    // between this point and `finish()` cannot leave a half-written segment with some columns'
+    // BFs missing).
+    _enable_term_bf = _should_analyzer && config::enable_inverted_index_term_bf;
     _value_key_coder = get_key_coder(field_type);
     _field_name = StringUtil::string_to_wstring(field_name);
 }

@@ -472,14 +472,13 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         // their "term" is a pattern, not a token). On a proven-absent result the bitmap is empty
         // and we return immediately; otherwise we fall through to the normal lookup.
         //
-        // Gate on the index property too (the same condition the writer used to emit the "tbf"
-        // sub-file): without this, flipping the global config on would make every fulltext index
-        // -- including ones that never built a tbf -- pay an extra open + fileExists("tbf") per
-        // eligible query, even when the searcher cache would have hit. The property lives in
-        // _index_meta (already in memory), so this gate costs nothing.
+        // The single gate is the BE config (`enable_inverted_index_term_bf`) -- the per-index
+        // `token_bloom_filter` property is no longer consulted (any fulltext index in a cluster
+        // with the config on is eligible). The per-segment open + fileExists("tbf") cost for
+        // indexes that never built a tbf is bounded by the negative-cache entry inserted on the
+        // first miss: every subsequent eligible query for that (segment, index) hits the
+        // searcher-cache without IO and returns "unavailable" without re-paying load.
         if (config::enable_inverted_index_term_bf &&
-            get_parser_token_bf_from_properties(_index_meta.properties()) ==
-                    INVERTED_INDEX_PARSER_TOKEN_BF_YES &&
             query_type != InvertedIndexQueryType::MATCH_REGEXP_QUERY &&
             query_type != InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
             bool absent = false;
