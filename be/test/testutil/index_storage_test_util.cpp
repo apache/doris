@@ -132,6 +132,7 @@ void init_variant_column(ColumnPB* column_pb, const VariantColumnSpec& spec) {
     column_pb->set_type("VARIANT");
     column_pb->set_is_key(false);
     column_pb->set_is_nullable(spec.nullable);
+    column_pb->set_is_bf_column(spec.is_bf_column);
     column_pb->set_variant_max_subcolumns_count(spec.max_subcolumns_count);
     column_pb->set_variant_max_sparse_column_statistics_size(
             spec.max_sparse_column_statistics_size);
@@ -165,6 +166,9 @@ TabletColumn make_predefined_path_template(const std::string&, const VariantPath
     column_pb.set_type(TabletColumn::get_string_by_field_type(path_spec.type));
     column_pb.set_is_key(false);
     column_pb.set_is_nullable(path_spec.nullable);
+    if (path_spec.type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+        column_pb.set_frac(0);
+    }
     column_pb.set_pattern_type(path_spec.pattern_type);
     if (path_spec.type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         auto* child_pb = column_pb.add_children_columns();
@@ -823,6 +827,9 @@ TabletSchemaPB build_tablet_schema_pb(const IndexTabletOptions& options) {
     schema_pb.set_num_rows_per_row_block(1024);
     schema_pb.set_compress_kind(COMPRESS_NONE);
     schema_pb.set_inverted_index_storage_format(options.index_storage_format);
+    if (options.storage_page_size > 0) {
+        schema_pb.set_storage_page_size(options.storage_page_size);
+    }
 
     int32_t max_unique_id = 0;
     if (options.include_key_column) {
@@ -1299,6 +1306,7 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
         column_spec.unique_id = column.unique_id();
         column_spec.name = column.name();
         column_spec.nullable = column.is_nullable();
+        column_spec.is_bf_column = column.is_bf_column();
         column_spec.max_subcolumns_count = column.variant_max_subcolumns_count();
         column_spec.max_sparse_column_statistics_size =
                 column.variant_max_sparse_column_statistics_size();

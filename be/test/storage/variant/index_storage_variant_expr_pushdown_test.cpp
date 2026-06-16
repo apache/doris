@@ -584,4 +584,48 @@ TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsAllHitKeepsProbeStatsAt
                              1);
 }
 
+// Mixed scalar/nested/unsupported JSON shapes keep semantic array_contains results while recording
+// a precise index probe state.
+TEST_F(IndexStorageVariantExprPushdownTest,
+       ArrayContainsMixedNestedAndUnsupportedInputsRecordProbeState) {
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_array_contains_mixed_nested_unsupported_probe")
+                    .tablet_id(110043)
+                    .variant_column(array_text_variant_column())
+                    .inverted_index(IndexSpec::field_pattern_index(kArrayPatternIndexId,
+                                                                   "idx_v_inventors", kVariantUid,
+                                                                   std::string(kArrayPath)))
+                    .rowset(0,
+                            IndexDataSourceSpec::inline_variant(
+                                    {R"({"inventors":["w", 1, true]})",
+                                     R"({"inventors":[["w"], "x"]})",
+                                     R"({"inventors":[{"name":"w"}, "y"]})", R"({"inventors":"w"})",
+                                     R"({"inventors":{"name":"w"}})", R"({"inventors":["z"]})"},
+                                    0))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.inventors");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+
+    auto read =
+            read_rowsets(readable_rowsets.value(),
+                         make_array_contains_read_options(*tablet_schema(), path_column_id, "w"));
+    ASSERT_TRUE(read.has_value()) << read.error();
+    EXPECT_EQ(read->rows_read, 1);
+    expect_index_probe(read.value(), IndexProbeExpectation {
+                                             .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                             .state = IndexProbeState::APPLIED,
+                                             .reason = IndexFallbackReason::NONE,
+                                             .column_uid = kVariantUid,
+                                             .variant_path = std::string(kArrayPath),
+                                             .index_id = kArrayPatternIndexId,
+                                             .counts_toward_filter_stats = true,
+                                     });
+}
+
 } // namespace doris::index_storage_test

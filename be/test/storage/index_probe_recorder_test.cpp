@@ -174,5 +174,141 @@ TEST(IndexProbeRecorderTest, RecordsNullBitmapAndDuplicateReadProbes) {
                                                  0);
 }
 
+TEST(IndexProbeRecorderTest, FallbackReasonMapsStorageStatus) {
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>("missing"), true),
+              IndexFallbackReason::MISSING_INDEX);
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("bypass"), true),
+              IndexFallbackReason::BYPASS);
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>("no terms"), true),
+              IndexFallbackReason::NO_TERMS);
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>("no terms"), false),
+              IndexFallbackReason::NOT_SUPPORTED);
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>("corrupted"), true),
+              IndexFallbackReason::CORRUPTED);
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>("skipped"), true),
+              IndexFallbackReason::EVALUATE_SKIPPED);
+    EXPECT_EQ(IndexProbeRecorder::fallback_reason(
+                      Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>("unsupported"), true),
+              IndexFallbackReason::NOT_SUPPORTED);
+}
+
+TEST(IndexProbeRecorderTest, RecordsFallbackProbeReasonWithoutFilterStats) {
+    index_storage_test::IndexTabletOptions options;
+    options.text_columns = {index_storage_test::TextColumnSpec {.unique_id = 2, .name = "title"}};
+    auto tablet_schema = index_storage_test::build_tablet_schema(options);
+
+    OlapReaderStatistics stats;
+    stats.collect_index_probe_events = true;
+
+    auto query_context = std::make_shared<IndexQueryContext>();
+    query_context->index_read_probes = {
+            IndexReadProbe {.column_id = 1, .index_id = 1001, .is_null_bitmap = false},
+            IndexReadProbe {.column_id = 1, .index_id = 2002, .is_null_bitmap = true},
+    };
+
+    const IndexProbeRecorder recorder(&stats, tablet_schema.get(), 9);
+    ASSERT_TRUE(recorder.record_probes_since(query_context, 0, IndexProbeSource::COLUMN_PREDICATE,
+                                             IndexProbeState::FALLBACK, IndexFallbackReason::BYPASS,
+                                             12, 5));
+
+    ASSERT_EQ(stats.index_probe_events.size(), 2);
+    for (const auto& event : stats.index_probe_events) {
+        EXPECT_EQ(event.column_uid, 2);
+        EXPECT_EQ(event.segment_id, 9);
+        EXPECT_EQ(event.source, IndexProbeSource::COLUMN_PREDICATE);
+        EXPECT_EQ(event.state, IndexProbeState::FALLBACK);
+        EXPECT_EQ(event.reason, IndexFallbackReason::BYPASS);
+        EXPECT_FALSE(event.counts_toward_filter_stats);
+        EXPECT_EQ(event.input_rows, 12);
+        EXPECT_EQ(event.output_rows, 5);
+        EXPECT_EQ(event.filtered_rows, 0);
+    }
+    EXPECT_EQ(stats.index_probe_events[0].index_id, 1001);
+    EXPECT_EQ(stats.index_probe_events[1].index_id, 2002);
+
+    index_storage_test::IndexReadResult result;
+    result.stats = stats;
+    index_storage_test::expect_index_probe_count(
+            result,
+            index_storage_test::IndexProbeExpectation {
+                    .source = IndexProbeSource::COLUMN_PREDICATE,
+                    .state = IndexProbeState::FALLBACK,
+                    .reason = IndexFallbackReason::BYPASS,
+                    .column_uid = 2,
+                    .index_id = 1001,
+                    .segment_id = 9,
+                    .counts_toward_filter_stats = false,
+                    .input_rows = 12,
+                    .output_rows = 5,
+                    .filtered_rows = 0,
+            },
+            1);
+}
+
+TEST(IndexProbeRecorderTest, RecordsSearchFunctionAndQueryDisabledEvents) {
+    index_storage_test::IndexTabletOptions options;
+    options.text_columns = {index_storage_test::TextColumnSpec {.unique_id = 2, .name = "title"}};
+    auto tablet_schema = index_storage_test::build_tablet_schema(options);
+
+    OlapReaderStatistics stats;
+    stats.collect_index_probe_events = true;
+
+    const IndexProbeRecorder recorder(&stats, tablet_schema.get(), 11);
+    recorder.record(1, IndexProbeSource::SEARCH_FUNCTION, IndexProbeState::APPLIED,
+                    IndexFallbackReason::NONE, 20, 8, 3003);
+    recorder.record(1, IndexProbeSource::SEARCH_FUNCTION, IndexProbeState::NOT_ATTEMPTED,
+                    IndexFallbackReason::QUERY_DISABLED, 20, 20, 3003);
+
+    ASSERT_EQ(stats.index_probe_events.size(), 2);
+    EXPECT_EQ(stats.index_probe_events[0].source, IndexProbeSource::SEARCH_FUNCTION);
+    EXPECT_EQ(stats.index_probe_events[0].state, IndexProbeState::APPLIED);
+    EXPECT_EQ(stats.index_probe_events[0].reason, IndexFallbackReason::NONE);
+    EXPECT_TRUE(stats.index_probe_events[0].counts_toward_filter_stats);
+    EXPECT_EQ(stats.index_probe_events[0].filtered_rows, 12);
+
+    EXPECT_EQ(stats.index_probe_events[1].source, IndexProbeSource::SEARCH_FUNCTION);
+    EXPECT_EQ(stats.index_probe_events[1].state, IndexProbeState::NOT_ATTEMPTED);
+    EXPECT_EQ(stats.index_probe_events[1].reason, IndexFallbackReason::QUERY_DISABLED);
+    EXPECT_FALSE(stats.index_probe_events[1].counts_toward_filter_stats);
+    EXPECT_EQ(stats.index_probe_events[1].filtered_rows, 0);
+
+    index_storage_test::IndexReadResult result;
+    result.stats = stats;
+    index_storage_test::expect_index_probe_count(
+            result,
+            index_storage_test::IndexProbeExpectation {
+                    .source = IndexProbeSource::SEARCH_FUNCTION,
+                    .state = IndexProbeState::APPLIED,
+                    .reason = IndexFallbackReason::NONE,
+                    .column_uid = 2,
+                    .index_id = 3003,
+                    .segment_id = 11,
+                    .counts_toward_filter_stats = true,
+                    .input_rows = 20,
+                    .output_rows = 8,
+                    .filtered_rows = 12,
+            },
+            1);
+    index_storage_test::expect_index_probe_count(
+            result,
+            index_storage_test::IndexProbeExpectation {
+                    .source = IndexProbeSource::SEARCH_FUNCTION,
+                    .state = IndexProbeState::NOT_ATTEMPTED,
+                    .reason = IndexFallbackReason::QUERY_DISABLED,
+                    .column_uid = 2,
+                    .index_id = 3003,
+                    .segment_id = 11,
+                    .counts_toward_filter_stats = false,
+                    .filtered_rows = 0,
+            },
+            1);
+}
+
 } // namespace
 } // namespace doris::segment_v2

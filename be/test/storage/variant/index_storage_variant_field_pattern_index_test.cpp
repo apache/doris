@@ -20,8 +20,12 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/value/vdatetime_value.h"
 #include "storage/predicate/predicate_creator.h"
 #include "testutil/index_storage_test_util.h"
 
@@ -34,6 +38,8 @@ constexpr int64_t kStringPatternIndexId = 210202;
 constexpr int64_t kBigIntPatternIndexId = 210203;
 constexpr int64_t kDoublePatternIndexId = 210204;
 constexpr int64_t kBoolPatternIndexId = 210205;
+constexpr int64_t kDatePatternIndexId = 210206;
+constexpr int64_t kDateTimePatternIndexId = 210207;
 constexpr std::string_view kIntPath = "int_1";
 
 std::shared_ptr<ColumnPredicate> typed_equals(int32_t column_id, std::string column_name,
@@ -104,6 +110,53 @@ VariantColumnSpec multi_typed_pattern_variant_column() {
                              .array_item_nullable = true},
     };
     return variant;
+}
+
+VariantColumnSpec date_time_pattern_variant_column() {
+    VariantColumnSpec variant;
+    variant.unique_id = kVariantUid;
+    variant.name = "v";
+    variant.max_subcolumns_count = 4;
+    variant.predefined_paths = {
+            VariantPathSpec {.path = "date_*",
+                             .type = FieldType::OLAP_FIELD_TYPE_DATEV2,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME_GLOB,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+            VariantPathSpec {.path = "datetime_*",
+                             .type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME_GLOB,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+    };
+    return variant;
+}
+
+Field date_v2_field(int64_t yyyymmdd) {
+    DateV2Value<DateV2ValueType> value;
+    value.from_date_int64(yyyymmdd);
+    return Field::create_field<TYPE_DATEV2>(value);
+}
+
+Field datetime_v2_field(int64_t yyyymmddhhmmss) {
+    DateV2Value<DateTimeV2ValueType> value;
+    value.from_date_int64(yyyymmddhhmmss);
+    return Field::create_field<TYPE_DATETIMEV2>(value);
+}
+
+std::vector<std::string> split_int_variant_rows(size_t low_rows, int32_t low_value,
+                                                size_t high_rows, int32_t high_value) {
+    std::vector<std::string> rows;
+    rows.reserve(low_rows + high_rows);
+    for (size_t i = 0; i < low_rows; ++i) {
+        rows.push_back(R"({"int_1": )" + std::to_string(low_value) + "}");
+    }
+    for (size_t i = 0; i < high_rows; ++i) {
+        rows.push_back(R"({"int_1": )" + std::to_string(high_value) + "}");
+    }
+    return rows;
 }
 
 void expect_int_index_probe_count(const IndexReadResult& result, int64_t expected_count) {
@@ -295,6 +348,74 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
                     Field::create_field<TYPE_BOOLEAN>(UInt8(1)), kBoolPatternIndexId, 2, 1);
 }
 
+// Expected-red: DATEV2/DATETIMEV2 Variant field-pattern indexes should behave like the typed INT
+// matrix once typed path index probing is generalized beyond the currently green type.
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DISABLED_DateAndDateTimeFieldPatternIndexesUseExpectedPathAndIndexIds) {
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_date_time_field_pattern_index_matrix")
+                    .tablet_id(110044)
+                    .variant_column(date_time_pattern_variant_column())
+                    .inverted_index(IndexSpec::field_pattern_index(
+                            kDatePatternIndexId, "idx_v_date_glob", kVariantUid, "date_*"))
+                    .inverted_index(IndexSpec::field_pattern_index(kDateTimePatternIndexId,
+                                                                   "idx_v_datetime_glob",
+                                                                   kVariantUid, "datetime_*"))
+                    .rowset(0,
+                            IndexDataSourceSpec::inline_variant(
+                                    {R"({"date_1": "2024-01-02", "datetime_1": "2024-01-02 03:04:05"})",
+                                     R"({"date_1": "2024-01-03", "datetime_1": "2024-01-03 03:04:05"})",
+                                     R"({"date_1": "2024-01-02", "datetime_1": "2024-01-02 03:04:05"})"},
+                                    0))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+
+    auto read_and_verify = [&](std::string_view path, DataTypePtr data_type, Field value,
+                               int64_t index_id, int64_t expected_rows,
+                               int64_t expected_filtered_rows) {
+        const int32_t path_column_id = column_id_by_path("v." + std::string(path));
+        ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+        const auto& path_column = tablet_schema()->column(path_column_id);
+
+        IndexReadOptions read_options;
+        read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+        read_options.target_cast_type_for_variants[path_column.name()] = data_type;
+        read_options.predicates.push_back(
+                typed_equals(path_column_id, path_column.name(), data_type, value));
+
+        auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+        ASSERT_TRUE(read_result.has_value()) << read_result.error();
+        EXPECT_EQ(read_result->rows_read, expected_rows);
+        expect_applied_variant_path_index(read_result.value(), path, index_id,
+                                          expected_filtered_rows);
+        expect_index_probe_count(read_result.value(),
+                                 IndexProbeExpectation {
+                                         .source = IndexProbeSource::COLUMN_PREDICATE,
+                                         .state = IndexProbeState::APPLIED,
+                                         .reason = IndexFallbackReason::NONE,
+                                         .column_uid = kVariantUid,
+                                         .variant_path = std::string(path),
+                                         .index_id = index_id,
+                                         .segment_id = 0,
+                                         .counts_toward_filter_stats = true,
+                                         .input_rows = 3,
+                                         .output_rows = expected_rows,
+                                         .filtered_rows = expected_filtered_rows,
+                                 },
+                                 1);
+    };
+
+    read_and_verify("date_1", std::make_shared<DataTypeDateV2>(), date_v2_field(20240102),
+                    kDatePatternIndexId, 2, 1);
+    read_and_verify("datetime_1", std::make_shared<DataTypeDateTimeV2>(),
+                    datetime_v2_field(20240102030405), kDateTimePatternIndexId, 2, 1);
+}
+
 TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapPrunesWholeSegment) {
     const auto index_case = IndexStorageCaseBuilder("variant_typed_path_segment_zone_map_prune")
                                     .tablet_id(110041)
@@ -328,6 +449,131 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapP
     EXPECT_EQ(read_result->rows_read, 2);
     expect_raw_rows_read(read_result.value(), 2);
     expect_segment_pruned(read_result.value(), 1);
+    expect_inverted_index_not_attempted(read_result.value());
+}
+
+// Expected-red: Variant typed-path zone-map pruning currently works at segment level, but does not
+// prune pages within a surviving segment.
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DISABLED_TypedVariantPathPageZoneMapPrunesWithinSegment) {
+    constexpr size_t kLowRows = 2048;
+    constexpr size_t kHighRows = 2048;
+    auto variant = typed_pattern_variant_column();
+
+    IndexTabletOptions options;
+    options.tablet_id = 110045;
+    options.storage_page_size = 4096;
+    options.variant_columns.push_back(std::move(variant));
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
+    rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
+            split_int_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+
+    ASSERT_TRUE(create_tablet(options).ok());
+    auto rowsets = write_rowsets({rowset});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.int_1");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+
+    IndexReadOptions read_options;
+    read_options.enable_inverted_index_query = false;
+    read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+    read_options.target_cast_type_for_variants[path_column.name()] =
+            std::make_shared<DataTypeInt32>();
+    read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
+
+    auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, kHighRows);
+    expect_segment_pruned(read_result.value(), 0);
+    EXPECT_GT(read_result->stats.raw_rows_read, 0);
+    EXPECT_LT(read_result->stats.raw_rows_read, static_cast<int64_t>(kLowRows + kHighRows));
+    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
+    expect_inverted_index_not_attempted(read_result.value());
+}
+
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DisabledInvertedIndexQueryDoesNotProbeVariantFieldPatternIndex) {
+    const auto int_index = IndexSpec::field_pattern_index(kIntPatternIndexId, "idx_v_int_glob",
+                                                          kVariantUid, "int_*");
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_disabled_inverted_index_query_reverse_case")
+                    .tablet_id(110046)
+                    .variant_column(typed_pattern_variant_column())
+                    .inverted_index(int_index)
+                    .rowset(0, IndexDataSourceSpec::inline_variant(
+                                       {R"({"int_1": 42})", R"({"int_1": 7})", R"({"int_1": 42})",
+                                        R"({"int_1": 8})"},
+                                       0))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.int_1");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+
+    IndexReadOptions read_options;
+    read_options.enable_inverted_index_query = false;
+    read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+    read_options.target_cast_type_for_variants[path_column.name()] =
+            std::make_shared<DataTypeInt32>();
+    read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 42));
+
+    auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, 2);
+    expect_index_filter_stats(read_result.value(), 0);
+    expect_inverted_index_not_attempted(read_result.value());
+}
+
+// Expected-red: an unsafe target cast should make Variant typed-path zone-map pruning opt out
+// before page/segment pruning statistics are affected.
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DISABLED_UnsafeTargetCastSkipsVariantPathZoneMapPruning) {
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_unsafe_target_cast_zone_map_reverse_case")
+                    .tablet_id(110047)
+                    .variant_column(typed_pattern_variant_column())
+                    .rowset(0,
+                            IndexDataSourceSpec::inline_variant(
+                                    {R"({"int_1": 1})", R"({"int_1": 2})", R"({"int_1": 100})",
+                                     R"({"int_1": 101})"},
+                                    0),
+                            2)
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.int_1");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+
+    IndexReadOptions read_options;
+    read_options.enable_inverted_index_query = false;
+    read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+    read_options.target_cast_type_for_variants[path_column.name()] =
+            std::make_shared<DataTypeString>();
+    read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
+
+    auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, 2);
+    expect_raw_rows_read(read_result.value(), 4);
+    expect_segment_pruned(read_result.value(), 0);
+    expect_zone_map_filtered(read_result.value(), 0);
     expect_inverted_index_not_attempted(read_result.value());
 }
 
@@ -369,6 +615,135 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_raw_rows_read(read_result.value(), 2);
     expect_segment_pruned(read_result.value(), 1);
     expect_zone_map_filtered(read_result.value(), 2);
+    expect_inverted_index_not_attempted(read_result.value());
+}
+
+// Expected-red: page-level Variant typed-path zone-map pruning updates rows_stats_filtered, but
+// rows_stats_rp_filtered remains zero today.
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DISABLED_TypedVariantPathPageZoneMapRowsStatsRpFilteredCountsPrunedRows) {
+    constexpr size_t kLowRows = 2048;
+    constexpr size_t kHighRows = 2048;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110048;
+    options.storage_page_size = 4096;
+    options.variant_columns.push_back(typed_pattern_variant_column());
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
+    rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
+            split_int_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+
+    ASSERT_TRUE(create_tablet(options).ok());
+    auto rowsets = write_rowsets({rowset});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.int_1");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+
+    IndexReadOptions read_options;
+    read_options.enable_inverted_index_query = false;
+    read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+    read_options.target_cast_type_for_variants[path_column.name()] =
+            std::make_shared<DataTypeInt32>();
+    read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
+
+    auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, kHighRows);
+    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
+    EXPECT_GT(read_result->stats.rows_stats_rp_filtered, 0);
+    expect_inverted_index_not_attempted(read_result.value());
+}
+
+// Expected-red: Variant subcolumn bloom filters should be inherited from the parent Variant column
+// and filter equality misses before zone-map pruning.
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DISABLED_VariantTypedPathBloomFilterFiltersMissingValue) {
+    constexpr size_t kLowRows = 2048;
+    constexpr size_t kHighRows = 2048;
+    auto variant = typed_pattern_variant_column();
+    variant.is_bf_column = true;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110049;
+    options.storage_page_size = 4096;
+    options.variant_columns.push_back(std::move(variant));
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
+    rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
+            split_int_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+
+    ASSERT_TRUE(create_tablet(options).ok());
+    auto rowsets = write_rowsets({rowset});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.int_1");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+
+    IndexReadOptions read_options;
+    read_options.enable_inverted_index_query = false;
+    read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+    read_options.target_cast_type_for_variants[path_column.name()] =
+            std::make_shared<DataTypeInt32>();
+    read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 999));
+
+    ScopedDebugPoint must_filter("bloom_filter_must_filter_data");
+    auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, 0);
+    expect_bloom_filter_filtered(read_result.value(), kLowRows + kHighRows);
+    expect_inverted_index_not_attempted(read_result.value());
+}
+
+// Expected-red: once a sparse Variant child has sparse statistics but no materialized subcolumn, an
+// exact typed-path predicate should still be able to use those stats for pushdown observability.
+TEST_F(IndexStorageVariantFieldPatternIndexTest,
+       DISABLED_SparseChildPathStatsCanDriveTypedPathPushdown) {
+    auto variant = typed_pattern_variant_column();
+    variant.max_subcolumns_count = 1;
+    variant.max_sparse_column_statistics_size = 1;
+
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_sparse_child_path_stats_pushdown")
+                    .tablet_id(110050)
+                    .variant_column(std::move(variant))
+                    .rowset(0, IndexDataSourceSpec::inline_variant(
+                                       {R"({"int_1": 1, "int_rare": 999})", R"({"int_1": 2})",
+                                        R"({"int_1": 3})", R"({"int_1": 4})"},
+                                       0))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.int_rare");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+    const auto& path_column = tablet_schema()->column(path_column_id);
+
+    IndexReadOptions read_options;
+    read_options.enable_inverted_index_query = false;
+    read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
+    read_options.target_cast_type_for_variants[path_column.name()] =
+            std::make_shared<DataTypeInt32>();
+    read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 999));
+
+    auto read_result = read_rowsets(readable_rowsets.value(), read_options);
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, 1);
+    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
     expect_inverted_index_not_attempted(read_result.value());
 }
 

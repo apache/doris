@@ -73,6 +73,50 @@ bool has_sparse_path_stat(const IndexRowsetProbe& probe, std::string_view relati
     });
 }
 
+bool schema_has_variant_path(const TabletSchema& schema, int32_t parent_unique_id,
+                             std::string_view relative_path) {
+    if (!schema.has_column_unique_id(parent_unique_id)) {
+        return false;
+    }
+    const auto& parent = schema.column_by_uid(parent_unique_id);
+    for (const auto& subcolumn : parent.get_sub_columns()) {
+        if (subcolumn == nullptr) {
+            continue;
+        }
+        if (subcolumn->name() == relative_path ||
+            (subcolumn->has_path_info() &&
+             subcolumn->path_info_ptr()->copy_pop_front().get_path() == relative_path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool schema_has_extracted_variant_path(const TabletSchema& schema, int32_t parent_unique_id,
+                                       std::string_view relative_path) {
+    for (int32_t column_id = 0; column_id < schema.num_columns(); ++column_id) {
+        const auto& column = schema.column(column_id);
+        if (!column.is_extracted_column() || column.parent_unique_id() != parent_unique_id ||
+            !column.has_path_info()) {
+            continue;
+        }
+        if (column.path_info_ptr()->copy_pop_front().get_path() == relative_path) {
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t sparse_stat_entry_count(const IndexRowsetProbe& probe) {
+    size_t count = 0;
+    for (const auto& segment : probe.segments) {
+        for (const auto& column : segment.variant_columns) {
+            count += column.sparse_non_null_size.size();
+        }
+    }
+    return count;
+}
+
 } // namespace
 
 class IndexStorageVariantLifecycleTest : public IndexStorageTestFixture {
@@ -80,7 +124,77 @@ protected:
     void run_deep_sparse_variant_lifecycle(bool external_segment_meta, int64_t tablet_id);
     void run_nested_group_variant_lifecycle(bool external_segment_meta, int64_t tablet_id);
     void run_variant_path_count_on_index_records_applied_event(bool verify_key_column_not_read);
+    void run_multi_variant_columns_keep_shared_path_isolated(bool external_segment_meta,
+                                                             int64_t tablet_id);
 };
+
+TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsHonorsZeroLimitAndTieOrdering) {
+    variant_util::PathToNoneNullValues stats {
+            {"alpha", 3},
+            {"beta", 3},
+            {"gamma", 1},
+    };
+
+    TabletSchema::PathsSetInfo unlimited;
+    variant_util::VariantCompactionUtil::get_subpaths(0, stats, unlimited);
+    EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("beta")));
+    EXPECT_TRUE(unlimited.sub_path_set.contains(StringRef("gamma")));
+    EXPECT_TRUE(unlimited.sparse_path_set.empty());
+
+    TabletSchema::PathsSetInfo top_one;
+    variant_util::VariantCompactionUtil::get_subpaths(1, stats, top_one);
+    EXPECT_TRUE(top_one.sub_path_set.contains(StringRef("beta")));
+    EXPECT_FALSE(top_one.sub_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(top_one.sparse_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(top_one.sparse_path_set.contains(StringRef("gamma")));
+}
+
+TEST(IndexStorageVariantCompactionUtilTest, GetSubpathsKeepsAllPathsAtLimitAndHandlesEmptyStats) {
+    variant_util::PathToNoneNullValues exact_limit {
+            {"alpha", 2},
+            {"beta", 1},
+    };
+
+    TabletSchema::PathsSetInfo at_limit;
+    variant_util::VariantCompactionUtil::get_subpaths(2, exact_limit, at_limit);
+    EXPECT_TRUE(at_limit.sub_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(at_limit.sub_path_set.contains(StringRef("beta")));
+    EXPECT_TRUE(at_limit.sparse_path_set.empty());
+
+    TabletSchema::PathsSetInfo empty;
+    variant_util::VariantCompactionUtil::get_subpaths(1, {}, empty);
+    EXPECT_TRUE(empty.sub_path_set.empty());
+    EXPECT_TRUE(empty.sparse_path_set.empty());
+}
+
+TEST(IndexStorageVariantCompactionUtilTest, EmptyInputsKeepVariantSchemaWithoutPathStats) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+
+    IndexTabletOptions options;
+    options.tablet_id = 110054;
+    options.variant_columns = {std::move(variant)};
+    auto base_schema = build_tablet_schema(options);
+    ASSERT_NE(base_schema, nullptr);
+
+    EXPECT_EQ(
+            variant_util::VariantCompactionUtil::calculate_variant_extended_schema({}, base_schema),
+            nullptr);
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*base_schema);
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            {}, compaction_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(compaction_schema->has_column_unique_id(2));
+
+    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_TRUE(path_set_info->typed_path_set.empty());
+    EXPECT_TRUE(path_set_info->sub_path_set.empty());
+    EXPECT_TRUE(path_set_info->sparse_path_set.empty());
+}
 
 void IndexStorageVariantLifecycleTest::run_deep_sparse_variant_lifecycle(bool external_segment_meta,
                                                                          int64_t tablet_id) {
@@ -624,6 +738,385 @@ TEST_F(IndexStorageVariantLifecycleTest, MissingRequiredVariantColumnFailsExtend
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("column not found in segment"), std::string::npos)
             << status.to_string();
+}
+
+TEST_F(IndexStorageVariantLifecycleTest, VariantCompactionSchemaTopNRecordsSparseOverflowPaths) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 1;
+    variant.max_sparse_column_statistics_size = 2;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110045;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset0;
+    rowset0.version = 0;
+    rowset0.batches.push_back(IndexBatch::single_variant(
+            {R"({"hot": "h0", "warm": "w0", "rare0": "r0"})",
+             R"({"hot": "h1", "warm": "w1", "rare1": "r1"})", R"({"hot": "h2", "rare2": "r2"})"},
+            0));
+    IndexRowsetSpec rowset1;
+    rowset1.version = 1;
+    rowset1.batches.push_back(IndexBatch::single_variant(
+            {R"({"hot": "h3", "warm": "w3", "rare3": "r3"})", R"({"hot": "h4", "rare4": "r4"})"},
+            100));
+
+    auto rowsets = write_rowsets({rowset0, rowset1});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            rowsets.value(), compaction_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("hot")));
+    EXPECT_FALSE(path_set_info->sub_path_set.contains(StringRef("warm")));
+    EXPECT_TRUE(path_set_info->sparse_path_set.contains(StringRef("warm")));
+    EXPECT_TRUE(path_set_info->sparse_path_set.contains(StringRef("rare0")));
+}
+
+TEST_F(IndexStorageVariantLifecycleTest,
+       VariantMaxSubcolumnsCountZeroMaterializesAllObservedPaths) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 0;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110049;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.batches.push_back(IndexBatch::single_variant(
+            {R"({"alpha": "a0", "beta": "b0"})", R"({"alpha": "a1", "gamma": "g1"})"}, 0));
+    auto rowset_result = write_rowset(rowset);
+    ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            {rowset_result.value()}, compaction_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("beta")));
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("gamma")));
+    EXPECT_TRUE(path_set_info->sparse_path_set.empty());
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "alpha"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "beta"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "gamma"));
+}
+
+TEST_F(IndexStorageVariantLifecycleTest, VariantPathCountAtLimitMaterializesAllObservedPaths) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 2;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110050;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.batches.push_back(IndexBatch::single_variant(
+            {R"({"alpha": "a0", "beta": "b0"})", R"({"alpha": "a1", "beta": "b1"})"}, 0));
+    auto rowset_result = write_rowset(rowset);
+    ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            {rowset_result.value()}, compaction_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("beta")));
+    EXPECT_TRUE(path_set_info->sparse_path_set.empty());
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "alpha"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "beta"));
+}
+
+TEST_F(IndexStorageVariantLifecycleTest, VariantSparseStatsLimitIsPreservedAfterCompaction) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 1;
+    variant.max_sparse_column_statistics_size = 2;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110046;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset0;
+    rowset0.version = 0;
+    rowset0.batches.push_back(IndexBatch::single_variant(
+            {R"({"hot": "h0", "warm": "w0", "rare0": "r0"})",
+             R"({"hot": "h1", "warm": "w1", "rare1": "r1"})", R"({"hot": "h2", "rare2": "r2"})"},
+            0));
+    IndexRowsetSpec rowset1;
+    rowset1.version = 1;
+    rowset1.batches.push_back(IndexBatch::single_variant(
+            {R"({"hot": "h3", "warm": "w3", "rare3": "r3"})", R"({"hot": "h4", "rare4": "r4"})"},
+            100));
+
+    auto rowsets = write_rowsets({rowset0, rowset1});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    ASSERT_EQ(compacted.value()->num_rows(), 5);
+
+    auto probe = probe_rowset(compacted.value());
+    ASSERT_TRUE(probe.has_value()) << probe.error();
+    EXPECT_TRUE(has_variant_layout(probe.value(), 2, "hot"));
+    EXPECT_FALSE(has_variant_layout(probe.value(), 2, "warm"));
+    EXPECT_TRUE(has_sparse_path_stat(probe.value(), "warm"));
+    EXPECT_LE(sparse_stat_entry_count(probe.value()), 2);
+}
+
+TEST_F(IndexStorageVariantLifecycleTest, VariantSparseStatsLimitOneIsPreservedAfterCompaction) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 1;
+    variant.max_sparse_column_statistics_size = 1;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110051;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset0;
+    rowset0.version = 0;
+    rowset0.batches.push_back(IndexBatch::single_variant(
+            {R"({"hot": "h0", "warm": "w0", "rare0": "r0"})",
+             R"({"hot": "h1", "warm": "w1", "rare1": "r1"})", R"({"hot": "h2", "rare2": "r2"})"},
+            0));
+    IndexRowsetSpec rowset1;
+    rowset1.version = 1;
+    rowset1.batches.push_back(IndexBatch::single_variant(
+            {R"({"hot": "h3", "warm": "w3", "rare3": "r3"})", R"({"hot": "h4", "rare4": "r4"})"},
+            100));
+
+    auto rowsets = write_rowsets({rowset0, rowset1});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    ASSERT_EQ(compacted.value()->num_rows(), 5);
+
+    auto probe = probe_rowset(compacted.value());
+    ASSERT_TRUE(probe.has_value()) << probe.error();
+    EXPECT_TRUE(has_variant_layout(probe.value(), 2, "hot"));
+    EXPECT_LE(sparse_stat_entry_count(probe.value()), 1);
+}
+
+TEST_F(IndexStorageVariantLifecycleTest,
+       VariantTypedPathAndDynamicSubpathStaySeparatedInCompactionSchema) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 2;
+    variant.predefined_paths = {
+            VariantPathSpec {.path = "typed_i",
+                             .type = FieldType::OLAP_FIELD_TYPE_INT,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+    };
+
+    IndexTabletOptions options;
+    options.tablet_id = 110052;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.batches.push_back(IndexBatch::single_variant(
+            {R"({"typed_i": 1, "hot": "h0"})", R"({"typed_i": 2, "cold": "c1"})"}, 0));
+    auto rowset_result = write_rowset(rowset);
+    ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            {rowset_result.value()}, compaction_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* path_set_info = compaction_schema->try_path_set_info(2);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_TRUE(path_set_info->typed_path_set.contains("typed_i"));
+    EXPECT_FALSE(path_set_info->sub_path_set.contains(StringRef("typed_i")));
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("hot")));
+    EXPECT_TRUE(path_set_info->sub_path_set.contains(StringRef("cold")));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "typed_i"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "hot"));
+    EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "cold"));
+}
+
+void IndexStorageVariantLifecycleTest::run_multi_variant_columns_keep_shared_path_isolated(
+        bool external_segment_meta, int64_t tablet_id) {
+    VariantColumnSpec left;
+    left.unique_id = 2;
+    left.name = "v_left";
+    left.max_subcolumns_count = 2;
+
+    VariantColumnSpec right;
+    right.unique_id = 3;
+    right.name = "v_right";
+    right.max_subcolumns_count = 2;
+
+    IndexTabletOptions options;
+    options.tablet_id = tablet_id;
+    options.external_segment_meta = external_segment_meta;
+    options.variant_columns = {std::move(left), std::move(right)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset0;
+    rowset0.version = 0;
+    IndexBatch batch0;
+    batch0.keys = {0, 1};
+    batch0.variant_jsons_by_column = {
+            {R"({"shared": "left-0", "left_only": "l0"})",
+             R"({"shared": "left-1", "left_only": "l1"})"},
+            {R"({"shared": "right-0", "right_only": "r0"})",
+             R"({"shared": "right-1", "right_only": "r1"})"},
+    };
+    rowset0.batches.push_back(std::move(batch0));
+
+    IndexRowsetSpec rowset1;
+    rowset1.version = 1;
+    IndexBatch batch1;
+    batch1.keys = {2, 3};
+    batch1.variant_jsons_by_column = {
+            {R"({"shared": "left-2", "left_only": "l2"})",
+             R"({"shared": "left-3", "left_only": "l3"})"},
+            {R"({"shared": "right-2", "right_only": "r2"})",
+             R"({"shared": "right-3", "right_only": "r3"})"},
+    };
+    rowset1.batches.push_back(std::move(batch1));
+
+    auto rowsets = write_rowsets({rowset0, rowset1});
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    std::unordered_map<int32_t, variant_util::VariantExtendedInfo> extended_info;
+    for (const auto& rowset : rowsets.value()) {
+        auto status = variant_util::VariantCompactionUtil::aggregate_variant_extended_info(
+                rowset, &extended_info);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+    }
+    ASSERT_TRUE(extended_info.contains(2));
+    ASSERT_TRUE(extended_info.contains(3));
+    EXPECT_EQ(extended_info.at(2).path_to_none_null_values.at("shared"), 4);
+    EXPECT_EQ(extended_info.at(3).path_to_none_null_values.at("shared"), 4);
+    EXPECT_TRUE(extended_info.at(2).path_to_none_null_values.contains("left_only"));
+    EXPECT_TRUE(extended_info.at(3).path_to_none_null_values.contains("right_only"));
+    EXPECT_FALSE(extended_info.at(2).path_to_none_null_values.contains("right_only"));
+    EXPECT_FALSE(extended_info.at(3).path_to_none_null_values.contains("left_only"));
+
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    ASSERT_EQ(compacted.value()->num_rows(), 4);
+
+    auto probe = probe_rowset(compacted.value());
+    ASSERT_TRUE(probe.has_value()) << probe.error();
+    EXPECT_TRUE(has_variant_layout(probe.value(), 2, "shared"));
+    EXPECT_TRUE(has_variant_layout(probe.value(), 2, "left_only"));
+    EXPECT_TRUE(has_variant_layout(probe.value(), 3, "shared"));
+    EXPECT_TRUE(has_variant_layout(probe.value(), 3, "right_only"));
+    EXPECT_FALSE(has_variant_layout(probe.value(), 2, "right_only"));
+    EXPECT_FALSE(has_variant_layout(probe.value(), 3, "left_only"));
+
+    auto read_result = read_rowsets({compacted.value()});
+    ASSERT_TRUE(read_result.has_value()) << read_result.error();
+    EXPECT_EQ(read_result->rows_read, 4);
+}
+
+TEST_F(IndexStorageVariantLifecycleTest,
+       MultiVariantColumnsKeepSharedPathIsolatedWithExternalSegmentMeta) {
+    run_multi_variant_columns_keep_shared_path_isolated(true, 110047);
+}
+
+TEST_F(IndexStorageVariantLifecycleTest,
+       MultiVariantColumnsKeepSharedPathIsolatedWithoutExternalSegmentMeta) {
+    run_multi_variant_columns_keep_shared_path_isolated(false, 110053);
+}
+
+TEST_F(IndexStorageVariantLifecycleTest, SchemaPatchHelperKeepsVariantPathMetadataIsolated) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.predefined_paths = {
+            VariantPathSpec {.path = "a",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+    };
+
+    IndexTabletOptions options;
+    options.tablet_id = 110048;
+    options.variant_columns = {std::move(variant)};
+    options.inverted_indexes = {IndexSpec::field_pattern_index(230001, "idx_v_a", 2, "a")};
+    auto base_schema = build_tablet_schema(options);
+    ASSERT_NE(base_schema, nullptr);
+
+    VariantColumnSpec modified;
+    modified.unique_id = 2;
+    modified.name = "v";
+    modified.predefined_paths = {
+            VariantPathSpec {.path = "b",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+    };
+
+    VariantColumnSpec added;
+    added.unique_id = 3;
+    added.name = "v_added";
+    added.predefined_paths = {
+            VariantPathSpec {.path = "a",
+                             .type = FieldType::OLAP_FIELD_TYPE_STRING,
+                             .nullable = true,
+                             .pattern_type = PatternTypePB::MATCH_NAME,
+                             .array_item_type = {},
+                             .array_item_nullable = true},
+    };
+
+    IndexSchemaPatch patch;
+    patch.modify_variant_columns.emplace(2, std::move(modified));
+    patch.add_variant_columns.push_back(std::move(added));
+    patch.add_inverted_indexes.push_back(
+            IndexSpec::field_pattern_index(230002, "idx_v_added_a", 3, "a"));
+    auto patched_schema = build_patched_tablet_schema(*base_schema, patch);
+    ASSERT_NE(patched_schema, nullptr);
+
+    EXPECT_TRUE(schema_has_variant_path(*patched_schema, 2, "a"));
+    EXPECT_TRUE(schema_has_variant_path(*patched_schema, 2, "b"));
+    EXPECT_TRUE(schema_has_variant_path(*patched_schema, 3, "a"));
+    EXPECT_FALSE(schema_has_variant_path(*patched_schema, 3, "b"));
+    EXPECT_FALSE(patched_schema->inverted_index_by_field_pattern(2, "a").empty());
+    EXPECT_FALSE(patched_schema->inverted_index_by_field_pattern(3, "a").empty());
+    EXPECT_TRUE(patched_schema->inverted_index_by_field_pattern(2, "missing").empty());
+    EXPECT_TRUE(patched_schema->inverted_index_by_field_pattern(3, "b").empty());
 }
 
 TEST_F(IndexStorageVariantLifecycleTest, VariantPathIndexHitAfterCumulativeCompaction) {

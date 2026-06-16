@@ -75,6 +75,7 @@ struct VariantColumnSpec {
     int32_t unique_id = 2;
     std::string name = "v";
     bool nullable = false;
+    bool is_bf_column = false;
     int32_t max_subcolumns_count = 8;
     int32_t max_sparse_column_statistics_size = 10000;
     int32_t sparse_hash_shard_count = 0;
@@ -102,6 +103,7 @@ struct IndexTabletOptions {
     int64_t tablet_id = 100000;
     bool include_key_column = true;
     bool external_segment_meta = true;
+    int64_t storage_page_size = 0;
     InvertedIndexStorageFormatPB index_storage_format = InvertedIndexStorageFormatPB::V2;
     std::vector<TextColumnSpec> text_columns;
     std::vector<VariantColumnSpec> variant_columns;
