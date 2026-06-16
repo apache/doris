@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_profile.h"
 
 namespace doris {
 namespace io {
@@ -71,66 +72,6 @@ protected:
     void _init_profile() override;
 
 private:
-    struct ParquetProfile {
-        RuntimeProfile::Counter* filtered_row_groups = nullptr;
-        RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
-        RuntimeProfile::Counter* filtered_row_groups_by_dictionary = nullptr;
-        RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
-        RuntimeProfile::Counter* to_read_row_groups = nullptr;
-        RuntimeProfile::Counter* total_row_groups = nullptr;
-        RuntimeProfile::Counter* selected_row_ranges = nullptr;
-        RuntimeProfile::Counter* filtered_group_rows = nullptr;
-        RuntimeProfile::Counter* filtered_page_rows = nullptr;
-        RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;
-        RuntimeProfile::Counter* data_page_filter_skip_bytes = nullptr;
-        RuntimeProfile::Counter* selected_rows = nullptr;
-        RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
-        RuntimeProfile::Counter* total_batches = nullptr;
-        RuntimeProfile::Counter* empty_selection_batches = nullptr;
-        RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
-        RuntimeProfile::Counter* reader_read_rows = nullptr;
-        RuntimeProfile::Counter* reader_skip_rows = nullptr;
-        RuntimeProfile::Counter* reader_select_rows = nullptr;
-        RuntimeProfile::Counter* arrow_read_records_time = nullptr;
-        RuntimeProfile::Counter* materialization_time = nullptr;
-        RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
-        RuntimeProfile::Counter* filtered_bytes = nullptr;
-        RuntimeProfile::Counter* raw_rows_read = nullptr;
-        RuntimeProfile::Counter* column_read_time = nullptr;
-        RuntimeProfile::Counter* parse_meta_time = nullptr;
-        RuntimeProfile::Counter* parse_footer_time = nullptr;
-        RuntimeProfile::Counter* file_reader_create_time = nullptr;
-        RuntimeProfile::Counter* open_file_num = nullptr;
-        RuntimeProfile::Counter* row_group_filter_time = nullptr;
-        RuntimeProfile::Counter* page_index_read_calls = nullptr;
-        RuntimeProfile::Counter* page_index_filter_time = nullptr;
-        RuntimeProfile::Counter* read_page_index_time = nullptr;
-        RuntimeProfile::Counter* parse_page_index_time = nullptr;
-        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
-        RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
-        RuntimeProfile::Counter* decompress_time = nullptr;
-        RuntimeProfile::Counter* decompress_cnt = nullptr;
-        RuntimeProfile::Counter* page_read_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_write_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_compressed_write_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_decompressed_write_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_hit_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_missing_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_compressed_hit_counter = nullptr;
-        RuntimeProfile::Counter* page_cache_decompressed_hit_counter = nullptr;
-        RuntimeProfile::Counter* decode_header_time = nullptr;
-        RuntimeProfile::Counter* read_page_header_time = nullptr;
-        RuntimeProfile::Counter* decode_value_time = nullptr;
-        RuntimeProfile::Counter* decode_dict_time = nullptr;
-        RuntimeProfile::Counter* decode_level_time = nullptr;
-        RuntimeProfile::Counter* decode_null_map_time = nullptr;
-        RuntimeProfile::Counter* skip_page_header_num = nullptr;
-        RuntimeProfile::Counter* parse_page_header_num = nullptr;
-        RuntimeProfile::Counter* predicate_filter_time = nullptr;
-        RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
-        RuntimeProfile::Counter* convert_time = nullptr;
-        RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
-    };
     void _fill_column_definition(const ParquetColumnSchema& column_schema,
                                  format::ColumnDefinition* field) const;
 

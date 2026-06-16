@@ -75,19 +75,6 @@ struct RowGroupScanPlan {
     ParquetPruningStats pruning_stats;
 };
 
-struct ParquetScanProfile {
-    RuntimeProfile::Counter* raw_rows_read = nullptr;
-    RuntimeProfile::Counter* selected_rows = nullptr;
-    RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
-    RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
-    RuntimeProfile::Counter* total_batches = nullptr;
-    RuntimeProfile::Counter* empty_selection_batches = nullptr;
-    RuntimeProfile::Counter* range_gap_skipped_rows = nullptr;
-    RuntimeProfile::Counter* column_read_time = nullptr;
-    RuntimeProfile::Counter* predicate_filter_time = nullptr;
-    ParquetColumnReaderProfile column_reader_profile;
-};
-
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                ::parquet::ParquetFileReader* file_reader,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
