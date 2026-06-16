@@ -3584,15 +3584,30 @@ public class Config extends ConfigBase {
             "The ID of the master key in KMS, used for generating and encrypting data keys"})
     public static String doris_tde_key_id = "";
 
-    @ConfField(mutable = true, description = {"The endpoint of the KMS service, should match the region of the key"})
+    @ConfField(mutable = true, description = {
+            "The endpoint of the KMS service. For cloud KMS, it should match the region of the key. "
+                    + "For Ranger KMS, use a Hadoop KMS URI or HTTP(S) URL."})
     public static String doris_tde_key_endpoint = "";
 
     @ConfField(mutable = true, description = {"The region where the KMS key is located, used for SDK configuration"})
     public static String doris_tde_key_region = "";
 
     @ConfField(mutable = true, description = {
-            "The key provider for TDE (Transparent Data Encryption), currently supports aws_kms"})
+            "The key provider identifier for TDE (Transparent Data Encryption). "
+                    + "Recognized values include aws_kms, aliyun_kms, and ranger_kms."})
     public static String doris_tde_key_provider = "";
+
+    @ConfField(mutable = true, description = {"The simple authentication user name for TDE Hadoop KMS"})
+    public static String doris_tde_hadoop_user_name = "hadoop";
+
+    @ConfField(mutable = true, description = {"The Kerberos principal for TDE Hadoop KMS"})
+    public static String doris_tde_kerberos_principal = "";
+
+    @ConfField(mutable = true, description = {"The Kerberos keytab path for TDE Hadoop KMS"})
+    public static String doris_tde_kerberos_keytab = "";
+
+    @ConfField(mutable = true, description = {"The Hadoop XML configuration directory for TDE Hadoop KMS"})
+    public static String doris_tde_hadoop_conf_dir = "";
 
     @ConfField(mutable = true, description = {
             "The encryption algorithm used for data. Default is AES256; may be set to empty later for KMS to decide."})
