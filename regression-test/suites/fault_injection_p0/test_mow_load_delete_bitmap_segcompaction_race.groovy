@@ -82,20 +82,19 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
 
         check { result, exception, startTime, endTime ->
             if (exception != null) {
-                def message = exception.getMessage()
-                logger.info("stream load exception: ${message}")
-                assertTrue(message.contains("failed on majority backends") ||
-                        message.contains("NOT_FOUND") ||
-                        message.contains("failed to open segment"))
-                return
+                throw exception
             }
             logger.info("stream load result: ${result}")
             def json = parseJson(result)
-            def message = json.Message == null ? result : json.Message.toString()
-            assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(message.contains("failed on majority backends") ||
-                    message.contains("NOT_FOUND") ||
-                    message.contains("failed to open segment"))
+            assertEquals("success", json.Status.toLowerCase())
         }
     }
+
+    qt_sql "select count() from test_mow_load_delete_bitmap_segcompaction_race;"
+    qt_dup_key_count """select count() from (
+            select k1, count() as cnt
+            from test_mow_load_delete_bitmap_segcompaction_race
+            group by k1
+            having cnt > 1
+        ) t;"""
 }

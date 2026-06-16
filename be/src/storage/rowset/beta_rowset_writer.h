@@ -209,6 +209,8 @@ private:
     // for this segment
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
+    bool _is_segment_delete_bitmap_calculated(uint32_t segment_id) const;
+    void _mark_segment_delete_bitmap_calculated(uint32_t segment_id);
     virtual Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer,
                                bool is_index_file = false);
@@ -268,6 +270,8 @@ protected:
 
     std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
+    roaring::Roaring _delete_bitmap_calculated_segments;
+    mutable std::mutex _delete_bitmap_calculated_segments_mutex;
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;

@@ -399,11 +399,25 @@ Status BaseBetaRowsetWriter::add_block(const Block* block) {
     return _segment_creator.add_block(block);
 }
 
+bool BaseBetaRowsetWriter::_is_segment_delete_bitmap_calculated(uint32_t segment_id) const {
+    if (_context.mow_context == nullptr) {
+        return true;
+    }
+    std::lock_guard lock(_delete_bitmap_calculated_segments_mutex);
+    return _delete_bitmap_calculated_segments.contains(segment_id);
+}
+
+void BaseBetaRowsetWriter::_mark_segment_delete_bitmap_calculated(uint32_t segment_id) {
+    std::lock_guard lock(_delete_bitmap_calculated_segments_mutex);
+    _delete_bitmap_calculated_segments.add(segment_id);
+}
+
 Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (_context.is_transient_rowset_writer ||
         !_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
+        _mark_segment_delete_bitmap_calculated(segment_id);
         return Status::OK();
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
@@ -484,6 +498,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << ", delete_bitmap_cardinality: "
                   << _context.mow_context->delete_bitmap->cardinality()
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        _mark_segment_delete_bitmap_calculated(segment_id);
         return Status::OK();
     });
 }
@@ -545,6 +560,9 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     int32_t segid;
     for (segid = _segcompacted_point;
          segid < last_segment && segments->size() < config::segcompaction_batch_size; segid++) {
+        if (!_is_segment_delete_bitmap_calculated(segid)) {
+            break;
+        }
         segment_v2::SegmentSharedPtr segment;
         RETURN_IF_ERROR(_load_noncompacted_segment(segment, segid));
         const auto segment_rows = segment->num_rows();
