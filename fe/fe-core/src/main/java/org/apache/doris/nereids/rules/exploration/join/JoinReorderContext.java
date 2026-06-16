@@ -40,6 +40,7 @@ public class JoinReorderContext {
     private boolean hasLeftAssociate = false;
 
     private boolean isLeadingJoin = false;
+    private boolean isSaltJoinGenerated = false;
 
     public JoinReorderContext() {
     }
@@ -55,6 +56,7 @@ public class JoinReorderContext {
         this.hasRightAssociate = joinReorderContext.hasRightAssociate;
         this.hasCommuteZigZag = joinReorderContext.hasCommuteZigZag;
         this.isLeadingJoin = joinReorderContext.isLeadingJoin;
+        this.isSaltJoinGenerated = joinReorderContext.isSaltJoinGenerated;
     }
 
     /**
@@ -68,6 +70,7 @@ public class JoinReorderContext {
         hasRightAssociate = false;
         hasLeftAssociate = false;
         isLeadingJoin = false;
+        isSaltJoinGenerated = false;
     }
 
     public boolean hasCommute() {
@@ -124,5 +127,13 @@ public class JoinReorderContext {
 
     public void setLeadingJoin(boolean leadingJoin) {
         isLeadingJoin = leadingJoin;
+    }
+
+    public boolean isSaltJoinGenerated() {
+        return isSaltJoinGenerated;
+    }
+
+    public void setSaltJoinGenerated(boolean saltJoinGenerated) {
+        isSaltJoinGenerated = saltJoinGenerated;
     }
 }

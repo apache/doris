@@ -50,7 +50,7 @@ std::shared_ptr<HybridSetBase> build_set() {
     return std::make_shared<std::conditional_t<
             is_string_type(TYPE), StringSet<DynamicContainer<std::string>>,
             HybridSet<TYPE, DynamicContainer<typename PrimitiveTypeTraits<TYPE>::CppType>,
-                      PredicateColumnType<PredicateEvaluateType<TYPE>>>>>(false);
+                      typename PrimitiveTypeTraits<TYPE>::ColumnType>>>(false);
 }
 
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(

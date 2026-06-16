@@ -139,6 +139,62 @@ public class DataTypeTest {
     }
 
     @Test
+    public void testIsInjectiveCastToForPrimitiveTypes() {
+        assertSafeCast(IntegerType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(IntegerType.INSTANCE, BigIntType.INSTANCE);
+        assertUnsafeCast(BigIntType.INSTANCE, IntegerType.INSTANCE);
+        assertSafeCast(IntegerType.INSTANCE, DecimalV3Type.createDecimalV3Type(10, 0));
+        assertUnsafeCast(IntegerType.INSTANCE, DecimalV3Type.createDecimalV3Type(9, 0));
+        assertUnsafeCast(LargeIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(38, 0));
+
+        assertSafeCast(BooleanType.INSTANCE, DecimalV3Type.createDecimalV3Type(1, 0));
+        assertUnsafeCast(BooleanType.INSTANCE, DecimalV3Type.createDecimalV3Type(1, 1));
+
+        assertSafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(8, 3));
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(6, 1));
+        assertUnsafeCast(DecimalV3Type.createDecimalV3Type(6, 2), DecimalV3Type.createDecimalV3Type(5, 2));
+
+        assertSafeCast(DateTimeType.INSTANCE, DateTimeV2Type.of(0));
+        assertSafeCast(DateTimeV2Type.of(0), DateTimeType.INSTANCE);
+        assertSafeCast(DateTimeV2Type.of(3), DateTimeV2Type.of(6));
+        assertUnsafeCast(DateTimeV2Type.of(3), DateTimeType.INSTANCE);
+        assertUnsafeCast(DateTimeType.INSTANCE, DateType.INSTANCE);
+
+        assertSafeCast(VarcharType.createVarcharType(10), VarcharType.createVarcharType(20));
+        assertSafeCast(VarcharType.createVarcharType(10), StringType.INSTANCE);
+        assertSafeCast(VarcharType.createVarcharType(20), VarcharType.createVarcharType(10));
+        assertSafeCast(StringType.INSTANCE, VarcharType.createVarcharType(10));
+    }
+
+    @Test
+    public void testIsInjectiveCastToForComplexTypes() {
+        assertSafeCast(ArrayType.of(IntegerType.INSTANCE), ArrayType.of(BigIntType.INSTANCE));
+        assertUnsafeCast(ArrayType.of(BigIntType.INSTANCE), ArrayType.of(IntegerType.INSTANCE));
+
+        assertSafeCast(MapType.of(IntegerType.INSTANCE, VarcharType.createVarcharType(10)),
+                MapType.of(BigIntType.INSTANCE, StringType.INSTANCE));
+        assertUnsafeCast(MapType.of(BigIntType.INSTANCE, VarcharType.createVarcharType(10)),
+                MapType.of(IntegerType.INSTANCE, StringType.INSTANCE));
+
+        StructType intStringStruct = new StructType(ImmutableList.of(
+                new StructField("a", IntegerType.INSTANCE, true, ""),
+                new StructField("b", VarcharType.createVarcharType(10), true, "")));
+        StructType bigintStringStruct = new StructType(ImmutableList.of(
+                new StructField("a", BigIntType.INSTANCE, true, ""),
+                new StructField("b", StringType.INSTANCE, true, "")));
+        StructType intOnlyStruct = new StructType(ImmutableList.of(
+                new StructField("a", IntegerType.INSTANCE, true, "")));
+
+        assertSafeCast(intStringStruct, bigintStringStruct);
+        assertUnsafeCast(bigintStringStruct, intStringStruct);
+        assertUnsafeCast(intOnlyStruct, intStringStruct);
+
+        assertSafeCast(ArrayType.of(IntegerType.INSTANCE), StringType.INSTANCE);
+        assertSafeCast(MapType.of(IntegerType.INSTANCE, StringType.INSTANCE), StringType.INSTANCE);
+        assertSafeCast(intStringStruct, StringType.INSTANCE);
+    }
+
+    @Test
     public void testAnyAccept() {
         AnyDataType dateType = AnyDataType.INSTANCE_WITHOUT_INDEX;
         Assertions.assertTrue(dateType.acceptsType(NullType.INSTANCE));
@@ -653,5 +709,15 @@ public class DataTypeTest {
         // ARRAY<MAP<STRING, INT>> — valid 3-level nesting must still be accepted
         DataType type = ArrayType.of(MapType.of(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE));
         Assertions.assertDoesNotThrow(type::validateDataType);
+    }
+
+    private void assertSafeCast(DataType source, DataType target) {
+        Assertions.assertTrue(source.isInjectiveCastTo(target), source.toSql() + " should safely cast to "
+                + target.toSql());
+    }
+
+    private void assertUnsafeCast(DataType source, DataType target) {
+        Assertions.assertFalse(source.isInjectiveCastTo(target), source.toSql() + " should not safely cast to "
+                + target.toSql());
     }
 }
