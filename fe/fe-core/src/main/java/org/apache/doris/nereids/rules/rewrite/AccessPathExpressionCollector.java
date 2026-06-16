@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -75,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -636,11 +638,16 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // path for unreferenced variables from pollution by referenced ones.
         for (Expression argument : arguments) {
             if (argument instanceof ArrayItemReference) {
-                String argName = ((ArrayItemReference) argument).getName();
-                boolean isReferenced = arguments.get(0)
-                        .<ArrayItemSlot>collect(e -> e instanceof ArrayItemSlot)
-                        .stream()
-                        .anyMatch(slot -> slot.getName().equals(argName));
+                ExprId argExprId = ((ArrayItemReference) argument).getExprId();
+                Set<ArrayItemSlot> arrayItemSlots = arguments.get(0)
+                        .<ArrayItemSlot>collect(e -> e instanceof ArrayItemSlot);
+                boolean isReferenced = false;
+                for (ArrayItemSlot slot : arrayItemSlots) {
+                    if (slot.getExprId().equals(argExprId)) {
+                        isReferenced = true;
+                        break;
+                    }
+                }
                 if (!isReferenced) {
                     Expression boundArray = argument.child(0);
                     CollectorContext fullAccessCtx = new CollectorContext(
