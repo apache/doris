@@ -157,7 +157,8 @@ bool range_contains(const MemoryRange& range, uintptr_t address) {
 
 bool frame_record_is_readable(const MemoryRange& range, uintptr_t fp) {
     constexpr uintptr_t frame_record_size = sizeof(uintptr_t) * 2;
-    return fp >= range.begin && fp <= std::numeric_limits<uintptr_t>::max() - frame_record_size &&
+    return fp % alignof(uintptr_t) == 0 && fp >= range.begin &&
+           fp <= std::numeric_limits<uintptr_t>::max() - frame_record_size &&
            fp + frame_record_size <= range.end;
 }
 
@@ -195,8 +196,12 @@ void capture_frame_pointers_from_context(const ucontext_t* context, FramePointer
 
     append_frame(capture, pc);
     const MemoryRange* stack_range = find_stack_range(sp, fp);
-    if (stack_range == nullptr || !frame_record_is_readable(*stack_range, fp) || fp < sp) {
+    if (stack_range == nullptr || fp < sp) {
         capture->fp_status = FramePointerStatus::NO_STACK_RANGE;
+        return;
+    }
+    if (!frame_record_is_readable(*stack_range, fp)) {
+        capture->fp_status = FramePointerStatus::INVALID_FRAME_POINTER;
         return;
     }
 

@@ -24,10 +24,13 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -86,6 +89,55 @@ private:
     std::condition_variable _ready_cv;
 };
 
+class BlockingReadThread {
+public:
+    bool start() {
+        if (::pipe(_pipe_fds.data()) != 0) {
+            return false;
+        }
+        _thread = std::thread([this] { run(); });
+        std::unique_lock<std::mutex> lock(_mu);
+        return _ready_cv.wait_for(lock, std::chrono::seconds(5),
+                                  [this] { return _tid.load() != 0; });
+    }
+
+    void stop() {
+        if (_pipe_fds[1] >= 0) {
+            ::close(_pipe_fds[1]);
+            _pipe_fds[1] = -1;
+        }
+        if (_thread.joinable()) {
+            _thread.join();
+        }
+        if (_pipe_fds[0] >= 0) {
+            ::close(_pipe_fds[0]);
+            _pipe_fds[0] = -1;
+        }
+    }
+
+    ~BlockingReadThread() { stop(); }
+
+    pid_t tid() const { return _tid.load(); }
+
+private:
+    void run() {
+        _tid.store(static_cast<pid_t>(::syscall(SYS_gettid)));
+        {
+            std::lock_guard<std::mutex> lock(_mu);
+            _ready_cv.notify_all();
+        }
+        char byte = 0;
+        ssize_t res = ::read(_pipe_fds[0], &byte, 1);
+        (void)res;
+    }
+
+    std::array<int, 2> _pipe_fds {-1, -1};
+    std::thread _thread;
+    std::atomic<pid_t> _tid {0};
+    std::mutex _mu;
+    std::condition_variable _ready_cv;
+};
+
 EvHttpServer* s_server = nullptr;
 BeThreadStackAction* s_action = nullptr;
 int s_real_port = 0;
@@ -113,6 +165,36 @@ int count_thread_headers(const std::string& body) {
         pos += strlen("----- thread ");
     }
     return count;
+}
+
+std::string thread_result_line(const std::string& body, pid_t tid) {
+    const std::string header = thread_header(tid);
+    const size_t pos = body.find(header);
+    if (pos == std::string::npos) {
+        return "";
+    }
+    const size_t end = body.find('\n', pos);
+    return body.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+}
+
+bool read_thread_syscall(pid_t tid, long* syscall_number) {
+    std::ifstream syscall_file("/proc/self/task/" + std::to_string(tid) + "/syscall");
+    if (!syscall_file.is_open()) {
+        return false;
+    }
+    syscall_file >> *syscall_number;
+    return !syscall_file.fail();
+}
+
+bool wait_until_syscall(pid_t tid, long expected_syscall) {
+    for (int attempt = 0; attempt < 500; ++attempt) {
+        long syscall_number = -1;
+        if (read_thread_syscall(tid, &syscall_number) && syscall_number == expected_syscall) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
 }
 
 } // namespace
@@ -161,6 +243,8 @@ TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     EXPECT_THAT(body, testing::HasSubstr("capture_method=frame_pointer"));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(first.tid())));
     EXPECT_THAT(body, testing::HasSubstr(thread_header(second.tid())));
+    EXPECT_THAT(body, testing::HasSubstr("summary: captured=2 skipped=0 timed_out=0 "
+                                         "remote_signal_attempts=2\n"));
     EXPECT_EQ(2, count_thread_headers(body));
 
     first.stop();
@@ -195,6 +279,53 @@ TEST_F(BeThreadStackActionTest, ExplicitExitedTidIsReported) {
     EXPECT_THAT(body, testing::HasSubstr("thread_count: 1\n"));
     EXPECT_THAT(body, testing::HasSubstr("----- thread 999999 (?"));
     EXPECT_THAT(body, testing::HasSubstr("status=thread_exited"));
+}
+
+TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsSkippedWithoutSignal) {
+    BlockingReadThread reader;
+    ASSERT_TRUE(reader.start());
+    ASSERT_TRUE(wait_until_syscall(reader.tid(), SYS_read));
+
+    long http_status = 0;
+    std::string body;
+    ASSERT_TRUE(
+            do_get("/api/stack_trace?thread_id=" + std::to_string(reader.tid()) + "&mode=disabled",
+                   &http_status, &body)
+                    .ok());
+    ASSERT_EQ(200, http_status);
+    EXPECT_THAT(thread_result_line(body, reader.tid()),
+                testing::HasSubstr("status=skipped_blocking_syscall syscall=read "
+                                   "syscall_number=0"));
+    EXPECT_THAT(body, testing::HasSubstr("<no stack captured>"));
+    EXPECT_THAT(body, testing::HasSubstr("summary: captured=0 skipped=1 timed_out=0 "
+                                         "remote_signal_attempts=0\n"));
+
+    reader.stop();
+}
+
+TEST_F(BeThreadStackActionTest, MaxSignalThreadsCanSkipRemoteSignals) {
+    ParkedMarkerThread first;
+    ParkedMarkerThread second;
+    first.start();
+    second.start();
+
+    long http_status = 0;
+    std::string body;
+    ASSERT_TRUE(do_get("/api/stack_trace?mode=disabled&max_signal_threads=0&timeout_ms=1000",
+                       &http_status, &body)
+                        .ok());
+    ASSERT_EQ(200, http_status);
+    EXPECT_THAT(body, testing::HasSubstr("max_signal_threads: 0\n"));
+    EXPECT_THAT(thread_result_line(body, first.tid()),
+                testing::HasSubstr("status=skipped_signal_thread_limit "
+                                   "reason=max_signal_threads"));
+    EXPECT_THAT(thread_result_line(body, second.tid()),
+                testing::HasSubstr("status=skipped_signal_thread_limit "
+                                   "reason=max_signal_threads"));
+    EXPECT_THAT(body, testing::HasSubstr("remote_signal_attempts=0"));
+
+    first.stop();
+    second.stop();
 }
 
 TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
