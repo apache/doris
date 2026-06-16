@@ -434,6 +434,12 @@ suite("rf_partition_pruning", "nonConcurrent") {
 
     // Test 6b: List partition (INT) - Bloom filter prune.
     // Regions {1, 3} keep two LIST partitions and prune the other three.
+    order_qt_list_int_bloom """
+        SELECT /*+ SET_VAR(runtime_filter_type='BLOOM_FILTER') */
+            f.id, f.region_id, f.value
+        FROM rf_prune_list_int f
+        JOIN rf_prune_dim_region d ON f.region_id = d.dim_region
+    """
     assertPruningProfile(
         "* FROM rf_prune_list_int f JOIN rf_prune_dim_region d ON f.region_id = d.dim_region",
         "BLOOM_FILTER", 5, 3)
@@ -1452,6 +1458,16 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "count(*) FROM rf_prune_list_int f JOIN rf_prune_dim_region_twice d "
                 + "ON f.region_id + f.region_id = d.dim_region",
         "IN_OR_BLOOM_FILTER", 5, 3)
+    order_qt_list_expr_bloom """
+        SELECT /*+ SET_VAR(runtime_filter_type='BLOOM_FILTER') */
+            f.id, f.region_id, f.value
+        FROM rf_prune_list_int f
+        JOIN rf_prune_dim_region_twice d ON f.region_id + f.region_id = d.dim_region
+    """
+    assertPruningProfile(
+        "count(*) FROM rf_prune_list_int f JOIN rf_prune_dim_region_twice d "
+                + "ON f.region_id + f.region_id = d.dim_region",
+        "BLOOM_FILTER", 5, 3)
 
     // ============================================================
     // Test 51: String partition column (LIST partition on VARCHAR).
@@ -1496,6 +1512,12 @@ suite("rf_partition_pruning", "nonConcurrent") {
     assertPruningProfile(
         "* FROM rf_prune_list_str f JOIN rf_prune_dim_str d ON f.part_col = d.dim_key",
         "IN_OR_BLOOM_FILTER", 4, 3)
+    order_qt_list_str_bloom """
+        SELECT /*+ SET_VAR(runtime_filter_type='BLOOM_FILTER') */
+            f.id, f.part_col
+        FROM rf_prune_list_str f
+        JOIN rf_prune_dim_str d ON f.part_col = d.dim_key
+    """
     assertPruningProfile(
         "* FROM rf_prune_list_str f JOIN rf_prune_dim_str d ON f.part_col = d.dim_key",
         "BLOOM_FILTER", 4, 3)
