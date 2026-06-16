@@ -103,6 +103,18 @@
 
 namespace doris::variant_util {
 
+static bool can_ignore_missing_column_for_variant_stats(const TabletColumn& column,
+                                                        const Status& st) {
+    if (!st.is<ErrorCode::NOT_FOUND>()) {
+        return false;
+    }
+    if (column.is_nullable()) {
+        return true;
+    }
+    auto default_value = column.default_value();
+    return column.has_default_value() && (default_value == "NULL" || default_value == "null");
+}
+
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
     case '.':
@@ -864,8 +876,11 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+            auto st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+            if (can_ignore_missing_column_for_variant_stats(*column, st)) {
+                continue;
+            }
+            RETURN_IF_ERROR(st);
             if (!column_reader) {
                 continue;
             }
@@ -909,8 +924,11 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+            auto st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+            if (can_ignore_missing_column_for_variant_stats(*column, st)) {
+                continue;
+            }
+            RETURN_IF_ERROR(st);
             if (!column_reader) {
                 continue;
             }
