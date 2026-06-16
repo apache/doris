@@ -100,6 +100,10 @@ class ConfigOptions {
     static Option cloudVersionOpt
     static Option tdeAkOpt
     static Option tdeSkOpt
+    static Option tdeAwsAkOpt
+    static Option tdeAwsSkOpt
+    static Option tdeAliyunAkOpt
+    static Option tdeAliyunSkOpt
     static Option tdeKeyEndpointOpt
     static Option tdeKeyRegionOpt
     static Option tdeKeyProviderOpt
@@ -611,13 +615,33 @@ class ConfigOptions {
                 .build()
         tdeAkOpt = Option.builder("tdeAk")
                 .required(false)
-                .hasArg(false)
+                .hasArg(true)
                 .desc("TDE Access Key")
                 .build();
         tdeSkOpt = Option.builder("tdeSk")
                 .required(false)
-                .hasArg(false)
+                .hasArg(true)
                 .desc("TDE Secret Key")
+                .build();
+        tdeAwsAkOpt = Option.builder("tdeAwsAk")
+                .required(false)
+                .hasArg(true)
+                .desc("TDE AWS Access Key")
+                .build();
+        tdeAwsSkOpt = Option.builder("tdeAwsSk")
+                .required(false)
+                .hasArg(true)
+                .desc("TDE AWS Secret Key")
+                .build();
+        tdeAliyunAkOpt = Option.builder("tdeAliyunAk")
+                .required(false)
+                .hasArg(true)
+                .desc("TDE Aliyun Access Key")
+                .build();
+        tdeAliyunSkOpt = Option.builder("tdeAliyunSk")
+                .required(false)
+                .hasArg(true)
+                .desc("TDE Aliyun Secret Key")
                 .build();
         tdeKeyEndpointOpt = Option.builder("tdeKeyEndpoint")
                 .required(false)
@@ -714,6 +738,10 @@ class ConfigOptions {
                 .addOption(cloudVersionOpt)
                 .addOption(tdeAkOpt)
                 .addOption(tdeSkOpt)
+                .addOption(tdeAwsAkOpt)
+                .addOption(tdeAwsSkOpt)
+                .addOption(tdeAliyunAkOpt)
+                .addOption(tdeAliyunSkOpt)
                 .addOption(tdeKeyEndpointOpt)
                 .addOption(tdeKeyRegionOpt)
                 .addOption(tdeKeyProviderOpt)

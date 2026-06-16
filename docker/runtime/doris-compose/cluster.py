@@ -371,6 +371,18 @@ class Node(object):
     def get_tde_sk(self):
         return self.cluster.tde_sk
 
+    def get_tde_aws_ak(self):
+        return getattr(self.cluster, "tde_aws_ak", "")
+
+    def get_tde_aws_sk(self):
+        return getattr(self.cluster, "tde_aws_sk", "")
+
+    def get_tde_aliyun_ak(self):
+        return getattr(self.cluster, "tde_aliyun_ak", "")
+
+    def get_tde_aliyun_sk(self):
+        return getattr(self.cluster, "tde_aliyun_sk", "")
+
     def get_default_named_ports(self):
         # port_name : default_port
         # the port_name come from fe.conf, be.conf, cloud.conf, etc
@@ -414,6 +426,10 @@ class Node(object):
             "ENABLE_STORAGE_VAULT": 1 if getattr(self.cluster, "enable_storage_vault", False) else 0,
             "TDE_AK": self.get_tde_ak(),
             "TDE_SK": self.get_tde_sk(),
+            "TDE_AWS_AK": self.get_tde_aws_ak(),
+            "TDE_AWS_SK": self.get_tde_aws_sk(),
+            "TDE_ALIYUN_AK": self.get_tde_aliyun_ak(),
+            "TDE_ALIYUN_SK": self.get_tde_aliyun_sk(),
         }
 
         if self.cluster.is_cloud:
@@ -930,6 +946,7 @@ class Cluster(object):
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
                  extra_hosts, env, coverage_dir, cloud_store_config,
                  sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
+                 tde_aws_ak, tde_aws_sk, tde_aliyun_ak, tde_aliyun_sk,
                  external_ms_cluster, instance_id, cluster_snapshot="",
                  enable_storage_vault=False):
         self.name = name
@@ -971,6 +988,10 @@ class Cluster(object):
         self.be_cluster_id = be_cluster_id
         self.tde_ak = tde_ak
         self.tde_sk = tde_sk
+        self.tde_aws_ak = tde_aws_ak
+        self.tde_aws_sk = tde_aws_sk
+        self.tde_aliyun_ak = tde_aliyun_ak
+        self.tde_aliyun_sk = tde_aliyun_sk
 
     @staticmethod
     def new(name, image, is_cloud, is_root_user, fe_config, be_config,
@@ -978,6 +999,7 @@ class Cluster(object):
             fe_follower, be_disks, be_cluster, reg_be, extra_hosts, env,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
             be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
+            tde_aws_ak, tde_aws_sk, tde_aliyun_ak, tde_aliyun_sk,
             external_ms_cluster, instance_id, cluster_snapshot="",
             enable_storage_vault=False):
         if not os.path.exists(LOCAL_DORIS_PATH):
@@ -994,7 +1016,8 @@ class Cluster(object):
                               be_disks, be_cluster, reg_be, extra_hosts, env,
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
-                              be_cluster_id, tde_ak, tde_sk, external_ms_cluster,
+                              be_cluster_id, tde_ak, tde_sk, tde_aws_ak, tde_aws_sk,
+                              tde_aliyun_ak, tde_aliyun_sk, external_ms_cluster,
                               instance_id, cluster_snapshot, enable_storage_vault)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
