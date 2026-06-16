@@ -35,7 +35,7 @@ class RuntimeState;
 class VExprContext;
 } // namespace doris
 
-namespace doris {
+namespace doris::format {
 
 class EqualityDeletePredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(EqualityDeletePredicate);
@@ -68,4 +68,4 @@ private:
     std::multimap<uint64_t, size_t> _delete_hash_map;
 };
 
-} // namespace doris
+} // namespace doris::format

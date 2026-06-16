@@ -36,7 +36,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 class ScalarColumnReader final : public ParquetColumnReader {
     friend class MapColumnReader;
@@ -80,4 +80,4 @@ private:
     std::unique_ptr<ParquetNestedScalarBatch> _nested_batch;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

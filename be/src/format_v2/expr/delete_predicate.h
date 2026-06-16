@@ -32,7 +32,7 @@ class Block;
 class VExprContext;
 } // namespace doris
 
-namespace doris {
+namespace doris::format {
 
 class DeletePredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(DeletePredicate);
@@ -57,4 +57,4 @@ private:
     std::string _expr_name;
     const std::vector<int64_t>& _deleted_rows;
 };
-} // namespace doris
+} // namespace doris::format

@@ -27,7 +27,7 @@
 #include "format_v2/jni/jni_table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace doris::jdbc {
+namespace doris::format::jdbc {
 
 class JdbcJniReader final : public format::JniTableReader {
 public:
@@ -55,4 +55,4 @@ private:
     TFileRangeDesc _current_range;
 };
 
-} // namespace doris::jdbc
+} // namespace doris::format::jdbc

@@ -32,7 +32,7 @@
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_statistics.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 namespace {
 
@@ -535,4 +535,4 @@ Status ParquetScanScheduler::read_next_batch(
     }
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

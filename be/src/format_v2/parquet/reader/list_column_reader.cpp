@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "format_v2/parquet/reader/nested_column_materializer.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 void remove_nullable_wrapper_if_not_expected(const DataTypePtr& output_type,
@@ -161,4 +161,4 @@ bool ListColumnReader::is_or_has_repeated_child() const {
     return true;
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

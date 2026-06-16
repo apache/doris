@@ -28,7 +28,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "util/simd/bits.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 class ParquetNestedScalarValueCursor {
@@ -306,4 +306,4 @@ bool ScalarColumnReader::is_or_has_repeated_child() const {
     return _repetition_level > 0;
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

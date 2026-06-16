@@ -43,7 +43,7 @@
 #include "format_v2/table_reader.h"
 #include "io/file_factory.h"
 
-namespace doris::iceberg {
+namespace doris::format::iceberg {
 
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
@@ -481,7 +481,8 @@ Status IcebergTableReader::_read_parquet_position_delete_file(
     auto system_properties = _delete_file_system_properties(scan_params);
     auto file_description = _delete_file_description(delete_range);
     std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
-    parquet::ParquetReader reader(system_properties, file_description, io_ctx, _scanner_profile);
+    format::parquet::ParquetReader reader(system_properties, file_description, io_ctx,
+                                          _scanner_profile);
     RETURN_IF_ERROR(reader.init(_runtime_state));
 
     std::vector<format::ColumnDefinition> schema;
@@ -591,7 +592,8 @@ Status IcebergTableReader::_read_parquet_equality_delete_file(
     auto system_properties = _delete_file_system_properties(scan_params);
     auto file_description = _delete_file_description(delete_range);
     std::shared_ptr<io::IOContext> io_ctx(&delete_io_ctx->io_ctx, [](io::IOContext*) {});
-    parquet::ParquetReader reader(system_properties, file_description, io_ctx, _scanner_profile);
+    format::parquet::ParquetReader reader(system_properties, file_description, io_ctx,
+                                          _scanner_profile);
     RETURN_IF_ERROR(reader.init(_runtime_state));
 
     std::vector<format::ColumnDefinition> schema;
@@ -770,4 +772,4 @@ bool IcebergTableReader::_need_iceberg_rowid() const {
     return false;
 }
 
-} // namespace doris::iceberg
+} // namespace doris::format::iceberg

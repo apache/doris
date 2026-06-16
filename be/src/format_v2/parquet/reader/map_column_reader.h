@@ -25,7 +25,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/reader/column_reader.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 class MapColumnReader final : public ParquetColumnReader {
 public:
@@ -52,4 +52,4 @@ private:
     std::unique_ptr<ParquetColumnReader> _value_reader;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

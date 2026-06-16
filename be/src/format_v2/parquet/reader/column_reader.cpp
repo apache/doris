@@ -46,7 +46,7 @@
 #include "format_v2/parquet/reader/struct_column_reader.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 class DataPageSkipFilter {
@@ -520,4 +520,4 @@ bool ParquetColumnReader::is_or_has_repeated_child() const {
     return _repetition_level > 0;
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

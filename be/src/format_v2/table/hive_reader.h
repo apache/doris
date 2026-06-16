@@ -20,7 +20,7 @@
 #include "common/status.h"
 #include "format_v2/table_reader.h"
 
-namespace doris::hive {
+namespace doris::format::hive {
 
 class HiveReader final : public format::TableReader {
 public:
@@ -39,4 +39,4 @@ private:
     format::TableColumnMappingMode _mode = format::TableColumnMappingMode::BY_NAME;
 };
 
-} // namespace doris::hive
+} // namespace doris::format::hive

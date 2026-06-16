@@ -45,7 +45,7 @@ namespace arrow {
 class Array;
 } // namespace arrow
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 // Nested scalar leaf state is intentionally split into shape and value.
 //
@@ -131,4 +131,4 @@ private:
     bool _enable_strict_mode = false;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

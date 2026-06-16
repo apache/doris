@@ -42,7 +42,7 @@
 #include "testutil/mock/mock_in_expr.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris {
+namespace doris::format {
 namespace {
 
 format::LocalColumnIndex field_projection(int32_t column_id) {
@@ -1002,4 +1002,4 @@ TEST_F(CastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionChanges) {
     conjunct->close();
 }
 
-} // namespace doris
+} // namespace doris::format

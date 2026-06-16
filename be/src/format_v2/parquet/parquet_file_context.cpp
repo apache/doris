@@ -27,7 +27,7 @@
 #include "io/fs/file_reader.h"
 #include "util/slice.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 class DorisRandomAccessFile final : public arrow::io::RandomAccessFile {
@@ -160,4 +160,4 @@ Status ParquetFileContext::close() {
     return Status::OK();
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

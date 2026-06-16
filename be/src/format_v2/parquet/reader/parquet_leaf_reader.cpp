@@ -38,7 +38,7 @@
 #include "runtime/runtime_profile.h"
 #include "util/simd/bits.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 DecodedTimeUnit decoded_time_unit(ParquetTimeUnit time_unit) {
@@ -595,4 +595,4 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_sl
     return Status::OK();
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

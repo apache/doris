@@ -51,7 +51,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 constexpr int64_t ROW_COUNT = 5;
@@ -3912,4 +3912,4 @@ TEST_F(ParquetColumnReaderTest, BuildBareRepeatedGroupInsideStructAsListStructSc
 }
 
 } // namespace
-} // namespace doris::parquet
+} // namespace doris::format::parquet

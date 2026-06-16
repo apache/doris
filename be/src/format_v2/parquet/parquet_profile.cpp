@@ -19,7 +19,7 @@
 
 #include "format_v2/parquet/parquet_statistics.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 void ParquetProfile::init(RuntimeProfile* profile) {
     if (profile == nullptr) {
@@ -188,4 +188,4 @@ ParquetScanProfile ParquetProfile::scan_profile() const {
     };
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

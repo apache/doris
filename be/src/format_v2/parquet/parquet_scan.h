@@ -51,7 +51,7 @@ struct FileScanRequest;
 } // namespace format
 } // namespace doris
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct ParquetFileContext;
 struct ParquetColumnSchema;
@@ -145,4 +145,4 @@ private:
     bool _enable_strict_mode = false;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

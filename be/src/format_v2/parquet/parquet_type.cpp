@@ -28,7 +28,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 DataTypePtr create_type(PrimitiveType type, bool nullable, int precision = 0, int scale = 0) {
@@ -343,4 +343,4 @@ DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor
     }
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

@@ -31,7 +31,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
 
-namespace doris {
+namespace doris::format {
 
 DeletePredicate::DeletePredicate(const std::vector<int64_t>& deleted_rows)
         : VExpr(), _deleted_rows(deleted_rows) {
@@ -114,4 +114,4 @@ std::string DeletePredicate::debug_string() const {
     return _expr_name;
 }
 
-} // namespace doris
+} // namespace doris::format
