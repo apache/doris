@@ -120,7 +120,7 @@ private:
             } else {
                 // shortest round-trip, fixed-precision %g would expose IEEE-754
                 // residual error e.g. round(23900/293, 2) -> "81.56999999999999".
-                end = fmt::format_to(buffer, "{}", value);
+                end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
             }
         }
         *end = '\0';

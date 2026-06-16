@@ -379,8 +379,6 @@ suite("test_round") {
         FROM test_round_float_print WHERE id = 1 ORDER BY id;
     """
 
-    sql """ DROP TABLE IF EXISTS test_round_float_print; """
-
     qt_fe_round_div_int_int   """ select round(23900/293, 2); """
     qt_fe_round_div_bigint    """ select round(cast(23900 as bigint)/cast(293 as bigint), 2); """
     qt_fe_round_div_double    """ select round(cast(23900 as double)/cast(293 as double), 2); """
