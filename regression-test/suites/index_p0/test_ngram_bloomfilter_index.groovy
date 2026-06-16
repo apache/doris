@@ -110,4 +110,41 @@ suite("test_ngram_bloomfilter_index") {
         sql """ALTER TABLE  ${tableName3} ADD INDEX idx_http_url(http_url) USING NGRAM_BF PROPERTIES("gram_size"="256", "bf_size"="65535") COMMENT 'http_url ngram_bf index'"""
         exception "java.sql.SQLException: errCode = 2, detailMessage = 'gram_size' should be an integer between 1 and 255."
     }
+
+    sql "DROP TABLE IF EXISTS test_ngram_bloomfilter_multi_column_index"
+    test {
+        sql """
+        CREATE TABLE test_ngram_bloomfilter_multi_column_index (
+            `key_id` bigint(20) NULL COMMENT '',
+            `http_url` text NULL COMMENT '',
+            `url_path` varchar(2000) NULL COMMENT '',
+            INDEX idx_ngrambf_multi (`http_url`, `url_path`) USING NGRAM_BF
+                PROPERTIES("gram_size" = "2", "bf_size" = "512")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key_id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`key_id`) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "NGRAM_BF index can only apply to a single column."
+    }
+
+    sql """
+        CREATE TABLE test_ngram_bloomfilter_multi_column_index (
+            `key_id` bigint(20) NULL COMMENT '',
+            `http_url` text NULL COMMENT '',
+            `url_path` varchar(2000) NULL COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key_id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`key_id`) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+        """
+    test {
+        sql """
+        CREATE INDEX idx_ngrambf_multi ON test_ngram_bloomfilter_multi_column_index(`http_url`, `url_path`)
+            USING NGRAM_BF PROPERTIES("gram_size" = "2", "bf_size" = "512")
+        """
+        exception "NGRAM_BF index can only apply to a single column."
+    }
 }

@@ -37,7 +37,6 @@
 #include "core/arena.h"
 #include "core/block/block.h"
 #include "exec/common/variant_util.h"
-#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
@@ -160,6 +159,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             read_params.use_insert_order_when_same ||
             read_params.reader_type == ReaderType::READER_BINLOG ||
             read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
+    _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
@@ -449,8 +449,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
               std::inserter(predicates, predicates.begin()));
     // Function filter push down to storage engine
     auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
-        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred.get()) != nullptr ||
-               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred.get()) != nullptr;
+        return dynamic_cast<LikeColumnPredicate*>(_pred.get()) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {

@@ -565,9 +565,9 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     container->clear();
     _binary_column_reader->column->clear();
     if (_root_reader) {
-        if (_root_reader->column->is_nullable()) {
+        if (is_column_nullable(*_root_reader->column)) {
             // fill nullmap
-            DCHECK(dst->is_nullable());
+            DCHECK(is_column_nullable(*dst));
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             ColumnUInt8& src_null_map =
                     assert_cast<ColumnNullable&>(*_root_reader->column).get_null_map_column();
@@ -575,7 +575,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
             // clear nullmap and inner data
             src_null_map.clear();
         } else {
-            if (dst->is_nullable()) {
+            if (is_column_nullable(*dst)) {
                 // No nullable info exist in hirearchical data, fill nullmap with all none null
                 ColumnUInt8& dst_null_map =
                         assert_cast<ColumnNullable&>(*dst).get_null_map_column();
@@ -585,7 +585,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
         }
         _root_reader->column->clear();
     } else {
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             // No nullable info exist in hirearchical data, fill nullmap with all none null
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
@@ -595,7 +595,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     // root column nullmap need to be reset, for example, the src_null_map is from the whole
     // variant column, but the root column rows should reset to null when empty
     ColumnVariant* variant = nullptr;
-    if (dst->is_nullable()) {
+    if (is_column_nullable(*dst)) {
         variant = &assert_cast<ColumnVariant&>(
                 assert_cast<ColumnNullable&>(*dst).get_nested_column());
     } else {

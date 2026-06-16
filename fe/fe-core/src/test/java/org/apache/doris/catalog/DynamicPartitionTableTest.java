@@ -1722,6 +1722,102 @@ public class DynamicPartitionTableTest {
     }
 
     @Test
+    public void testRejectDynamicPartitionStorageMediumOnNonDynamicTable() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`non_dynamic_storage_medium` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `v1` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES [('2026-05-26'), ('2026-05-27')),\n"
+                + "PARTITION p2 VALUES [('2026-05-27'), ('2026-05-28'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        String alterStmt = "ALTER TABLE test.`non_dynamic_storage_medium` "
+                + "SET (\"dynamic_partition.storage_medium\" = \"hdd\")";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "is not a dynamic partition table",
+                () -> alterTable(alterStmt));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("non_dynamic_storage_medium");
+        Assert.assertFalse(table.dynamicPartitionExists());
+        Assert.assertFalse(table.getTableProperty().getProperties()
+                .containsKey(DynamicPartitionProperty.STORAGE_MEDIUM));
+        Assert.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
+    }
+
+    @Test
+    public void testRejectDynamicPartitionStoragePolicyOnNonDynamicTable() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`non_dynamic_storage_policy` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `v1` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "(\n"
+                + "PARTITION p1 VALUES [('2026-05-26'), ('2026-05-27')),\n"
+                + "PARTITION p2 VALUES [('2026-05-27'), ('2026-05-28'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        String alterStmt = "ALTER TABLE test.`non_dynamic_storage_policy` "
+                + "SET (\"dynamic_partition.storage_policy\" = \"test_policy\")";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "is not a dynamic partition table",
+                () -> alterTable(alterStmt));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("non_dynamic_storage_policy");
+        Assert.assertFalse(table.dynamicPartitionExists());
+        Assert.assertFalse(table.getTableProperty().getProperties()
+                .containsKey(DynamicPartitionProperty.STORAGE_POLICY));
+        Assert.assertNotNull(table.selectiveCopy(null, IndexExtState.VISIBLE, true));
+    }
+
+    @Test
+    public void testAlterDynamicPartitionStorageMediumOnDynamicTable() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_storage_medium` (\n"
+                + "  `k1` date NULL COMMENT \"\",\n"
+                + "  `v1` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "PARTITION BY RANGE(`k1`)()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.start\" = \"-1\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        String alterStmt = "ALTER TABLE test.`dynamic_storage_medium` "
+                + "SET (\"dynamic_partition.storage_medium\" = \"hdd\")";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_storage_medium");
+        Assert.assertTrue(table.dynamicPartitionExists());
+        Assert.assertEquals("hdd", table.getTableProperty().getDynamicPartitionProperty().getStorageMedium());
+        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+        Assert.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getBuckets());
+    }
+
+    @Test
     public void testHourUnitWithDateType() throws AnalysisException {
         String createOlapTblStmt = "CREATE TABLE if not exists test.hour_with_date1 (\n"
                 + "  `days` DATEV2 NOT NULL,\n"
@@ -1835,7 +1931,7 @@ public class DynamicPartitionTableTest {
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
         Assert.assertEquals(53, partitions.size());
-        Assert.assertEquals(1, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Assert.assertEquals(3, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
         Config.autobucket_out_of_bounds_percent_threshold = 0.5;
 
         table.readLock();
@@ -1887,7 +1983,7 @@ public class DynamicPartitionTableTest {
                     if (i < 52) {
                         Assert.assertEquals(10, idx.getTablets().size());
                     } else if (i == 52) {
-                        Assert.assertEquals(1, idx.getTablets().size());
+                        Assert.assertEquals(3, idx.getTablets().size());
                     } else if (i == 53) {
                         Assert.assertEquals(20, idx.getTablets().size());
                     }

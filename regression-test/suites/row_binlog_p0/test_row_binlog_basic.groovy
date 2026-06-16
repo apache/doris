@@ -38,8 +38,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "enable_tso" = "true"
+            "binlog.format" = "ROW"
         )
     """
 
@@ -58,8 +57,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "enable_tso" = "true"
+            "binlog.format" = "ROW"
         )
     """
 
@@ -79,8 +77,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
             "light_schema_change" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
-            "enable_tso" = "true"
+            "binlog.need_historical_value" = "true"
         )
     """
 
@@ -100,8 +97,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
             "light_schema_change" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
-            "enable_tso" = "true"
+            "binlog.need_historical_value" = "true"
         )
     """
 

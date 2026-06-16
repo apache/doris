@@ -137,7 +137,7 @@ private:
 
     void _fill_path_column(MutableColumnPtr& dst) {
         ColumnNullable* nullable_column = nullptr;
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
         ColumnVariant& var =

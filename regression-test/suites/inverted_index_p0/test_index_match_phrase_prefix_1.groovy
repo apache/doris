@@ -51,7 +51,7 @@ suite("test_index_match_phrase_prefix_1", "nonConcurrent"){
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from ${indexTbName1} where c match_phrase_prefix 'O1704361998540E2Cemx9S'; """

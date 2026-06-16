@@ -24,7 +24,7 @@ suite("test_materialized_view_common_expr_push_down") {
         return jobStateResult[0][8]
     }
 
-    sql """set enable_common_expr_pushdown = true"""
+    sql """set enable_segment_limit_pushdown = true"""
 
     sql "DROP TABLE IF EXISTS ${baseTable}"
     sql """

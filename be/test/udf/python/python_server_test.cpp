@@ -195,6 +195,23 @@ protected:
         bp::child child(sleep_path, "60", bp::std_out > output_stream, bp::std_err > bp::null);
         return std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
     }
+
+    template <typename VersionedPoolPtr>
+    Status get_process_with_retry(
+            PythonServerManager& mgr, const PythonVersion& version,
+            const VersionedPoolPtr& versioned_pool, ProcessPtr* process,
+            std::chrono::milliseconds timeout = std::chrono::milliseconds(5000)) {
+        Status last_status;
+        auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            last_status = mgr._get_process(version, versioned_pool, process);
+            if (last_status.ok()) {
+                return last_status;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        return last_status;
+    }
 };
 
 // ============================================================================
@@ -221,7 +238,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedCanInitializeEmptyPoolForTest) {
     PythonVersion version("3.9.16", test_dir_, python_path);
     config::max_python_process_num = 1;
 
-    mgr.set_process_pool_for_test(version, {});
+    mgr.set_process_pool_for_test(version, {}, false);
     auto pool_result = mgr._ensure_pool_initialized(version);
     ASSERT_TRUE(pool_result.has_value()) << pool_result.error().to_string();
 
@@ -746,7 +763,7 @@ TEST_F(PythonServerTest, GetProcessRecreatesDeadProcessWhenNoAliveProcess) {
     ASSERT_FALSE(first_process->is_alive());
 
     ProcessPtr replacement;
-    Status status = mgr._get_process(version, pool_result.value(), &replacement);
+    Status status = get_process_with_retry(mgr, version, pool_result.value(), &replacement);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(replacement, nullptr);

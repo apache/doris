@@ -238,7 +238,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        if (to.is_nullable()) {
+        if (is_column_nullable(to)) {
             auto& null_column = assert_cast<ColumnNullable&>(to);
             null_column.get_null_map_data().push_back(0);
             assert_cast<ColumnInt64&>(null_column.get_nested_column())

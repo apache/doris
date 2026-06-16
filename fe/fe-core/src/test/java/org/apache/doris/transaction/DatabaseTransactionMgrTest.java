@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
@@ -611,17 +612,27 @@ public class DatabaseTransactionMgrTest {
         LabelToTxnId.put(CatalogTestUtil.testTxnLabel8, transactionState8.getTransactionId());
     }
 
+    /**
+     * Sets table binlog format so tests can control table-level TSO without the legacy enable_tso property.
+     */
+    private void setTableBinlogFormat(OlapTable table, BinlogConfig.BinlogFormat binlogFormat) {
+        BinlogConfig binlogConfig = new BinlogConfig(table.getBinlogConfig());
+        binlogConfig.setEnable(true);
+        binlogConfig.setBinlogFormat(binlogFormat);
+        table.setBinlogConfig(binlogConfig);
+    }
+
     @Test
     public void testCommitTransactionSetsCommitTSOWhenEnableTso() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            table.setEnableTso(true);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
 
             long expectedCommitTSO = 12345L;
             TSOService tsoService = Mockito.mock(TSOService.class);
@@ -645,21 +656,21 @@ public class DatabaseTransactionMgrTest {
             Assert.assertNotNull(tableCommitInfo);
             Assert.assertEquals(expectedCommitTSO, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            table.setEnableTso(false);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT);
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getTSO()).thenReturn(12345L);
@@ -682,21 +693,21 @@ public class DatabaseTransactionMgrTest {
             Assert.assertNotNull(tableCommitInfo);
             Assert.assertEquals(-1L, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
     @Test
     public void testCommitTransactionFailsWhenGetTSOInvalid() throws Exception {
-        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         try {
-            Config.enable_tso_feature = true;
+            Config.enable_feature_binlog = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                     .getDbOrMetaException(CatalogTestUtil.testDbId1)
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
-            table.setEnableTso(true);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getTSO()).thenReturn(-1L);
@@ -717,7 +728,7 @@ public class DatabaseTransactionMgrTest {
                 Assert.assertTrue(e.getMessage().contains("failed to get TSO"));
             }
         } finally {
-            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
