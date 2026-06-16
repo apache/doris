@@ -374,6 +374,14 @@ Status OlapScanLocalState::_init_profile() {
                             "AnnIndexRangeResultPostProcessCosts");
     _ann_fallback_brute_force_cnt =
             ADD_COUNTER(_segment_profile, "AnnIndexFallbackBruteForceCnt", TUnit::UNIT);
+    _ann_topn_fallback_by_small_candidate_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexTopNFallbackBySmallCandidateCnt", TUnit::UNIT);
+    _ann_topn_fallback_small_candidate_rows =
+            ADD_COUNTER(_segment_profile, "AnnIndexTopNFallbackSmallCandidateRows", TUnit::UNIT);
+    _ann_range_fallback_by_small_candidate_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexRangeFallbackBySmallCandidateCnt", TUnit::UNIT);
+    _ann_range_fallback_small_candidate_rows =
+            ADD_COUNTER(_segment_profile, "AnnIndexRangeFallbackSmallCandidateRows", TUnit::UNIT);
     _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
     _variant_scan_sparse_column_bytes =
             ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
