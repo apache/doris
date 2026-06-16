@@ -111,19 +111,6 @@ struct FieldInfo {
     int scale = 0;
     int precision = 0;
 };
-struct PackedUInt128 {
-    // PackedInt128() : value(0) {}
-    PackedUInt128() = default;
-
-    PackedUInt128(const unsigned __int128& value_) { value = value_; }
-    PackedUInt128& operator=(const unsigned __int128& value_) {
-        value = value_;
-        return *this;
-    }
-    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
-
-    uint128_t value;
-} __attribute__((packed));
 
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
