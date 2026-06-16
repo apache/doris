@@ -22,7 +22,7 @@ suite("big_join_build") {
 
     sql """
             create table b_table (
-                k1 tinyint not null,
+                k1 int not null,
             )
             duplicate key (k1)
             distributed BY hash(k1) buckets 64
@@ -30,7 +30,7 @@ suite("big_join_build") {
         """
     sql """
             create table p_table (
-                k1 tinyint not null,
+                k1 int not null,
             )
             duplicate key (k1)
             distributed BY hash(k1) buckets 64
@@ -54,6 +54,8 @@ suite("big_join_build") {
     sql """
     insert into b_table select * from numbers("number" = "1000000000");
     """
+
+    qt_count """select count(*) from b_table;"""
 
     qt_sql"""select /*+ leading(p_table b_table) */ count(*) from p_table,b_table where p_table.k1=b_table.k1 and b_table.k1<91;"""
 }
