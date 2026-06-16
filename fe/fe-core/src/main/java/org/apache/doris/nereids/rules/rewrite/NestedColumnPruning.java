@@ -611,7 +611,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 deeperMetaPaths.add(p.second);
             }
         }
-        stripCoveredMetaByPrefix(slotId, AccessPathInfo.ACCESS_OFFSET,
+        stripCoveredMetaByPrefix(slot.getDataType(), slotId, AccessPathInfo.ACCESS_OFFSET,
                 deeperMetaPaths, targetAccessPaths);
     }
 
@@ -663,7 +663,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 metaPaths.add(p.second);
             }
         }
-        stripCoveredMetaByPrefix(slotId, AccessPathInfo.ACCESS_NULL,
+        stripCoveredMetaByPrefix(slot.getDataType(), slotId, AccessPathInfo.ACCESS_NULL,
                 metaPaths, allAccessPaths);
     }
 
@@ -678,7 +678,7 @@ public class NestedColumnPruning implements CustomRewriter {
      * {@link #stripNullBySameDepthOffset} instead.
      */
     private static void stripCoveredMetaByPrefix(
-            int slotId, String targetSuffix,
+            DataType slotType, int slotId, String targetSuffix,
             List<List<String>> coveringMetaPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths) {
         Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths =
@@ -699,7 +699,11 @@ public class NestedColumnPruning implements CustomRewriter {
                     continue;
                 }
                 List<String> otherPrefix = other.subList(0, other.size() - 1);
-                if (hasStrictPrefix(otherPrefix, targetPrefix)) {
+                // Use type-aware comparison so that * ≡ VALUES
+                // (and * ≡ KEYS) at map positions are recognized.
+                OffsetPathRewrite rewrite = compareOffsetPrefixCoverage(
+                        slotType, targetPrefix, otherPrefix);
+                if (rewrite.shouldRemoveOffsetPath()) {
                     toRemove.add(p);
                     break;
                 }

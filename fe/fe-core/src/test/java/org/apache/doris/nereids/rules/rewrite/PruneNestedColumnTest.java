@@ -242,6 +242,21 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDeeperNullCoversValueOffsetForMapArray() throws Exception {
+        // cardinality(map_arr_col['a']) -> normalized to KEYS + VALUES.OFFSET
+        // element_at(map_arr_col['a'], 1) IS NULL -> *.*.NULL
+        // *.*.NULL goes deeper into the value-side array, so VALUES.OFFSET
+        // at the map value level is redundant. Without type-aware comparison
+        // * is not lexically equal to VALUES, so VALUES.OFFSET would survive
+        // and cause BE to skip the item iterator.
+        assertAllAccessPathsContain(
+                "select cardinality(map_arr_col['a']), "
+                        + "element_at(map_arr_col['a'], 1) is null from map_array_tbl",
+                ImmutableList.of(path("map_arr_col", "*", "*", "NULL")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
     public void testNestedMapElementLengthKeepsValueOffsetPath() throws Exception {
         assertColumn("select length(element_at(element_at(s, 'm'), 'a')) from nested_container_tbl",
                 "struct<m:map<text,text>>",
