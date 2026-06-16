@@ -26,7 +26,7 @@
 #include "format_v2/parquet/reader/nested_column_materializer.h"
 #include "format_v2/parquet/reader/scalar_column_reader.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 ParquetColumnReader* StructColumnReader::shape_source_reader() const {
     for (const auto& child : _children) {
         auto* child_reader = child.get();
@@ -219,4 +219,4 @@ bool StructColumnReader::is_or_has_repeated_child() const {
     return shape_reader != nullptr && shape_reader->is_or_has_repeated_child();
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

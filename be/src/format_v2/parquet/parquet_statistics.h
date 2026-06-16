@@ -43,7 +43,7 @@ namespace doris {
 class ColumnPredicate;
 } // namespace doris
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct ParquetColumnSchema;
 
@@ -147,4 +147,4 @@ Status select_row_group_ranges_by_page_index(
         std::vector<RowRange>* selected_ranges, std::map<int, ParquetPageSkipPlan>* page_skip_plans,
         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone = nullptr);
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

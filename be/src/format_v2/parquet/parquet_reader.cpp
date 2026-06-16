@@ -39,7 +39,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct ParquetReaderScanState {
     ParquetFileContext file_context;
@@ -405,4 +405,4 @@ void ParquetReader::_init_profile() {
     _parquet_profile.init(_profile);
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

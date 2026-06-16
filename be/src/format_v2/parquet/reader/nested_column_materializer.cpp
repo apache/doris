@@ -23,7 +23,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 ColumnArray* array_column_from_output(MutableColumnPtr& column) {
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
@@ -69,4 +69,4 @@ void append_parent_nulls(NullMap* dst, const NullMap& src) {
     dst->insert(src.begin(), src.end());
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

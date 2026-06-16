@@ -27,7 +27,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "storage/utils.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 GlobalRowIdColumnReader::GlobalRowIdColumnReader(format::GlobalRowIdContext context,
                                                  int64_t row_group_first_row,
@@ -83,4 +83,4 @@ void GlobalRowIdColumnReader::append_row_id(uint32_t row_id, MutableColumnPtr& c
                                sizeof(GlobalRowLoacationV2));
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

@@ -30,7 +30,7 @@ class ColumnDescriptor;
 class SchemaDescriptor;
 } // namespace parquet
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 enum class ParquetColumnSchemaKind {
     PRIMITIVE,
@@ -97,4 +97,4 @@ struct ParquetColumnSchema {
 Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

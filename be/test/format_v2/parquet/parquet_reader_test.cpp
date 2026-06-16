@@ -490,13 +490,13 @@ void write_page_index_filter_pair_parquet_file(const std::string& file_path) {
                                                       ids.size(), builder.build()));
 }
 
-parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
-    parquet::ParquetColumnSchema schema;
+format::parquet::ParquetColumnSchema primitive_bloom_schema(const DataTypePtr& type) {
+    format::parquet::ParquetColumnSchema schema;
     schema.local_id = 0;
     schema.name = "c0";
     schema.type = type;
     schema.leaf_column_id = 0;
-    schema.kind = parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    schema.kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
     return schema;
 }
 
@@ -647,10 +647,10 @@ TEST(ParquetBloomFilterPruningTest, EqPredicateUsesArrowHashAndPrunesAbsentIntVa
             bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
                     0, "c0", schema.type, Field::create_field<TYPE_INT>(3), false));
 
-    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                     bloom_filter));
-    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, present_filter,
-                                                                      bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
+                                                                             bloom_filter));
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            schema, present_filter, bloom_filter));
 }
 
 TEST(ParquetBloomFilterPruningTest, InPredicatePrunesOnlyWhenAllValuesAreAbsent) {
@@ -675,10 +675,10 @@ TEST(ParquetBloomFilterPruningTest, InPredicatePrunesOnlyWhenAllValuesAreAbsent)
             bloom_filter_with_predicate(create_in_list_predicate<PredicateType::IN_LIST>(
                     0, "c0", schema.type, present_set, false));
 
-    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                     bloom_filter));
-    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, present_filter,
-                                                                      bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
+                                                                             bloom_filter));
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            schema, present_filter, bloom_filter));
 }
 
 TEST(ParquetBloomFilterPruningTest, BooleanPredicateHashesAsParquetInt32) {
@@ -689,10 +689,10 @@ TEST(ParquetBloomFilterPruningTest, BooleanPredicateHashesAsParquetInt32) {
     auto true_filter = bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
             0, "c0", schema.type, Field::create_field<TYPE_BOOLEAN>(true), false));
 
-    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, false_filter,
-                                                                     bloom_filter));
-    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, true_filter,
-                                                                      bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, false_filter,
+                                                                             bloom_filter));
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, true_filter,
+                                                                              bloom_filter));
 }
 
 TEST(ParquetBloomFilterPruningTest, StringPredicateUsesArrowByteArrayHash) {
@@ -704,10 +704,10 @@ TEST(ParquetBloomFilterPruningTest, StringPredicateUsesArrowByteArrayHash) {
             bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
                     0, "c0", schema.type, Field::create_field<TYPE_STRING>("alpha"), false));
 
-    EXPECT_TRUE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
-                                                                     bloom_filter));
-    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, present_filter,
-                                                                      bloom_filter));
+    EXPECT_TRUE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, absent_filter,
+                                                                             bloom_filter));
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            schema, present_filter, bloom_filter));
 }
 
 TEST(ParquetBloomFilterPruningTest, NullableAcceptingAndUnsupportedPredicatesKeepRowGroup) {
@@ -717,15 +717,15 @@ TEST(ParquetBloomFilterPruningTest, NullableAcceptingAndUnsupportedPredicatesKee
             0, "c0", schema.type, Field::create_field<TYPE_INT>(2), false);
     auto accept_null_filter =
             bloom_filter_with_predicate(std::make_shared<AcceptNullPredicate>(nested_predicate));
-    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(schema, accept_null_filter,
-                                                                      bloom_filter));
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+            schema, accept_null_filter, bloom_filter));
 
     auto unsupported_schema = primitive_bloom_schema(std::make_shared<DataTypeInt16>());
     auto unsupported_filter =
             bloom_filter_with_predicate(create_comparison_predicate<PredicateType::EQ>(
                     0, "c0", unsupported_schema.type, Field::create_field<TYPE_SMALLINT>(2),
                     false));
-    EXPECT_FALSE(parquet::ParquetStatisticsUtils::BloomFilterExcludes(
+    EXPECT_FALSE(format::parquet::ParquetStatisticsUtils::BloomFilterExcludes(
             unsupported_schema, unsupported_filter, bloom_filter));
 }
 
@@ -741,7 +741,7 @@ protected:
 
     void TearDown() override { std::filesystem::remove_all(_test_dir); }
 
-    std::unique_ptr<parquet::ParquetReader> create_reader(
+    std::unique_ptr<format::parquet::ParquetReader> create_reader(
             int64_t range_start_offset = 0, int64_t range_size = -1,
             RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
@@ -751,9 +751,9 @@ protected:
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
-        return std::make_unique<parquet::ParquetReader>(system_properties, file_description,
-                                                        nullptr, profile, std::nullopt,
-                                                        enable_mapping_timestamp_tz);
+        return std::make_unique<format::parquet::ParquetReader>(system_properties, file_description,
+                                                                nullptr, profile, std::nullopt,
+                                                                enable_mapping_timestamp_tz);
     }
 
     std::filesystem::path _test_dir;
@@ -1190,10 +1190,11 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
                     !value_chunk->statistics()->HasMinMax());
     }
 
-    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
     auto schema_descriptor = parquet_file_reader->metadata()->schema();
     ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
     ASSERT_EQ(file_schema.size(), 2);
 
     format::FileScanRequest plan_request;
@@ -1204,11 +1205,11 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
             1, "value", value_type, Field::create_field<TYPE_STRING>("lm"), false));
     plan_request.column_predicate_filters.push_back(std::move(plan_column_filter));
 
-    parquet::RowGroupScanPlan plan;
-    parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                 parquet_file_reader.get(), file_schema,
-                                                 plan_request, scan_range, false, &plan)
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         plan_request, scan_range, false, &plan)
                         .ok());
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
@@ -1262,10 +1263,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) 
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
     ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 2);
 
-    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
     auto schema_descriptor = parquet_file_reader->metadata()->schema();
     ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
     ASSERT_EQ(file_schema.size(), 1);
     ASSERT_EQ(file_schema[0]->children.size(), 2);
     ASSERT_EQ(file_schema[0]->children[0]->name, "id");
@@ -1279,11 +1281,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) 
             0, "id", id_type, Field::create_field<TYPE_INT>(5), false));
     request.column_predicate_filters.push_back(std::move(column_filter));
 
-    parquet::RowGroupScanPlan plan;
-    parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                 parquet_file_reader.get(), file_schema, request,
-                                                 scan_range, false, &plan)
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     EXPECT_EQ(plan.row_groups[0].row_group_id, 1);
@@ -1306,10 +1308,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByDictionary) 
         ASSERT_TRUE(name_chunk->statistics() == nullptr || !name_chunk->statistics()->HasMinMax());
     }
 
-    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
     auto schema_descriptor = parquet_file_reader->metadata()->schema();
     ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
     ASSERT_EQ(file_schema.size(), 1);
     ASSERT_EQ(file_schema[0]->children.size(), 2);
     ASSERT_EQ(file_schema[0]->children[1]->name, "name");
@@ -1323,11 +1326,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByDictionary) 
             0, "name", name_type, Field::create_field<TYPE_STRING>("lm"), false));
     request.column_predicate_filters.push_back(std::move(column_filter));
 
-    parquet::RowGroupScanPlan plan;
-    parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                 parquet_file_reader.get(), file_schema, request,
-                                                 scan_range, false, &plan)
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
@@ -1349,10 +1352,11 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     ASSERT_NE(offset_index, nullptr);
     ASSERT_GT(offset_index->page_locations().size(), 1);
 
-    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
     auto schema_descriptor = parquet_file_reader->metadata()->schema();
     ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
     ASSERT_EQ(file_schema.size(), 1);
 
     format::FileScanRequest request;
@@ -1363,11 +1367,11 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
             0, "id", id_type, Field::create_field<TYPE_INT>(63), false));
     request.column_predicate_filters.push_back(std::move(column_filter));
 
-    parquet::RowGroupScanPlan plan;
-    parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                 parquet_file_reader.get(), file_schema, request,
-                                                 scan_range, false, &plan)
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
@@ -1406,10 +1410,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
     ASSERT_NE(offset_index, nullptr);
     ASSERT_GT(offset_index->page_locations().size(), 1);
 
-    std::vector<std::unique_ptr<parquet::ParquetColumnSchema>> file_schema;
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
     auto schema_descriptor = parquet_file_reader->metadata()->schema();
     ASSERT_NE(schema_descriptor, nullptr);
-    ASSERT_TRUE(parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    ASSERT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
     ASSERT_EQ(file_schema.size(), 1);
     ASSERT_EQ(file_schema[0]->children.size(), 2);
     ASSERT_EQ(file_schema[0]->children[0]->name, "id");
@@ -1423,11 +1428,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
             0, "id", id_type, Field::create_field<TYPE_INT>(63), false));
     request.column_predicate_filters.push_back(std::move(column_filter));
 
-    parquet::RowGroupScanPlan plan;
-    parquet::ParquetScanRange scan_range;
-    ASSERT_TRUE(parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
-                                                 parquet_file_reader.get(), file_schema, request,
-                                                 scan_range, false, &plan)
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
@@ -1756,7 +1761,7 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
     Block block = build_file_block_with_row_position(schema);
 
     static const std::vector<int64_t> deleted_rows {1, 3};
-    auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+    auto delete_predicate = std::make_shared<format::DeletePredicate>(deleted_rows);
     delete_predicate->add_child(VSlotRef::create_shared(2, 2, -1, std::make_shared<DataTypeInt64>(),
                                                         format::ROW_POSITION_COLUMN_NAME));
 
@@ -1797,7 +1802,7 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
     Block block = build_file_block_with_row_position(schema);
 
     static const std::vector<int64_t> deleted_rows {3};
-    auto delete_predicate = std::make_shared<DeletePredicate>(deleted_rows);
+    auto delete_predicate = std::make_shared<format::DeletePredicate>(deleted_rows);
     delete_predicate->add_child(VSlotRef::create_shared(2, 2, -1, std::make_shared<DataTypeInt64>(),
                                                         format::ROW_POSITION_COLUMN_NAME));
 

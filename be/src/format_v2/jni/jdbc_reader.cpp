@@ -32,7 +32,7 @@
 #include "format_v2/table_reader.h"
 #include "util/jdbc_utils.h"
 
-namespace doris::jdbc {
+namespace doris::format::jdbc {
 
 std::string JdbcJniReader::connector_class() const {
     return "org/apache/doris/jdbc/JdbcJniScanner";
@@ -189,4 +189,4 @@ Status JdbcJniReader::_cast_string_to_special_type(const format::JniTableReader:
     return Status::OK();
 }
 
-} // namespace doris::jdbc
+} // namespace doris::format::jdbc

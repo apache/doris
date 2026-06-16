@@ -47,8 +47,9 @@ class time_zone;
 
 namespace doris {
 class IColumn;
+} // namespace doris
 
-namespace parquet {
+namespace doris::format::parquet {
 struct ParquetColumnSchema;
 
 // Doris 的 Parquet column reader 抽象。
@@ -218,5 +219,4 @@ private:
     ParquetColumnReaderProfile _column_reader_profile;
 };
 
-} // namespace parquet
-} // namespace doris
+} // namespace doris::format::parquet

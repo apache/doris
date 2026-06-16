@@ -24,7 +24,7 @@
 #include "format_v2/file_reader.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::hive {
+namespace doris::format::hive {
 namespace {
 
 TFileFormatType::type format_type_from_context(const format::ProjectedColumnBuildContext& context) {
@@ -138,4 +138,4 @@ Status HiveReader::validate_projected_columns(
     return Status::OK();
 }
 
-} // namespace doris::hive
+} // namespace doris::format::hive

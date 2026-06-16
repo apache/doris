@@ -31,7 +31,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 
-namespace doris {
+namespace doris::format {
 
 Status Cast::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -128,4 +128,4 @@ Status Cast::_do_execute(VExprContext* context, const Block* block, const Select
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::format

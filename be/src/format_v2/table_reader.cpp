@@ -568,7 +568,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         const bool enable_mapping_timestamp_tz =
                 _scan_params != nullptr && _scan_params->__isset.enable_mapping_timestamp_tz &&
                 _scan_params->enable_mapping_timestamp_tz;
-        *reader = std::make_unique<parquet::ParquetReader>(
+        *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz);
         return Status::OK();

@@ -284,13 +284,13 @@ Status FileScannerV2::_create_table_reader_for_format(
     if (table_format == "NotSet" || table_format == "tvf") {
         *reader = std::make_unique<format::TableReader>();
     } else if (table_format == "hive") {
-        *reader = hive::HiveReader::create_unique();
+        *reader = format::hive::HiveReader::create_unique();
     } else if (table_format == "iceberg") {
-        *reader = std::make_unique<iceberg::IcebergTableReader>();
+        *reader = std::make_unique<format::iceberg::IcebergTableReader>();
     } else if (table_format == "paimon") {
-        *reader = paimon::PaimonReader::create_unique();
+        *reader = format::paimon::PaimonReader::create_unique();
     } else if (table_format == "jdbc") {
-        *reader = std::make_unique<jdbc::JdbcJniReader>();
+        *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }

@@ -28,7 +28,7 @@ namespace parquet {
 class ColumnDescriptor;
 } // namespace parquet
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 // Parquet logical/converted annotation 解析后留下的额外编码信息。
 // 这对应 DuckDB ParquetColumnSchema::type_info：Doris type 只能表达最终展示类型，
@@ -88,4 +88,4 @@ bool supports_record_reader(const ParquetTypeDescriptor& type_descriptor);
 
 DecodedValueKind decoded_value_kind(const ParquetTypeDescriptor& type_descriptor);
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

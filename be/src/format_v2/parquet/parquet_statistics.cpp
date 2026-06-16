@@ -48,7 +48,7 @@
 #include "storage/predicate/accept_null_predicate.h"
 #include "storage/predicate/column_predicate.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 namespace {
 
@@ -1275,4 +1275,4 @@ Status select_row_group_ranges_by_page_index(
     return Status::OK();
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

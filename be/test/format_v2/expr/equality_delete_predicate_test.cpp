@@ -40,7 +40,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris {
+namespace doris::format {
 
 class EqualityDeletePredicateTest : public testing::Test {
 protected:
@@ -178,4 +178,4 @@ TEST_F(EqualityDeletePredicateTest, ChildCountMismatchReturnsError) {
     EXPECT_NE(status.to_string().find("should have 1 child exprs"), std::string::npos);
 }
 
-} // namespace doris
+} // namespace doris::format

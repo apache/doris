@@ -22,7 +22,7 @@
 namespace doris {
 struct DeleteFileDesc;
 }
-namespace doris::paimon {
+namespace doris::format::paimon {
 
 class PaimonReader final : public format::TableReader {
 public:
@@ -41,4 +41,4 @@ private:
     int64_t _split_schema_id = -1;
 };
 
-} // namespace doris::paimon
+} // namespace doris::format::paimon

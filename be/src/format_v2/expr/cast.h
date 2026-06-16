@@ -32,7 +32,7 @@ class Block;
 class VExprContext;
 } // namespace doris
 
-namespace doris {
+namespace doris::format {
 
 class Cast final : public VExpr {
     ENABLE_FACTORY_CREATOR(Cast);
@@ -65,4 +65,4 @@ private:
     std::string _expr_name;
     FunctionBasePtr _function;
 };
-} // namespace doris
+} // namespace doris::format

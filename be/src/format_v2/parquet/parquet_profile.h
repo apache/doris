@@ -19,7 +19,7 @@
 
 #include "runtime/runtime_profile.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct ParquetPruningStats;
 
@@ -119,4 +119,4 @@ struct ParquetProfile {
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

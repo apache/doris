@@ -22,7 +22,7 @@
 
 #include "format_v2/parquet/reader/column_reader.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 class RowPositionColumnReader final : public ParquetColumnReader {
 public:
@@ -42,4 +42,4 @@ private:
     int64_t _next_row_position = 0;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

@@ -24,7 +24,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "util/string_util.h"
 
-namespace doris::paimon {
+namespace doris::format::paimon {
 namespace {
 
 const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
@@ -189,4 +189,4 @@ Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_d
     return Status::OK();
 }
 
-} // namespace doris::paimon
+} // namespace doris::format::paimon

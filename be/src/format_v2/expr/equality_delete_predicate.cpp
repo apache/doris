@@ -28,7 +28,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 
-namespace doris {
+namespace doris::format {
 namespace {
 
 bool column_value_equal(const ColumnPtr& lhs, size_t lhs_row, const ColumnPtr& rhs,
@@ -156,4 +156,4 @@ std::string EqualityDeletePredicate::debug_string() const {
     return _expr_name;
 }
 
-} // namespace doris
+} // namespace doris::format

@@ -323,7 +323,8 @@ private:
     std::string _name;
 };
 
-class IcebergTableReaderDeleteFileTestHelper final : public doris::iceberg::IcebergTableReader {
+class IcebergTableReaderDeleteFileTestHelper final
+        : public doris::format::iceberg::IcebergTableReader {
 public:
     Status parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
                                       bool* has_delete_file) {
@@ -331,7 +332,8 @@ public:
     }
 };
 
-class IcebergTableReaderScanRequestTestHelper final : public doris::iceberg::IcebergTableReader {
+class IcebergTableReaderScanRequestTestHelper final
+        : public doris::format::iceberg::IcebergTableReader {
 public:
     Status init_for_scan_request_test(std::vector<ColumnDefinition> projected_columns) {
         _query_options = std::make_unique<TQueryOptions>();
@@ -373,7 +375,8 @@ private:
     DeleteRows _delete_rows_storage;
 };
 
-class IcebergTableReaderMappingModeTestHelper final : public doris::iceberg::IcebergTableReader {
+class IcebergTableReaderMappingModeTestHelper final
+        : public doris::format::iceberg::IcebergTableReader {
 public:
     TableColumnMappingMode mapping_mode_for_schema(std::vector<ColumnDefinition> file_schema) {
         _data_reader.file_schema = std::move(file_schema);
@@ -1148,7 +1151,7 @@ TTableFormatFileDesc make_paimon_table_format_desc(const std::string& deletion_f
     return table_format_params;
 }
 
-std::vector<int32_t> read_iceberg_ids(doris::iceberg::IcebergTableReader* reader,
+std::vector<int32_t> read_iceberg_ids(doris::format::iceberg::IcebergTableReader* reader,
                                       const std::vector<ColumnDefinition>& projected_columns) {
     std::vector<int32_t> ids;
     bool eos = false;
@@ -3578,7 +3581,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3632,7 +3635,7 @@ TEST(TableReaderTest, IcebergRowLineageUsesPhysicalRowIdAndFillsNulls) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3682,7 +3685,7 @@ TEST(TableReaderTest, IcebergPhysicalRowIdKeepsNullsWithoutFirstRowId) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3733,7 +3736,7 @@ TEST(TableReaderTest, IcebergMissingRowIdStaysNullWithoutFirstRowId) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3788,7 +3791,7 @@ TEST(TableReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterialization
     VExprContextSPtrs conjuncts = {prepared_conjunct(
             &state,
             table_nullable_int64_binary_predicate("eq", TExprOpcode::EQ, 0, 0, "_row_id", 1001))};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3843,7 +3846,7 @@ TEST(TableReaderTest, IcebergLastUpdatedSequencePredicateFiltersAfterMaterializa
     VExprContextSPtrs conjuncts = {prepared_conjunct(
             &state, table_nullable_int64_binary_predicate("eq", TExprOpcode::EQ, 1, 1,
                                                           "_last_updated_sequence_number", 77))};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3891,7 +3894,7 @@ TEST(TableReaderTest, IcebergRowidVirtualColumnUsesDataFilePosition) {
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -3943,7 +3946,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4004,7 +4007,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = std::move(column_predicates),
@@ -4095,7 +4098,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4143,7 +4146,7 @@ TEST(TableReaderTest, PaimonTableReaderAppliesBitmapDeletionVectorFile) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::paimon::PaimonReader reader;
+    doris::format::paimon::PaimonReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4202,7 +4205,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4287,7 +4290,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDele
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4337,7 +4340,7 @@ TEST(TableReaderTest, IcebergTableLevelCountUsesAssignedRowCountWithPositionDele
     TQueryOptions query_options;
     query_options.__set_batch_size(10);
     RuntimeState state {query_options, TQueryGlobals()};
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4393,7 +4396,7 @@ TEST(TableReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4443,7 +4446,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEqualityDele
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4497,7 +4500,7 @@ TEST(TableReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4544,7 +4547,7 @@ TEST(TableReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4592,7 +4595,7 @@ TEST(TableReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4649,7 +4652,7 @@ TEST(TableReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
@@ -4698,7 +4701,7 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
     io::FileCacheStatistics file_cache_stats;
     auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
     ShardedKVCache cache(1);
-    doris::iceberg::IcebergTableReader reader;
+    doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},

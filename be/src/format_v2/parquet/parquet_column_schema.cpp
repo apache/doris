@@ -30,7 +30,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "format_v2/parquet/parquet_type.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 namespace {
 
 struct SchemaBuildContext {
@@ -484,4 +484,4 @@ Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
     return Status::OK();
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

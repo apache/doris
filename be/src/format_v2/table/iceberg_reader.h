@@ -38,7 +38,7 @@ struct FileSystemProperties;
 } // namespace io
 } // namespace doris
 
-namespace doris::iceberg {
+namespace doris::format::iceberg {
 
 // Iceberg table-level reader。
 // 该层继承 TableReader，复用多文件编排和动态分区裁剪等通用能力；同时组合
@@ -172,4 +172,4 @@ private:
     bool _need_iceberg_rowid() const;
 };
 
-} // namespace doris::iceberg
+} // namespace doris::format::iceberg

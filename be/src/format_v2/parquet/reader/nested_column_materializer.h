@@ -26,7 +26,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 ColumnArray* array_column_from_output(MutableColumnPtr& column);
 ColumnMap* map_column_from_output(MutableColumnPtr& column);
@@ -36,4 +36,4 @@ NullMap* null_map_from_nullable_output(MutableColumnPtr& column);
 void append_offsets(ColumnArray::Offsets64& offsets, const std::vector<uint64_t>& entry_counts);
 void append_parent_nulls(NullMap* dst, const NullMap& src);
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

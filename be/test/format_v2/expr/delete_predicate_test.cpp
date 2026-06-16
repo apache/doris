@@ -31,7 +31,7 @@
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris {
+namespace doris::format {
 
 class DeletePredicateTest : public testing::Test {
 protected:
@@ -152,4 +152,4 @@ TEST_F(DeletePredicateTest, LifecycleAndDebugString) {
     delete_predicate.close(&context, FunctionContext::THREAD_LOCAL);
 }
 
-} // namespace doris
+} // namespace doris::format

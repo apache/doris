@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 RowPositionColumnReader::RowPositionColumnReader(int64_t row_group_first_row,
                                                  ParquetColumnReaderProfile profile)
@@ -75,4 +75,4 @@ Status RowPositionColumnReader::skip(int64_t rows) {
     return Status::OK();
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

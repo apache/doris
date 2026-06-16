@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct ParquetFileContext {
     std::shared_ptr<arrow::io::RandomAccessFile> arrow_file;
@@ -39,4 +39,4 @@ struct ParquetFileContext {
 
 Status arrow_status_to_doris_status(const arrow::Status& status);
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

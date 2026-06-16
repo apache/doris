@@ -26,7 +26,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/reader/column_reader.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 class StructColumnReader final : public ParquetColumnReader {
 public:
@@ -56,4 +56,4 @@ private:
     std::vector<int> _child_output_indices;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

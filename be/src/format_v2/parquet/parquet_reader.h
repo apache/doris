@@ -32,7 +32,7 @@ struct IOContext;
 } // namespace io
 } // namespace doris
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct ParquetReaderScanState;
 
@@ -81,4 +81,4 @@ private:
     bool _enable_mapping_timestamp_tz = false;
 };
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet

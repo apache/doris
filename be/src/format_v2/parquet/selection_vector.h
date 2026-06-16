@@ -25,7 +25,7 @@
 #include "common/check.h"
 #include "common/status.h"
 
-namespace doris::parquet {
+namespace doris::format::parquet {
 
 struct RowRange {
     int64_t start = 0;
@@ -165,4 +165,4 @@ inline std::vector<RowRange> selection_to_ranges(const SelectionVector& selectio
     return ranges;
 }
 
-} // namespace doris::parquet
+} // namespace doris::format::parquet
