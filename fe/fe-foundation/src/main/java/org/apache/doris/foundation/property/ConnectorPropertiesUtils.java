@@ -166,6 +166,45 @@ public class ConnectorPropertiesUtils {
     }
 
     /**
+     * Renders a {@code @ConnectorProperty}-annotated object as a diagnostic string with sensitive
+     * field values masked.
+     *
+     * <p>The {@code sensitive} flag on each {@link ConnectorProperty} is the single source of truth:
+     * sensitive fields render as {@code ***} (or {@code <empty>} when blank) so that logging a
+     * properties object via {@code LOG.xxx("props=" + props)} can never leak credentials. Keeping the
+     * masking driven by the annotation means new sensitive fields are protected automatically without
+     * having to maintain a hand-written {@code toString()}.
+     *
+     * @param target the annotated object to render
+     * @return a masked, human-readable representation
+     */
+    public static String toMaskedString(Object target) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(target.getClass().getSimpleName()).append('{');
+        boolean first = true;
+        for (Field field : getConnectorProperties(target.getClass())) {
+            Object value;
+            try {
+                value = field.get(target);
+            } catch (IllegalAccessException e) {
+                value = "<inaccessible>";
+            }
+            String rendered;
+            if (field.getAnnotation(ConnectorProperty.class).sensitive()) {
+                rendered = isNotBlank(value == null ? null : value.toString()) ? "***" : "<empty>";
+            } else {
+                rendered = String.valueOf(value);
+            }
+            if (!first) {
+                sb.append(", ");
+            }
+            sb.append(field.getName()).append('=').append(rendered);
+            first = false;
+        }
+        return sb.append('}').toString();
+    }
+
+    /**
      * Checks if a string is not null, not empty, and not whitespace-only.
      */
     private static boolean isNotBlank(String s) {
