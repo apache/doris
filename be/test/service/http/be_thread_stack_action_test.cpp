@@ -26,6 +26,7 @@
 
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -118,6 +119,8 @@ public:
     ~BlockingReadThread() { stop(); }
 
     pid_t tid() const { return _tid.load(); }
+    bool read_finished() const { return _read_finished.load(); }
+    int read_errno() const { return _read_errno.load(); }
 
 private:
     void run() {
@@ -128,12 +131,16 @@ private:
         }
         char byte = 0;
         ssize_t res = ::read(_pipe_fds[0], &byte, 1);
+        _read_errno.store(res < 0 ? errno : 0);
+        _read_finished.store(true);
         (void)res;
     }
 
     std::array<int, 2> _pipe_fds {-1, -1};
     std::thread _thread;
     std::atomic<pid_t> _tid {0};
+    std::atomic<bool> _read_finished {false};
+    std::atomic<int> _read_errno {0};
     std::mutex _mu;
     std::condition_variable _ready_cv;
 };
@@ -237,7 +244,6 @@ TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     EXPECT_THAT(body, testing::HasSubstr("BE thread stack traces\n"));
     EXPECT_THAT(body, testing::HasSubstr("service_signal: "));
     EXPECT_THAT(body, testing::HasSubstr("thread_count: 2\n"));
-    EXPECT_THAT(body, testing::HasSubstr("max_signal_threads: unlimited_for_thread_id_filter\n"));
     EXPECT_THAT(body, testing::HasSubstr("dwarf_location_info_mode: disabled\n"));
     EXPECT_THAT(body,
                 testing::HasSubstr(
@@ -300,6 +306,9 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsCapturedByDefault) {
     EXPECT_THAT(thread_result_line(body, reader.tid()), testing::HasSubstr("capture_method="));
     EXPECT_THAT(body, testing::HasSubstr("summary: captured=1 skipped=0 timed_out=0 "
                                          "remote_signal_attempts=1\n"));
+    EXPECT_FALSE(reader.read_finished())
+            << "read was interrupted with errno=" << reader.read_errno();
+    EXPECT_TRUE(wait_until_syscall(reader.tid(), SYS_read));
 
     reader.stop();
 }
@@ -327,31 +336,6 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
     reader.stop();
 }
 
-TEST_F(BeThreadStackActionTest, MaxSignalThreadsCanSkipRemoteSignals) {
-    ParkedMarkerThread first;
-    ParkedMarkerThread second;
-    first.start();
-    second.start();
-
-    long http_status = 0;
-    std::string body;
-    ASSERT_TRUE(do_get("/api/stack_trace?mode=disabled&max_signal_threads=0&timeout_ms=1000",
-                       &http_status, &body)
-                        .ok());
-    ASSERT_EQ(200, http_status);
-    EXPECT_THAT(body, testing::HasSubstr("max_signal_threads: 0\n"));
-    EXPECT_THAT(thread_result_line(body, first.tid()),
-                testing::HasSubstr("status=skipped_signal_thread_limit "
-                                   "reason=max_signal_threads"));
-    EXPECT_THAT(thread_result_line(body, second.tid()),
-                testing::HasSubstr("status=skipped_signal_thread_limit "
-                                   "reason=max_signal_threads"));
-    EXPECT_THAT(body, testing::HasSubstr("remote_signal_attempts=0"));
-
-    first.stop();
-    second.stop();
-}
-
 TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
     struct InvalidCase {
         std::string path;
@@ -369,8 +353,7 @@ TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
             {"/api/stack_trace?tid=1&thread_id=2", "tid and thread_id are mutually exclusive"},
             {"/api/stack_trace?timeout_ms=0", "invalid timeout_ms: 0"},
             {"/api/stack_trace?timeout_ms=10001", "invalid timeout_ms: 10001"},
-            {"/api/stack_trace?max_signal_threads=-1", "invalid max_signal_threads: -1"},
-            {"/api/stack_trace?max_signal_threads=65537", "invalid max_signal_threads: 65537"},
+            {"/api/stack_trace?max_signal_threads=1", "max_signal_threads is no longer supported"},
             {"/api/stack_trace?mode=unknown", "invalid dwarf_location_info_mode: unknown"},
             {"/api/stack_trace?skip_blocking_syscalls=maybe",
              "invalid skip_blocking_syscalls: maybe"},

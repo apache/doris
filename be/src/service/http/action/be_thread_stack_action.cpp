@@ -73,8 +73,6 @@ constexpr std::string_view HEADER_TEXT = "text/plain; charset=utf-8";
 constexpr int STACK_TRACE_SIGNAL_OFFSET = 6;
 constexpr int DEFAULT_TIMEOUT_MS = 100;
 constexpr int MAX_TIMEOUT_MS = 10000;
-constexpr int MAX_SIGNAL_THREADS = 65536;
-constexpr int DEFAULT_MAX_SIGNAL_THREADS = MAX_SIGNAL_THREADS;
 constexpr size_t MAX_MEMORY_RANGES = 8192;
 constexpr std::string_view DEFAULT_DWARF_MODE = "FAST";
 
@@ -967,7 +965,6 @@ enum class CaptureStatus {
     OK,
     CURRENT_THREAD,
     SKIPPED_BLOCKING_SYSCALL,
-    SKIPPED_SIGNAL_THREAD_LIMIT,
     SIGNAL_BLOCKED,
     THREAD_EXITED,
     SIGNAL_ERROR,
@@ -982,7 +979,7 @@ struct CaptureResult {
 };
 
 CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int timeout_ms,
-                                   bool allow_remote_signal, bool skip_blocking_syscalls) {
+                                   bool skip_blocking_syscalls) {
     if (tid == get_current_tid()) {
         return {CaptureStatus::CURRENT_THREAD, capture_current_thread_stack(dwarf_mode), "",
                 "capture_method=current_thread_stacktrace"};
@@ -993,10 +990,6 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
             return {CaptureStatus::SKIPPED_BLOCKING_SYSCALL, "", "",
                     fmt::format("syscall={} syscall_number={}", syscall->name, syscall->number)};
         }
-    }
-
-    if (!allow_remote_signal) {
-        return {CaptureStatus::SKIPPED_SIGNAL_THREAD_LIMIT, "", "", "reason=max_signal_threads"};
     }
 
     if (is_signal_blocked(tid)) {
@@ -1047,8 +1040,6 @@ std::string status_to_string(CaptureStatus status) {
         return "ok_current_thread";
     case CaptureStatus::SKIPPED_BLOCKING_SYSCALL:
         return "skipped_blocking_syscall";
-    case CaptureStatus::SKIPPED_SIGNAL_THREAD_LIMIT:
-        return "skipped_signal_thread_limit";
     case CaptureStatus::SIGNAL_BLOCKED:
         return "signal_blocked";
     case CaptureStatus::THREAD_EXITED:
@@ -1105,10 +1096,10 @@ void BeThreadStackAction::handle(HttpRequest* req) {
         return;
     }
 
-    int max_signal_threads = DEFAULT_MAX_SIGNAL_THREADS;
-    if (!parse_int_param(req, "max_signal_threads", DEFAULT_MAX_SIGNAL_THREADS, 0,
-                         MAX_SIGNAL_THREADS, &max_signal_threads, &error)) {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error + "\n");
+    if (!req->param("max_signal_threads").empty()) {
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
+                                "max_signal_threads is no longer supported; use thread_id to "
+                                "capture specific threads or omit it to capture all threads\n");
         return;
     }
 
@@ -1149,10 +1140,6 @@ void BeThreadStackAction::handle(HttpRequest* req) {
     out << "service_signal: " << stack_trace_signal() << '\n';
     out << "thread_count: " << threads.size() << '\n';
     out << "timeout_ms_per_thread: " << timeout_ms << '\n';
-    out << "max_signal_threads: "
-        << (tid_filter.has_value() ? "unlimited_for_thread_id_filter"
-                                   : std::to_string(max_signal_threads))
-        << '\n';
     out << "dwarf_location_info_mode: " << dwarf_mode << '\n';
     out << "skip_blocking_syscalls: " << (skip_blocking_syscalls ? "true" : "false") << '\n';
     out << "signal_handler_unwinder: "
@@ -1164,10 +1151,8 @@ void BeThreadStackAction::handle(HttpRequest* req) {
     int remote_signal_attempts = 0;
 
     for (const auto& thread : threads) {
-        const bool allow_remote_signal =
-                tid_filter.has_value() || remote_signal_attempts < max_signal_threads;
-        CaptureResult result = capture_thread_stack(thread.tid, dwarf_mode, timeout_ms,
-                                                    allow_remote_signal, skip_blocking_syscalls);
+        CaptureResult result =
+                capture_thread_stack(thread.tid, dwarf_mode, timeout_ms, skip_blocking_syscalls);
         switch (result.status) {
         case CaptureStatus::OK:
             ++remote_signal_attempts;
@@ -1184,7 +1169,6 @@ void BeThreadStackAction::handle(HttpRequest* req) {
             ++remote_signal_attempts;
             ++skipped;
             break;
-        case CaptureStatus::SKIPPED_SIGNAL_THREAD_LIMIT:
         case CaptureStatus::SKIPPED_BLOCKING_SYSCALL:
         case CaptureStatus::SIGNAL_BLOCKED:
         case CaptureStatus::THREAD_EXITED:
