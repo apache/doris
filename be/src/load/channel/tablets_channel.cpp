@@ -807,6 +807,7 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
             }
             tablet_writer = tablet_writer_it->second.get();
         }
+        RETURN_IF_ERROR(_prepare_receiver_side_random_bucket_writer(tablet_writer));
 
         bool memtable_flushed = false;
         Status st = tablet_writer->write(&send_data, row_idxs, &memtable_flushed);
@@ -847,6 +848,10 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
         std::lock_guard<std::mutex> l(_lock);
         _next_seqs[request.sender_id()] = cur_seq + 1;
     }
+    return Status::OK();
+}
+
+Status BaseTabletsChannel::_prepare_receiver_side_random_bucket_writer(BaseDeltaWriter*) {
     return Status::OK();
 }
 

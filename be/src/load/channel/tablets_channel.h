@@ -130,6 +130,7 @@ protected:
             const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
             std::unordered_map<int64_t, DorisVector<uint32_t>>& partition_to_rowidxs,
             PTabletWriterAddBlockResult* response);
+    virtual Status _prepare_receiver_side_random_bucket_writer(BaseDeltaWriter* writer);
     Status _build_partition_to_rowidxs_for_receiver_side_random_bucket(
             const PTabletWriterAddBlockRequest& request,
             std::unordered_map<int64_t, DorisVector<uint32_t>>* partition_to_rowidxs);
