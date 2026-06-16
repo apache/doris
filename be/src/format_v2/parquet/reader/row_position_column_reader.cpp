@@ -26,6 +26,8 @@
 
 namespace doris::format::parquet {
 
+// 构造函数：创建一个匿名 ParquetColumnSchema（只有 name），类型为 Int64。
+// 虚拟列不对应任何 Parquet 物理列，因此不需要完整的 schema 信息。
 RowPositionColumnReader::RowPositionColumnReader(int64_t row_group_first_row,
                                                  ParquetColumnReaderProfile profile)
         : ParquetColumnReader(ParquetColumnSchema {.name = format::ROW_POSITION_COLUMN_NAME},

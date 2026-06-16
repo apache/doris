@@ -31,6 +31,8 @@
 namespace doris::format::parquet {
 namespace {
 
+// 嵌套标量值游标 — 从 ParquetNestedScalarBatch 中按 level_idx 查找对应的 value。
+// MapColumnReader 利用它为每个 key slot 找到对应的 value 行。
 class ParquetNestedScalarValueCursor {
 public:
     explicit ParquetNestedScalarValueCursor(const ParquetNestedScalarBatch* batch) { reset(batch); }
@@ -63,6 +65,8 @@ private:
     const ParquetNestedScalarBatch* _batch = nullptr;
 };
 
+// 将嵌套 batch 中 level_idx 位置的值追加到目标 column。
+// 如果目标 column 是 ColumnNullable，将值写入 nested column 并 push_back(0) 到 null map。
 Status append_scalar_batch_value(const ScalarColumnReader& column_reader,
                                  const ParquetNestedScalarBatch& batch, int64_t level_idx,
                                  ParquetNestedScalarValueCursor* value_cursor,
@@ -99,6 +103,9 @@ ScalarColumnReader::ScalarColumnReader(
 
 ScalarColumnReader::~ScalarColumnReader() = default;
 
+// 平铺读取：直接从 Arrow RecordReader 读 rows 行 → 构建 null_map → 物化到 Doris Column。
+//
+// 这是 ScalarColumnReader 最核心的路径，对应 ParquetLeafReader 的 ① 平铺读取流程。
 Status ScalarColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     if (column.get() == nullptr || rows_read == nullptr) {
         return Status::InvalidArgument("Invalid parquet column read result pointer for column {}",
@@ -204,6 +211,10 @@ void ScalarColumnReader::advance_rows_read(int64_t rows) {
     _row_group_rows_read += rows;
 }
 
+// 跳过 rows 行。分为两个阶段：
+// 1. page_filtered_rows_to_skip() — 计算落在 page skip range 内的行数（已由 page index 跳过）
+// 2. skip_records() — 对剩余行调用 RecordReader::SkipRecords()
+// 这两个阶段的行数之和等于 rows。
 Status ScalarColumnReader::skip(int64_t rows) {
     if (rows <= 0) {
         return Status::OK();
@@ -217,11 +228,16 @@ Status ScalarColumnReader::skip(int64_t rows) {
     return Status::OK();
 }
 
+// 嵌套协议的 load 阶段：调用 ParquetLeafReader::read_nested_batch()。
+//
+// 关键参数 materialized_slot_definition_level：
+// Nullable 标量叶子需要为 NULL 占位符也保留 value slot。
+// 如果 _type->is_nullable()，将 slot threshold 降低 1 级（_definition_level - 1），
+// 这样即使 def_level < _definition_level（即 NULL）的 slot 也会有一个 value index。
+// The value index stream must advance on those null slots, otherwise later payload values shift.
 Status ScalarColumnReader::load_nested_batch(int64_t rows) {
     DORIS_CHECK(_nested_batch != nullptr);
     reset_nested_build_level_cursor();
-    // Nullable scalar leaves materialize one slot for both non-null values and null placeholders.
-    // The value index stream must advance on those null slots, otherwise later payload values shift.
     const int16_t materialized_slot_definition_level =
             static_cast<int16_t>(_definition_level - (_type->is_nullable() ? 1 : 0));
     RETURN_IF_ERROR(leaf_reader().read_nested_batch(rows, materialized_slot_definition_level,

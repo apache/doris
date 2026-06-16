@@ -27,6 +27,24 @@
 
 namespace doris::format::parquet {
 
+// MAP 列的读取器，持有 key reader 和 value reader。
+//
+// key reader 始终完整读取（不做 projection 裁剪），因为它拥有：
+//   - entry 的存在性：null key → entry 无效
+//   - offsets 信息：从 key 的 rep levels 确定每个顶层行有多少个 entry
+//   - key 唯一性语义：重复 key 的行为由引擎层决定
+//
+// 嵌套协议流程：
+//   1. load_nested_batch() → 分别加载 key reader 和 value reader
+//   2. build_nested_column() →
+//      a. 从 key reader 的 rep levels 计算 entry_counts → 设置 ColumnMap offsets
+//      b. 从 key reader 的 def levels 判断 MAP 本身和每个 entry 的 null 状态
+//      c. 校验：key 为 NULL 的 entry 被标记为无效（兼容 Hive 的非标准 optional key）
+//      d. 委托 key reader 的 build_nested_column() 填充 keys
+//      e. 委托 value reader 的 build_nested_column() 填充 values
+//
+// MapColumnReader 是 ScalarColumnReader 的 friend，可以直接访问其内部方法
+// 来逐个读取 key value 做 entry 校验。
 class MapColumnReader final : public ParquetColumnReader {
 public:
     MapColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
@@ -48,8 +66,8 @@ public:
     bool is_or_has_repeated_child() const override;
 
 private:
-    std::unique_ptr<ParquetColumnReader> _key_reader;
-    std::unique_ptr<ParquetColumnReader> _value_reader;
+    std::unique_ptr<ParquetColumnReader> _key_reader; // key 列 reader（始终完整读取）
+    std::unique_ptr<ParquetColumnReader> _value_reader; // value 列 reader（可按 projection 裁剪）
 };
 
 } // namespace doris::format::parquet

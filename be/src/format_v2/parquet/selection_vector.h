@@ -54,9 +54,17 @@ struct ParquetPageSkipPlan {
     }
 };
 
-// 类似 DuckDB SelectionVector 的轻量行号视图。
-// 它只表达一个 batch 内被选中的 row offset，不持有 table/global schema 语义。
-// 未绑定 data 时表示 identity selection：get_index(i) == i。
+// 批次内选中行的行号视图，类似 DuckDB 的 SelectionVector。
+//
+// 用途：在 late materialization 中，predicate 列全量读取后执行 conjuncts，
+// 生成 SelectionVector 标记哪些行命中。Non-predicate 列再通过 select() 只读命中行。
+//
+// 两种模式：
+//   - 未绑定 data (_data == nullptr)：identity selection，get_index(i) == i
+//   - 已绑定 data：_data[i] 是第 i 个选中行的 batch 内行号
+//
+// selection_to_ranges() 将选中的行号合并为连续的 RowRange 列表，
+// 供 ColumnReader 做 range-based skip + read。
 class SelectionVector {
 public:
     using Index = uint16_t;

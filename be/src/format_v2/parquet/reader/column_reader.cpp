@@ -49,6 +49,10 @@
 namespace doris::format::parquet {
 namespace {
 
+// Arrow PageReader 的 data page filter 回调。
+// 在 page index 裁剪阶段已生成 ParquetPageSkipPlan，其中记录了每个 data page 是否应跳过。
+// 本回调在 Arrow 遍历 data page 时被触发，按 skip plan 标记跳过对应 page，
+// 使 RecordReader 在物理读取层面就不读这些 page。
 class DataPageSkipFilter {
 public:
     DataPageSkipFilter(const ParquetPageSkipPlan* page_skip_plan,
@@ -85,6 +89,7 @@ private:
     size_t _next_data_page_idx = 0;
 };
 
+// 从 page_skip_plans map 中查找指定 leaf_column_id 的 skip plan。
 const ParquetPageSkipPlan* find_page_skip_plan(
         const std::map<int, ParquetPageSkipPlan>* page_skip_plans, int leaf_column_id) {
     if (page_skip_plans == nullptr) {
@@ -94,6 +99,8 @@ const ParquetPageSkipPlan* find_page_skip_plan(
     return plan_it == page_skip_plans->end() ? nullptr : &plan_it->second;
 }
 
+// 为 Arrow PageReader 安装 data page 级别的跳过过滤器。
+// 如果该 leaf column 没有 page skip plan，跳过安装。
 void install_data_page_filter(std::unique_ptr<::parquet::PageReader>& page_reader,
                               const std::map<int, ParquetPageSkipPlan>* page_skip_plans,
                               int leaf_column_id, ParquetPageSkipProfile page_skip_profile) {
@@ -106,6 +113,8 @@ void install_data_page_filter(std::unique_ptr<::parquet::PageReader>& page_reade
     page_reader->set_data_page_filter(DataPageSkipFilter(page_skip_plan, page_skip_profile));
 }
 
+// 判断嵌套场景下该列是否可以通过简化版 ScalarColumnReader 读取。
+// 当前只对纯物理类型（无 logical/converted annotation）返回 true。
 // TODO: support more types
 bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_schema) {
     if (column_schema.type_descriptor.supports_record_reader) {
@@ -153,6 +162,10 @@ void ParquetColumnReader::update_reader_skip_rows(int64_t rows) const {
     }
 }
 
+// select() 的默认实现：将 SelectionVector 转为连续的 RowRange 列表，
+// 对每个 range 调用 skip(range.start - cursor) + read(range.length)，
+// 最后 skip(batch_rows - cursor) 消耗完整个 batch。
+// 子类可以覆写以获得更高效的实现。
 Status ParquetColumnReader::select(const SelectionVector& sel, uint16_t selected_rows,
                                    int64_t batch_rows, MutableColumnPtr& column) {
     if (column.get() == nullptr) {
@@ -263,6 +276,17 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
     return make_scalar_column_reader(column_schema, std::move(record_reader), reader);
 }
 
+// 惰性创建并缓存 Arrow RecordReader（按 leaf_column_id 索引）。
+//
+// 多个 Doris reader 可能通过不同嵌套路径共享同一个物理列（例如 MAP 的 key 和 value
+// 是独立的物理列，分别被 key_reader 和 value_reader 持有，但它们不共享 RecordReader）。
+// 真正的共享发生在同一个物理列被 STRUCT 的多个子字段同时需要时。
+//
+// 创建过程：
+//   1. RowGroupReader::GetColumnPageReader(leaf_column_id) → Arrow PageReader
+//   2. install_data_page_filter() — 安装 page index 裁剪的 page 级过滤器
+//   3. LevelInfo::ComputeLevelInfo() + RecordReader::Make() — 创建 RecordReader
+//   4. SetPageReader() — 绑定 PageReader
 Status ParquetColumnReaderFactory::get_record_reader(
         int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor, const std::string& name,
         std::shared_ptr<::parquet::internal::RecordReader>* reader) const {
@@ -280,6 +304,7 @@ Status ParquetColumnReaderFactory::get_record_reader(
     if (descriptor == nullptr) {
         return Status::InvalidArgument("Parquet column descriptor is null for column {}", name);
     }
+    // 惰性创建：只有第一次访问时才初始化 RecordReader
     if (_record_readers[leaf_column_id] == nullptr) {
         try {
             auto page_reader = _row_group->GetColumnPageReader(leaf_column_id);

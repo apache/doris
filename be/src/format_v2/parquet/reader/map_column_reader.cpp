@@ -74,6 +74,19 @@ Status MapColumnReader::load_nested_batch(int64_t rows) {
     return _value_reader->load_nested_batch(rows);
 }
 
+// MAP 的嵌套构建核心逻辑：
+//
+// 从 key reader 的 def/rep levels 重建 ColumnMap：
+//
+// 1. 遍历 key reader 的 def/rep levels，解析 entry 结构（同 LIST，key stream 提供 shape）。
+// 2. 委托 key reader 的 build_nested_column() 填充所有 key 值。
+// 3. key null 校验：检查 key 列中是否存在 NULL，有则报错（MAP key 不允许 NULL）。
+// 4. value 填充分两条路径：
+//    a. ScalarColumnReader 路径：value 与 key 在 level 流中一一对应（same rep level），
+//       通过 append_nested_value() 逐 entry 填充 value。
+//    b. 复杂 value 路径（如 MAP<INT, ARRAY<INT>>）：value 拥有自己的嵌套 shape，
+//       直接 build_nested_column(total_entries) 递归填充。
+// 5. append_offsets() + append_parent_nulls() 写入 ColumnMap 结构。
 Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                             int64_t* values_read) {
     if (column.get() == nullptr || values_read == nullptr) {

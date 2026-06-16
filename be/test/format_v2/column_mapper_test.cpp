@@ -1365,8 +1365,7 @@ TEST(ColumnMapperCreateMappingTest,
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     ASSERT_EQ(mapper.mappings().size(), 1);
-    expect_mapping(mapper.mappings()[0], 0, "profile", 1, "_col1", file_root.type,
-                   table_root.type);
+    expect_mapping(mapper.mappings()[0], 0, "profile", 1, "_col1", file_root.type, table_root.type);
     ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
     expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "id", 1, "id", int_type, int_type);
     expect_mapping(mapper.mappings()[0].child_mappings[1], 0, "name", 0, "name", string_type,
@@ -1401,8 +1400,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexNestedStructDoesNotUseChildOrdinalIde
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     ASSERT_EQ(mapper.mappings().size(), 1);
-    expect_mapping(mapper.mappings()[0], 0, "profile", 1, "_col1", file_root.type,
-                   table_root.type);
+    expect_mapping(mapper.mappings()[0], 0, "profile", 1, "_col1", file_root.type, table_root.type);
     ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
     expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "id", 1, "id", int_type, int_type);
     expect_mapping(mapper.mappings()[0].child_mappings[1], 0, "name", 0, "name", string_type,
@@ -1463,8 +1461,7 @@ TEST(ColumnMapperCreateMappingTest, ByIndexMapValueStructChildrenMatchByName) {
                                           field_id_col("id", 100, int_type),
                                           field_id_col("name", 101, string_type),
                                   });
-    auto table_root = map_col("profiles", 1, {table_key, table_value}, key_type,
-                              table_value.type);
+    auto table_root = map_col("profiles", 1, {table_key, table_value}, key_type, table_value.type);
     auto file_key = name_col("key", key_type, 0);
     // Reverse value struct children. A positional nested match would produce name/id swapped.
     auto file_value = struct_name_col("value",
@@ -1488,14 +1485,12 @@ TEST(ColumnMapperCreateMappingTest, ByIndexMapValueStructChildrenMatchByName) {
     expect_mapping(mapper.mappings()[0], 0, "profiles", 1, "_col1", file_root.type,
                    table_root.type);
     ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
-    expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "key", 0, "key", key_type,
-                   key_type);
+    expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "key", 0, "key", key_type, key_type);
     const auto& value_mapping = mapper.mappings()[0].child_mappings[1];
     expect_mapping(value_mapping, 0, "value", 1, "value", file_value.type, table_value.type);
     ASSERT_EQ(value_mapping.child_mappings.size(), 2);
     expect_mapping(value_mapping.child_mappings[0], 0, "id", 1, "id", int_type, int_type);
-    expect_mapping(value_mapping.child_mappings[1], 0, "name", 0, "name", string_type,
-                   string_type);
+    expect_mapping(value_mapping.child_mappings[1], 0, "name", 0, "name", string_type, string_type);
 }
 
 TEST(ColumnMapperCreateMappingTest,

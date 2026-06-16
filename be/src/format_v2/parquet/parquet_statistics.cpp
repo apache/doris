@@ -52,6 +52,15 @@ namespace doris::format::parquet {
 
 namespace {
 
+// RG 级裁剪原因枚举。row_group_prune_reason() 依次检查每种裁剪方式，
+// 返回第一个命中裁剪的原因。NONE 表示该 RG 无法被任何方式裁剪。
+enum class ParquetRowGroupPruneReason {
+    NONE,         // 无法裁剪，需要读取
+    STATISTICS,   // min/max statistics 排除
+    DICTIONARY,   // dictionary 排除
+    BLOOM_FILTER, // bloom filter 排除
+};
+
 PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
     if (column_schema.type == nullptr) {
         return INVALID_TYPE;
@@ -212,6 +221,12 @@ T load_predicate_value(const char* data) {
     return value;
 }
 
+// 将 Arrow 的 ::parquet::BloomFilter 适配为 Doris 的 segment_v2::BloomFilter 接口。
+// 仅实现 test_bytes()（谓词评估所需），add_bytes/add_hash 等写操作不支持。
+//
+// 适配的关键：Arrow BloomFilter 按物理类型存储 hash，而 Doris ColumnPredicate
+// 通过 evaluate_and( BloomFilter*) 来测试谓词值是否可能存在。
+// 本适配器根据 Doris 类型将谓词值转为对应物理类型的 hash 去查询 Arrow BloomFilter。
 class ArrowParquetBloomFilterAdapter final : public segment_v2::BloomFilter {
 public:
     ArrowParquetBloomFilterAdapter(const ParquetColumnSchema& column_schema,
@@ -311,6 +326,42 @@ private:
     const ::parquet::BloomFilter& _bloom_filter;
 };
 
+const ParquetColumnSchema* resolve_predicate_leaf_schema(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+        const format::FileColumnPredicateFilter& column_filter);
+
+bool bloom_filter_supported(const ParquetColumnSchema& column_schema) {
+    switch (physical_filter_type(column_schema)) {
+    case TYPE_BOOLEAN:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+    case TYPE_STRING:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool bloom_filter_excludes(const ParquetColumnSchema& column_schema,
+                           const format::FileColumnPredicateFilter& column_filter,
+                           const ::parquet::BloomFilter& bloom_filter) {
+    if (!bloom_filter_supported(column_schema)) {
+        return false;
+    }
+    ArrowParquetBloomFilterAdapter adapter(column_schema, bloom_filter);
+    for (const auto& column_predicate : column_filter.predicates) {
+        if (column_predicate == nullptr || !is_bloom_filter_prunable_predicate(*column_predicate)) {
+            return false;
+        }
+        if (!column_predicate->evaluate_and(&adapter)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 struct RowGroupBloomFilterCache {
     ::parquet::BloomFilterReader* bloom_filter_reader = nullptr;
     std::map<int, std::unique_ptr<::parquet::BloomFilter>> column_bloom_filters;
@@ -350,16 +401,15 @@ struct RowGroupBloomFilterCache {
     }
 };
 
-ParquetRowGroupPruneReason BloomFilterPruneReason(
+ParquetRowGroupPruneReason bloom_filter_prune_reason(
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const format::FileColumnPredicateFilter& column_filter,
         RowGroupBloomFilterCache* bloom_filter_cache, ParquetPruningStats* pruning_stats) {
     if (bloom_filter_cache == nullptr || column_filter.predicates.empty()) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    const auto* column_schema =
-            ParquetStatisticsUtils::ResolvePredicateLeafSchema(schema, column_filter);
-    if (column_schema == nullptr || !ParquetStatisticsUtils::BloomFilterSupported(*column_schema)) {
+    const auto* column_schema = resolve_predicate_leaf_schema(schema, column_filter);
+    if (column_schema == nullptr || !bloom_filter_supported(*column_schema)) {
         return ParquetRowGroupPruneReason::NONE;
     }
     for (const auto& column_predicate : column_filter.predicates) {
@@ -372,7 +422,7 @@ ParquetRowGroupPruneReason BloomFilterPruneReason(
     if (bloom_filter == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    return ParquetStatisticsUtils::BloomFilterExcludes(*column_schema, column_filter, *bloom_filter)
+    return bloom_filter_excludes(*column_schema, column_filter, *bloom_filter)
                    ? ParquetRowGroupPruneReason::BLOOM_FILTER
                    : ParquetRowGroupPruneReason::NONE;
 }
@@ -562,9 +612,7 @@ const ParquetColumnSchema* find_child_schema_by_local_id(const ParquetColumnSche
     return child_it == column_schema.children.end() ? nullptr : child_it->get();
 }
 
-} // namespace
-
-const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
+const ParquetColumnSchema* resolve_predicate_leaf_schema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const format::FileColumnPredicateFilter& column_filter) {
     const auto file_column_id = column_filter.effective_file_column_id();
@@ -587,6 +635,29 @@ const ParquetColumnSchema* ParquetStatisticsUtils::ResolvePredicateLeafSchema(
     }
     return column_schema;
 }
+
+bool check_statistics(const format::FileColumnPredicateFilter& column_filter,
+                      const ParquetColumnStatistics& statistics) {
+    if (!statistics.has_any_statistics()) {
+        return false;
+    }
+
+    for (const auto& column_predicate : column_filter.predicates) {
+        if (is_null_only_predicate(*column_predicate)) {
+            if (!statistics.has_null_count) {
+                continue;
+            }
+        } else if (!statistics.has_any_statistics()) {
+            continue;
+        }
+        if (!column_predicate->evaluate_and(to_column_predicate_statistics(statistics))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         const ParquetColumnSchema& column_schema,
@@ -636,35 +707,26 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
     }
 }
 
-bool ParquetStatisticsUtils::CheckStatistics(const format::FileColumnPredicateFilter& column_filter,
-                                             const ParquetColumnStatistics& statistics) {
-    if (!statistics.has_any_statistics()) {
-        return false;
-    }
+namespace {
 
-    for (const auto& column_predicate : column_filter.predicates) {
-        if (is_null_only_predicate(*column_predicate)) {
-            if (!statistics.has_null_count) {
-                continue;
-            }
-        } else if (!statistics.has_any_statistics()) {
-            continue;
-        }
-        if (!column_predicate->evaluate_and(to_column_predicate_statistics(statistics))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
+// 统一的 RG 级裁剪入口 — 依次检查 statistics → dictionary → bloom filter。
+//
+// 裁剪流水线：
+//   1. resolve_predicate_leaf_schema() — 从 file schema 树中定位谓词目标叶子
+//   2. TransformColumnStatistics() + check_statistics() — min/max 范围是否冲突
+//   3. supports_dictionary_pruning() + read_dictionary_words() — EQ/IN_LIST 谓词字典裁剪
+//   4. bloom_filter_prune_reason() — 查询 bloom filter
+// 每个步骤命中即返回对应的 prune reason，否则继续下一步。
+ParquetRowGroupPruneReason row_group_prune_reason(
         const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const format::FileColumnPredicateFilter& column_filter, const cctz::time_zone* timezone) {
+        const format::FileColumnPredicateFilter& column_filter,
+        RowGroupBloomFilterCache* bloom_filter_cache, ParquetPruningStats* pruning_stats,
+        const cctz::time_zone* timezone) {
     if (column_filter.predicates.empty()) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    const auto* column_schema = ResolvePredicateLeafSchema(schema, column_filter);
+    const auto* column_schema = resolve_predicate_leaf_schema(schema, column_filter);
     if (column_schema == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
@@ -673,42 +735,59 @@ ParquetRowGroupPruneReason ParquetStatisticsUtils::RowGroupPruneReason(
     if (column_chunk == nullptr) {
         return ParquetRowGroupPruneReason::NONE;
     }
-    if (CheckStatistics(
-                column_filter,
-                TransformColumnStatistics(*column_schema, column_chunk->statistics(), timezone))) {
+    if (check_statistics(column_filter,
+                         ParquetStatisticsUtils::TransformColumnStatistics(
+                                 *column_schema, column_chunk->statistics(), timezone))) {
         return ParquetRowGroupPruneReason::STATISTICS;
     }
     if (!supports_dictionary_pruning(*column_schema, *column_chunk, column_filter) ||
         !is_dictionary_encoded_chunk(*column_chunk)) {
-        return ParquetRowGroupPruneReason::NONE;
+        return bloom_filter_prune_reason(row_group_idx, schema, column_filter, bloom_filter_cache,
+                                         pruning_stats);
     }
     OwnedDictionaryWords dict_words;
     if (!read_dictionary_words(file_reader, row_group_idx, column_schema->leaf_column_id,
                                *column_schema, &dict_words)) {
-        return ParquetRowGroupPruneReason::NONE;
+        return bloom_filter_prune_reason(row_group_idx, schema, column_filter, bloom_filter_cache,
+                                         pruning_stats);
     }
     for (const auto& column_predicate : column_filter.predicates) {
         if (!column_predicate->evaluate_and(dict_words.refs.data(), dict_words.refs.size())) {
             return ParquetRowGroupPruneReason::DICTIONARY;
         }
     }
-    return ParquetRowGroupPruneReason::NONE;
+    return bloom_filter_prune_reason(row_group_idx, schema, column_filter, bloom_filter_cache,
+                                     pruning_stats);
 }
 
-bool ParquetStatisticsUtils::RowGroupExcludes(
-        const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
-        int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
-        const format::FileColumnPredicateFilter& column_filter, const cctz::time_zone* timezone) {
-    return RowGroupPruneReason(row_group, file_reader, row_group_idx, schema, column_filter,
-                               timezone) != ParquetRowGroupPruneReason::NONE;
+void init_bloom_filter_cache(::parquet::ParquetFileReader* file_reader, bool enable_bloom_filter,
+                             RowGroupBloomFilterCache* bloom_filter_cache) {
+    DORIS_CHECK(bloom_filter_cache != nullptr);
+    if (!enable_bloom_filter || file_reader == nullptr) {
+        return;
+    }
+    try {
+        bloom_filter_cache->bloom_filter_reader = &file_reader->GetBloomFilterReader();
+    } catch (const ::parquet::ParquetException&) {
+        bloom_filter_cache->bloom_filter_reader = nullptr;
+    } catch (const std::exception&) {
+        bloom_filter_cache->bloom_filter_reader = nullptr;
+    }
 }
 
-Status ParquetStatisticsUtils::SelectRowGroups(
-        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
-        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        bool enable_bloom_filter, ParquetPruningStats* pruning_stats,
-        const cctz::time_zone* timezone) {
+// 统计信息裁剪的主循环。遍历 candidate_row_groups（或所有 RG），
+// 对每个 RG 调用 row_group_prune_reason() 判断是否可跳过。
+//
+// candidate_row_groups 参数：
+//   nullptr → 遍历 [0, num_row_groups)
+//   非 null → 只遍历指定的候选 RG（调用方已通过 scan_range 等其他条件预过滤）
+Status select_row_groups(const ::parquet::FileMetaData& metadata,
+                         ::parquet::ParquetFileReader* file_reader,
+                         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                         const format::FileScanRequest& request,
+                         const std::vector<int>* candidate_row_groups,
+                         std::vector<int>* selected_row_groups, bool enable_bloom_filter,
+                         ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
     int64_t row_group_filter_time_sink = 0;
     SCOPED_RAW_TIMER(pruning_stats == nullptr ? &row_group_filter_time_sink
                                               : &pruning_stats->row_group_filter_time);
@@ -721,8 +800,16 @@ Status ParquetStatisticsUtils::SelectRowGroups(
     if (pruning_stats != nullptr) {
         pruning_stats->total_row_groups = num_row_groups;
     }
-    selected_row_groups->reserve(num_row_groups);
-    for (int row_group_idx = 0; row_group_idx < num_row_groups; ++row_group_idx) {
+    const auto candidate_size = candidate_row_groups == nullptr
+                                        ? static_cast<size_t>(num_row_groups)
+                                        : candidate_row_groups->size();
+    selected_row_groups->reserve(candidate_size);
+    for (size_t candidate_idx = 0; candidate_idx < candidate_size; ++candidate_idx) {
+        const int row_group_idx = candidate_row_groups == nullptr
+                                          ? static_cast<int>(candidate_idx)
+                                          : (*candidate_row_groups)[candidate_idx];
+        DORIS_CHECK(row_group_idx >= 0);
+        DORIS_CHECK(row_group_idx < num_row_groups);
         auto row_group = metadata.RowGroup(row_group_idx);
         if (row_group == nullptr) {
             selected_row_groups->push_back(row_group_idx);
@@ -730,35 +817,22 @@ Status ParquetStatisticsUtils::SelectRowGroups(
         }
         bool drop = false;
         RowGroupBloomFilterCache bloom_filter_cache;
-        if (enable_bloom_filter && file_reader != nullptr) {
-            try {
-                bloom_filter_cache.bloom_filter_reader = &file_reader->GetBloomFilterReader();
-            } catch (const ::parquet::ParquetException&) {
-                bloom_filter_cache.bloom_filter_reader = nullptr;
-            } catch (const std::exception&) {
-                bloom_filter_cache.bloom_filter_reader = nullptr;
-            }
-        }
+        init_bloom_filter_cache(file_reader, enable_bloom_filter, &bloom_filter_cache);
         for (const auto& column_filter : request.column_predicate_filters) {
-            const auto prune_reason = RowGroupPruneReason(*row_group, file_reader, row_group_idx,
-                                                          file_schema, column_filter, timezone);
-            auto effective_prune_reason = prune_reason;
-            if (effective_prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
-                effective_prune_reason =
-                        BloomFilterPruneReason(row_group_idx, file_schema, column_filter,
-                                               &bloom_filter_cache, pruning_stats);
-            }
-            if (effective_prune_reason == ParquetRowGroupPruneReason::NONE) {
+            const auto prune_reason = row_group_prune_reason(
+                    *row_group, file_reader, row_group_idx, file_schema, column_filter,
+                    &bloom_filter_cache, pruning_stats, timezone);
+            if (prune_reason == ParquetRowGroupPruneReason::NONE) {
                 continue;
             }
             drop = true;
             if (pruning_stats != nullptr) {
                 pruning_stats->filtered_group_rows += row_group->num_rows();
-                if (effective_prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
+                if (prune_reason == ParquetRowGroupPruneReason::STATISTICS) {
                     ++pruning_stats->filtered_row_groups_by_statistics;
-                } else if (effective_prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
+                } else if (prune_reason == ParquetRowGroupPruneReason::DICTIONARY) {
                     ++pruning_stats->filtered_row_groups_by_dictionary;
-                } else if (effective_prune_reason == ParquetRowGroupPruneReason::BLOOM_FILTER) {
+                } else if (prune_reason == ParquetRowGroupPruneReason::BLOOM_FILTER) {
                     ++pruning_stats->filtered_row_groups_by_bloom_filter;
                 }
                 break;
@@ -773,48 +847,23 @@ Status ParquetStatisticsUtils::SelectRowGroups(
     return Status::OK();
 }
 
-bool ParquetStatisticsUtils::BloomFilterSupported(const ParquetColumnSchema& column_schema) {
-    switch (physical_filter_type(column_schema)) {
-    case TYPE_BOOLEAN:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_STRING:
-        return true;
-    default:
-        return false;
-    }
-}
+} // namespace
 
 bool ParquetStatisticsUtils::BloomFilterExcludes(
         const ParquetColumnSchema& column_schema,
         const format::FileColumnPredicateFilter& column_filter,
         const ::parquet::BloomFilter& bloom_filter) {
-    if (!BloomFilterSupported(column_schema)) {
-        return false;
-    }
-    ArrowParquetBloomFilterAdapter adapter(column_schema, bloom_filter);
-    for (const auto& column_predicate : column_filter.predicates) {
-        if (column_predicate == nullptr || !is_bloom_filter_prunable_predicate(*column_predicate)) {
-            return false;
-        }
-        if (!column_predicate->evaluate_and(&adapter)) {
-            return true;
-        }
-    }
-    return false;
+    return bloom_filter_excludes(column_schema, column_filter, bloom_filter);
 }
 
 Status select_row_groups_by_statistics(
         const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-        const format::FileScanRequest& request, std::vector<int>* selected_row_groups,
-        bool enable_bloom_filter, ParquetPruningStats* pruning_stats,
-        const cctz::time_zone* timezone) {
-    return ParquetStatisticsUtils::SelectRowGroups(metadata, file_reader, file_schema, request,
-                                                   selected_row_groups, enable_bloom_filter,
-                                                   pruning_stats, timezone);
+        const format::FileScanRequest& request, const std::vector<int>* candidate_row_groups,
+        std::vector<int>* selected_row_groups, bool enable_bloom_filter,
+        ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone) {
+    return select_row_groups(metadata, file_reader, file_schema, request, candidate_row_groups,
+                             selected_row_groups, enable_bloom_filter, pruning_stats, timezone);
 }
 
 namespace {
@@ -1020,8 +1069,7 @@ bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndex
     if (column_filter.predicates.empty()) {
         return false;
     }
-    const auto* column_schema =
-            ParquetStatisticsUtils::ResolvePredicateLeafSchema(file_schema, column_filter);
+    const auto* column_schema = resolve_predicate_leaf_schema(file_schema, column_filter);
     if (column_schema == nullptr || column_schema->descriptor == nullptr) {
         return false;
     }
@@ -1051,7 +1099,7 @@ bool select_ranges_for_filter(const std::shared_ptr<::parquet::RowGroupPageIndex
             return false;
         }
         const RowRange row_range = page_row_range(*offset_index, page_idx, row_group_rows);
-        if (ParquetStatisticsUtils::CheckStatistics(column_filter, page_statistics)) {
+        if (check_statistics(column_filter, page_statistics)) {
             continue;
         }
         append_row_range(row_range, ranges);
@@ -1117,8 +1165,7 @@ void collect_request_leaf_schemas(
         collect_projection(projection);
     }
     for (const auto& column_filter : request.column_predicate_filters) {
-        const auto* leaf_schema =
-                ParquetStatisticsUtils::ResolvePredicateLeafSchema(file_schema, column_filter);
+        const auto* leaf_schema = resolve_predicate_leaf_schema(file_schema, column_filter);
         if (leaf_schema == nullptr) {
             continue;
         }

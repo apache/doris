@@ -77,6 +77,7 @@ Status GlobalRowIdColumnReader::skip(int64_t rows) {
 }
 
 void GlobalRowIdColumnReader::append_row_id(uint32_t row_id, MutableColumnPtr& column) const {
+    // 编码为 17-byte GlobalRowLoacationV2: version(1) + backend_id(8) + file_id(4) + row_id(4)
     auto* string_column = assert_cast<ColumnString*>(column.get());
     GlobalRowLoacationV2 location(_context.version, _context.backend_id, _context.file_id, row_id);
     string_column->insert_data(reinterpret_cast<const char*>(&location),
