@@ -532,8 +532,20 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     key = MaxLiteral.MAX_VALUE;
                 }
                 if (type != PrimitiveType.DATETIMEV2 && type != PrimitiveType.TIMESTAMPTZ) {
-                    Type newType = Type.fromPrimitiveType(type);
-                    key.setType(newType);
+                    // Preserve the literal's type from the deserialized JSON payload
+                    // when it carries parameterized information (precision/scale/length).
+                    // Type.fromPrimitiveType() creates generic defaults (e.g.
+                    // DECIMAL64(18,0) for DECIMAL64, wildcard VARCHAR(len=-1) for
+                    // VARCHAR) which would discard the actual type and cause equals()
+                    // /compareLiteral() mismatches for DECIMAL, VARCHAR, CHAR keys.
+                    Type existingType = key.getType();
+                    if (existingType.getPrimitiveType() != type) {
+                        // Type mismatch (e.g. old metadata without serialized type):
+                        // fall back to the catalog type.
+                        key.setType(Type.fromPrimitiveType(type));
+                    }
+                    // Otherwise the deserialized type already carries the correct
+                    // precision/scale/length from the persisted payload; keep it.
                 }
                 if (type.isDateV2LikeType()) {
                     try {

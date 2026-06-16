@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
@@ -424,5 +425,72 @@ public class PartitionKeyTest {
             ConnectContext.remove();
             FeConstants.runningUnitTest = originalRunningUnitTest;
         }
+    }
+
+    private static void assertPartitionKeyRoundTrip(List<Type> types,
+            List<PartitionValue> values) throws AnalysisException {
+        PartitionKey original = PartitionKey.createListPartitionKeyWithTypes(values, types, false);
+        String json = GsonUtils.GSON.toJson(original);
+        PartitionKey restored = GsonUtils.GSON.fromJson(json, PartitionKey.class);
+        Assert.assertEquals("Round-trip PartitionKey should be equal", original, restored);
+        Assert.assertEquals("Round-trip PartitionKey hash should match",
+                original.hashCode(), restored.hashCode());
+        // Compare individual literal types after round-trip
+        for (int i = 0; i < original.getKeys().size(); i++) {
+            Assert.assertEquals("Literal type should be preserved",
+                    original.getKeys().get(i).getType(),
+                    restored.getKeys().get(i).getType());
+        }
+    }
+
+    @Test
+    public void testSerializeRoundTripDecimalKey() throws AnalysisException {
+        Type decType = ScalarType.createDecimalV3Type(10, 2);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("123.45", decType));
+        assertPartitionKeyRoundTrip(Arrays.asList(decType), Arrays.asList(pv));
+    }
+
+    @Test
+    public void testSerializeRoundTripVarcharKey() throws AnalysisException {
+        Type varcharType = ScalarType.createVarcharType(100);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("hello", varcharType));
+        assertPartitionKeyRoundTrip(Arrays.asList(varcharType), Arrays.asList(pv));
+    }
+
+    @Test
+    public void testSerializeRoundTripCharKey() throws AnalysisException {
+        Type charType = ScalarType.createCharType(10);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("abc", charType));
+        assertPartitionKeyRoundTrip(Arrays.asList(charType), Arrays.asList(pv));
+    }
+
+    @Test
+    public void testSerializeRoundTripDatetimeV2Key() throws AnalysisException {
+        Type dtType = ScalarType.createDatetimeV2Type(3);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("2024-01-15 12:00:00.123", dtType));
+        // DATETIMEV2 is explicitly excluded from setType; round-trip should still
+        // preserve scale=3.
+        PartitionKey original = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(pv), Arrays.asList(dtType), false);
+        String json = GsonUtils.GSON.toJson(original);
+        PartitionKey restored = GsonUtils.GSON.fromJson(json, PartitionKey.class);
+        Assert.assertEquals(original, restored);
+        Assert.assertEquals(original.hashCode(), restored.hashCode());
+    }
+
+    @Test
+    public void testSerializeRoundTripMultiplePartitionCols() throws AnalysisException {
+        Type decType = ScalarType.createDecimalV3Type(8, 0);
+        Type varcharType = ScalarType.createVarcharType(50);
+        PartitionValue decPv = new PartitionValue(
+                LiteralExprUtils.createLiteral("100", decType));
+        PartitionValue strPv = new PartitionValue(
+                LiteralExprUtils.createLiteral("test", varcharType));
+        assertPartitionKeyRoundTrip(Arrays.asList(decType, varcharType),
+                Arrays.asList(decPv, strPv));
     }
 }
