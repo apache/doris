@@ -275,7 +275,7 @@ PhysicalResultSink
 -- !nullif_one_side_1 --
 PhysicalResultSink
 --PhysicalProject[t1.a, t2.x]
-----NestedLoopJoin[INNER_JOIN](nullif(a, x) = (a + b))
+----NestedLoopJoin[INNER_JOIN](if((a = x), NULL, a) = (a + b))
 ------PhysicalProject[(a + b) AS `(a + b)`, t1.a]
 --------filter((t1.a = (t1.a + t1.b)))
 ----------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
@@ -285,7 +285,7 @@ PhysicalResultSink
 -- !nullif_two_side_1 --
 PhysicalResultSink
 --PhysicalProject[t1.a, t2.x]
-----hashJoin[INNER_JOIN] hashCondition=((t1.a = expr_(x + y))) otherCondition=((nullif(a, x) = (t2.x + t2.y)))
+----hashJoin[INNER_JOIN] hashCondition=((t1.a = expr_(x + y))) otherCondition=((if((a = x), NULL, a) = (t2.x + t2.y)))
 ------PhysicalProject[t1.a]
 --------PhysicalOlapScan[tbl_join_extract_or_from_case_when_1(t1)]
 ------PhysicalProject[(x + y) AS `expr_(x + y)`, tbl_join_extract_or_from_case_when_2.x, tbl_join_extract_or_from_case_when_2.y]

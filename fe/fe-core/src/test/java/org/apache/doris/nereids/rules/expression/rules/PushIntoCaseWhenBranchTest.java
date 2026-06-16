@@ -84,9 +84,10 @@ class PushIntoCaseWhenBranchTest extends ExpressionRewriteTestHelper {
         ));
         assertRewriteAfterTypeCoercion("cast(nullif(TA, TB) as bigint)", "if(TA = TB, NULL, cast(TA as bigint))");
         assertRewriteAfterTypeCoercion("cast(nullif(TA, 1) as bigint)", "if(TA = 1, null, cast(TA as bigint))");
-        assertRewriteAfterTypeCoercion("a > nullif(b, c)", "a > nullif(b, c)");
+        assertRewriteAfterTypeCoercion("a > nullif(b, c)", "if(b = c, null, a > b)");
         assertRewriteAfterTypeCoercion("2 > nullif(b, c)", "if(b = c, null, 2 > b)");
-        assertRewriteAfterTypeCoercion("2 > nullif(b + random(1, 10), c)", "2 > nullif(b + random(1, 10), c)");
+        assertRewriteAfterTypeCoercion("2 > nullif(b + random(1, 10), c)",
+                "if(b + random(1, 10) = c, null, 2 > b + random(1, 10))");
         assertRewriteAfterTypeCoercion("2 > nullif(b, c + random(1, 10))", "if(b = c + random(1, 10), null, 2 > b)");
     }
 }

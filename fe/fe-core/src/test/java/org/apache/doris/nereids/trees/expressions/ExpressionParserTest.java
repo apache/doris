@@ -17,14 +17,17 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 public class ExpressionParserTest extends ParserTestBase {
@@ -90,6 +93,15 @@ public class ExpressionParserTest extends ParserTestBase {
                                 new UnboundSlot("b")
                         )
                 );
+    }
+
+    @Test
+    public void testNullIfRewriteInPlanBuilder() {
+        parseExpression("nullif(a, b)")
+                .assertEquals(new UnboundFunction("if", ImmutableList.of(
+                        new EqualTo(new UnboundSlot("a"), new UnboundSlot("b")),
+                        NullLiteral.INSTANCE,
+                        new UnboundSlot("a"))));
     }
 
     @Test

@@ -108,8 +108,9 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
 
     /*
     * nullif(null, R) => Null
-    * nullif(L, null) => Null
+    * nullif(L, null) => nullable(L)
     * nullif(null, null) => Null
+    * nullif(L, R) => if(L = R, null, L)
      */
     private static Expression rewriteNullIf(ExpressionMatchingContext<NullIf> ctx) {
         NullIf nullIf = ctx.expr;
@@ -120,7 +121,7 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
                     nullIf, new Nullable(nullIf.child(0)), ctx.rewriteContext
             );
         } else {
-            return nullIf;
+            return NullIfToIf.rewrite(nullIf, ctx.rewriteContext);
         }
     }
 }

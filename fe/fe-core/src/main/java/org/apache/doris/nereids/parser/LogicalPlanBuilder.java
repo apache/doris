@@ -3493,6 +3493,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private Expression processUnboundFunction(ParserRuleContext ctx, String dbName, String functionName,
             boolean isDistinct, List<Expression> params,
             WindowSpecContext windowContext, IdentifierContext hintContext) {
+        if (dbName == null && "nullif".equalsIgnoreCase(functionName) && !isDistinct
+                && windowContext == null && hintContext == null && params.size() == 2) {
+            Expression first = params.get(0);
+            Expression second = params.get(1);
+            return new UnboundFunction("if", ImmutableList.of(
+                    new EqualTo(first, second),
+                    NullLiteral.INSTANCE,
+                    first));
+        }
         List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
         if (!unboundStars.isEmpty()) {
             if (dbName != null
