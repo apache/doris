@@ -270,8 +270,7 @@ public:
         return false;
     }
 
-    // ColumnConst is not nullable, but may be concrete nullable.
-    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
+    bool is_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 

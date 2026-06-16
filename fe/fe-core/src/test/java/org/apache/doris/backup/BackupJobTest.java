@@ -20,9 +20,12 @@ package org.apache.doris.backup;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -350,6 +353,32 @@ public class BackupJobTest {
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.FINISHED, job.getState());
+    }
+
+    @Test
+    public void testBackupCopyTableWithDirtyDynamicPartitionStorageMedium() {
+        Map<String, String> dirtyProperties = Maps.newHashMap();
+        dirtyProperties.put(DynamicPartitionProperty.STORAGE_MEDIUM, "hdd");
+        table2.setTableProperty(new TableProperty(dirtyProperties));
+
+        Assert.assertFalse(table2.dynamicPartitionExists());
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertNotNull(copied);
+        Assert.assertFalse(copied.dynamicPartitionExists());
+        Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
+    }
+
+    @Test
+    public void testBackupCopyTableWithDirtyDynamicPartitionStoragePolicy() {
+        Map<String, String> dirtyProperties = Maps.newHashMap();
+        dirtyProperties.put(DynamicPartitionProperty.STORAGE_POLICY, "test_policy");
+        table2.setTableProperty(new TableProperty(dirtyProperties));
+
+        Assert.assertFalse(table2.dynamicPartitionExists());
+        OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
+        Assert.assertNotNull(copied);
+        Assert.assertFalse(copied.dynamicPartitionExists());
+        Assert.assertTrue(copied.getTableProperty().hasInvalidDynamicPartition());
     }
 
     /**

@@ -68,7 +68,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         final RuntimeFilterContext rfContext;
         final AbstractPhysicalPlan builderNode;
         final TRuntimeFilterType type;
-        final boolean isNot;
         final TMinMaxRuntimeFilterType singleSideMinMax;
         final boolean hasUnknownColStats;
         final long buildSideNdv;
@@ -76,15 +75,13 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         private PushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
-                TRuntimeFilterType type, boolean isNot,
-                TMinMaxRuntimeFilterType singleSideMinMax,
+                TRuntimeFilterType type, TMinMaxRuntimeFilterType singleSideMinMax,
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             this.rfContext = rfContext;
             this.builderNode = builderNode;
             this.srcExpr = srcExpr;
             this.probeExpr = probeExpr;
             this.type = type;
-            this.isNot = isNot;
             this.singleSideMinMax = singleSideMinMax;
             this.hasUnknownColStats = hasUnknownColStats;
             this.buildSideNdv = buildSideNdv;
@@ -93,18 +90,16 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
-                TRuntimeFilterType type, boolean isNot) {
+                TRuntimeFilterType type) {
             return createPushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, isNot, false, -1, -1);
+                    type, false, -1, -1);
         }
 
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
-                TRuntimeFilterType type, boolean isNot,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
+                TRuntimeFilterType type, boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             return createPushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, isNot, TMinMaxRuntimeFilterType.MIN_MAX,
-                    hasUnknownColStats, buildSideNdv, exprOrder);
+                    type, TMinMaxRuntimeFilterType.MIN_MAX, hasUnknownColStats, buildSideNdv, exprOrder);
         }
 
         /**
@@ -114,11 +109,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
          */
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
-                TRuntimeFilterType type, boolean isNot,
-                TMinMaxRuntimeFilterType singleSideMinMax,
+                TRuntimeFilterType type, TMinMaxRuntimeFilterType singleSideMinMax,
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             return new PushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, isNot, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
         }
 
         /**
@@ -131,7 +125,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
             return new PushDownContext(rfContext, builderNode, srcExpr, newProbe,
-                    type, isNot, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
         }
     }
 
@@ -194,7 +188,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                         && rf.getType() == type
                         && rf.getBuilderNode().equals(ctx.builderNode)
                         && rf.getExprOrder() == ctx.exprOrder
-                        && rf.isBitmapFilterNotIn() == ctx.isNot
                         && rf.gettMinMaxType() == ctx.singleSideMinMax);
         if (alreadyApplied) {
             return true;
@@ -202,7 +195,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         RuntimeFilter filter = new RuntimeFilter(ctx.rfContext.getRuntimeFilterIdGen().getNextId(),
                 ctx.srcExpr, scanSlot, ctx.probeExpr,
-                type, ctx.exprOrder, ctx.builderNode, ctx.isNot, ctx.buildSideNdv,
+                type, ctx.exprOrder, ctx.builderNode, ctx.buildSideNdv,
                 !ctx.hasUnknownColStats, ctx.singleSideMinMax, scan);
         scan.addAppliedRuntimeFilter(filter);
         ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());

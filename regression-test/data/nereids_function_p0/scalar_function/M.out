@@ -1565,6 +1565,9 @@ dc5f80c371451aa4fc81c930adc64f60
 3
 3
 
+-- !sql_month_nullable_string_literal --
+12	12	1	1	1	1	\N
+
 -- !sql_month_ceil_DateTime --
 \N
 2012-04-01T00:00
@@ -3004,4 +3007,3 @@ March
 
 -- !bugfix_months_diff_17 --
 1
-

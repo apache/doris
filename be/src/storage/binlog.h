@@ -34,6 +34,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"          // DataWriteType
 #include "storage/tablet/tablet_schema.h" // TabletSchemaSPtr
+#include "storage/utils.h"                // BINLOG_TIMESTAMP_COL
 
 namespace doris {
 
@@ -51,8 +52,12 @@ constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
 constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
-constexpr std::string_view kRowBinlogLsnColName = "__DORIS_BINLOG_LSN__";
-constexpr std::string_view kRowBinlogTimestampColName = "__DORIS_BINLOG_TIMESTAMP__";
+// Alias to BINLOG_LSN_COL in storage/utils.h to keep a single source of truth.
+static const std::string& kRowBinlogLsnColName = BINLOG_LSN_COL;
+// Alias to BINLOG_TIMESTAMP_COL in storage/utils.h to keep a single source of truth.
+static const std::string& kRowBinlogTimestampColName = BINLOG_TIMESTAMP_COL;
+constexpr std::string_view kRowBinlogOpColName = "__DORIS_BINLOG_OP__";
+
 constexpr int64_t kBinlogLsnAutoIncId = -1;
 // used in file directory
 constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";

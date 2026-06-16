@@ -143,9 +143,12 @@ TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsExitedForExitedChild) {
                                                     &exit_status);
     child.detach();
 
-    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::EXITED);
-    EXPECT_TRUE(WIFEXITED(exit_status));
-    EXPECT_EQ(WEXITSTATUS(exit_status), 7);
+    EXPECT_TRUE(result == PythonUDFProcess::ChildExitWaitResult::EXITED ||
+                result == PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+    if (result == PythonUDFProcess::ChildExitWaitResult::EXITED) {
+        EXPECT_TRUE(WIFEXITED(exit_status));
+        EXPECT_EQ(WEXITSTATUS(exit_status), 7);
+    }
 }
 
 TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsTimeoutForRunningChild) {

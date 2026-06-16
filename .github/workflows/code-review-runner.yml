@@ -1,6 +1,21 @@
 name: Code Review Runner
 
 on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       pr_number:
@@ -199,6 +214,30 @@ jobs:
             printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
           fi
 
+      - name: Prepare required AGENTS guides
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
+        run: |
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > "$REVIEW_CONTEXT_DIR/pr_changed_files.txt"
+
+          helper="$RUNNER_TEMP/prepare_review_agents.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/prepare_review_agents.py?ref=${HELPER_REF}" \
+            > "$helper"
+          chmod 700 "$helper"
+
+          python3 "$helper" \
+            --changed-files "$REVIEW_CONTEXT_DIR/pr_changed_files.txt" \
+            --required-agents "$REVIEW_CONTEXT_DIR/required_agents.txt" \
+            --prompt-block "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt"
+
+          echo "Required AGENTS.md files for this review:"
+          sed 's/^/  /' "$REVIEW_CONTEXT_DIR/required_agents.txt"
+
       - name: Prepare review prompt
         run: |
           cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
@@ -216,8 +255,13 @@ jobs:
           - Existing inline review threads: PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md
           - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
           - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
+          - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
+          - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
 
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
+          Required AGENTS.md files for this PR:
+          PLACEHOLDER_REQUIRED_AGENTS_BLOCK
           Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
           Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
           Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
@@ -243,6 +287,16 @@ jobs:
           sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
           sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          python3 - "$REVIEW_CONTEXT_DIR/review_prompt.txt" "$REVIEW_CONTEXT_DIR/required_agents_prompt.txt" <<'PY'
+          import sys
+          from pathlib import Path
+
+          prompt_path = Path(sys.argv[1])
+          required_agents_path = Path(sys.argv[2])
+          prompt = prompt_path.read_text()
+          required_agents = required_agents_path.read_text().rstrip()
+          prompt_path.write_text(prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents))
+          PY
         env:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}

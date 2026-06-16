@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectListOptions;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -44,9 +45,28 @@ class S3FileSystemTest {
     private S3FileSystem fs;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         mockStorage = Mockito.mock(S3ObjStorage.class);
+        bridgeListOptionsToLegacyStubs();
         fs = new S3FileSystem(mockStorage);
+    }
+
+    private void bridgeListOptionsToLegacyStubs() throws IOException {
+        Mockito.doAnswer(invocation -> {
+            String remotePath = invocation.getArgument(0);
+            ObjectListOptions options = invocation.getArgument(1);
+            if (options == null) {
+                return mockStorage.listObjects(remotePath, (String) null);
+            }
+            if (options.delimiter() != null) {
+                return mockStorage.listObjectsNonRecursive(remotePath, options.continuationToken());
+            }
+            if (options.maxKeys() > 0) {
+                return mockStorage.listObjects(remotePath, options.continuationToken(), options.maxKeys());
+            }
+            return mockStorage.listObjects(remotePath, options.continuationToken());
+        }).when(mockStorage).listObjectsWithOptions(
+                ArgumentMatchers.anyString(), ArgumentMatchers.<ObjectListOptions>any());
     }
 
     // ------------------------------------------------------------------

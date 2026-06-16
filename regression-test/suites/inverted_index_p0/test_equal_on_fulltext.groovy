@@ -42,10 +42,10 @@ suite("test_equal_on_fulltext", "p0"){
  		"replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
+
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "INSERT INTO $indexTblName VALUES (1, 'I am the person'), (2, 'I am a person'), (3, 'I am your person');"
     qt_sql "SELECT * FROM $indexTblName WHERE c = 'I am a person' ORDER BY id;"

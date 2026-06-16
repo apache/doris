@@ -90,7 +90,7 @@ public:
         if (var.is_null_root()) {
             return make_nullable(col, true);
         }
-        if (var.is_scalar_variant() && var.get_root()->is_nullable()) {
+        if (var.is_scalar_variant() && is_column_nullable(*var.get_root())) {
             const auto* nullable = assert_cast<const ColumnNullable*>(var.get_root().get());
             return ColumnNullable::create(
                     col, nullable->get_null_map_column_ptr()->clone_resized(col->size()));

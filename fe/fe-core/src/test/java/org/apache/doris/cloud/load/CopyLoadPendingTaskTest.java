@@ -84,7 +84,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     /** Concrete ObjFileSystem subclass backed by the test's objectStore map. */
     private class MockObjFileSystem extends ObjFileSystem {
         MockObjFileSystem() {
-            super("test", null);
+            super(null);
         }
 
         @Override
