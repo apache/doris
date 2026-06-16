@@ -142,17 +142,17 @@ public class Optimizer {
         // 2) run PushDownExpressionsInHashCondition as a plan rewrite on a temporary context
         org.apache.doris.nereids.CascadesContext tempCtx = CascadesContext.newCurrentTreeContext(cascadesContext);
         tempCtx.setRewritePlan(plan);
-        RewriteJob pushDownRewrite = AbstractBatchJobExecutor.topDown(new PushDownExpressionsInHashCondition(),
-                new MergeProjectable());
+        RewriteJob pushDownRewrite = AbstractBatchJobExecutor.topDown(new PushDownExpressionsInHashCondition());
         RewriteJob columnPrune = AbstractBatchJobExecutor.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new);
+        RewriteJob mergeProjects = AbstractBatchJobExecutor.topDown(new MergeProjectable());
         RewriteJob adjustNullable = AbstractBatchJobExecutor.custom(RuleType.ADJUST_NULLABLE,
                 () -> new AdjustNullable(false));
         RewriteJob checkAfterRewrite = AbstractBatchJobExecutor.bottomUp(new CheckAfterRewrite());
         AbstractBatchJobExecutor executor = new AbstractBatchJobExecutor(tempCtx) {
             @Override
             public java.util.List<org.apache.doris.nereids.jobs.rewrite.RewriteJob> getJobs() {
-                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, adjustNullable,
-                        checkAfterRewrite);
+                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, mergeProjects,
+                        adjustNullable, checkAfterRewrite);
             }
         };
         boolean oldFeDebugValue = tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug;
