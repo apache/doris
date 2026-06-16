@@ -68,6 +68,13 @@ bool is_unknown_eintr(const apache::thrift::transport::TTransportException& e) {
            std::string_view(e.what()).find("Interrupted system call") != std::string_view::npos;
 }
 
+// Full-process stack collection sends a diagnostic signal to many BE threads. Even with
+// SA_RESTART, Linux can still return EINTR from poll/select/epoll-style waits, and Thrift wraps
+// that as an UNKNOWN TTransportException with "Interrupted system call". If this exception escapes
+// the blocking thrift server loop, heartbeat/backend thrift services can exit while the BE process
+// is still partly alive, making FE report the BE as Alive=false. This wrapper keeps the normal
+// TServerSocket behavior but retries only that narrow EINTR case on accept/read/peek; all other
+// transport errors are still propagated.
 class ImprovedServerSocket final : public apache::thrift::transport::TServerSocket {
     using TConfiguration = apache::thrift::TConfiguration;
     using TServerSocket = apache::thrift::transport::TServerSocket;

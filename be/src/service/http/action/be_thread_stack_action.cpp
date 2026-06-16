@@ -1096,13 +1096,6 @@ void BeThreadStackAction::handle(HttpRequest* req) {
         return;
     }
 
-    if (!req->param("max_signal_threads").empty()) {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
-                                "max_signal_threads is no longer supported; use thread_id to "
-                                "capture specific threads or omit it to capture all threads\n");
-        return;
-    }
-
     bool skip_blocking_syscalls = false;
     if (!parse_bool_param(req, "skip_blocking_syscalls", false, &skip_blocking_syscalls, &error)) {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error + "\n");

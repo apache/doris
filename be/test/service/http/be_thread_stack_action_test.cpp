@@ -228,6 +228,8 @@ protected:
     }
 };
 
+// Covers explicit thread_id filtering: multiple TIDs must be sampled exactly once and without
+// falling back to full-process enumeration.
 TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     ParkedMarkerThread first;
     ParkedMarkerThread second;
@@ -260,6 +262,7 @@ TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     second.stop();
 }
 
+// Covers the legacy tid alias so existing callers still get the same single-thread capture path.
 TEST_F(BeThreadStackActionTest, TidAliasRemainsSupported) {
     ParkedMarkerThread marker;
     marker.start();
@@ -279,6 +282,8 @@ TEST_F(BeThreadStackActionTest, TidAliasRemainsSupported) {
     marker.stop();
 }
 
+// Covers explicit stale TID handling: a missing task should be reported as thread_exited instead
+// of failing the whole request.
 TEST_F(BeThreadStackActionTest, ExplicitExitedTidIsReported) {
     long http_status = 0;
     std::string body;
@@ -290,6 +295,8 @@ TEST_F(BeThreadStackActionTest, ExplicitExitedTidIsReported) {
     EXPECT_THAT(body, testing::HasSubstr("status=thread_exited"));
 }
 
+// Covers the default full-capture policy: a thread blocked in read() should be signaled, captured,
+// and left blocked in read() after the stack request returns.
 TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsCapturedByDefault) {
     BlockingReadThread reader;
     ASSERT_TRUE(reader.start());
@@ -313,6 +320,8 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallIsCapturedByDefault) {
     reader.stop();
 }
 
+// Covers the opt-in conservative mode: skip_blocking_syscalls=true must avoid signaling an
+// interrupt-sensitive read() thread and must report the skipped reason explicitly.
 TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
     BlockingReadThread reader;
     ASSERT_TRUE(reader.start());
@@ -336,6 +345,8 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
     reader.stop();
 }
 
+// Covers request validation for thread filters, timeout, symbolization mode, and the syscall-skip
+// flag, so invalid knobs fail before any thread is signaled.
 TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
     struct InvalidCase {
         std::string path;
@@ -353,7 +364,6 @@ TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
             {"/api/stack_trace?tid=1&thread_id=2", "tid and thread_id are mutually exclusive"},
             {"/api/stack_trace?timeout_ms=0", "invalid timeout_ms: 0"},
             {"/api/stack_trace?timeout_ms=10001", "invalid timeout_ms: 10001"},
-            {"/api/stack_trace?max_signal_threads=1", "max_signal_threads is no longer supported"},
             {"/api/stack_trace?mode=unknown", "invalid dwarf_location_info_mode: unknown"},
             {"/api/stack_trace?skip_blocking_syscalls=maybe",
              "invalid skip_blocking_syscalls: maybe"},
@@ -369,6 +379,8 @@ TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
     }
 }
 
+// Covers best-effort symbolization in FAST mode by repeatedly sampling a stable marker thread until
+// a test frame is visible in the rendered stack.
 TEST_F(BeThreadStackActionTest, BestEffortSymbolizedFrameObserved) {
     ParkedMarkerThread marker;
     marker.start();
