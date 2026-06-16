@@ -115,8 +115,8 @@ static int64_t adaptive_bucket_be_id(const VOlapTablePartition& partition,
     return partition.bucket_be_id > 0 ? partition.bucket_be_id : BackendOptions::get_backend_id();
 }
 
-static const std::vector<int32_t>& adaptive_local_bucket_seqs(
-        const VOlapTablePartition& partition, const OlapTableIndexTablets* index) {
+static const std::vector<int32_t>& adaptive_local_bucket_seqs(const VOlapTablePartition& partition,
+                                                              const OlapTableIndexTablets* index) {
     if (index != nullptr && index->__isset.local_bucket_seqs) {
         return index->local_bucket_seqs;
     }

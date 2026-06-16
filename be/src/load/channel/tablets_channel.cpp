@@ -771,8 +771,8 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
                         "index_id={}, packet_seq={}, partition_id={}",
                         print_id(_load_id), _index_id, request.packet_seq(), partition_id);
             }
-            tablet_id =
-                    _adaptive_random_bucket_state->current_tablet(request.sender_id(), partition_id);
+            tablet_id = _adaptive_random_bucket_state->current_tablet(request.sender_id(),
+                                                                      partition_id);
             if (tablet_id < 0) {
                 return Status::InternalError(
                         "invalid current tablet for receiver-side random bucket, load_id={}, "
