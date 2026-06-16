@@ -250,6 +250,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testNestedMapElementIsNullKeepsValueIsNullPath() throws Exception {
+        assertColumn("select (element_at(element_at(s, 'm'), 'a')) is null from nested_container_tbl",
+                "struct<m:map<text,text>>",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES", "NULL")),
+                ImmutableList.of());
+    }
+
+    @Test
     public void testFullFieldAccessStripsExactDataSkippingPath() throws Exception {
         assertColumn("select element_at(s, 'city') from tbl "
                         + "where element_at(s, 'city') is null",
@@ -652,8 +660,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         );
         assertColumn("select 100 from tbl where element_at(s, 'data')[1][1] is not null",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "*", "NULL")),
-                ImmutableList.of(path("s", "data", "*", "*", "NULL"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "NULL"))
         );
         assertColumn("select 100 from tbl where element_at(element_at(s, 'data')[1][1], 'a') is not null",
                 "struct<data:array<map<int,struct<a:int>>>>",

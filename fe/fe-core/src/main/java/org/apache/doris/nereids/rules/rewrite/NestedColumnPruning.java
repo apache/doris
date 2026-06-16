@@ -274,9 +274,9 @@ public class NestedColumnPruning implements CustomRewriter {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
-            normalizeMapValueOffsetOnlyAccessPaths(slot, accessTree, allAccessPaths);
+            normalizeMapValueMetaOnlyAccessPaths(slot, accessTree, allAccessPaths);
 
-            if (accessTree.hasOffsetOnlyAccess() || accessTree.hasNullCheckOnlyAccess()) {
+            if (accessTree.hasOffsetOnlyAccess() || accessTree.hasNullOnlyAccess()) {
                 if (ignoreMetaPath) {
                     continue;
                 }
@@ -311,7 +311,7 @@ public class NestedColumnPruning implements CustomRewriter {
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
-            normalizeMapValueOffsetOnlyAccessPaths(slot, kv.getValue(), predicateAccessPaths);
+            normalizeMapValueMetaOnlyAccessPaths(slot, kv.getValue(), predicateAccessPaths);
             stripCoveredMetaSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
@@ -357,11 +357,28 @@ public class NestedColumnPruning implements CustomRewriter {
                 || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 
-    private static void normalizeMapValueOffsetOnlyAccessPaths(
+    private static void normalizeMapValueMetaOnlyAccessPaths(
             Slot slot, DataTypeAccessTree accessTree,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> accessPaths) {
         int slotId = slot.getExprId().asInt();
-        List<List<String>> mapPrefixes = accessTree.collectMapValueOffsetOnlyAccessPaths();
+        normalizeMapValueMetaPathHelper(slotId,
+                accessTree.collectMapValueMetaOnlyAccessPaths(AccessPathInfo.ACCESS_OFFSET),
+                accessPaths, AccessPathInfo.ACCESS_OFFSET);
+        normalizeMapValueMetaPathHelper(slotId,
+                accessTree.collectMapValueMetaOnlyAccessPaths(AccessPathInfo.ACCESS_NULL),
+                accessPaths, AccessPathInfo.ACCESS_NULL);
+    }
+
+    /**
+     * Normalize map value meta-only (OFFSET or NULL) star access paths for a single meta type.
+     * <p>For each map prefix where {@code [prefix, *, META]} exists, replaces it with
+     * {@code [prefix, KEYS]} plus {@code [prefix, VALUES, META]}, so that keys are read fully
+     * for element lookup while values only read the metadata.
+     */
+    private static void normalizeMapValueMetaPathHelper(
+            int slotId, List<List<String>> mapPrefixes,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> accessPaths,
+            String metaSuffix) {
         if (mapPrefixes.isEmpty()) {
             return;
         }
@@ -370,12 +387,12 @@ public class NestedColumnPruning implements CustomRewriter {
         List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
         List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
         for (List<String> mapPrefix : mapPrefixes) {
-            List<String> starOffsetPath = new ArrayList<>(mapPrefix);
-            starOffsetPath.add(AccessPathInfo.ACCESS_ALL);
-            starOffsetPath.add(AccessPathInfo.ACCESS_OFFSET);
+            List<String> starMetaPath = new ArrayList<>(mapPrefix);
+            starMetaPath.add(AccessPathInfo.ACCESS_ALL);
+            starMetaPath.add(metaSuffix);
 
             for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
-                if (!p.second.equals(starOffsetPath)) {
+                if (!p.second.equals(starMetaPath)) {
                     continue;
                 }
                 pathsToRemove.add(p);
@@ -384,10 +401,10 @@ public class NestedColumnPruning implements CustomRewriter {
                 keysPath.add(AccessPathInfo.ACCESS_MAP_KEYS);
                 pathsToAdd.add(Pair.of(p.first, keysPath));
 
-                List<String> valuesOffsetPath = new ArrayList<>(mapPrefix);
-                valuesOffsetPath.add(AccessPathInfo.ACCESS_MAP_VALUES);
-                valuesOffsetPath.add(AccessPathInfo.ACCESS_OFFSET);
-                pathsToAdd.add(Pair.of(p.first, valuesOffsetPath));
+                List<String> valuesMetaPath = new ArrayList<>(mapPrefix);
+                valuesMetaPath.add(AccessPathInfo.ACCESS_MAP_VALUES);
+                valuesMetaPath.add(metaSuffix);
+                pathsToAdd.add(Pair.of(p.first, valuesMetaPath));
             }
         }
         slotPaths.removeAll(pathsToRemove);
@@ -399,10 +416,11 @@ public class NestedColumnPruning implements CustomRewriter {
      *
      * <p>The strip cases are:
      * <ul>
-     *   <li>Map element lookup with value offset-only access is normalized first, e.g.
-     *       {@code [m, *, OFFSET]} becomes {@code [m, KEYS]} plus
-     *       {@code [m, VALUES, OFFSET]}. This is handled by
-     *       {@link #normalizeMapValueOffsetOnlyAccessPaths}.</li>
+     *   <li>Map element lookup with value meta-only (OFFSET or NULL) access is normalized first,
+     *       e.g. {@code [m, *, OFFSET]} becomes {@code [m, KEYS]} plus
+     *       {@code [m, VALUES, OFFSET]}, and {@code [m, *, NULL]} becomes
+     *       {@code [m, KEYS]} plus {@code [m, VALUES, NULL]}. This is handled by
+     *       {@link #normalizeMapValueMetaOnlyAccessPaths}.</li>
      *   <li>Full/data access covers metadata access, e.g. {@code [a]} removes
      *       {@code [a, NULL]} and {@code [a, OFFSET]}. This is handled by
      *       {@link #stripExactCoveredDataSkippingSuffixPaths}.</li>
@@ -1076,38 +1094,40 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         /**
-         * Collect MAP nodes accessed as {@code length(map_col['key'])}: the keys must be read
-         * in full for the element lookup, while the values only need the offset array since only
-         * their length is used. Expected access paths for each returned prefix:
-         * [prefix, KEYS] and [prefix, VALUES, OFFSET].
+         * Collect MAP nodes where keys are fully accessed for element lookup while values
+         * only need metadata (OFFSET or NULL). Expected access paths for each returned prefix:
+         * [prefix, KEYS] and [prefix, VALUES, metaSuffix].
+         *
+         * @param metaSuffix {@link AccessPathInfo#ACCESS_OFFSET} or
+         *                   {@link AccessPathInfo#ACCESS_NULL}
          */
-        public List<List<String>> collectMapValueOffsetOnlyAccessPaths() {
+        public List<List<String>> collectMapValueMetaOnlyAccessPaths(String metaSuffix) {
             List<List<String>> mapPrefixes = new ArrayList<>();
             if (!isRoot) {
-                collectMapValueOffsetOnlyAccessPaths(new ArrayList<>(), mapPrefixes);
+                collectMapValueMetaOnlyAccessPaths(new ArrayList<>(), mapPrefixes, metaSuffix);
                 return mapPrefixes;
             }
             for (Entry<String, DataTypeAccessTree> child : children.entrySet()) {
                 List<String> path = new ArrayList<>();
                 path.add(child.getKey());
-                child.getValue().collectMapValueOffsetOnlyAccessPaths(path, mapPrefixes);
+                child.getValue().collectMapValueMetaOnlyAccessPaths(path, mapPrefixes, metaSuffix);
             }
             return mapPrefixes;
         }
 
-        private void collectMapValueOffsetOnlyAccessPaths(
-                List<String> currentPath, List<List<String>> mapPrefixes) {
-            if (isMapValueOffsetOnlyAccess()) {
+        private void collectMapValueMetaOnlyAccessPaths(
+                List<String> currentPath, List<List<String>> mapPrefixes, String metaSuffix) {
+            if (isMapValueMetaOnlyAccess(metaSuffix)) {
                 mapPrefixes.add(new ArrayList<>(currentPath));
             }
             for (Entry<String, DataTypeAccessTree> child : children.entrySet()) {
                 List<String> childPath = new ArrayList<>(currentPath);
                 childPath.add(child.getKey());
-                child.getValue().collectMapValueOffsetOnlyAccessPaths(childPath, mapPrefixes);
+                child.getValue().collectMapValueMetaOnlyAccessPaths(childPath, mapPrefixes, metaSuffix);
             }
         }
 
-        private boolean isMapValueOffsetOnlyAccess() {
+        private boolean isMapValueMetaOnlyAccess(String metaSuffix) {
             if (!type.isMapType() || accessAll) {
                 return false;
             }
@@ -1117,16 +1137,17 @@ public class NestedColumnPruning implements CustomRewriter {
             if (!keysChild.accessAll) {
                 return false;
             }
-            // Values must be accessed offset-only (no deeper element reads).
-            if (!valsChild.hasOffsetPath || valsChild.accessAll) {
+            boolean hasMeta = AccessPathInfo.ACCESS_OFFSET.equals(metaSuffix)
+                    ? valsChild.hasOffsetPath
+                    : valsChild.hasNullPath;
+            if (!hasMeta || valsChild.accessAll) {
                 return false;
             }
             if (valsChild.type.isStringLikeType()) {
-                // String value: accessAll check above is sufficient.
                 return true;
             }
             if (valsChild.type.isArrayType()) {
-                // Array value (e.g. MAP<STRING, ARRAY<INT>>): verify no element was read directly
+                // Array value: verify no element was read directly
                 // (e.g. map_col['k'][0] would set allChild.accessAll=true).
                 DataTypeAccessTree allChild = valsChild.children.get(AccessPathInfo.ACCESS_ALL);
                 return !allChild.accessAll && !allChild.accessPartialChild;
@@ -1138,34 +1159,34 @@ public class NestedColumnPruning implements CustomRewriter {
          *  length(arr_col), length(map_col)), meaning the type must not change but an access
          *  path still needs to be sent to BE so it can skip the char/element data. */
         public boolean hasOffsetOnlyAccess() {
+            DataTypeAccessTree selfOrRootChild = this;
             if (isRoot) {
-                DataTypeAccessTree child = children.values().iterator().next();
-                if (!child.hasOffsetPath || child.accessAll) {
-                    return false;
-                }
-                if (child.type.isStringLikeType()) {
-                    return true;
-                }
-                if (child.type.isArrayType()) {
-                    // True only if no element was accessed (element_at / explode etc.)
-                    DataTypeAccessTree allChild = child.children.get(AccessPathInfo.ACCESS_ALL);
-                    return !allChild.accessAll && !allChild.accessPartialChild;
-                }
-                if (child.type.isMapType()) {
-                    // True only if neither keys nor values were accessed directly
-                    DataTypeAccessTree keysChild = child.children.get(AccessPathInfo.ACCESS_MAP_KEYS);
-                    DataTypeAccessTree valsChild = child.children.get(AccessPathInfo.ACCESS_MAP_VALUES);
-                    return !keysChild.accessAll && !keysChild.accessPartialChild
-                            && !valsChild.accessAll && !valsChild.accessPartialChild;
-                }
+                selfOrRootChild = children.values().iterator().next();
+            }
+            if (!selfOrRootChild.hasOffsetPath || selfOrRootChild.accessAll) {
                 return false;
             }
-            return type.isStringLikeType() && hasOffsetPath && !accessAll;
+            if (selfOrRootChild.type.isStringLikeType()) {
+                return true;
+            }
+            if (selfOrRootChild.type.isArrayType()) {
+                // True only if no element was accessed (element_at / explode etc.)
+                DataTypeAccessTree allChild = selfOrRootChild.children.get(AccessPathInfo.ACCESS_ALL);
+                return !allChild.accessAll && !allChild.accessPartialChild;
+            }
+            if (selfOrRootChild.type.isMapType()) {
+                // True only if neither keys nor values were accessed directly
+                DataTypeAccessTree keysChild = selfOrRootChild.children.get(AccessPathInfo.ACCESS_MAP_KEYS);
+                DataTypeAccessTree valsChild = selfOrRootChild.children.get(AccessPathInfo.ACCESS_MAP_VALUES);
+                return !keysChild.accessAll && !keysChild.accessPartialChild
+                        && !valsChild.accessAll && !valsChild.accessPartialChild;
+            }
+            return false;
         }
 
         /** True when the column is accessed ONLY via IS NULL / IS NOT NULL,
          *  meaning the BE only needs to read the null flag, not the actual data. */
-        public boolean hasNullCheckOnlyAccess() {
+        public boolean hasNullOnlyAccess() {
             if (isRoot) {
                 DataTypeAccessTree child = children.values().iterator().next();
                 return child.hasNullPath && !child.accessAll
