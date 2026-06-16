@@ -1212,7 +1212,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      * Whether the child at {@code childIndex} starts a new pipeline context, causing
      * its serial-ancestor flag to be reset to {@code false} rather than inherited from this node.
      * Override to return {@code true} for pipeline-splitting nodes (LocalExchangeNode) and nodes
-     * whose children run in an independent pipeline segment (SortNode above analytic, etc.).
+     * whose children run in an independent pipeline segment (SortNode before analytic, etc.).
      */
     protected boolean shouldResetSerialFlagForChild(int childIndex) {
         return false;
