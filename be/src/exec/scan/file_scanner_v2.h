@@ -54,11 +54,13 @@ public:
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
-    static Status TEST_build_nested_children_from_access_paths(
-            format::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths);
-    static Status TEST_build_nested_children_from_access_paths(
-            format::ColumnDefinition* column, const std::vector<TColumnAccessPath>& access_paths,
-            const format::ColumnDefinition* schema_column);
+    static Status TEST_to_file_format(TFileFormatType::type format_type,
+                                      format::FileFormat* file_format);
+    static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
+                                       const std::string& column_name);
+    static Status TEST_rewrite_slot_refs_to_global_index(
+            VExprSPtr* expr,
+            const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index);
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,

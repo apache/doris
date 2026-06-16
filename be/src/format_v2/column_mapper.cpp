@@ -997,8 +997,7 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     const bool same_timestamptz_with_different_scale =
             table_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
             file_type->get_primitive_type() == TYPE_TIMESTAMPTZ;
-    if (!mapping.table_type->equals(*mapping.file_type) &&
-        !same_timestamptz_with_different_scale) {
+    if (!mapping.table_type->equals(*mapping.file_type) && !same_timestamptz_with_different_scale) {
         return false;
     }
     return !needs_complex_rematerialize(mapping);
