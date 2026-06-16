@@ -52,6 +52,16 @@ def extractCounterValue = { String profileText, String counterName ->
 }
 
 suite("ann_range_search_pushdown_regression", "nonConcurrent") {
+    // DISABLED on branch-4.0: this case builds a scan with mixed indexed/non-indexed IVF
+    // segments by inserting rowsets smaller than nlist and relying on the BE skipping ANN
+    // index build for under-sized segments. That skip behavior comes from PR #64082 (skip
+    // ANN index build for segments with insufficient rows), which is NOT backported to this
+    // branch; without it the single-row INSERT below fails at segment finalize with faiss
+    // 'nx >= k' (training points 1 < nlist 2). Re-enable after backporting #64082.
+    // Original ANN range-search state-leakage fix this case was added for: #63666.
+    logger.info("ann_range_search_pushdown_regression is disabled pending backport of PR #64082")
+
+    /* ---- begin disabled (requires PR #64082, not backported) ----
     def getProfileWithToken = { token ->
         String profileId = ""
         int attempts = 0
@@ -137,5 +147,5 @@ suite("ann_range_search_pushdown_regression", "nonConcurrent") {
     def rangeSearchCnt = extractCounterValue(mixedProfile, "AnnIndexRangeSearchCnt")
     logger.info("Mixed indexed/non-indexed segment AnnIndexRangeSearchCnt=${rangeSearchCnt}")
     assertEquals("1", rangeSearchCnt)
-
+    ---- end disabled (requires PR #64082) ---- */
 }
