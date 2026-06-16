@@ -1475,6 +1475,7 @@ void VNodeChannel::mark_close(bool hang_wait) {
                     std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
             _pending_blocks.emplace(std::move(_cur_mutable_block), tmp_add_block_request);
             _pending_batches_num++;
+            _cur_add_block_request->clear_tablet_ids();
             _cur_add_block_request->clear_partition_ids();
             _cur_mutable_block = MutableBlock::create_unique();
         }
