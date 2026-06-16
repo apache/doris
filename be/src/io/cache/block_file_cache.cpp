@@ -63,7 +63,7 @@ namespace doris::io {
 namespace {
 
 constexpr std::array<FileCacheType, 5> LRU_LOG_REPLAY_TYPES = {
-        FileCacheType::TTL, FileCacheType::INDEX, FileCacheType::NORMAL, FileCacheType::COLD_NORMAL, 
+        FileCacheType::TTL, FileCacheType::INDEX, FileCacheType::NORMAL, FileCacheType::COLD_NORMAL,
         FileCacheType::DISPOSABLE};
 
 size_t file_cache_type_index(FileCacheType type) {
