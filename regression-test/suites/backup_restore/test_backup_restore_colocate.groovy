@@ -35,10 +35,33 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     }
 
     def checkColocateTabletHealth = { db_name ->
-        def result = showTabletHealth.call(db_name)
+        // Poll until the colocate group has stabilized (no mismatch) instead of
+        // asserting once, so the check waits for stabilization (e.g. after a restore)
+        // rather than racing it.
+        def result = null
+        for (int i = 0; i < 60; i++) {
+            result = showTabletHealth.call(db_name)
+            if (result != null && (result.ColocateMismatchNum as int) == 0) {
+                break
+            }
+            sleep(1000)
+        }
         log.info(result as String)
         assertNotNull(result)
         assertTrue(result.ColocateMismatchNum as int == 0)
+    }
+
+    // The planner only produces a COLOCATE join once the colocate group is stable.
+    // Right after a restore the restored group may still be stabilizing, so poll the
+    // explain plan until COLOCATE shows up (bounded wait) before asserting on it.
+    def waitColocatePlan = { q ->
+        def plan = q.replaceAll(/;\s*$/, "")
+        for (int i = 0; i < 60; i++) {
+            if (sql("explain ${plan}").toString().contains("COLOCATE")) {
+                break
+            }
+            sleep(1000)
+        }
     }
 
     def syncer = getSyncer()
@@ -95,6 +118,7 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
+    waitColocatePlan(query)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -201,6 +225,7 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     assertEquals(res.size(), insert_num)
 
 
+    waitColocatePlan(query)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -370,10 +395,33 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     }
 
     def checkColocateTabletHealth = { db_name ->
-        def result = showTabletHealth.call(db_name)
+        // Poll until the colocate group has stabilized (no mismatch) instead of
+        // asserting once, so the check waits for stabilization (e.g. after a restore)
+        // rather than racing it.
+        def result = null
+        for (int i = 0; i < 60; i++) {
+            result = showTabletHealth.call(db_name)
+            if (result != null && (result.ColocateMismatchNum as int) == 0) {
+                break
+            }
+            sleep(1000)
+        }
         log.info(result as String)
         assertNotNull(result)
         assertTrue(result.ColocateMismatchNum as int == 0)
+    }
+
+    // The planner only produces a COLOCATE join once the colocate group is stable.
+    // Right after a restore the restored group may still be stabilizing, so poll the
+    // explain plan until COLOCATE shows up (bounded wait) before asserting on it.
+    def waitColocatePlan = { q ->
+        def plan = q.replaceAll(/;\s*$/, "")
+        for (int i = 0; i < 60; i++) {
+            if (sql("explain ${plan}").toString().contains("COLOCATE")) {
+                break
+            }
+            sleep(1000)
+        }
     }
 
     def syncer = getSyncer()
@@ -446,6 +494,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     res = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(res.size(), insert_num)
 
+    waitColocatePlan(query)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -550,6 +599,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     assertEquals(res.size(), insert_num)
 
 
+    waitColocatePlan(query)
     explain {
         sql("${query}")
         contains("COLOCATE")
@@ -624,6 +674,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
 
     query = "select * from ${newDbName}.${tableName1} as t1, ${newDbName}.${tableName2} as t2 where t1.id=t2.id;"
 
+    waitColocatePlan(query)
     explain {
         sql("${query}")
         contains("COLOCATE")
