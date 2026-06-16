@@ -413,13 +413,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
-        // MAP_CONTAINS_ENTRY(<map>, <entry>)
+        // MAP_CONTAINS_ENTRY(<map>, <key>, <value>)
         // Map argument: full access is needed (both keys and values).
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
         continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
-        // Entry argument: visit with a fresh context to register its data access paths.
-        Expression entryArg = mapContainsEntry.getArgument(1);
-        if (entryArg != null) {
+        for (int i = 1; i < mapContainsEntry.arity(); i++) {
+            Expression entryArg = mapContainsEntry.getArgument(i);
+            // Entry argument: visit with a fresh context to register its data access paths.
             CollectorContext entryCtx = new CollectorContext(context.statementContext, context.bottomFilter);
             continueCollectAccessPath(entryArg, entryCtx);
         }

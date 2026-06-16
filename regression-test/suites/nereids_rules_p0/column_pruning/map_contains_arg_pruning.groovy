@@ -95,17 +95,18 @@ suite("map_contains_arg_pruning") {
     """
 
     // ================================================================
-    // Case 3: map_contains_entry, entry arg references sub-column
-    // map_contains_entry(m, element_at(s, 'a'), element_at(s, 'b'))
-    // needs both s.a and s.b
-    // Note: map_contains_entry syntax may vary; using the 2-arg form
+    // Case 3: map_contains_entry(m, key, value) — ternary function.
+    // visitMapContainsEntry must visit BOTH search arguments (arg1=key,
+    // arg2=value) with fresh contexts. Without the fix, only arg1 was
+    // collected and arg2 was silently skipped, leaving s.b unregistered
+    // so that element_at(s, 'b') IS NULL would prune s.b to null-only.
     // ================================================================
     explain {
         sql """
             SELECT id,
                    element_at(s, 'a') IS NULL,
-                   map_contains_key(m, element_at(s, 'a')),
-                   map_contains_value(m, element_at(s, 'b'))
+                   element_at(s, 'b') IS NULL,
+                   map_contains_entry(m, element_at(s, 'a'), element_at(s, 'b'))
             FROM map_contains_arg_pruning_tbl ORDER BY id
         """
         contains "nested columns"
@@ -118,8 +119,8 @@ suite("map_contains_arg_pruning") {
     order_qt_case3 """
         SELECT id,
                element_at(s, 'a') IS NULL,
-               map_contains_key(m, element_at(s, 'a')),
-               map_contains_value(m, element_at(s, 'b'))
+               element_at(s, 'b') IS NULL,
+               map_contains_entry(m, element_at(s, 'a'), element_at(s, 'b'))
         FROM map_contains_arg_pruning_tbl ORDER BY id
     """
 }
