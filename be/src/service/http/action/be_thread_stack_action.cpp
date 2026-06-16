@@ -126,6 +126,9 @@ std::once_flag g_install_signal_once;
 std::mutex g_collect_mutex;
 std::atomic<pid_t> g_server_pid {0};
 std::atomic<int> g_sequence {0};
+// The signal handler cannot allocate per-request state safely, so it publishes into one
+// process-wide slot. The latch protects that slot from nested or back-to-back signals while the
+// coordinator is still copying or unwinding the previous thread's context.
 std::atomic<int> g_active_sequence {0};
 std::atomic<int> g_data_ready_sequence {0};
 std::atomic<int> g_unwind_wait_sequence {0};
@@ -179,6 +182,9 @@ bool range_contains(const MemoryRange& range, uintptr_t address) {
 
 bool frame_record_is_readable(const MemoryRange& range, uintptr_t fp) {
     constexpr uintptr_t frame_record_size = sizeof(uintptr_t) * 2;
+    // The interrupted register can come from code without frame pointers or from a prologue/
+    // epilogue. Bounds plus alignment keep the handler from reinterpreting arbitrary stack bytes
+    // as a frame record.
     return fp % alignof(uintptr_t) == 0 && fp >= range.begin &&
            fp <= std::numeric_limits<uintptr_t>::max() - frame_record_size &&
            fp + frame_record_size <= range.end;
@@ -615,7 +621,18 @@ bool wait_for_signal_handler_idle(int timeout_ms) {
     return true;
 }
 
+bool release_signal_handler_and_wait(int sequence, int timeout_ms) {
+    // A published stack only means the data slot is ready. The target thread may still be inside
+    // the handler waiting for fallback unwind release; starting the next TID before the latch drops
+    // can make that next handler return without publishing anything.
+    g_unwind_release_sequence.store(sequence, std::memory_order_release);
+    g_active_sequence.store(0, std::memory_order_release);
+    return wait_for_signal_handler_idle(timeout_ms);
+}
+
 bool load_readable_writable_mappings(int timeout_ms, std::string* error) {
+    // Stack bounds are read before any signal is sent because the handler must not open /proc,
+    // allocate, or take locks while the target thread is asynchronously interrupted.
     g_active_sequence.store(0, std::memory_order_release);
     if (!wait_for_signal_handler_idle(timeout_ms)) {
         *error = "previous stack trace signal handler is still running";
@@ -657,6 +674,8 @@ bool load_readable_writable_mappings(int timeout_ms, std::string* error) {
 }
 
 bool is_signal_blocked(pid_t tid) {
+    // If the target masks the diagnostic signal, the kernel will not run our handler for that TID.
+    // Detecting it up front turns an otherwise guaranteed timeout into an explicit output status.
     std::ifstream status(fmt::format("/proc/self/task/{}/status", tid));
     if (!status.is_open()) {
         return false;
@@ -769,6 +788,8 @@ std::string syscall_name(long number) {
 }
 
 bool is_interrupt_sensitive_syscall(long number) {
+    // This list is only used by the explicit conservative mode. The default path still samples
+    // these threads so operators do not lose most blocked-worker stacks during real incidents.
     switch (number) {
 #ifdef SYS_read
     case SYS_read:
@@ -996,6 +1017,13 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
         return {CaptureStatus::SIGNAL_BLOCKED, "", "", ""};
     }
 
+    // The handler publishes through process-global state, not per-thread storage. Waiting here is
+    // the guardrail that keeps a previous slow-to-exit handler from causing this TID's signal to be
+    // dropped by the latch CAS.
+    if (!wait_for_signal_handler_idle(timeout_ms)) {
+        return {CaptureStatus::TIMEOUT, "", "", "previous_signal_handler_still_running"};
+    }
+
     int sequence = g_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
     g_unwind_release_sequence.store(0, std::memory_order_release);
     g_unwind_wait_sequence.store(0, std::memory_order_release);
@@ -1016,9 +1044,9 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
     }
 
     if (!wait_for_stack_trace(sequence, timeout_ms)) {
-        g_active_sequence.store(0, std::memory_order_release);
-        g_unwind_release_sequence.store(sequence, std::memory_order_release);
-        return {CaptureStatus::TIMEOUT, "", "", ""};
+        const bool handler_idle = release_signal_handler_and_wait(sequence, timeout_ms);
+        return {CaptureStatus::TIMEOUT, "", "",
+                handler_idle ? "" : "signal_handler_release_timeout"};
     }
 
     FramePointerCapture capture = g_signal_capture;
@@ -1026,8 +1054,13 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
         g_unwind_wait_sequence.load(std::memory_order_acquire) == sequence) {
         capture_signal_context_unwind(&g_signal_context, &capture);
     }
-    g_unwind_release_sequence.store(sequence, std::memory_order_release);
-    g_active_sequence.store(0, std::memory_order_release);
+    if (!release_signal_handler_and_wait(sequence, timeout_ms)) {
+        // Returning the captured stack while the target is still in the handler would hide a much
+        // more serious diagnostic side effect. Treat it as a timeout so the summary reflects the
+        // release failure explicitly.
+        return {CaptureStatus::TIMEOUT, "", "", "signal_handler_release_timeout"};
+    }
+
     return {CaptureStatus::OK, symbolize_stack_trace(capture, dwarf_mode), "",
             describe_frame_pointer_capture(capture)};
 }
@@ -1114,6 +1147,8 @@ void BeThreadStackAction::handle(HttpRequest* req) {
         return;
     }
 
+    // The signal handler state is process-global and intentionally single-slot, so concurrent HTTP
+    // requests would corrupt capture ownership rather than merely interleave response text.
     std::unique_lock<std::mutex> lock(g_collect_mutex, std::try_to_lock);
     if (!lock.owns_lock()) {
         HttpChannel::send_reply(req, HttpStatus::CONFLICT,

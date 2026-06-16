@@ -39,6 +39,7 @@
 #endif
 
 #include "common/config.h"
+#include "common/stack_trace.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_client.h"
 #include "service/http/http_method.h"
@@ -228,8 +229,9 @@ protected:
     }
 };
 
-// Covers explicit thread_id filtering: multiple TIDs must be sampled exactly once and without
-// falling back to full-process enumeration.
+// Covers explicit thread_id filtering and back-to-back remote signal captures: multiple TIDs must
+// be sampled exactly once, without falling back to full-process enumeration or timing out the next
+// capture because the previous handler has not fully released its latch yet.
 TEST_F(BeThreadStackActionTest, ThreadIdSelectorSupportsSingleAndMultipleIds) {
     ParkedMarkerThread first;
     ParkedMarkerThread second;
@@ -404,6 +406,24 @@ TEST_F(BeThreadStackActionTest, BestEffortSymbolizedFrameObserved) {
     EXPECT_TRUE(found) << "no symbolized marker frame observed in 100 attempts";
 
     marker.stop();
+}
+
+// Covers StackTrace cache isolation by DWARF mode. The same PCs must not reuse a cached
+// DISABLED rendering for FAST, or leak FAST file/line output back into DISABLED.
+TEST_F(BeThreadStackActionTest, StackTraceCacheSeparatesDwarfModes) {
+    StackTrace::dropCache();
+    StackTrace trace;
+    const std::string disabled_first = trace.toString(-3, "disabled");
+    const std::string fast_after_disabled = trace.toString(-3, "fast");
+    ASSERT_THAT(fast_after_disabled, testing::HasSubstr("be_thread_stack_action_test"));
+    EXPECT_NE(disabled_first, fast_after_disabled);
+
+    StackTrace::dropCache();
+    const std::string fast_first = trace.toString(-3, "fast");
+    const std::string disabled_after_fast = trace.toString(-3, "disabled");
+    EXPECT_EQ(fast_after_disabled, fast_first);
+    EXPECT_EQ(disabled_first, disabled_after_fast);
+    EXPECT_NE(disabled_after_fast, fast_first);
 }
 
 #else

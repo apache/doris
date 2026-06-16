@@ -30,12 +30,13 @@ public:
     ~BeThreadStackAction() override = default;
 
     // GET /api/stack_trace[?thread_id=<tid>[,<tid>...]][&tid=<tid>][&timeout_ms=<ms>]
-    //                     [&max_signal_threads=<n>]
-    // thread_id is the preferred selector; tid is kept as a legacy alias.
-    // Remote threads are sampled with a frame-pointer-only signal handler; symbolization runs
-    // after the handler returns. Full-process collection skips threads blocked in
-    // interrupt-sensitive syscalls such as accept/read and caps remote signal attempts through
-    // max_signal_threads. Explicit thread_id filters are not capped by the default limit.
+    //                     [&mode=<DISABLED|FAST|FULL|FULL_WITH_INLINE>]
+    //                     [&dwarf_location_info_mode=<DISABLED|FAST|FULL|FULL_WITH_INLINE>]
+    //                     [&skip_blocking_syscalls=<true|false>]
+    // thread_id is the preferred selector; tid is kept as a legacy alias. The default is full
+    // process collection without a signal-attempt cap, because production incidents usually need
+    // blocked worker stacks as much as running stacks. skip_blocking_syscalls is an explicit
+    // conservative mode for isolating EINTR-sensitive paths, not the normal capture policy.
     void handle(HttpRequest* req) override;
 };
 
