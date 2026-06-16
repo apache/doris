@@ -31,6 +31,9 @@ import java.util.concurrent.FutureTask;
 public class AnalysisTaskWrapper extends FutureTask<Void> {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskWrapper.class);
+    private static final String STATISTICS_ANALYZE_OOM_HINT = "For statistics analyze, you can increase "
+            + "`statistics_sql_mem_limit_in_bytes`, decrease `huge_table_default_sample_rows`, "
+            + "or use `statistics_max_string_column_length` to skip large string columns.";
 
     private final BaseAnalysisTask task;
 
@@ -74,7 +77,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             if (!task.killed) {
                 if (except != null) {
                     LOG.warn("Analyze {} failed.", task.toString(), except);
-                    task.job.taskFailed(task, Util.getRootCauseMessage(except));
+                    task.job.taskFailed(task, appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(except)));
                 }
             }
         }
@@ -85,10 +88,19 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             task.cancel();
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s", msg));
+            LOG.warn(String.format("Cancel job failed job info : %s",
+                    appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(e))));
         }
         // Interrupt thread when it's writing metadata would cause FE crush.
         return super.cancel(false);
+    }
+
+    private String appendStatisticsAnalyzeOOMHint(String msg) {
+        if (msg == null || !msg.contains("MEM_LIMIT_EXCEEDED")
+                || msg.contains("statistics_sql_mem_limit_in_bytes")) {
+            return msg;
+        }
+        return msg + "\n" + STATISTICS_ANALYZE_OOM_HINT;
     }
 
     public long getStartTime() {
