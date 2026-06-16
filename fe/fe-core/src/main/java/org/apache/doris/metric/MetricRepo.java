@@ -22,6 +22,8 @@ import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.cloud.catalog.CloudTabletRebalancer;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -63,14 +65,19 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.function.ToLongFunction;
 
 public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
@@ -133,6 +140,9 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_SQL_CACHE_ADDED;
     public static LongCounterMetric COUNTER_SQL_CACHE_HIT;
     public static LongCounterMetric COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES;
+
+    private static final Map<String, CloudWarmUpSyncJobGauge> CLOUD_WARM_UP_SYNC_JOB_METRICS =
+            new ConcurrentHashMap<>();
 
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
 
@@ -1622,6 +1632,199 @@ public final class MetricRepo {
         }
 
         DORIS_METRIC_REGISTER.acceptHistograms(visitor);
+    }
+
+    /*
+     * Example Prometheus output for a running event-driven cluster warm-up job. MetricVisitor adds the
+     * "doris_fe_" prefix to the metric names registered below.
+     *
+     * doris_fe_file_cache_warm_up_sync_job_info{
+     *   job_id="1778211593204", job_type="CLUSTER", sync_mode="EVENT_DRIVEN",
+     *   sync_event="LOAD", job_state="RUNNING", src_cluster_name="warmup_source",
+     *   dst_cluster_name="warmup_target"
+     * } 1
+     * doris_fe_file_cache_warm_up_sync_job_size_bytes{
+     *   job_id="1778211593204", job_type="CLUSTER", src_cluster_name="warmup_source",
+     *   dst_cluster_name="warmup_target", side="src", window="5m"
+     * } 113246208
+     * doris_fe_file_cache_warm_up_sync_job_size_bytes{
+     *   job_id="1778211593204", job_type="CLUSTER", src_cluster_name="warmup_source",
+     *   dst_cluster_name="warmup_target", side="dst", window="5m"
+     * } 100663296
+     *
+     * The size metric emits the same label shape for side=(src,dst) and window=(5m,30m,1h).
+     */
+    public static void syncCloudWarmUpSyncJobMetricDefinitions(Collection<CloudWarmUpJob> jobs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode()) {
+            clearCloudWarmUpSyncJobMetrics();
+            return;
+        }
+
+        Collection<CloudWarmUpJob> currentJobs = jobs == null ? Collections.emptyList() : jobs;
+        Set<String> currentMetricKeys = new HashSet<>();
+        for (CloudWarmUpJob job : currentJobs) {
+            if (job == null) {
+                continue;
+            }
+            registerCloudWarmUpSyncJobMetrics(job, currentMetricKeys);
+        }
+        CLOUD_WARM_UP_SYNC_JOB_METRICS.entrySet().removeIf(entry -> {
+            if (currentMetricKeys.contains(entry.getKey())) {
+                return false;
+            }
+            CloudWarmUpSyncJobGauge metric = entry.getValue();
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(metric.getName(), metric.getLabels());
+            return true;
+        });
+    }
+
+    private static void clearCloudWarmUpSyncJobMetrics() {
+        CLOUD_WARM_UP_SYNC_JOB_METRICS.forEach((key, metric) ->
+                DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(metric.getName(), metric.getLabels()));
+        CLOUD_WARM_UP_SYNC_JOB_METRICS.clear();
+    }
+
+    private static void registerCloudWarmUpSyncJobMetrics(CloudWarmUpJob job, Set<String> currentMetricKeys) {
+        String jobId = String.valueOf(job.getJobId());
+        String jobType = labelValue(job.getJobType());
+        String srcClusterName = labelValue(job.getSrcClusterName());
+        String dstClusterName = labelValue(job.getDstClusterName());
+
+        List<MetricLabel> infoLabels = new ArrayList<>();
+        infoLabels.add(new MetricLabel("job_id", jobId));
+        infoLabels.add(new MetricLabel("job_type", jobType));
+        infoLabels.add(new MetricLabel("sync_mode", labelValue(job.getSyncMode())));
+        infoLabels.add(new MetricLabel("sync_event", labelValue(job.getSyncEvent())));
+        infoLabels.add(new MetricLabel("job_state", labelValue(job.getJobState())));
+        infoLabels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        infoLabels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        addCloudWarmUpSyncJobGauge(currentMetricKeys, "file_cache_warm_up_sync_job_info", MetricUnit.NOUNIT,
+                "warm up sync job info", infoLabels, job, currentJob -> 1L);
+
+        if (!job.isEventDriven() || job.isDone()) {
+            return;
+        }
+
+        for (String window : new String[] {"5m", "30m", "1h"}) {
+            for (String side : new String[] {"src", "dst"}) {
+                List<MetricLabel> labels = new ArrayList<>();
+                labels.add(new MetricLabel("job_id", jobId));
+                labels.add(new MetricLabel("job_type", jobType));
+                labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+                labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+                labels.add(new MetricLabel("side", side));
+                labels.add(new MetricLabel("window", window));
+                addCloudWarmUpSyncJobGauge(currentMetricKeys, "file_cache_warm_up_sync_job_size_bytes",
+                        MetricUnit.BYTES, "warm up sync job source or target total size in bytes",
+                        labels, job, currentJob -> getCloudWarmUpSyncJobSizeBytes(currentJob, side, window));
+            }
+        }
+
+        List<MetricLabel> labels = new ArrayList<>();
+        labels.add(new MetricLabel("job_id", jobId));
+        labels.add(new MetricLabel("job_type", jobType));
+        labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        // Trigger gap observes active event-driven warm-up lag in time: source latest trigger time
+        // minus the target-side progress watermark collected from BEs.
+        addCloudWarmUpSyncJobGauge(currentMetricKeys, "file_cache_warm_up_sync_job_trigger_gap_ms",
+                MetricUnit.MILLISECONDS, "warm up sync job trigger progress gap in milliseconds",
+                labels, job, MetricRepo::getCloudWarmUpSyncJobTriggerGapMs);
+    }
+
+    private static void addCloudWarmUpSyncJobGauge(Set<String> currentMetricKeys, String name, MetricUnit unit,
+            String description, List<MetricLabel> labels, CloudWarmUpJob job,
+            ToLongFunction<CloudWarmUpJob> valueFunction) {
+        String key = metricKey(name, labels);
+        currentMetricKeys.add(key);
+        CloudWarmUpSyncJobGauge gauge = new CloudWarmUpSyncJobGauge(name, unit, description, labels, job,
+                valueFunction);
+        CloudWarmUpSyncJobGauge existingGauge = CLOUD_WARM_UP_SYNC_JOB_METRICS.putIfAbsent(key, gauge);
+        if (existingGauge == null) {
+            DORIS_METRIC_REGISTER.addMetrics(gauge);
+        } else {
+            existingGauge.setJob(job);
+        }
+    }
+
+    private static class CloudWarmUpSyncJobGauge extends GaugeMetric<Long> {
+        private volatile CloudWarmUpJob job;
+        private final ToLongFunction<CloudWarmUpJob> valueFunction;
+
+        CloudWarmUpSyncJobGauge(String name, MetricUnit unit, String description, List<MetricLabel> labels,
+                CloudWarmUpJob job, ToLongFunction<CloudWarmUpJob> valueFunction) {
+            super(name, unit, description);
+            this.job = job;
+            this.valueFunction = valueFunction;
+            setLabels(labels);
+        }
+
+        void setJob(CloudWarmUpJob job) {
+            this.job = job;
+        }
+
+        @Override
+        public Long getValue() {
+            CloudWarmUpJob currentJob = job;
+            if (currentJob == null) {
+                return 0L;
+            }
+            try {
+                return valueFunction.applyAsLong(currentJob);
+            } catch (Exception e) {
+                return 0L;
+            }
+        }
+    }
+
+    private static String metricKey(String name, List<MetricLabel> labels) {
+        StringBuilder sb = new StringBuilder(name);
+        for (MetricLabel label : labels) {
+            sb.append('|').append(label.getKey()).append('=').append(label.getValue());
+        }
+        return sb.toString();
+    }
+
+    private static String labelValue(Object value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private static JobWarmUpStats getCloudWarmUpSyncJobStats(CloudWarmUpJob job) {
+        JobWarmUpStats stats = job.getSyncStats();
+        return stats == null ? new JobWarmUpStats() : stats;
+    }
+
+    private static long getCloudWarmUpSyncJobSizeBytes(CloudWarmUpJob job, String side, String window) {
+        JobWarmUpStats stats = getCloudWarmUpSyncJobStats(job);
+        switch (side) {
+            case "src":
+                return byWindow(window, stats.requestedSegmentSize5m + stats.requestedIndexSize5m,
+                        stats.requestedSegmentSize30m + stats.requestedIndexSize30m,
+                        stats.requestedSegmentSize1h + stats.requestedIndexSize1h);
+            case "dst":
+                return byWindow(window, stats.finishSegmentSize5m + stats.finishIndexSize5m,
+                        stats.finishSegmentSize30m + stats.finishIndexSize30m,
+                        stats.finishSegmentSize1h + stats.finishIndexSize1h);
+            default:
+                return 0L;
+        }
+    }
+
+    private static long getCloudWarmUpSyncJobTriggerGapMs(CloudWarmUpJob job) {
+        return getCloudWarmUpSyncJobStats(job).triggerGapMs;
+    }
+
+    private static long byWindow(String window, long value5m, long value30m, long value1h) {
+        switch (window) {
+            case "5m":
+                return value5m;
+            case "30m":
+                return value30m;
+            case "1h":
+                return value1h;
+            default:
+                return 0;
+        }
     }
 
     // update some metrics to make a ready to be visited

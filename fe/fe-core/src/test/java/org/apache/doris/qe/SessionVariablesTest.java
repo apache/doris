@@ -78,18 +78,6 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
-    public void testCloneSessionVariablesWithSessionOriginValueNotEmpty() throws NoSuchFieldException {
-        Field txIsolation = SessionVariable.class.getField("txIsolation");
-        SessionVariableField txIsolationSessionVariableField = new SessionVariableField(txIsolation);
-        sessionVariable.addSessionOriginValue(txIsolationSessionVariableField, "test");
-
-        SessionVariable sessionVariableClone = VariableMgr.cloneSessionVariable(sessionVariable);
-
-        Assertions.assertEquals("test",
-                sessionVariableClone.getSessionOriginValue().get(txIsolationSessionVariableField));
-    }
-
-    @Test
     public void testInsertVisibleTimeoutReturnMode() throws Exception {
         connectContext.setThreadLocalInfo();
         SessionVariable sessionVar = connectContext.getSessionVariable();

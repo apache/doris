@@ -24,11 +24,11 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
-import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,7 +57,7 @@ public class AzureFileSystem extends ObjFileSystem {
     private static final String DIR_MARKER_SUFFIX = "/";
 
     public AzureFileSystem(AzureObjStorage objStorage) {
-        super("AZURE", objStorage);
+        super(objStorage);
     }
 
     /**

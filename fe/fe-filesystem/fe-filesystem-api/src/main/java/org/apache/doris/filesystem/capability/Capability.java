@@ -15,26 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.spi;
+package org.apache.doris.filesystem.capability;
 
 /**
- * Result of a single multipart upload part operation.
+ * Marker for optional filesystem capabilities exposed via
+ * {@link org.apache.doris.filesystem.FileSystem#capability(Class)}.
+ *
+ * <p>Implement this on each capability interface (e.g. presigned URLs, batch delete,
+ * multipart upload) so the capability lookup is constrained at compile time to real
+ * capability types rather than any arbitrary class.
  */
-public final class UploadPartResult {
-
-    private final int partNumber;
-    private final String etag;
-
-    public UploadPartResult(int partNumber, String etag) {
-        this.partNumber = partNumber;
-        this.etag = etag;
-    }
-
-    public int partNumber() {
-        return partNumber;
-    }
-
-    public String etag() {
-        return etag;
-    }
+public interface Capability {
 }

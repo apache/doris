@@ -50,7 +50,7 @@ suite("test_drop_index_with_format_v2", "inverted_index_format_v2"){
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
-    
+
     sql """
 	    CREATE TABLE ${tableName} (
             `id` int(11) NULL,
@@ -74,7 +74,7 @@ suite("test_drop_index_with_format_v2", "inverted_index_format_v2"){
     sql """ INSERT INTO ${tableName} VALUES (2, "bason", 99); """
     sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
 
@@ -85,12 +85,12 @@ suite("test_drop_index_with_format_v2", "inverted_index_format_v2"){
     String port = backendId_to_backendHttpPort.get(backend_id)
     check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
 
-    // drop index 
+    // drop index
     sql """ DROP INDEX index_name on ${tableName}; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     check_nested_index_file(ip, port, tablet_id, 7, 1, "V2")
 
-    // drop index 
+    // drop index
     sql """ DROP INDEX index_score on ${tableName}; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
     check_nested_index_file(ip, port, tablet_id, 7, 0, "V2")

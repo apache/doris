@@ -142,30 +142,30 @@ suite("test_index_rqg_bug", "test_index_rqg_bug"){
         (48, -10, 7, 3, 4, -1290467110130692882, NULL, -5421887030808227301, 2147894047624029750, '2023-12-20', '2026-02-18', '2023-12-10', '2024-02-18', 'v', 'f', 'u', 'z', 'w', 'l', 'i', 'b'),
         (49, 4, -10, -10, -4, 7177870619817484302, 2010854013707344984, 515636226818986547, -4617727694631456148, '2023-12-14', '2024-01-09', '2023-12-11', '2024-01-08', 'k', 'o', 'r', 'h', 'x', 'v', 'm', 'r');
     """
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
     qt_select_bug_1 """
-    SELECT 
-        MIN(DISTINCT table1.col_date_undef_signed_not_null) AS field1, 
+    SELECT
+        MIN(DISTINCT table1.col_date_undef_signed_not_null) AS field1,
         TO_DATE(
-            CASE 
-                WHEN table1.col_date_undef_signed_not_null != DATE_ADD(table1.col_date_undef_signed_not_null_index_inverted, INTERVAL 7 DAY) 
-                THEN DATE_SUB(table1.col_date_undef_signed_not_null_index_inverted, INTERVAL 8 DAY) 
-                ELSE DATE_ADD(table1.col_date_undef_signed_not_null, INTERVAL 365 DAY) 
+            CASE
+                WHEN table1.col_date_undef_signed_not_null != DATE_ADD(table1.col_date_undef_signed_not_null_index_inverted, INTERVAL 7 DAY)
+                THEN DATE_SUB(table1.col_date_undef_signed_not_null_index_inverted, INTERVAL 8 DAY)
+                ELSE DATE_ADD(table1.col_date_undef_signed_not_null, INTERVAL 365 DAY)
             END
         ) AS field2
-    FROM 
+    FROM
         ${table1} AS table1
-    WHERE 
-        ( 
-            (table1.col_int_undef_signed_not_null_index_inverted != 6) 
-            OR table1.col_date_undef_signed_not_null NOT IN ('2018-11-14') 
+    WHERE
+        (
+            (table1.col_int_undef_signed_not_null_index_inverted != 6)
+            OR table1.col_date_undef_signed_not_null NOT IN ('2018-11-14')
             OR table1.col_int_undef_signed_index_inverted <> 9
-        ) 
-    GROUP BY 
-        field2  
-    ORDER BY 
-        field2 
-    LIMIT 1000 
+        )
+    GROUP BY
+        field2
+    ORDER BY
+        field2
+    LIMIT 1000
     OFFSET 5;
     """
 

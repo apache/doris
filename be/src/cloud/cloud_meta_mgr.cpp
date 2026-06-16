@@ -1526,7 +1526,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
                   << ", with timeout: " << timeout_ms << " ms";
     }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-    manager.warm_up_rowset(rs_meta, timeout_ms);
+    manager.warm_up_rowset(rs_meta, table_id, timeout_ms);
     return st;
 }
 

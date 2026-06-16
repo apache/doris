@@ -33,18 +33,28 @@ suite("rf_partition_pruning", "nonConcurrent") {
 
     // ---- Profile utilities ----
     def profileAction = new ProfileAction(context)
+    def profileCompletionStateName = "Profile Completion State"
+    def profileCompletionStateComplete = "COMPLETE"
 
     def getProfileByToken = { String token, List requiredCounters = [] ->
         String profileContent = ""
+        String profileState = ""
         for (int attempt = 0; attempt < 60; attempt++) {
             List profileData = profileAction.getProfileList()
             for (final def profileItem in profileData) {
                 if (profileItem["Sql Statement"].toString().contains(token)) {
-                    profileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                    profileState = profileItem[profileCompletionStateName]?.toString()
+                    def currentProfileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
+                    if (currentProfileContent != "") {
+                        profileContent = currentProfileContent
+                    }
                     break
                 }
             }
-            if (profileContent != "" && requiredCounters.every { profileContent.contains(it) }) break
+            if (profileState == profileCompletionStateComplete && profileContent != ""
+                    && requiredCounters.every { profileContent.contains(it) }) {
+                break
+            }
             Thread.sleep(500)
         }
         return profileContent

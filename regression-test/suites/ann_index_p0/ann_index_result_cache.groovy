@@ -17,7 +17,7 @@
 
 suite("ann_index_result_cache", "nonConcurrent") {
     sql "unset variable all;"
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "set parallel_pipeline_task_num=1;"
     sql "set enable_sql_cache=false;"
 

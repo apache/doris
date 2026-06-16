@@ -16,7 +16,7 @@
 // under the License.
 
 suite("delete_where_with_ann") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "drop table if exists delete_where_with_ann"
     test {
         sql """
@@ -43,7 +43,7 @@ suite("delete_where_with_ann") {
     qt_sql_1 "select * from delete_where_with_ann order by id"
 
     sql "delete from delete_where_with_ann where id = 1"
-    
+
     qt_sql_2 "select * from delete_where_with_ann order by id"
 
     qt_sql_3 "select id, l2_distance_approximate(vec, [1.0, 2.0, 3.0]) as dist from delete_where_with_ann order by dist limit 2;"
