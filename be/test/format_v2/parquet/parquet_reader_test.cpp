@@ -1258,6 +1258,44 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
     EXPECT_EQ(values, std::vector<std::string>({"lm"}));
 }
 
+TEST_F(NewParquetReaderTest, ScanRangeFiltersRowGroupsBeforeDictionaryPruning) {
+    write_dictionary_filter_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 6);
+
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
+    auto schema_descriptor = parquet_file_reader->metadata()->schema();
+    ASSERT_NE(schema_descriptor, nullptr);
+    ASSERT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+
+    format::FileScanRequest request;
+    format::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = format::LocalColumnId(1);
+    auto value_type = std::make_shared<DataTypeString>();
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
+            1, "value", value_type, Field::create_field<TYPE_STRING>("lm"), false));
+    request.column_predicate_filters.push_back(std::move(column_filter));
+
+    const auto [range_start_offset, range_size] = row_group_mid_range(_file_path, 2);
+    format::parquet::ParquetScanRange scan_range;
+    scan_range.start_offset = range_start_offset;
+    scan_range.size = range_size;
+    scan_range.file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+
+    format::parquet::RowGroupScanPlan plan;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
+                        .ok());
+    ASSERT_EQ(plan.row_groups.size(), 1);
+    EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
+}
+
 TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) {
     write_struct_filter_parquet_file(_file_path);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);

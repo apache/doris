@@ -352,7 +352,7 @@ TEST(HiveReaderTest, PositionMappingUsesColumnIdxsForFileSlots) {
             .scan_params = &params,
             .runtime_state = &runtime_state,
     };
-    hive::HiveReader reader;
+    format::hive::HiveReader reader;
 
     TFileScanSlotInfo id_slot;
     id_slot.__set_is_file_slot(true);
@@ -393,7 +393,7 @@ TEST(HiveReaderTest, PositionMappingDoesNotConsumePartitionSlots) {
             .scan_params = &params,
             .runtime_state = &runtime_state,
     };
-    hive::HiveReader reader;
+    format::hive::HiveReader reader;
 
     TFileScanSlotInfo partition_slot;
     partition_slot.__set_is_file_slot(false);
@@ -434,7 +434,7 @@ TEST(HiveReaderTest, PositionMappingFailsWhenColumnIdxsMissing) {
             .scan_params = &params,
             .runtime_state = &runtime_state,
     };
-    hive::HiveReader reader;
+    format::hive::HiveReader reader;
 
     TFileScanSlotInfo value_slot;
     value_slot.__set_is_file_slot(true);

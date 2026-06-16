@@ -24,6 +24,13 @@
 
 namespace doris::format::parquet {
 
+// 虚拟列 reader：生成文件中当前行的位置序号（从 RowGroup 起始行号开始递增）。
+//
+// 不对应任何 Parquet 物理列，不持有 RecordReader。
+// read() 直接写入从 _row_group_first_row + _next_row_position 开始的连续 Int64 值。
+// skip() 只推进 _next_row_position 游标。
+//
+// 用于需要知道行在文件中位置的场景（如 Iceberg 的 file_row_position）。
 class RowPositionColumnReader final : public ParquetColumnReader {
 public:
     explicit RowPositionColumnReader(int64_t row_group_first_row,
@@ -38,8 +45,8 @@ public:
     Status skip(int64_t rows) override;
 
 private:
-    int64_t _row_group_first_row = 0;
-    int64_t _next_row_position = 0;
+    int64_t _row_group_first_row = 0; // 当前 RG 在文件中的起始行号
+    int64_t _next_row_position = 0;   // 下一个待输出的行位置
 };
 
 } // namespace doris::format::parquet

@@ -206,7 +206,7 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         EXPECT_EQ(rewritten->column_name(), "legacy_value");
     }
     {
-        auto cast_expr = Cast::create_shared(int_type);
+        auto cast_expr = format::Cast::create_shared(int_type);
         cast_expr->add_child(slot_ref(9, 9, int_type, "nested_value"));
         VExprSPtr expr = cast_expr;
         const auto status = FileScannerV2::TEST_rewrite_slot_refs_to_global_index(

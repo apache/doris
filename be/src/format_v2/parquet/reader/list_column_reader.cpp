@@ -70,6 +70,17 @@ Status ListColumnReader::load_nested_batch(int64_t rows) {
     return _element_reader->load_nested_batch(rows);
 }
 
+// LIST 的嵌套构建核心逻辑：
+//
+// 从 element reader 的 def/rep levels 重建 ColumnArray：
+//
+// 1. 遍历 def/rep levels，解析每个顶层行：
+//    - rep_level == _repetition_level  → 继续当前 element（entry_count++）
+//    - rep_level < _repetition_level   → 新顶层行开始
+//    - def_level < _definition_level-1 → 该 LIST 本身为 NULL
+//    - def_level >= _definition_level  → entry 非空（至少 1 个元素）
+// 2. 委托 element reader 的 build_nested_column() 填充所有元素值
+// 3. append_offsets() + append_parent_nulls() 写入 ColumnArray 结构
 Status ListColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                              int64_t* values_read) {
     if (column.get() == nullptr || values_read == nullptr) {
