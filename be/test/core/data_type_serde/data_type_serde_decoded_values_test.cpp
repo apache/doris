@@ -739,6 +739,20 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2Millis) {
                            "1970-01-01 00:00:00.001000", "1970-01-01 00:00:01.234000"});
 }
 
+TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2Nanos) {
+    auto type = std::make_shared<DataTypeDateTimeV2>(6);
+    std::vector<int64_t> values = {-1000, 0, 1000, 1234567890};
+    auto view = make_fixed_view(DecodedValueKind::INT64, values);
+    view.time_unit = DecodedTimeUnit::NANOS;
+
+    auto result = read_column(type, view);
+
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    expect_column_strings(*type, *result.column,
+                          {"1969-12-31 23:59:59.999999", "1970-01-01 00:00:00.000000",
+                           "1970-01-01 00:00:00.000001", "1970-01-01 00:00:01.234567"});
+}
+
 TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2UnknownUnitAsMicros) {
     auto type = std::make_shared<DataTypeDateTimeV2>(6);
     std::vector<int64_t> values = {1000000};
