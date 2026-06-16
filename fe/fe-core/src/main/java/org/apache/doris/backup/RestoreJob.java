@@ -1140,9 +1140,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     if (reserveReplica) {
                         restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
                     }
+                    boolean isInMemory = remotePartitionInfo.getIsInMemory(remotePartId);
+                    if (Config.isCloudMode()) {
+                        // In cloud mode, storage_medium, cooldown_time, storage_policy and in_memory
+                        // from the source cluster are not applicable. Reset them to defaults.
+                        remoteDataProperty = new DataProperty(
+                                DataProperty.DEFAULT_STORAGE_MEDIUM,
+                                DataProperty.MAX_COOLDOWN_TIME_MS,
+                                "",
+                                remoteDataProperty.isMutable());
+                        isInMemory = false;
+                    }
                     localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
                             remoteDataProperty, restoreReplicaAlloc,
-                            remotePartitionInfo.getIsInMemory(remotePartId),
+                            isInMemory,
                             remotePartitionInfo.getIsMutable(remotePartId));
                 }
                 localTbl.addPartition(restoredPart);
@@ -1678,9 +1689,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (reserveReplica) {
                 restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
             }
+            boolean isInMemory = remotePartitionInfo.getIsInMemory(remotePartId);
+            if (Config.isCloudMode()) {
+                // In cloud mode, storage_medium, cooldown_time, storage_policy and in_memory
+                // from the source cluster are not applicable. Reset them to defaults.
+                remoteDataProperty = new DataProperty(
+                        DataProperty.DEFAULT_STORAGE_MEDIUM,
+                        DataProperty.MAX_COOLDOWN_TIME_MS,
+                        "",
+                        remoteDataProperty.isMutable());
+                isInMemory = false;
+            }
             localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
                     remoteDataProperty, restoreReplicaAlloc,
-                    remotePartitionInfo.getIsInMemory(remotePartId),
+                    isInMemory,
                     remotePartitionInfo.getIsMutable(remotePartId));
             localTbl.addPartition(restorePart);
 
