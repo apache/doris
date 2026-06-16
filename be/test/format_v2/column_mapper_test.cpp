@@ -1335,6 +1335,170 @@ TEST(ColumnMapperCreateMappingTest, ByIndexSupportsSparseProjection) {
 }
 
 TEST(ColumnMapperCreateMappingTest,
+     ByIndexMatchesNestedStructChildrenByNameEvenWhenChildrenHaveFieldIds) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    // Hive positional mapping only applies to top-level columns. FE/history schema metadata can
+    // still put field-id style integer identifiers on nested struct children. Those nested
+    // identifiers must not be interpreted as file positions.
+    auto table_root = struct_col("profile", 1,
+                                 {
+                                         field_id_col("id", 100, int_type),
+                                         field_id_col("name", 101, string_type),
+                                 });
+    // Reverse the file child order so a wrong positional match either misses the child or reads
+    // the wrong physical child. The expected mapping below proves the children are matched by name.
+    auto file_root = struct_name_col("_col1",
+                                     {
+                                             name_col("name", string_type, 0),
+                                             name_col("id", int_type, 1),
+                                     },
+                                     1);
+    const std::vector<ColumnDefinition> table_schema = {table_root};
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("_col0", 1000, string_type, 0),
+            file_root,
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
+    const auto status = mapper.create_mapping(table_schema, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_mapping(mapper.mappings()[0], 0, "profile", 1, "_col1", file_root.type,
+                   table_root.type);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "id", 1, "id", int_type, int_type);
+    expect_mapping(mapper.mappings()[0].child_mappings[1], 0, "name", 0, "name", string_type,
+                   string_type);
+}
+
+TEST(ColumnMapperCreateMappingTest, ByIndexNestedStructDoesNotUseChildOrdinalIdentifier) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    // This is the dangerous variant of the previous case: the nested integer identifiers happen
+    // to be valid child ordinals. BY_INDEX must still ignore them below the top-level root.
+    auto table_root = struct_col("profile", 1,
+                                 {
+                                         field_id_col("id", 0, int_type),
+                                         field_id_col("name", 1, string_type),
+                                 });
+    // If the implementation uses child ordinal matching, id/name will be swapped here.
+    auto file_root = struct_name_col("_col1",
+                                     {
+                                             name_col("name", string_type, 0),
+                                             name_col("id", int_type, 1),
+                                     },
+                                     1);
+    const std::vector<ColumnDefinition> table_schema = {table_root};
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("_col0", 1000, string_type, 0),
+            file_root,
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
+    const auto status = mapper.create_mapping(table_schema, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_mapping(mapper.mappings()[0], 0, "profile", 1, "_col1", file_root.type,
+                   table_root.type);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "id", 1, "id", int_type, int_type);
+    expect_mapping(mapper.mappings()[0].child_mappings[1], 0, "name", 0, "name", string_type,
+                   string_type);
+}
+
+TEST(ColumnMapperCreateMappingTest, ByIndexArrayElementStructChildrenMatchByName) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    // The top-level ARRAY column is selected by file position. After that, ARRAY has a single
+    // structural child, and the element STRUCT should use Hive's nested-by-name behavior.
+    auto table_element = struct_col("element", 10,
+                                    {
+                                            field_id_col("id", 100, int_type),
+                                            field_id_col("name", 101, string_type),
+                                    });
+    auto table_root = array_col("profiles", 1, table_element);
+    // Reverse the element struct children to distinguish name matching from position matching.
+    auto file_element = struct_name_col("element",
+                                        {
+                                                name_col("name", string_type, 0),
+                                                name_col("id", int_type, 1),
+                                        },
+                                        0);
+    auto file_root = array_col("_col1", 1001, file_element, 1);
+    const std::vector<ColumnDefinition> table_schema = {table_root};
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("_col0", 1000, string_type, 0),
+            file_root,
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
+    const auto status = mapper.create_mapping(table_schema, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_mapping(mapper.mappings()[0], 0, "profiles", 1, "_col1", file_root.type,
+                   table_root.type);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 1);
+    const auto& element_mapping = mapper.mappings()[0].child_mappings[0];
+    expect_mapping(element_mapping, 0, "element", 0, "element", file_element.type,
+                   table_element.type);
+    ASSERT_EQ(element_mapping.child_mappings.size(), 2);
+    expect_mapping(element_mapping.child_mappings[0], 0, "id", 1, "id", int_type, int_type);
+    expect_mapping(element_mapping.child_mappings[1], 0, "name", 0, "name", string_type,
+                   string_type);
+}
+
+TEST(ColumnMapperCreateMappingTest, ByIndexMapValueStructChildrenMatchByName) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    const auto key_type = str();
+    // MAP key/value are structural children, so BY_INDEX should not reinterpret their nested
+    // integer identifiers as arbitrary positions. The value STRUCT then follows name matching.
+    auto table_key = field_id_col("key", 10, key_type);
+    auto table_value = struct_col("value", 11,
+                                  {
+                                          field_id_col("id", 100, int_type),
+                                          field_id_col("name", 101, string_type),
+                                  });
+    auto table_root = map_col("profiles", 1, {table_key, table_value}, key_type,
+                              table_value.type);
+    auto file_key = name_col("key", key_type, 0);
+    // Reverse value struct children. A positional nested match would produce name/id swapped.
+    auto file_value = struct_name_col("value",
+                                      {
+                                              name_col("name", string_type, 0),
+                                              name_col("id", int_type, 1),
+                                      },
+                                      1);
+    auto file_root = map_col("_col1", 1001, {file_key, file_value}, key_type, file_value.type, 1);
+    const std::vector<ColumnDefinition> table_schema = {table_root};
+    const std::vector<ColumnDefinition> file_schema = {
+            field_id_col("_col0", 1000, string_type, 0),
+            file_root,
+    };
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_INDEX});
+    const auto status = mapper.create_mapping(table_schema, {}, file_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    expect_mapping(mapper.mappings()[0], 0, "profiles", 1, "_col1", file_root.type,
+                   table_root.type);
+    ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
+    expect_mapping(mapper.mappings()[0].child_mappings[0], 0, "key", 0, "key", key_type,
+                   key_type);
+    const auto& value_mapping = mapper.mappings()[0].child_mappings[1];
+    expect_mapping(value_mapping, 0, "value", 1, "value", file_value.type, table_value.type);
+    ASSERT_EQ(value_mapping.child_mappings.size(), 2);
+    expect_mapping(value_mapping.child_mappings[0], 0, "id", 1, "id", int_type, int_type);
+    expect_mapping(value_mapping.child_mappings[1], 0, "name", 0, "name", string_type,
+                   string_type);
+}
+
+TEST(ColumnMapperCreateMappingTest,
      ByIndexPartitionColumnsTakeConstantAndDoNotConsumeFilePosition) {
     const auto int_type = i32();
     const auto string_type = str();
