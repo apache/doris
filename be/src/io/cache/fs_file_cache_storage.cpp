@@ -289,6 +289,10 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 }
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
+    // Large clear-cache tests only need to verify the synchronous remove handoff and in-memory
+    // index cleanup. They can return early here to avoid test-only disk churn.
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("FSFileCacheStorage::remove", Status::OK(), &key);
+
     const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
     const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
