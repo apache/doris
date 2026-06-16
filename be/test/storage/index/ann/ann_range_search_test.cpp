@@ -100,9 +100,8 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     EXPECT_EQ(ann_range_search_runtime.radius, 10.0f);
     std::vector<int> query_array_groud_truth = {1, 2, 3, 4, 5, 6, 7, 20};
     std::vector<int> query_array_f32;
-    const auto& query_value = range_search_ctx->_ann_range_search_runtime.query_value;
     for (int i = 0; i < query_array_groud_truth.size(); ++i) {
-        query_array_f32.push_back(static_cast<int>(query_value->get_data()[i]));
+        query_array_f32.push_back(static_cast<int>(ann_range_search_runtime.query_value[i]));
     }
     for (int i = 0; i < query_array_f32.size(); ++i) {
         EXPECT_EQ(query_array_f32[i], query_array_groud_truth[i]);

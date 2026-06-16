@@ -36,7 +36,6 @@
 #pragma once
 
 #include "core/column/column.h"
-#include "core/column/column_vector.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
@@ -50,7 +49,7 @@ namespace doris::segment_v2 {
 struct AnnIndexStats;
 class AnnIndexIterator;
 
-Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
+Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
 
 /**
  * @brief Runtime execution engine for ANN (Approximate Nearest Neighbor) Top-N queries.
@@ -163,7 +162,7 @@ private:
     size_t _src_column_idx = -1;                ///< Source vector column index
     size_t _dest_column_idx = -1;               ///< Destination distance column index
     segment_v2::AnnIndexMetric _metric_type;    ///< Distance metric type
-    ColumnFloat32::Ptr _query_array;            ///< Query vector data (contiguous float buffer)
+    IColumn::Ptr _query_array;                  ///< Query vector data (contiguous float buffer)
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
 #include "common/compile_check_end.h"

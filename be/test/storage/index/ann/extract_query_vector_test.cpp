@@ -178,7 +178,7 @@ TEST_F(ExtractQueryVectorTest, ValuesMatchInput) {
 
     auto result = extract_query_vector(mock);
     ASSERT_TRUE(result.has_value());
-    const auto& float_col = result.value();
+    auto* float_col = assert_cast<const ColumnFloat32*>(result.value().get());
     ASSERT_EQ(float_col->size(), 4u);
     for (size_t i = 0; i < input.size(); ++i) {
         EXPECT_FLOAT_EQ(float_col->get_data()[i], input[i]);
@@ -238,22 +238,6 @@ TEST_F(ExtractQueryVectorTest, NonArrayColumnFails) {
     auto result = extract_query_vector(mock);
     ASSERT_FALSE(result.has_value());
     EXPECT_TRUE(result.error().to_string().find("Array literal") != std::string::npos);
-}
-
-TEST_F(ExtractQueryVectorTest, NonFloatArrayFails) {
-    auto int_col = ColumnInt32::create();
-    int_col->insert_value(1);
-    int_col->insert_value(2);
-    auto offsets = ColumnArray::ColumnOffsets::create();
-    offsets->insert_value(2);
-    auto array_col = ColumnArray::create(std::move(int_col), std::move(offsets));
-
-    auto mock = std::make_shared<MockConstVExpr>();
-    mock->set_column(std::move(array_col));
-
-    auto result = extract_query_vector(mock);
-    ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().to_string().find("must be Float32") != std::string::npos);
 }
 
 } // namespace doris::segment_v2
