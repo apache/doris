@@ -254,9 +254,9 @@ suite("one_col_range_partition") {
         contains("partitions=417/1826")
     }
     explain {
-        sql """SELECT * FROM one_col_range_partition_date WHERE case when dt<'2021-1-01 00:00:00' then false when dt<'2021-5-01' then false
+        sql """SELECT * FROM one_col_range_partition_date WHERE case when dt<'2021-1-01 00:00:00' then false when dt<'2021-1-15' then false
         else true end;"""
-        contains("partitions=417/1826")
+        contains("partitions=37/1826")
     }
     explain {
         sql """SELECT * FROM one_col_range_partition_date WHERE case when dt<'2022-1-01 00:00:00' then dt
