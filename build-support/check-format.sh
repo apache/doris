@@ -31,7 +31,7 @@ DORIS_HOME=$(
 )
 export DORIS_HOME
 
-CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format)}"
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:-clang-format}"
 
 if [[ -z $(command -v "${CLANG_FORMAT}") ]]; then
     echo "clang-format not found, please install clang-format"
