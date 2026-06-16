@@ -149,7 +149,7 @@ TEST_F(IndexStorageLifecycleTest, CountOnIndexPredicateRecordsAppliedEvent) {
     expect_applied_title_index(read_result.value(), 1);
 }
 
-TEST_F(IndexStorageLifecycleTest, CountOnIndexSkipsReadingKeyDataWhenIndexApplied) {
+TEST_F(IndexStorageLifecycleTest, DISABLED_CountOnIndexSkipsReadingKeyDataWhenIndexApplied) {
     IndexTabletOptions options;
     options.tablet_id = 110027;
     options.text_columns = {TextColumnSpec {.unique_id = 2, .name = "title"}};

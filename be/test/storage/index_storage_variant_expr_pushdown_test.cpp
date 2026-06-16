@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -38,6 +39,7 @@ namespace {
 constexpr int32_t kVariantUid = 2;
 constexpr int64_t kIntPatternIndexId = 220201;
 constexpr int64_t kArrayPatternIndexId = 220202;
+constexpr int64_t kSparseIntPatternIndexId = 220203;
 constexpr std::string_view kArrayPath = "inventors";
 
 VariantColumnSpec typed_pattern_variant_column() {
@@ -175,9 +177,10 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                     .variant_column(typed_pattern_variant_column())
                     .inverted_index(IndexSpec::field_pattern_index(
                             kIntPatternIndexId, "idx_v_int_glob", kVariantUid, "int_*"))
-                    .rowset(0,
-                            IndexDataSourceSpec::inline_variant(
-                                    {R"({"int_1": 42})", R"({"int_2": 7})", R"({"int_3": 8})"}, 0))
+                    .rowset(0, IndexDataSourceSpec::inline_variant(
+                                       {R"({"int_1": 42})", R"({"int_2": 7})"}, 0))
+                    .rowset(1, IndexDataSourceSpec::inline_variant(
+                                       {R"({"int_1": null})", R"({"int_1": 8})"}, 100))
                     .build();
     ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
     auto rowsets = write_rowsets(index_case.rowsets);
@@ -192,8 +195,8 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
             read_rowsets(readable_rowsets.value(),
                          make_is_null_read_options(*tablet_schema(), path_column_id, false));
     ASSERT_TRUE(not_null_read.has_value()) << not_null_read.error();
-    EXPECT_EQ(not_null_read->rows_read, 1);
-    EXPECT_EQ(not_null_read->stats.rows_inverted_index_filtered, 2);
+    EXPECT_EQ(not_null_read->rows_read, 2);
+    expect_index_filter_stats(not_null_read.value(), 2);
     expect_index_probe(not_null_read.value(), IndexProbeExpectation {
                                                       .source = IndexProbeSource::EXPR_PUSHDOWN,
                                                       .state = IndexProbeState::APPLIED,
@@ -202,7 +205,17 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                                                       .variant_path = "int_1",
                                                       .index_id = kIntPatternIndexId,
                                                       .counts_toward_filter_stats = true,
-                                                      .filtered_rows = 2,
+                                                      .filtered_rows = 1,
+                                              });
+    expect_index_probe(not_null_read.value(), IndexProbeExpectation {
+                                                      .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                      .state = IndexProbeState::APPLIED,
+                                                      .reason = IndexFallbackReason::NONE,
+                                                      .column_uid = kVariantUid,
+                                                      .variant_path = "int_1",
+                                                      .index_id = kIntPatternIndexId,
+                                                      .counts_toward_filter_stats = true,
+                                                      .filtered_rows = 1,
                                               });
 
     auto null_read =
@@ -210,7 +223,7 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                          make_is_null_read_options(*tablet_schema(), path_column_id, true));
     ASSERT_TRUE(null_read.has_value()) << null_read.error();
     EXPECT_EQ(null_read->rows_read, 2);
-    EXPECT_EQ(null_read->stats.rows_inverted_index_filtered, 1);
+    expect_index_filter_stats(null_read.value(), 2);
     expect_index_probe(null_read.value(), IndexProbeExpectation {
                                                   .source = IndexProbeSource::EXPR_PUSHDOWN,
                                                   .state = IndexProbeState::APPLIED,
@@ -221,6 +234,135 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                                                   .counts_toward_filter_stats = true,
                                                   .filtered_rows = 1,
                                           });
+    expect_index_probe(null_read.value(), IndexProbeExpectation {
+                                                  .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                  .state = IndexProbeState::APPLIED,
+                                                  .reason = IndexFallbackReason::NONE,
+                                                  .column_uid = kVariantUid,
+                                                  .variant_path = "int_1",
+                                                  .index_id = kIntPatternIndexId,
+                                                  .counts_toward_filter_stats = true,
+                                                  .filtered_rows = 1,
+                                          });
+
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    EXPECT_EQ(compacted.value()->num_rows(), 4);
+
+    auto reloaded = reload_rowsets({compacted.value()});
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+    auto readable_compacted = rowsets_with_variant_extended_schema(reloaded.value());
+    ASSERT_TRUE(readable_compacted.has_value()) << readable_compacted.error();
+    const int32_t compacted_path_column_id = column_id_by_path("v.int_1");
+    ASSERT_EQ(compacted_path_column_id, path_column_id);
+
+    auto compacted_not_null = read_rowsets(
+            readable_compacted.value(),
+            make_is_null_read_options(*tablet_schema(), compacted_path_column_id, false));
+    ASSERT_TRUE(compacted_not_null.has_value()) << compacted_not_null.error();
+    EXPECT_EQ(compacted_not_null->rows_read, 2);
+    expect_index_filter_stats(compacted_not_null.value(), 2);
+    expect_index_probe(compacted_not_null.value(),
+                       IndexProbeExpectation {
+                               .source = IndexProbeSource::EXPR_PUSHDOWN,
+                               .state = IndexProbeState::APPLIED,
+                               .reason = IndexFallbackReason::NONE,
+                               .column_uid = kVariantUid,
+                               .variant_path = "int_1",
+                               .index_id = kIntPatternIndexId,
+                               .counts_toward_filter_stats = true,
+                               .filtered_rows = 2,
+                       });
+
+    auto compacted_null = read_rowsets(
+            readable_compacted.value(),
+            make_is_null_read_options(*tablet_schema(), compacted_path_column_id, true));
+    ASSERT_TRUE(compacted_null.has_value()) << compacted_null.error();
+    EXPECT_EQ(compacted_null->rows_read, 2);
+    expect_index_filter_stats(compacted_null.value(), 2);
+    expect_index_probe(compacted_null.value(), IndexProbeExpectation {
+                                                       .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                       .state = IndexProbeState::APPLIED,
+                                                       .reason = IndexFallbackReason::NONE,
+                                                       .column_uid = kVariantUid,
+                                                       .variant_path = "int_1",
+                                                       .index_id = kIntPatternIndexId,
+                                                       .counts_toward_filter_stats = true,
+                                                       .filtered_rows = 2,
+                                               });
+}
+
+TEST_F(IndexStorageVariantExprPushdownTest, DISABLED_IsNullExprUsesSparseVariantFieldPatternIndex) {
+    VariantColumnSpec variant;
+    variant.unique_id = kVariantUid;
+    variant.name = "v";
+    variant.max_subcolumns_count = 1;
+    variant.sparse_hash_shard_count = 2;
+
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_sparse_is_null_expr_field_pattern_index")
+                    .tablet_id(110038)
+                    .variant_column(std::move(variant))
+                    .inverted_index(IndexSpec::field_pattern_index(
+                            kSparseIntPatternIndexId, "idx_v_sparse_rare", kVariantUid, "rare"))
+                    .rowset(0, IndexDataSourceSpec::inline_variant(
+                                       {R"({"hot": 1, "rare": 10})", R"({"hot": 2})",
+                                        R"({"hot": 3, "rare": null})"},
+                                       0))
+                    .rowset(1, IndexDataSourceSpec::inline_variant(
+                                       {R"({"hot": 4, "rare": 20})", R"({"hot": 5})"}, 100))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto read_schema = build_schema_with_variant_path_column(*tablet_schema(), kVariantUid, "rare",
+                                                             FieldType::OLAP_FIELD_TYPE_INT);
+    ASSERT_NE(read_schema, nullptr);
+    auto readable_rowsets =
+            inject_reader_schema_for_rowsets(rowsets.value(), std::move(read_schema));
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.rare");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+
+    auto not_null_read =
+            read_rowsets(readable_rowsets.value(),
+                         make_is_null_read_options(*tablet_schema(), path_column_id, false));
+    ASSERT_TRUE(not_null_read.has_value()) << not_null_read.error();
+    EXPECT_EQ(not_null_read->rows_read, 2);
+    expect_index_filter_stats(not_null_read.value(), 3);
+    expect_index_probe_count(not_null_read.value(),
+                             IndexProbeExpectation {
+                                     .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                     .state = IndexProbeState::APPLIED,
+                                     .reason = IndexFallbackReason::NONE,
+                                     .column_uid = kVariantUid,
+                                     .variant_path = "rare",
+                                     .index_id = kSparseIntPatternIndexId,
+                                     .counts_toward_filter_stats = true,
+                                     .filtered_rows = std::nullopt,
+                             },
+                             2);
+
+    auto null_read =
+            read_rowsets(readable_rowsets.value(),
+                         make_is_null_read_options(*tablet_schema(), path_column_id, true));
+    ASSERT_TRUE(null_read.has_value()) << null_read.error();
+    EXPECT_EQ(null_read->rows_read, 3);
+    expect_index_filter_stats(null_read.value(), 2);
+    expect_index_probe_count(null_read.value(),
+                             IndexProbeExpectation {
+                                     .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                     .state = IndexProbeState::APPLIED,
+                                     .reason = IndexFallbackReason::NONE,
+                                     .column_uid = kVariantUid,
+                                     .variant_path = "rare",
+                                     .index_id = kSparseIntPatternIndexId,
+                                     .counts_toward_filter_stats = true,
+                                     .filtered_rows = std::nullopt,
+                             },
+                             2);
 }
 
 TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsUsesVariantArrayFieldPatternIndex) {
@@ -268,6 +410,178 @@ TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsUsesVariantArrayFieldPa
                                              .counts_toward_filter_stats = true,
                                              .filtered_rows = 6,
                                      });
+}
+
+TEST_F(IndexStorageVariantExprPushdownTest,
+       ArrayContainsRecordsNoHitDisabledIndexAndCompactedReload) {
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_array_contains_probe_matrix")
+                    .tablet_id(110036)
+                    .variant_column(array_text_variant_column())
+                    .inverted_index(IndexSpec::field_pattern_index(kArrayPatternIndexId,
+                                                                   "idx_v_inventors", kVariantUid,
+                                                                   std::string(kArrayPath)))
+                    .rowset(0, IndexDataSourceSpec::inline_variant(
+                                       {R"({"inventors":["w", "amory"]})", R"({"inventors":[]})",
+                                        R"({"inventors":null})"},
+                                       0))
+                    .rowset(1, IndexDataSourceSpec::inline_variant(
+                                       {R"({"inventors":["w", "x"]})", R"({"inventors":[null]})",
+                                        R"({"inventors":["m"]})", R"({"inventors":["n", null]})"},
+                                       100))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.inventors");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+
+    {
+        ScopedDebugPoint debug_point("array_func.array_contains", {{"result_bitmap", "1"}});
+        auto hit_read = read_rowsets(
+                readable_rowsets.value(),
+                make_array_contains_read_options(*tablet_schema(), path_column_id, "w"));
+        ASSERT_TRUE(hit_read.has_value()) << hit_read.error();
+        EXPECT_GT(debug_point.execute_num(), 0);
+        EXPECT_EQ(hit_read->rows_read, 2);
+        expect_index_filter_stats(hit_read.value(), 5);
+        expect_index_probe_count(hit_read.value(),
+                                 IndexProbeExpectation {
+                                         .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                         .state = IndexProbeState::APPLIED,
+                                         .reason = IndexFallbackReason::NONE,
+                                         .column_uid = kVariantUid,
+                                         .variant_path = std::string(kArrayPath),
+                                         .index_id = kArrayPatternIndexId,
+                                         .counts_toward_filter_stats = true,
+                                         .filtered_rows = std::nullopt,
+                                 },
+                                 2);
+    }
+
+    {
+        ScopedDebugPoint debug_point("array_func.array_contains", {{"result_bitmap", "0"}});
+        auto miss_read = read_rowsets(
+                readable_rowsets.value(),
+                make_array_contains_read_options(*tablet_schema(), path_column_id, "missing"));
+        ASSERT_TRUE(miss_read.has_value()) << miss_read.error();
+        EXPECT_GT(debug_point.execute_num(), 0);
+        EXPECT_EQ(miss_read->rows_read, 0);
+        expect_index_filter_stats(miss_read.value(), 7);
+        expect_index_probe_count(miss_read.value(),
+                                 IndexProbeExpectation {
+                                         .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                         .state = IndexProbeState::APPLIED,
+                                         .reason = IndexFallbackReason::NONE,
+                                         .column_uid = kVariantUid,
+                                         .variant_path = std::string(kArrayPath),
+                                         .index_id = kArrayPatternIndexId,
+                                         .counts_toward_filter_stats = true,
+                                         .filtered_rows = std::nullopt,
+                                 },
+                                 2);
+    }
+
+    auto disabled_options = make_array_contains_read_options(*tablet_schema(), path_column_id, "w");
+    disabled_options.enable_inverted_index_query = false;
+    auto disabled_read = read_rowsets(readable_rowsets.value(), std::move(disabled_options));
+    ASSERT_TRUE(disabled_read.has_value()) << disabled_read.error();
+    EXPECT_EQ(disabled_read->rows_read, 2);
+    EXPECT_EQ(disabled_read->stats.rows_inverted_index_filtered, 0);
+    expect_no_index_probe(disabled_read.value(), IndexProbeExpectation {
+                                                         .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                         .state = IndexProbeState::APPLIED,
+                                                         .reason = std::nullopt,
+                                                         .column_uid = kVariantUid,
+                                                         .variant_path = std::string(kArrayPath),
+                                                         .index_id = kArrayPatternIndexId,
+                                                         .counts_toward_filter_stats = std::nullopt,
+                                                         .filtered_rows = std::nullopt,
+                                                 });
+
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    EXPECT_EQ(compacted.value()->num_rows(), 7);
+
+    auto reloaded = reload_rowsets({compacted.value()});
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+    auto readable_compacted = rowsets_with_variant_extended_schema(reloaded.value());
+    ASSERT_TRUE(readable_compacted.has_value()) << readable_compacted.error();
+    const int32_t compacted_path_column_id = column_id_by_path("v.inventors");
+    ASSERT_EQ(compacted_path_column_id, path_column_id);
+
+    ScopedDebugPoint debug_point("array_func.array_contains", {{"result_bitmap", "2"}});
+    auto compacted_read = read_rowsets(
+            readable_compacted.value(),
+            make_array_contains_read_options(*tablet_schema(), compacted_path_column_id, "w"));
+    ASSERT_TRUE(compacted_read.has_value()) << compacted_read.error();
+    EXPECT_GT(debug_point.execute_num(), 0);
+    EXPECT_EQ(compacted_read->rows_read, 2);
+    expect_index_filter_stats(compacted_read.value(), 5);
+    expect_index_probe_count(compacted_read.value(),
+                             IndexProbeExpectation {
+                                     .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                     .state = IndexProbeState::APPLIED,
+                                     .reason = IndexFallbackReason::NONE,
+                                     .column_uid = kVariantUid,
+                                     .variant_path = std::string(kArrayPath),
+                                     .index_id = kArrayPatternIndexId,
+                                     .counts_toward_filter_stats = true,
+                                     .filtered_rows = std::nullopt,
+                             },
+                             1);
+}
+
+TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsAllHitKeepsProbeStatsAtZeroFilteredRows) {
+    const auto index_case =
+            IndexStorageCaseBuilder("variant_array_contains_all_hit_probe_stats")
+                    .tablet_id(110039)
+                    .variant_column(array_text_variant_column())
+                    .inverted_index(IndexSpec::field_pattern_index(kArrayPatternIndexId,
+                                                                   "idx_v_inventors", kVariantUid,
+                                                                   std::string(kArrayPath)))
+                    .rowset(0,
+                            IndexDataSourceSpec::inline_variant(
+                                    {R"({"inventors":["w"]})", R"({"inventors":["w", "x"]})",
+                                     R"({"inventors":["a", "w"]})", R"({"inventors":["w", null]})"},
+                                    0))
+                    .build();
+    ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
+    auto rowsets = write_rowsets(index_case.rowsets);
+    ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
+    const int32_t path_column_id = column_id_by_path("v.inventors");
+    ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
+
+    ScopedDebugPoint debug_point("array_func.array_contains", {{"result_bitmap", "4"}});
+    auto read =
+            read_rowsets(readable_rowsets.value(),
+                         make_array_contains_read_options(*tablet_schema(), path_column_id, "w"));
+    ASSERT_TRUE(read.has_value()) << read.error();
+    EXPECT_GT(debug_point.execute_num(), 0);
+    EXPECT_EQ(read->rows_read, 4);
+    expect_index_filter_stats(read.value(), 0);
+    expect_index_probe_count(read.value(),
+                             IndexProbeExpectation {
+                                     .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                     .state = IndexProbeState::APPLIED,
+                                     .reason = IndexFallbackReason::NONE,
+                                     .column_uid = kVariantUid,
+                                     .variant_path = std::string(kArrayPath),
+                                     .index_id = kArrayPatternIndexId,
+                                     .segment_id = 0,
+                                     .counts_toward_filter_stats = true,
+                                     .input_rows = 4,
+                                     .output_rows = 4,
+                                     .filtered_rows = 0,
+                             },
+                             1);
 }
 
 } // namespace doris::index_storage_test

@@ -978,6 +978,22 @@ void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_f
     EXPECT_EQ(event_filtered_rows, expected_filtered_rows);
 }
 
+void expect_raw_rows_read(const IndexReadResult& result, int64_t expected_raw_rows_read) {
+    EXPECT_EQ(result.stats.raw_rows_read, expected_raw_rows_read);
+}
+
+void expect_segment_pruned(const IndexReadResult& result, int64_t expected_filtered_segments) {
+    EXPECT_EQ(result.stats.filtered_segment_number, expected_filtered_segments);
+}
+
+void expect_zone_map_filtered(const IndexReadResult& result, int64_t expected_filtered_rows) {
+    EXPECT_EQ(result.stats.rows_stats_filtered, expected_filtered_rows);
+}
+
+void expect_bloom_filter_filtered(const IndexReadResult& result, int64_t expected_filtered_rows) {
+    EXPECT_EQ(result.stats.rows_bf_filtered, expected_filtered_rows);
+}
+
 void expect_inverted_index_used(const IndexReadResult& result) {
     EXPECT_TRUE(result.inverted_index_used())
             << "expected inverted index probe, rows_inverted_index_filtered="
@@ -1030,8 +1046,18 @@ bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectati
     if (expectation.index_id.has_value() && event.index_id != expectation.index_id.value()) {
         return false;
     }
+    if (expectation.segment_id.has_value() && event.segment_id != expectation.segment_id.value()) {
+        return false;
+    }
     if (expectation.counts_toward_filter_stats.has_value() &&
         event.counts_toward_filter_stats != expectation.counts_toward_filter_stats.value()) {
+        return false;
+    }
+    if (expectation.input_rows.has_value() && event.input_rows != expectation.input_rows.value()) {
+        return false;
+    }
+    if (expectation.output_rows.has_value() &&
+        event.output_rows != expectation.output_rows.value()) {
         return false;
     }
     if (expectation.filtered_rows.has_value() &&
@@ -1052,6 +1078,18 @@ void expect_no_index_probe(const IndexReadResult& result,
     EXPECT_FALSE(std::any_of(
             result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
             [&](const auto& event) { return index_probe_matches(event, expectation); }));
+}
+
+int64_t count_index_probes(const IndexReadResult& result,
+                           const IndexProbeExpectation& expectation) {
+    return std::count_if(
+            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
+            [&](const auto& event) { return index_probe_matches(event, expectation); });
+}
+
+void expect_index_probe_count(const IndexReadResult& result,
+                              const IndexProbeExpectation& expectation, int64_t expected_count) {
+    EXPECT_EQ(count_index_probes(result, expectation), expected_count);
 }
 
 void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,

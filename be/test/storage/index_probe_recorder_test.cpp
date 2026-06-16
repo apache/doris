@@ -142,6 +142,36 @@ TEST(IndexProbeRecorderTest, RecordsNullBitmapAndDuplicateReadProbes) {
         EXPECT_EQ(event.state, IndexProbeState::APPLIED);
         EXPECT_EQ(event.reason, IndexFallbackReason::NONE);
     }
+
+    index_storage_test::IndexReadResult result;
+    result.stats = stats;
+    index_storage_test::expect_index_probe_count(result,
+                                                 index_storage_test::IndexProbeExpectation {
+                                                         .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                         .state = IndexProbeState::APPLIED,
+                                                         .reason = IndexFallbackReason::NONE,
+                                                         .column_uid = 2,
+                                                         .variant_path = std::nullopt,
+                                                         .index_id = 1001,
+                                                         .segment_id = 7,
+                                                         .counts_toward_filter_stats = true,
+                                                         .input_rows = 10,
+                                                         .output_rows = 4,
+                                                         .filtered_rows = 6,
+                                                 },
+                                                 1);
+    index_storage_test::expect_index_probe_count(result,
+                                                 index_storage_test::IndexProbeExpectation {
+                                                         .source = IndexProbeSource::EXPR_PUSHDOWN,
+                                                         .state = IndexProbeState::APPLIED,
+                                                         .reason = IndexFallbackReason::NONE,
+                                                         .column_uid = 2,
+                                                         .variant_path = std::nullopt,
+                                                         .index_id = 1001,
+                                                         .segment_id = 8,
+                                                         .counts_toward_filter_stats = true,
+                                                 },
+                                                 0);
 }
 
 } // namespace

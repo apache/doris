@@ -189,14 +189,17 @@ struct IndexProfileSnapshot {
 };
 
 struct IndexProbeExpectation {
-    std::optional<IndexProbeSource> source;
-    std::optional<IndexProbeState> state;
-    std::optional<IndexFallbackReason> reason;
-    std::optional<int32_t> column_uid;
-    std::optional<std::string> variant_path;
-    std::optional<int64_t> index_id;
-    std::optional<bool> counts_toward_filter_stats;
-    std::optional<int64_t> filtered_rows;
+    std::optional<IndexProbeSource> source = std::nullopt;
+    std::optional<IndexProbeState> state = std::nullopt;
+    std::optional<IndexFallbackReason> reason = std::nullopt;
+    std::optional<int32_t> column_uid = std::nullopt;
+    std::optional<std::string> variant_path = std::nullopt;
+    std::optional<int64_t> index_id = std::nullopt;
+    std::optional<int32_t> segment_id = std::nullopt;
+    std::optional<bool> counts_toward_filter_stats = std::nullopt;
+    std::optional<int64_t> input_rows = std::nullopt;
+    std::optional<int64_t> output_rows = std::nullopt;
+    std::optional<int64_t> filtered_rows = std::nullopt;
 };
 
 struct IndexReadResult {
@@ -296,11 +299,18 @@ TabletSchemaSPtr build_schema_with_variant_path_column(const TabletSchema& base_
                                                        std::string relative_path, FieldType type);
 
 void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_filtered_rows);
+void expect_raw_rows_read(const IndexReadResult& result, int64_t expected_raw_rows_read);
+void expect_segment_pruned(const IndexReadResult& result, int64_t expected_filtered_segments);
+void expect_zone_map_filtered(const IndexReadResult& result, int64_t expected_filtered_rows);
+void expect_bloom_filter_filtered(const IndexReadResult& result, int64_t expected_filtered_rows);
 void expect_inverted_index_used(const IndexReadResult& result);
 void expect_inverted_index_fallback(const IndexReadResult& result);
 void expect_inverted_index_not_attempted(const IndexReadResult& result);
 void expect_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation);
 void expect_no_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation);
+int64_t count_index_probes(const IndexReadResult& result, const IndexProbeExpectation& expectation);
+void expect_index_probe_count(const IndexReadResult& result,
+                              const IndexProbeExpectation& expectation, int64_t expected_count);
 void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
                                        int64_t index_id, int64_t expected_filtered_rows,
                                        int32_t column_uid = 2);
