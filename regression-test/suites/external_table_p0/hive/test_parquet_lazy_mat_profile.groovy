@@ -326,6 +326,8 @@ suite("test_parquet_lazy_mat_profile", "p0,external") {
         def test_true_false = {
             sql """ set enable_parquet_filter_by_min_max = true; """
             sql """ set enable_parquet_lazy_materialization = false; """
+            // in v2 lazy materialization is always enabled.
+            sql """ set enable_file_scanner_v2=false; """
 
             def metrics = q1()
             logger.info("metrics = ${metrics}")
