@@ -395,10 +395,8 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // full-data paths must be collected; otherwise an IS NULL / OFFSET path on
         // the same slot would cause NestedColumnPruning to prune to metadata-only.
         Expression keyArg = mapContainsKey.getArgument(1);
-        if (keyArg != null) {
-            CollectorContext keyCtx = new CollectorContext(context.statementContext, context.bottomFilter);
-            continueCollectAccessPath(keyArg, keyCtx);
-        }
+        CollectorContext keyCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+        continueCollectAccessPath(keyArg, keyCtx);
         return null;
     }
 
@@ -415,10 +413,8 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         continueCollectAccessPath(mapContainsValue.getArgument(0), context);
         // Value argument: visit with a fresh context to register its data access paths.
         Expression valueArg = mapContainsValue.getArgument(1);
-        if (valueArg != null) {
-            CollectorContext valueCtx = new CollectorContext(context.statementContext, context.bottomFilter);
-            continueCollectAccessPath(valueArg, valueCtx);
-        }
+        CollectorContext valueCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+        continueCollectAccessPath(valueArg, valueCtx);
         return null;
     }
 
