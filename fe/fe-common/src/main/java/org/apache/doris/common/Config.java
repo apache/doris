@@ -1336,6 +1336,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
 
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
 
