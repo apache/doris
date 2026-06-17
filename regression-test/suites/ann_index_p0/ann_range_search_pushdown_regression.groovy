@@ -81,7 +81,6 @@ suite("ann_range_search_pushdown_regression", "nonConcurrent") {
     sql "set profile_level=2;"
     sql "set parallel_pipeline_task_num=1;"
     sql "set enable_sql_cache=false;"
-    sql "set enable_condition_cache=false;"
 
     // Case 1: one rowset has an IVF ANN index, while the surrounding small
     // rowsets skip ANN index building because they have fewer rows than nlist.
