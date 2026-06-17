@@ -1,0 +1,110 @@
+# 任务清单（Pn-Tnn）
+
+> 状态：⬜ 未开始 ｜ 🚧 进行中 ｜ ✅ 完成 ｜ ⛔ blocked。
+> 编号永不复用。每完成一个 task 按 `WORKFLOW.md §2.8` 同步文档。
+> 设计依据：`../designs/metastore-storage-property-refactor-design-2026-06-17.md`（节号见各 task）。
+
+---
+
+## P0 — 准备
+
+### P0-T01 ✅ 确认 fe-filesystem-api 已满足连接器消费需求（recon + 定向完成）
+- **做什么**：核对 `fe-filesystem-api` 的 `StorageProperties.toHadoopProperties().toHadoopConfigurationMap()` 与 `toBackendProperties().toMap()` 能覆盖 paimon `applyStorageConfig` / BE 凭据所需的全部键（S3/OSS/COS/OBS/HDFS）。
+- **验收**：列出新 api 产物 vs 现 paimon 经 fe-property 得到的键，差异清单为空或有结论（缺则记 deviation 决定补在哪）。~~**结论预期：无需给 api 加静态门面**~~（**已证伪**，见下）。
+- **依赖**：无。设计 §4 P0-1 / §2.1。
+- **结论（2026-06-17 recon，见 DV-001）**：
+  - **F1 等价性 = 非阻塞**：fe-filesystem `toHadoopConfigurationMap()`/`toMap()` 与 paimon 现走的 fe-property 路在**静态凭据常见路径全等**（COS 完全相同；OSS/OBS 相同；含 jindo/cosn/obs 块）；fe-filesystem 为**超集**（S3 assume-role/anon 额外键；OSS/COS/OBS endpoint/region 无条件 vs 懒发）。→ 认 fe-filesystem 为新事实源，T1 钉常见路径全等 + 记超集差异。
+  - **F2 可行性 = 阻塞**：**无** raw map → `List<fe-filesystem StorageProperties>` 的 bind-all 入口（provider registry 私有，仅首个命中 `createFileSystem`）。`getStorageProperties()` **无法**只改 `DefaultConnectorContext`，须额外 additive `bindAll(...)`（fe-core `FileSystemPluginManager` 或 fe-filesystem-spi）。**白名单假设被推翻** → 需用户定向 + 最小扩张（DV-001 三选项，已 AskUserQuestion）。
+- **✅ 定向（用户 2026-06-17）**：选机制 **A**（DV-001 → D-009）——bind-all 落 fe-core `FileSystemPluginManager.bindAll`，`getStorageProperties()` 经 `getOrigProps()` 取 raw map、不碰构造点。白名单 +`FileSystemPluginManager.java`（仅新增）。P0-T01 闭环;进入 P0-T02。
+
+### P0-T02 ⬜ fe-core FileSystemPluginManager 新增 bindAll（raw map → List<fe-filesystem StorageProperties>）
+- **做什么**（D-009）：在 fe-core `FileSystemPluginManager` 加 additive `public List<StorageProperties> bindAll(Map<String,String>)`：遍历已注册 providers，对 `supports(props)` 命中者调 `provider.bind(props)` **全量收集**（非首个命中），返回 `List<org.apache.doris.filesystem.properties.StorageProperties>`（`FileSystemProperties extends StorageProperties`，故 bind 产物 IS-A 目标类型）。**仅新增方法，不动 `createFileSystem` 等既有方法。**
+- **验收**：单测：给定 S3/OSS/HDFS 等代表性 raw props，`bindAll` 返回非空、类型正确、覆盖期望后端的列表（与 fe-core 旧 `StorageProperties.createAll` 选中的后端集合对齐）；空/无匹配返回空列表不抛。`createFileSystem` 行为零回归。fe-core 旧 `datasource.property.storage` 包 + fe-filesystem 模块零改动。
+- **依赖**：无（∥ P1-T01）。设计 §4 P0-2 / §2.1 / **D-009 / DV-001**。**红线**：仅改 `FileSystemPluginManager.java`（新增 bindAll）。
+
+---
+
+## P1 — paimon storage 收口到 fe-filesystem-api（纯新增/迁移）
+
+### P1-T01 ⬜ ConnectorContext 新增 getStorageProperties()
+- **做什么**：`fe-connector-spi` 的 `ConnectorContext` 加 `default List<StorageProperties> getStorageProperties() { return List.of(); }`（fe-filesystem-api 类型）。pom 增 `fe-connector-spi → fe-filesystem-api`。
+- **验收**：编译通过；**这条边即"fe-connector 依赖 fe-filesystem-api"落地**；其它连接器零影响（默认空）。
+- **依赖**：无。设计 §4 P1-1 / §3.2。**红线**：仅改 `ConnectorContext.java` + `fe-connector-spi/pom.xml`。
+
+### P1-T02 ⬜ DefaultConnectorContext.getStorageProperties() 实现
+- **做什么**（D-009）：fe-core `DefaultConnectorContext` override `getStorageProperties()`：从现有 `storagePropertiesSupplier.get()` 取任一 fe-core typed 值的 `getOrigProps()`（= 完整 catalog raw map），喂 `FileSystemPluginManager.bindAll(rawMap)`（P0-T02）返回 fe-filesystem `List<StorageProperties>`。supplier 空（REST/vended、非 plugin ctor）→ 返回空列表（无静态 storage，正确）。**不改构造点。**
+- **验收**：paimon catalog 下 `ctx.getStorageProperties()` 返回正确 typed 列表；hive/iceberg/其它连接器行为不变（默认空）。需确认 fe-core `createAll` 各实例 `origProps` = 完整 raw map（实现时读 `createAll`+ctor 核实）。
+- **依赖**：P1-T01, P0-T02。设计 §4 P1-2 / **D-009**。**红线**：fe-core 仅此文件新增 `getStorageProperties()`（bindAll 在 P0-T02 的 FileSystemPluginManager）。
+
+### P1-T03 ⬜ PaimonCatalogFactory.applyStorageConfig 改走 toHadoopConfigurationMap
+- **做什么**：把 `fe-property StorageProperties.buildObjectStorageHadoopConfig(props)` 换成"遍历 `ctx.getStorageProperties()` 调 `toHadoopProperties().toHadoopConfigurationMap()`"；**保留**其后的 `paimon.*/fs./dfs./hadoop.` 覆盖块（保序 last-write-wins）。
+- **验收**：T1 等价性测试通过（新 HiveConf/Configuration 键值 == 旧）；HMS/DLF HiveConf 的 kerberos 条件键仍在 storage 叠加之后。
+- **依赖**：P1-T01(签名)，调用侧需 ctx 传入（P1-T02 提供运行期值，UT 可注入）。设计 §4 P1-3 / §5 R1。
+
+### P1-T04 ⬜ PaimonScanPlanProvider BE 静态凭据改走 toBackendProperties().toMap()
+- **做什么**：BE 静态凭据从 `ctx.getBackendStorageProperties()` 改为遍历 `getStorageProperties()` 调 `toBackendProperties().toMap()`。vended 动态路径**不动**（仍 `ctx.vendStorageCredentials`）。
+- **验收**：T1 BE map 等价；vended(REST/DLF) 路径回归不变。
+- **依赖**：P1-T01。设计 §4 P1-4 / §2.2。
+
+### P1-T05 ⬜ 断开 paimon → fe-property 依赖边
+- **做什么**：删 `fe-connector-paimon/pom.xml` 的 `fe-property` 依赖 + `PaimonCatalogFactory:20` 的 import。
+- **验收**：`grep -r 'org.apache.doris.property' fe/fe-connector/fe-connector-paimon/src` == 0；模块编译通过。**fe-property 模块本身不删**（变 0 消费者孤儿）。
+- **依赖**：P1-T03, P1-T04。设计 §4 P1-5 / §0.1。
+
+### P1-T06 ⬜ P1 验证
+- **做什么**：paimon UT 全绿；docker `enablePaimonTest=true` 5 flavor；T1 等价性测试。
+- **验收**：见 WORKFLOW §5；若不跑 docker 明确标注"未跑 e2e"。
+- **依赖**：P1-T02..T05。设计 §4 P1-6 / §5 T1,T4。
+
+---
+
+## P2 — MetaStore Property SPI + paimon adapter（纯新增/迁移）
+
+### P2-T01 ⬜ 新建 fe-connector-metastore-api
+- **做什么**：新模块（依赖 fe-foundation + fe-filesystem-api）：`MetaStoreProperties`（`String providerName()` + 能力方法 `needsStorage()`/`needsVendedCredentials()`，**无 per-backend 枚举**，D-006）+ 子接口 **HMS/DLF/REST/JDBC/FileSystem**（中立 Map/标量，不暴露 HiveConf/SDK 类型）。**不实现 Glue/S3Tables**（iceberg/hive 专用，留扩展）。
+- **验收**：模块编译；接口签名对齐设计 §3.1（**确认无 `MetaStoreType` 枚举**）；新模块声明进 `fe-connector/pom.xml`。
+- **依赖**：无。设计 §4 P2-1 / §3.1 / **D-006**。
+
+### P2-T02 ⬜ 新建 fe-connector-metastore-spi（共享后端解析器 + Provider 发现）
+- **做什么**：新模块（依赖 metastore-api + fe-foundation + fe-filesystem-api）：`Hms/Dlf/Rest/Jdbc/FileSystem MetastoreBackend.parse(raw, storageList)` + `JdbcDriverSupport` + `@ConnectorProperty` typed holders；**+ `MetaStoreProvider<P>` SPI（`supports(Map)` 自识别 + `bind`）+ 5 个内置 provider + 各自 `META-INF/services` + `MetaStoreProviders.bind(...)` 派发**（D-006，镜像 `FileSystemProvider`/`FileSystemPluginManager`）。来源 = 上移 paimon 现有 `PaimonCatalogFactory` 手抄逻辑（去 fe-core 化）。**fe-core 旧类不动**。
+- **验收**：T2 等价性测试通过（解析产物 == 旧 `Paimon*MetaStoreProperties`）；`@ConnectorProperty` 别名/required/sensitive 生效；`MetaStoreProviders.bind` 经 `supports()` 正确选中 5 后端（**无 per-backend 枚举/中心 switch**）。
+- **依赖**：P2-T01。设计 §4 P2-2 / §3.2 / §5 T2 / **D-006**。
+
+### P2-T03 ⬜ paimon adapter 改造
+- **做什么**：`PaimonCatalogFactory` 的 `buildHmsHiveConf`/`buildDlfHiveConf`/`validate`/别名常量 → 调共享 `*MetastoreBackend.parse` + 薄 paimon Options/HiveConf 组装；删 `PaimonConnectorProperties` 别名数组。
+- **验收**：paimon 5 flavor UT 全绿；adapter 不再含手抄连接逻辑（代码评审 + 行数显著下降）。
+- **依赖**：P2-T02。设计 §4 P2-3 / §3.3。
+
+### P2-T04 ⬜ paimon pom + gate 核对
+- **做什么**：paimon pom 增 `fe-connector-metastore-api/spi`；`grep` 确认 paimon 无 fe-core import；CI gate 通过。
+- **验收**：`tools/check-connector-imports.sh` PASS；paimon 仅依赖 `fe-connector-{api,spi,metastore-api,metastore-spi}` + `fe-filesystem-api` + `fe-thrift(provided)` + SDK。
+- **依赖**：P2-T03。设计 §4 P2-4。
+
+### P2-T05 ⬜ P2 验证
+- **做什么**：paimon UT + docker 5 flavor + T2 等价性 + vended(REST/DLF) + Kerberos HMS。
+- **验收**：见 WORKFLOW §5；不跑 docker 则标注"未跑 e2e"。
+- **依赖**：P2-T03, P2-T04。设计 §4 P2-5 / §5 T2,T4。
+
+---
+
+## P3 — Kerberos 收口到 fe-kerberos 叶子模块（D-007；⚠️ 范围张力，见下）
+
+> **范围说明（用户 2026-06-17 确认）**：拆为 **P3a（paimon-local，✅ 纳入本次）** 与 **P3b（全量去重，follow-up，范围外）**。P3a 纯新增 + 只让 paimon 走新模块，不碰 fe-common/fe-filesystem-hdfs 既有路径 → 符合 D-005；P3b 会改 fe-common + fe-filesystem-hdfs，超出 D-005，与 hive/iceberg 迁移同批，本清单仅占位。
+> **归属/命名已定（D-007）**：顶层中立叶子 **`fe-kerberos`**（**非** fe-connector-*，否则破 `fe-filesystem ↛ fe-connector` gate + fe-common 层级倒挂）。
+
+### P3a-T01 ⬜ 新建 fe-kerberos 叶子模块（仅 paimon 用）
+- **做什么**：新建顶层模块 `fe-kerberos`（依赖**仅** hadoop-auth/hadoop-common；trino `KerberosTicketUtils` 用 JDK `javax.security.auth.kerberos` 等价替换）。**本步只承载 paimon HMS 所需**的 kerberos facts 载体（`KerberosAuthSpec` + 必要的 `AuthenticationConfig`/`HadoopAuthenticator` 子集），供 `fe-connector-metastore-spi` 的 `HmsMetastoreBackend` 产出 facts。**不碰 fe-common / fe-filesystem-hdfs 既有路径**。
+- **验收**：模块编译、零 fe-core/fe-connector/fe-filesystem import（纯叶子，gate）；paimon HMS kerberos facts 经 fe-kerberos 类型表达；真正 `UGI.doAs` 仍走 `ctx.executeAuthenticated`（§5 不变量 4）；fe-common/fe-filesystem-hdfs 既有 kerberos 路径**零改动**（§6 零改动核对）。
+- **依赖**：P2-T02（facts 消费方）。设计 §3.5 / **D-007 步骤 a**。**✅ 纳入本次（用户 2026-06-17 确认）。**
+
+### P3b-T01 ⬜（follow-up，本次不做）全量去重：fe-common + fe-filesystem-hdfs 收口到 fe-kerberos
+- **做什么**：把 fe-common `security.authentication.*` 整套搬入 fe-kerberos 作唯一真相源（fe-common 重指向）；删 fe-filesystem-hdfs 自有 `KerberosHadoopAuthenticator`、改依赖 fe-kerberos；统一两个 `HadoopAuthenticator` 接口（`PrivilegedExceptionAction` vs `IOCallable`）。
+- **验收**：三处实现合一；全 FE 编译 + kerberos e2e（HMS/HDFS）。
+- **依赖**：P3a-T01 + hive/iceberg 迁移批次。设计 §3.5 / **D-007 步骤 b**。**范围外（与 D-005 张力），独立任务。**
+
+---
+
+## 阶段日志（append-only）
+- 2026-06-17：创建任务清单（P0×2 / P1×6 / P2×5），状态全 ⬜，待用户批准后开始 P1。
+- 2026-06-17：3 设计点定稿（D-006 provider 取代 MetaStoreType 枚举 / D-007 fe-kerberos 叶子 / D-008 vended 边界）；P2-T01/T02 改写（去枚举、加 MetaStoreProvider）；新增 P3a/P3b（Kerberos）。
+- 2026-06-17：用户确认 **P3a 纳入本次** + 模块名 **`fe-kerberos`**。核心任务计数 13 → **14**（+P3a-T01）；P3b 仍 follow-up（范围外占位）。
