@@ -39,8 +39,9 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.StreamingTaskProgress;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
@@ -1406,25 +1407,24 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * Actively pull the running task's fail reason from cdc_client and fail it immediately,
-     * so a hard write failure (e.g. data quality error) does not wait out the whole timeout.
-     * Only applies to StreamingMultiTask.
+     * Push from cdc_client: fail the running task immediately on a hard write failure.
+     * Reports whose taskId no longer matches the current running task are dropped.
      */
-    public void detectTaskFailure() throws JobException {
+    public void reportTaskFailure(TaskFailureRequest request) throws JobException {
         AbstractStreamingTask task = this.runningStreamTask;
         if (!(task instanceof StreamingMultiTblTask)) {
             return;
         }
         StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
-        String failReason = runningMultiTask.getFailReason();
-        if (StringUtils.isEmpty(failReason)) {
+        if (runningMultiTask.getTaskId() != request.getTaskId()) {
             return;
         }
         writeLock();
         try {
             if (this.runningStreamTask == runningMultiTask
+                    && runningMultiTask.getTaskId() == request.getTaskId()
                     && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())) {
-                runningMultiTask.onFail(failReason);
+                runningMultiTask.onFail(request.getReason());
             }
         } finally {
             writeUnlock();
@@ -1441,13 +1441,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             return;
         }
         StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
-        StreamingTaskProgress progress = runningMultiTask.fetchProgress();
+        if (!runningMultiTask.isLocalTimeout()) {
+            return;
+        }
+        StreamingTaskStatus status = runningMultiTask.fetchTaskStatus();
         writeLock();
         try {
             if (this.runningStreamTask == runningMultiTask
                     && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
-                    && runningMultiTask.isTimeout(progress)) {
-                String timeoutReason = runningMultiTask.getFailReason();
+                    && runningMultiTask.isTimeout(status)) {
+                String timeoutReason = status == null ? "" : status.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
                     timeoutReason = "task failed cause timeout";
                 }

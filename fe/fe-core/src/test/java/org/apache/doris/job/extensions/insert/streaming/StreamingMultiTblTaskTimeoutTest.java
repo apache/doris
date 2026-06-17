@@ -18,7 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.job.cdc.StreamingTaskProgress;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -45,39 +45,45 @@ public class StreamingMultiTblTaskTimeoutTest {
         return t;
     }
 
-    private StreamingTaskProgress prog(long scanned) {
-        StreamingTaskProgress p = new StreamingTaskProgress();
-        p.setScannedRows(scanned);
-        return p;
+    private StreamingTaskStatus status(long scanned) {
+        StreamingTaskStatus s = new StreamingTaskStatus();
+        s.setScannedRows(scanned);
+        return s;
     }
 
     @Test
     public void readAdvancingRenewsDeadline() {
         StreamingMultiTblTask t = newTask(10 * 3600_000L, 60L);
-        Assert.assertFalse(t.isTimeout(prog(2000)));
+        Assert.assertFalse(t.isTimeout(status(2000)));
     }
 
     @Test
     public void noProgressWithinBudgetNotTimeout() {
         StreamingMultiTblTask t = newTask(5 * 60_000L, 60L);
-        Assert.assertFalse(t.isTimeout(prog(1000)));
+        Assert.assertFalse(t.isTimeout(status(1000)));
     }
 
     @Test
     public void noProgressOverBudgetTimeout() {
         StreamingMultiTblTask t = newTask(11 * 60_000L, 60L);
-        Assert.assertTrue(t.isTimeout(prog(1000)));
+        Assert.assertTrue(t.isTimeout(status(1000)));
     }
 
     @Test
     public void smallIntervalFlooredByMinTimeout() {
         StreamingMultiTblTask t = newTask(4 * 60_000L, 1L);
-        Assert.assertFalse(t.isTimeout(prog(1000)));
+        Assert.assertFalse(t.isTimeout(status(1000)));
     }
 
     @Test
     public void nullProgressBehavesLikeOldTimeout() {
         StreamingMultiTblTask t = newTask(11 * 60_000L, 60L);
         Assert.assertTrue(t.isTimeout(null));
+    }
+
+    @Test
+    public void localTimeoutGatesProgressPull() {
+        Assert.assertFalse(newTask(5 * 60_000L, 60L).isLocalTimeout());
+        Assert.assertTrue(newTask(11 * 60_000L, 60L).isLocalTimeout());
     }
 }

@@ -17,14 +17,19 @@
 
 package org.apache.doris.job.cdc;
 
-// cdc_client -> FE read-end progress, used as a heartbeat to renew the task timeout.
-public class StreamingTaskProgress {
-    private long scannedRows;
+// cdc_client -> FE running task status, pulled by the FE only when the local timeout
+// budget is already exceeded. scannedRows is the read-end heartbeat used to renew the
+// deadline (scannedRows < 0 means no progress info: not scanning, or scan finished);
+// failReason carries the recorded write error so a kill can report the real cause.
+public class StreamingTaskStatus {
+    private long scannedRows = -1;
+    private String failReason = "";
 
-    public StreamingTaskProgress() {}
+    public StreamingTaskStatus() {}
 
-    public StreamingTaskProgress(long scannedRows) {
+    public StreamingTaskStatus(long scannedRows, String failReason) {
         this.scannedRows = scannedRows;
+        this.failReason = failReason;
     }
 
     public long getScannedRows() {
@@ -33,5 +38,13 @@ public class StreamingTaskProgress {
 
     public void setScannedRows(long scannedRows) {
         this.scannedRows = scannedRows;
+    }
+
+    public String getFailReason() {
+        return failReason;
+    }
+
+    public void setFailReason(String failReason) {
+        this.failReason = failReason;
     }
 }

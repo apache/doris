@@ -29,7 +29,7 @@ import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
-import org.apache.doris.job.cdc.StreamingTaskProgress;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
@@ -410,6 +410,12 @@ public class PipelineCoordinator {
                         String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
                         taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
                         taskProgressMap.remove(writeRecordRequest.getTaskId());
+                        DorisBatchStreamLoad.reportTaskFailure(
+                                writeRecordRequest.getFrontendAddress(),
+                                writeRecordRequest.getToken(),
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId(),
+                                rootCauseMessage);
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -742,9 +748,11 @@ public class PipelineCoordinator {
         return taskReason == null ? "" : taskReason;
     }
 
-    public StreamingTaskProgress getTaskProgress(String taskId) {
+    public StreamingTaskStatus getTaskStatus(String taskId) {
         AtomicLong scannedRows = taskProgressMap.get(taskId);
-        return scannedRows == null ? null : new StreamingTaskProgress(scannedRows.get());
+        String reason = taskErrorMaps.remove(taskId);
+        return new StreamingTaskStatus(
+                scannedRows == null ? -1 : scannedRows.get(), reason == null ? "" : reason);
     }
 
     /**

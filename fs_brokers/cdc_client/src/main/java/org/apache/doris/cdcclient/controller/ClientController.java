@@ -165,9 +165,9 @@ public class ClientController {
         return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
     }
 
-    @RequestMapping(path = "/api/getProgress/{taskId}", method = RequestMethod.POST)
-    public Object getProgress(@PathVariable("taskId") String taskId) {
-        return RestResponse.success(pipelineCoordinator.getTaskProgress(taskId));
+    @RequestMapping(path = "/api/getTaskStatus/{taskId}", method = RequestMethod.POST)
+    public Object getTaskStatus(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskStatus(taskId));
     }
 
     @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
