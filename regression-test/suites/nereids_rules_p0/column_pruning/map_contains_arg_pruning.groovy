@@ -181,8 +181,8 @@ suite("map_contains_arg_pruning") {
                    map_contains_entry(m, element_at(s, 'a'), element_at(s, 'b')) IS NULL
             FROM map_contains_arg_pruning_tbl ORDER BY id
         """
-        notContains "[s.a]"
-        notContains "[s.b]"
+        notContains "s.a"
+        notContains "s.b"
     }
 
     order_qt_case6 """
