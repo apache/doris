@@ -27,6 +27,7 @@ import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -73,6 +74,7 @@ import io.debezium.connector.postgresql.PostgresConnectorConfig;
 import io.debezium.connector.postgresql.PostgresConnectorConfig.AutoCreateMode;
 import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
+import io.debezium.connector.postgresql.connection.Lsn;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
 import io.debezium.connector.postgresql.spi.SlotState;
@@ -488,6 +490,59 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             }
         } catch (Exception ex) {
             throw new RuntimeException(ex);
+        }
+    }
+
+    // Detect a replication slot that was dropped (or dropped and recreated) out from under us while
+    // the job was paused/retrying. Recreating it silently would resume from a position whose WAL is
+    // already gone -> data loss. Fail with a fixed marker so FE classifies it as non-resumable.
+    @Override
+    protected void validateStreamSource(
+            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+        PostgresSourceConfig sourceConfig = getSourceConfig(baseReq);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            SlotState slotState =
+                    connection.getReplicationSlotState(
+                            dialect.getSlotName(), dialect.getPluginName());
+            if (slotState == null) {
+                throw new CdcClientException(
+                        String.format(
+                                "Replication slot invalidated for job %s: slot %s not found on the"
+                                        + " upstream (dropped externally), cannot resume from the"
+                                        + " committed position without data loss.",
+                                baseReq.getJobId(), dialect.getSlotName()));
+            }
+            Lsn requestedLsn = extractRequestedLsn(offsetMeta);
+            Lsn restartLsn = slotState.slotRestartLsn();
+            // restart_lsn must stay <= committed position; a higher one means the slot was
+            // recreated
+            // and the WAL between them was discarded, so resuming would silently skip data.
+            if (requestedLsn != null
+                    && requestedLsn.asLong() > 0
+                    && restartLsn != null
+                    && restartLsn.compareTo(requestedLsn) > 0) {
+                throw new CdcClientException(
+                        String.format(
+                                "Replication slot invalidated for job %s: slot %s restart_lsn %s is"
+                                        + " ahead of the committed position %s (slot recreated),"
+                                        + " cannot resume without data loss.",
+                                baseReq.getJobId(),
+                                dialect.getSlotName(),
+                                restartLsn,
+                                requestedLsn));
+            }
+        }
+    }
+
+    private Lsn extractRequestedLsn(Map<String, Object> offsetMeta) {
+        if (offsetMeta == null || offsetMeta.get(SourceInfo.LSN_KEY) == null) {
+            return null;
+        }
+        try {
+            return Lsn.valueOf(Long.parseLong(String.valueOf(offsetMeta.get(SourceInfo.LSN_KEY))));
+        } catch (NumberFormatException ex) {
+            return null;
         }
     }
 
