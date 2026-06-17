@@ -30,27 +30,27 @@ public class OlapTableStreamUpdateTest {
 
     @Test
     public void testCheckPartitionOffsetForHistoricalConsumeOk() throws Exception {
-        Map<Long, Long> historicalPartitionOffset = Collections.singletonMap(1L, 100L);
+        Map<Long, Long> historicalPartitionTSO = Collections.singletonMap(1L, 100L);
         Map<Long, Long> partitionOffset = Collections.emptyMap();
 
-        Map<Long, Long> next = Collections.singletonMap(1L, 100L);
-        Map<Long, Long> prev = Collections.emptyMap();
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(next, prev);
+        Map<Long, Long> prev = Collections.singletonMap(1L, 100L);
+        Map<Long, Long> next = Collections.emptyMap();
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 
-        update.checkPartitionOffset("test_db", "s1", historicalPartitionOffset, partitionOffset);
+        update.checkPartitionOffset("test_db", "s1", historicalPartitionTSO, partitionOffset);
     }
 
     @Test
     public void testCheckPartitionOffsetForHistoricalConsumeConflict() {
-        Map<Long, Long> historicalPartitionOffset = Collections.singletonMap(1L, 100L);
+        Map<Long, Long> historicalPartitionTSO = Collections.singletonMap(1L, 99L);
         Map<Long, Long> partitionOffset = Collections.emptyMap();
 
-        Map<Long, Long> next = Collections.singletonMap(1L, 101L);
-        Map<Long, Long> prev = new HashMap<>();
+        Map<Long, Long> prev = Collections.singletonMap(1L, 100L);
+        Map<Long, Long> next = new HashMap<>();
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 
         TransactionCommitFailedException exception = Assertions.assertThrows(TransactionCommitFailedException.class,
-                () -> update.checkPartitionOffset("test_db", "s1", historicalPartitionOffset, partitionOffset));
-        Assertions.assertTrue(exception.getMessage().contains("history offset already consumed"));
+                () -> update.checkPartitionOffset("test_db", "s1", historicalPartitionTSO, partitionOffset));
+        Assertions.assertTrue(exception.getMessage().contains("history offset not consumed"));
     }
 }

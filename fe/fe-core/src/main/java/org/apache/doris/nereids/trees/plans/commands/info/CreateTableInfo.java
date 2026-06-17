@@ -24,6 +24,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -712,6 +713,17 @@ public class CreateTableInfo {
                     columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.NONE));
                 } else {
                     columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
+                }
+            }
+
+            // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
+            // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
+            if (keysType.equals(KeysType.DUP_KEYS)
+                    || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+                BinlogConfig binlogConfig = new BinlogConfig();
+                binlogConfig.mergeFromProperties(properties);
+                if (binlogConfig.isRowFormat()) {
+                    columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
                 }
             }
 

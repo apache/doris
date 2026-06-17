@@ -17,8 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Pair;
+
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -31,19 +35,29 @@ import java.util.concurrent.TimeUnit;
 public class OlapTableWrapper extends OlapTable {
 
     protected final OlapTable originTable;
+    private final Map<Long, Pair<Long, Long>> partitionOffsetMap; // partitionId -> (startOffset, endOffset)
 
-    protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType) {
+    protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
+                               Map<Long, Pair<Long, Long>> partitionOffsetMap) {
         super(originTable.getId(), wrapperName, baseSchema,
                 keysType, originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
+        this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
+        this.partitionOffsetMap = partitionOffsetMap;
     }
 
-    protected OlapTableWrapper(OlapTable originTable) {
+    public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
         super(originTable.getId(), originTable.getName(), originTable.getBaseSchema(),
                 originTable.getKeysType(), originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
+        this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
+        this.partitionOffsetMap = partitionOffsetMap;
+    }
+
+    protected OlapTableWrapper(OlapTable originTable) {
+        this(originTable, new HashMap<>());
     }
 
     public OlapTable getOriginTable() {
@@ -153,5 +167,16 @@ public class OlapTableWrapper extends OlapTable {
     @Override
     public MaterializedIndex getBaseIndex() {
         return originTable.getBaseIndex();
+    }
+
+    public Pair<Long, Long> getPartitionOffset(long partitionId) {
+        return partitionOffsetMap.get(partitionId);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return super.equals(obj)
+                && originTable.equals(((OlapTableWrapper) obj).originTable)
+                && partitionOffsetMap.equals(((OlapTableWrapper) obj).partitionOffsetMap);
     }
 }

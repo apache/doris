@@ -29,10 +29,14 @@ public class TableScanParams {
     public static final String INCREMENTAL_READ = "incr";
     public static final String BRANCH = "branch";
     public static final String TAG = "tag";
+    public static final String SNAPSHOT = "snapshot";
+    public static final String RESET = "reset";
     private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
             INCREMENTAL_READ,
             BRANCH,
-            TAG);
+            TAG,
+            SNAPSHOT,
+            RESET);
 
     private final String paramType;
     // There are two ways to pass parameters to a function.
@@ -79,5 +83,13 @@ public class TableScanParams {
 
     public boolean isTag() {
         return TAG.equals(paramType);
+    }
+
+    public boolean isSnapshot() {
+        return SNAPSHOT.equals(paramType);
+    }
+
+    public boolean isReset() {
+        return RESET.equals(paramType);
     }
 }

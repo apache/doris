@@ -91,6 +91,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .predicate_access_paths {},
                                  .rs_splits {},
                                  .return_columns {},
+                                 .tso_predicate_column_id {},
                                  .output_columns {},
                                  .extra_columns {},
                                  .common_expr_ctxs_push_down {},
@@ -315,20 +316,18 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
 }
 
 // For binlog partition-based incremental read. Pushes down [start_tso, end_tso] range
-// predicates onto the binlog timestamp column for row-binlog scans. Also ensures the
-// timestamp column is part of return_columns so the predicates can be evaluated by the
-// storage layer.
-Status OlapScanner::_init_row_binlog_tso_predicates() {
-    if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
-        return Status::OK();
-    }
-
+// predicates onto the TSO column. If the TSO column is not already returned, pass it as
+// a storage-only predicate column instead of widening scan output.
+Status OlapScanner::_init_tso_predicates() {
     if (!_start_tso.has_value() && !_end_tso.has_value()) {
         return Status::OK();
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     int32_t tso_index = tablet_schema->binlog_timestamp_col_idx();
+    if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
+        tso_index = tablet_schema->commit_tso_col_idx();
+    }
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
                                      BINLOG_TIMESTAMP_COL);
@@ -349,7 +348,7 @@ Status OlapScanner::_init_row_binlog_tso_predicates() {
     if (std::find(_tablet_reader_params.return_columns.begin(),
                   _tablet_reader_params.return_columns.end(),
                   tso_index) == _tablet_reader_params.return_columns.end()) {
-        _tablet_reader_params.return_columns.push_back(tso_index);
+        _tablet_reader_params.tso_predicate_column_id = static_cast<ColumnId>(tso_index);
     }
 
     return Status::OK();
@@ -546,7 +545,7 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     }
 
-    RETURN_IF_ERROR(_init_row_binlog_tso_predicates());
+    RETURN_IF_ERROR(_init_tso_predicates());
 
     // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
     // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit

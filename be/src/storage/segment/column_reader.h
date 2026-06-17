@@ -25,10 +25,12 @@
 #include <cstdint> // for uint32_t
 #include <map>
 #include <memory> // for unique_ptr
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"            // for Status
@@ -92,6 +94,12 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
+
+    // When set, ColumnReader::create returns a ConstantColumnReader carrying this value instead
+    // of reading on-disk data. Used for read-time-filled constant columns (e.g.
+    // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
+    // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
+    std::optional<Field> const_value = std::nullopt;
 };
 
 struct ColumnIteratorOptions {
@@ -183,12 +191,13 @@ public:
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
-    bool has_zone_map() const { return _zone_map_index != nullptr; }
+    virtual bool has_zone_map() const { return _zone_map_index != nullptr; }
     bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
     // set matched to true if segment zone map is absent or `cond' could be satisfied, false otherwise.
-    Status match_condition(const AndBlockColumnPredicate* col_predicates, bool* matched) const;
+    virtual Status match_condition(const AndBlockColumnPredicate* col_predicates,
+                                   bool* matched) const;
 
     Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const;
 
@@ -871,6 +880,96 @@ private:
 
     // current rowid
     ordinal_t _current_rowid = 0;
+};
+
+// Produces a column whose every row is the same constant Field value.
+// Used for read-time-filled constant hidden columns (e.g. __DORIS_COMMIT_TSO_COL__),
+// where the on-disk value is only a placeholder and the real value comes from the read
+// context (StorageReadOptions).
+class ConstantColumnIterator : public ColumnIterator {
+public:
+    ConstantColumnIterator() = delete;
+    explicit ConstantColumnIterator(Field value) : _value(std::move(value)) {}
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        *has_null = _value.is_null();
+        Status st = _insert_many(dst, *n);
+        if (!st.ok()) {
+            return st;
+        }
+        _current_rowid += *n;
+        return st;
+    }
+
+    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) override {
+        return next_batch(n, dst);
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        return _insert_many(dst, count);
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    Status _insert_many(MutableColumnPtr& dst, size_t n) {
+        if (_value.is_null()) {
+            if (UNLIKELY(!dst->is_nullable())) {
+                return Status::InternalError(
+                        "try to apply constant null value to not nullable target column");
+            }
+            dst->insert_many_defaults(n);
+            return Status::OK();
+        }
+        dst->insert_duplicate_fields(_value, n);
+        return Status::OK();
+    }
+
+    Field _value;
+    ordinal_t _current_rowid = 0;
+};
+
+// A ColumnReader that represents a single constant value for the whole segment instead of reading
+// on-disk data. Used for read-time-filled constant columns (e.g. __DORIS_COMMIT_TSO_COL__) on a
+// single-version segment, whose on-disk zonemap only reflects the placeholder. It advertises a
+// single-value [v, v] zonemap so segment-level pruning matches against the real value, and produces
+// a ConstantColumnIterator for data reads.
+class ConstantColumnReader : public ColumnReader {
+public:
+    explicit ConstantColumnReader(Field value) : _value(std::move(value)) {}
+
+    bool has_zone_map() const override { return true; }
+
+    // The base ColumnReader default-constructs without initializing its _meta_type. The data-read
+    // path (Segment::new_column_iterator) verifies tablet_column.type() == reader->get_meta_type()
+    // when config::enable_column_type_check is on (default true), so derive the real OLAP type from
+    // the constant value to avoid a spurious "different type between schema and column reader" error.
+    FieldType get_meta_type() override {
+        return TabletColumn::get_field_type_by_type(_value.get_type());
+    }
+
+    Status match_condition(const AndBlockColumnPredicate* col_predicates,
+                           bool* matched) const override;
+
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
+                        const StorageReadOptions* /*opt*/) override {
+        *iterator = std::make_unique<ConstantColumnIterator>(_value);
+        return Status::OK();
+    }
+
+private:
+    Field _value;
 };
 
 } // namespace segment_v2

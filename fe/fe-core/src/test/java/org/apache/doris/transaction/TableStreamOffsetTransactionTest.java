@@ -85,21 +85,18 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s1");
 
         List<Long> partitionIds = new ArrayList<>(baseTable.getPartitionIds());
-        Map<Long, Long> historicalPartitionOffset = new HashMap<>();
         Map<Long, Long> historicalPartitionTSO = new HashMap<>();
-        Map<Long, Long> partitionOffset = new HashMap<>();
         for (Long partitionId : partitionIds) {
-            historicalPartitionOffset.put(partitionId, 100L);
             historicalPartitionTSO.put(partitionId, 1000L + partitionId);
-            partitionOffset.put(partitionId, 0L);
         }
+        // committed offset must be advanced to the historical TSO snapshot captured at creation
         Map<Long, Long> expectedPartitionOffset = new HashMap<>(historicalPartitionTSO);
-        Deencapsulation.setField(stream, "historicalPartitionOffset", historicalPartitionOffset);
         Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
-        Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
+        Deencapsulation.setField(stream, "partitionOffset", new HashMap<Long, Long>());
 
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(new HashMap<>(),
-                new HashMap<>(historicalPartitionOffset));
+        // historical consume: prev/next both point to the historical TSO snapshot
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(new HashMap<>(historicalPartitionTSO),
+                new HashMap<>(historicalPartitionTSO));
         Assertions.assertTrue(update.getNext().keySet().containsAll(partitionIds));
 
         GlobalTransactionMgr transactionMgr = (GlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr();
@@ -119,13 +116,11 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         long commitTime = System.currentTimeMillis();
         Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", transactionState, commitTime);
 
-        Map<Long, Long> updatedHistoricalPartitionOffset = Deencapsulation.getField(stream, "historicalPartitionOffset");
         Map<Long, Long> updatedHistoricalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
         Map<Long, Long> updatedPartitionOffset = Deencapsulation.getField(stream, "partitionOffset");
         Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
 
         for (Long pid : partitionIds) {
-            Assertions.assertFalse(updatedHistoricalPartitionOffset.containsKey(pid));
             Assertions.assertFalse(updatedHistoricalPartitionTSO.containsKey(pid));
             Assertions.assertEquals(expectedPartitionOffset.get(pid), updatedPartitionOffset.get(pid));
             Assertions.assertEquals(commitTime, partitionConsumptionTime.get(pid));

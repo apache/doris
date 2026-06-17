@@ -156,6 +156,7 @@ public class SummaryProfile {
     public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
     public static final String ICEBERG_SCAN_METRICS = "Iceberg Scan Metrics";
     public static final String PAIMON_SCAN_METRICS = "Paimon Scan Metrics";
+    public static final String WAIT_CHANGE_VISIBLE_TIME = "Wait Change Visible Time";
     private boolean isWarmUp = false;
 
     public void setWarmup(boolean isWarmUp) {
@@ -479,6 +480,10 @@ public class SummaryProfile {
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
     private Map<Backend, Long> assignedWeightPerBackend;
+    @SerializedName("waitChangeVisibleStartTime")
+    private long waitChangeVisibleStartTime = -1L;
+    @SerializedName("waitChangeVisibleEndTime")
+    private long waitChangeVisibleEndTime = -1L;
 
     public SummaryProfile() {
         this(true);
@@ -722,6 +727,14 @@ public class SummaryProfile {
         this.nereidsLockTableFinishTime = lockTableFinishTime;
     }
 
+    public void setWaitChangeVisibleStartTime(long waitChangeVisibleStartTime) {
+        this.waitChangeVisibleStartTime = waitChangeVisibleStartTime;
+    }
+
+    public void setWaitChangeVisibleEndTime(long waitChangeVisibleEndTime) {
+        this.waitChangeVisibleEndTime = waitChangeVisibleEndTime;
+    }
+
     public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
         this.nereidsCollectTablePartitionFinishTime = collectTablePartitionFinishTime;
     }
@@ -896,6 +909,10 @@ public class SummaryProfile {
 
     public int getNereidsLockTableTimeMs() {
         return getTimeMs(nereidsLockTableFinishTime, nereidsLockTableStartTime);
+    }
+
+    public int getWaitChangeVisibleTimeMs() {
+        return getTimeMs(waitChangeVisibleEndTime, waitChangeVisibleStartTime);
     }
 
     public long getNereidsPreloadExternalMetadataTimeMs() {
@@ -1342,6 +1359,7 @@ public class SummaryProfile {
         String planTimesMs = "{"
                 + "\"plan\"" + ":" + this.getPlanTimeMs() + ","
                 + "\"garbage_collect\"" + ":" + this.getNereidsGarbageCollectionTimeMs() + ","
+                + "\"wait_change_visible\"" + ":" + this.getWaitChangeVisibleTimeMs() + ","
                 + "\"lock_tables\"" + ":" + this.getNereidsLockTableTimeMs() + ","
                 + "\"analyze\"" + ":" + this.getNereidsAnalysisTimeMs() + ","
                 + "\"rewrite\"" + ":" + this.getNereidsRewriteTimeMs() + ","
