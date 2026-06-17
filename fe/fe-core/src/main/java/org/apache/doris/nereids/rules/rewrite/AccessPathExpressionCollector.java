@@ -375,7 +375,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     }
 
     private static boolean isFunctionNullCheckPath(List<String> suffixPath) {
-    return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
+        return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
     }
 
     @Override
