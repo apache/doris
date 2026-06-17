@@ -172,6 +172,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             noRetry = true;
             throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             log.error("Send write request failed: ", ex);
             noRetry = true;
             throw new JobException(ex);
@@ -450,6 +453,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     getJobId(), getTaskId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_light_rpc_timeout_sec);
         } catch (ExecutionException | InterruptedException ex) {
+            if (ex instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             log.warn("Send get task fail reason request failed: ", ex);
         }
         return "";

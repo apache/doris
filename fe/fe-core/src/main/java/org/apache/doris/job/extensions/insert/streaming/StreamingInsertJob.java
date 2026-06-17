@@ -796,16 +796,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     // Command entry for a manual status change: reset the failure/retry budget, and on manual pause
     // release the reader (keep slot). "Manual" is decided by the caller, never by reading failureReason.
     public void onManualStatusAltered(JobStatus newStatus, FailureReason reason) {
+        AbstractStreamingTask taskToRelease = null;
         lock.writeLock().lock();
         try {
             resetFailureInfo(reason);
             if (JobStatus.PAUSED.equals(newStatus) && runningStreamTask != null) {
                 // Force resume to swap in a fresh reader, in case the release RPC races or fails.
                 this.needRebuildReader = true;
-                runningStreamTask.releaseRemoteReader();
+                taskToRelease = runningStreamTask;
             }
         } finally {
             lock.writeLock().unlock();
+        }
+        // Release outside the write lock: the RPC may block on first brpc connect and this is
+        // best-effort (needRebuildReader already forces a fresh reader; a stale release is a no-op).
+        if (taskToRelease != null) {
+            taskToRelease.releaseRemoteReader();
         }
     }
 
