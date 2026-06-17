@@ -102,6 +102,9 @@ public class Env {
      * idle/absent job can't trigger pub/slot/schema (re)initialization or leak an unreaped context.
      */
     public SourceReader getMetaReader(JobBaseConfig jobConfig) {
+        if (jobConfig.getFrontendAddress() != null && !jobConfig.getFrontendAddress().isEmpty()) {
+            this.feMasterAddress = jobConfig.getFrontendAddress();
+        }
         SourceReader existing = getReaderIfPresent(jobConfig.getJobId());
         if (existing != null) {
             return existing;
