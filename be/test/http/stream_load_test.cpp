@@ -45,7 +45,13 @@ public:
     StreamLoadTest() = default;
     virtual ~StreamLoadTest() = default;
     void SetUp() override {}
-    void TearDown() override {}
+    void TearDown() override {
+        auto* exec_env = ExecEnv::GetInstance();
+        if (auto* wal_mgr = exec_env->wal_mgr(); wal_mgr != nullptr) {
+            wal_mgr->stop();
+        }
+        exec_env->clear_wal_mgr();
+    }
 };
 
 void http_request_done_cb(struct evhttp_request* req, void* arg) {
