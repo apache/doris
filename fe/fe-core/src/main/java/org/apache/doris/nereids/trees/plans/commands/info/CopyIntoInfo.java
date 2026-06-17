@@ -309,30 +309,32 @@ public class CopyIntoInfo {
         }
 
         // translate copy from description to copy from param
-        legacyCopyFromParam = toLegacyParam(copyFromDesc, analyzer, context, cascadesContext);
+        legacyCopyFromParam = toLegacyParam(copyFromDesc, analyzer, context, cascadesContext, fileSlots);
     }
 
     private CopyFromParam toLegacyParam(CopyFromDesc copyFromDesc, ExpressionAnalyzer analyzer,
-                                        PlanTranslatorContext context, CascadesContext cascadesContext) {
+                                        PlanTranslatorContext context, CascadesContext cascadesContext,
+                                        CopyIntoFileSlots fileSlots) {
         StageAndPattern stageAndPattern = copyFromDesc.getStageAndPattern();
         List<Expr> exprList = null;
         if (copyFromDesc.getExprList() != null) {
             exprList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getExprList()) {
-                exprList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                exprList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext, fileSlots));
             }
         }
         Expr fileFilterExpr = null;
         if (copyFromDesc.getFileFilterExpr().isPresent()) {
             fileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
+                    analyzer, context, cascadesContext, fileSlots);
         }
         List<String> fileColumns = copyFromDesc.getFileColumns();
         List<Expr> columnMappingList = null;
         if (copyFromDesc.getColumnMappingList() != null) {
             columnMappingList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                columnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                columnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext,
+                        fileSlots));
             }
         }
         List<String> targetColumns = copyFromDesc.getTargetColumns();
