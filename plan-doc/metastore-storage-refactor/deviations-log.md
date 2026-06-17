@@ -6,6 +6,16 @@
 
 ---
 
+## DV-003 — T1 自动等价测试不可在 UT 落地 → 改「connector-local 契约 UT + docker 兜底」；并连带 P1-T03 提前删 fe-property import + 删 ~23 canonical 测试
+- **日期**：2026-06-17 ｜ **原计划位置**：设计 §5 T1 / WORKFLOW §5.2 T1（DV-002 框架：「新 `toHadoopConfigurationMap()` 与旧 `buildObjectStorageHadoopConfig` 在常见静态凭据路径 key/value **全等**」作为切换回归闸）；task P1-T03、P1-T05。
+- **DV-003-a（T1 落地形态，用户 2026-06-17 选 Option C）**：
+  - **为何不可行（现场 recon 取证）**：算 T1「新产物」须绑真 fe-filesystem 对象存储 `StorageProperties`，而其 impl 模块（`fe-filesystem-{s3,oss,cos,obs}`）是 `Env.loadPlugins` **运行时目录插件**——`fe-core` pom 注「impl 运行时依赖在 Phase 4 P4.1 移除」（仅留 `fe-filesystem-local` test-scope）、paimon 从无。故 **fe-core 与 paimon 任一单测 classpath 都绑不出**真 S3/OSS/COS/OBS fe-filesystem 实例 → 字面 key/value 等价测试无法在 UT 写。强行把 impl 拖进单测 classpath 既破"impl 仅运行时"架构，又冒本仓历史反复出现的 paimon 跨 loader / classpath 中毒风险。
+  - **新方案（Option C）**：paimon UT **只钉 connector-local 契约**（合成 storage map → 落 conf/HiveConf + `paimon.*` 改键 + 原始 `fs./dfs./hadoop.` 透传 + **last-write-wins** + kerberos-在-storage-叠加-之后）；**真 key/value 等价由 P1-T06 docker 5-flavor 兜底**；P0-T01 4-agent recon + DV-002 的 code-read 等价（fe-filesystem ⊇ fe-property 超集差异已记）为依据。**修订 DV-002 的「自动 key/value 全等 UT」→「契约 UT + docker 闸」**。
+  - **被否选项**：(B) paimon 内加 fe-filesystem impl test-scope 依赖自建等价测试 = transient（P1-T05 paimon 弃 fe-property 即须删）+ 重复 SDK 依赖 + 与 paimon 自带 hadoop-aws classpath 冲突风险；(A) fe-core companion 等价测试 = 同样须把运行时-only impl 拖进 fe-core test classpath + 扩 fe-core 白名单（新测试文件 + test-scope pom）。两者都把运行时插件拖进单测，user 否。
+- **DV-003-b（import 顺序连带）**：`PaimonCatalogFactory` 的 `org.apache.doris.property.storage.StorageProperties` import **仅** :393 一处用（`buildObjectStorageHadoopConfig`）。P1-T03 删该 call 即孤立 import → checkstyle 报未用 import → **P1-T03 必同删 import**（原 P1-T05 计划"删 :20 import"）。**P1-T05 退化为仅删 pom `fe-property` 依赖边 + `grep org.apache.doris.property` 归零闸**（call/import 已在 T03 清）。
+- **覆盖核对（删 canonical 测试）**：现 `PaimonCatalogFactoryTest` ~23 个 S3/OSS/COS/OBS/MinIO canonical 翻译测试测的是 fe-filesystem 现职责。**对抗 review（`wf_76df09a4-c2f`，8 agent，1 BLOCKER+3 MAJOR+2 MINOR；verify 推翻 BLOCKER[删 buildHmsHiveConf 重载=唯 paimon 调用方全已改]+2 MAJOR[endpoint-pattern/OSS-derivation 经核实 fe-filesystem 已覆盖])+ 直接核实**：fe-filesystem 覆盖 **canonical 键翻译 + endpoint-from-region 派生**（`S3FileSystemPropertiesTest.toHadoopConfigurationMap`、`OssFileSystemPropertiesTest:108-110`、Cos/Obs），**但 NOT 覆盖调优默认值**（S3 50/3000/1000、OSS/COS/OBS 100/10000/10000）→ 删 paimon tuning 测试丢了**显式 UT 守护**（功能今日正确=fe-filesystem 字段默认真发；测试健壮性缺口）→ **记 R-006**（docker P1-T06 兜底 + fe-filesystem 加断言 follow-up，超白名单）。**初判「已全覆盖」修正为「键翻译+派生已覆盖、调优默认未守护」。**
+- **影响范围**：P1-T03 实现与测试改造、P1-T05 范围缩减；设计 §5 T1 / WORKFLOW §5.2 T1 待回写（DV-003 脚注）；risks R-001 缓解更新（自动 UT 闸 → docker 闸）。不影响 P2/P3a。
+
 ## DV-002 — T1 等价性从「全等」放宽为「常见静态凭据路径全等 + 文档记超集」
 - **日期**：2026-06-17 ｜ **原计划位置**：设计 §5 T1 / §6.4 验收 item 4 / WORKFLOW §5.2 T1（"新 == 旧 key/value **全等**"）。
 - **为何不可行（P0-T01 取证）**：fe-filesystem `toHadoopConfigurationMap()`/`toBackendProperties().toMap()` 是 paimon 现走 fe-property 路（`buildObjectStorageHadoopConfig`）的**超集**，非全等：

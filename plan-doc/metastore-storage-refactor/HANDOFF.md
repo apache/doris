@@ -7,56 +7,50 @@
 
 ---
 
-**更新时间**：2026-06-17（实现 session：P0 全部 + P1-T01/T02）
+**更新时间**：2026-06-17（实现 session：P1-T03 完成）
 **更新人**：Claude（Opus 4.8）
 
 ## 这次 session 完成了什么
-1. **进入 Implement**，用户批准范围 = **P0 + P1（storage 收口），做到 P1-T06 gate 停**。
-2. **完成 P0（2/2）+ P1-T01/T02**，共 **5 个 commit**（均 TDD + checkstyle 0 + 红线核对）：
-   - `5bf6cee` **P0-T01**：4-agent recon 三套 StorageProperties + 连接器 seam → 结论 + 定向。
-   - `0f50a13` **P0-T02**：`FileSystemPluginManager.bindAll(rawMap)`（raw map → List<fe-filesystem StorageProperties>，全量收集 supporting providers、skip 未迁移 bind 的 legacy）。TDD 5/5。
-   - `ffd5466` **P1-T01**：`ConnectorContext.getStorageProperties()` 默认空列表 + `fe-connector-spi → fe-filesystem-api` pom 边。TDD 1/1，import-gate PASS。
-   - `5520975` **P1-T02**：`DefaultConnectorContext.getStorageProperties()`（`getOrigProps()` 取 raw map → factory）+ `FileSystemFactory.bindAllStorageProperties()`（取 live plugin manager）。TDD 4/4 + 回归 2/2。
-   - `4d190a7` **DV-002 决策记录**（T1 框架）。
-3. **3 个决策定稿**（均用户拍板）：
-   - **D-009**：bind-all 机制 A = fe-core `FileSystemPluginManager.bindAll` + `DefaultConnectorContext.getStorageProperties()` 经 `getOrigProps()`；二次确认 **3 个 fe-core 文件**（+`FileSystemFactory` static accessor 取 live manager，因对象存储 provider 是运行时目录插件）。
-   - **DV-001**：P0-1「fe-filesystem-api 已够、唯一 fe-core 改动」预期被证伪（缺 bind-all 入口）。
-   - **DV-002**：T1「全等」放宽为 **常见静态凭据路径全等 + 文档记超集**（fe-filesystem 是 fe-property 路的超集：S3 role/anon、OSS/COS/OBS endpoint 无条件、BE map 多 AWS_BUCKET/ROOT_PATH/CREDENTIALS_PROVIDER_TYPE）。
-4. 同步回写：设计 §4 P0-1/P0-2 + §2.1 + §5 T1、WORKFLOW §4.1 白名单（+2 fe-core 文件）+ §5.2 T1、decisions D-009、deviations DV-001/DV-002、risks R-004（3 处）/R-001、tasks、PROGRESS。
+1. **P1-T03 ✅**（commit `[P1-T03]`，连接器侧首个 task）：paimon `PaimonCatalogFactory.applyStorageConfig` 从 fe-property `StorageProperties.buildObjectStorageHadoopConfig(props)` 改为吃**预算好的** `storageHadoopConfig` 入参；保留其后 `paimon.*/fs./dfs./hadoop.` 覆盖块（last-write-wins）。`PaimonConnector` 新增 `buildStorageHadoopConfig()`，遍历 `ctx.getStorageProperties()` 调 `toHadoopProperties().toHadoopConfigurationMap()` 合并，传入 3 个 `buildXxx`（REST 不用）。pom 加 `fe-filesystem-api` 直接依赖（fe-property 依赖**留** P1-T05 删）。
+2. **TDD**：neuter `storageHadoopConfig.forEach(setter)` → 3 个 Applies/Overlays 测试 RED（`expected <ak/oak> was <null>`）→ 恢复 → GREEN。
+3. **测试改造**：删 ~23 canonical-translation 测试（S3/OSS/COS/OBS/MinIO 翻译=fe-filesystem 职责）+ adapt 保留测试 + 新增 6 契约测试（storage map 落 conf×3 builder + explicit-fs.s3a-overrides-storage + paimon-prefix-overrides-storage + kerberos-survives-storage-overlay）。
+4. **验证**：paimon 全模块 **292/0/0/1skip**（docker-gated `PaimonLiveConnectivityTest`），`PaimonCatalogFactoryTest` 42/0，**checkstyle 0**、`tools/check-connector-imports.sh` PASS、`git diff --name-only` 白名单干净。
+5. **对抗 review**（`wf_76df09a4-c2f`，8 agent，4 lens + verify）：1 BLOCKER+3 MAJOR+2 MINOR；verify 推翻假 BLOCKER（删 buildHmsHiveConf 重载=唯 paimon 调用方全已改）+2 MAJOR（endpoint-pattern/OSS-derivation 经直接核实 fe-filesystem 已覆盖）；**confirm 1 MAJOR=R-006**（调优默认 50/3000/1000、100/10000/10000 在 fe-filesystem **无显式 UT 守护**；**功能今日正确**=字段默认真发，仅测试健壮性缺口）→ 记 R-006 + 加 1 个 in-scope kerberos-storage 测试。
+6. **决策/偏差**：**DV-003**（T1 落地=Option C：connector-local 契约 UT + docker P1-T06 兜底，因 fe-filesystem 对象存储 impl 是运行时插件不在任何单测 classpath；并 DV-003-b：fe-property import 已在 T03 删，P1-T05 退化为仅删 pom 边 + grep 闸）。回写：tasks P1-T03、deviations DV-003、risks R-001(修订)/R-006(新)、PROGRESS。
 
 ## 当前状态
-- 阶段：Research ✅ / Design ✅（**9 决策 D-001..D-009**）/ **Implement 🚧（P1 2/6）**。
-- 任务计数 **4/14**（P0: 2/2 ✅ ｜ P1: 2/6 ｜ P2: 0/5 ｜ P3a: 0/1）。
-- **fe-core/spi 侧管线已通且全绿**：`CatalogProperty.getProperties()`(raw) →（`DefaultConnectorContext.getStorageProperties()` 内）任一 typed 值 `getOrigProps()` → `FileSystemFactory.bindAllStorageProperties()` → live `FileSystemPluginManager.bindAll()` → `List<fe-filesystem StorageProperties>` → `ConnectorContext.getStorageProperties()`（连接器待 P1-T03 消费）。
-- fe-core 改动 = **3 文件全 additive**：`DefaultConnectorContext`(+getStorageProperties)、`fs/FileSystemPluginManager`(+bindAll)、`fs/FileSystemFactory`(+bindAllStorageProperties)。
-- ⚠️ **e2e/docker 未跑**（本 session 仅 compile + 单测）。
+- 阶段：Research ✅ / Design ✅（**9 决策 D-001..D-009**）/ **Implement 🚧（P1 3/6）**。
+- 任务计数 **5/14**（P0: 2/2 ✅ ｜ P1: 3/6 ｜ P2: 0/5 ｜ P3a: 0/1）。
+- **连接器 storage 配置路已切**：`CREATE CATALOG raw map` →（fe-core）`bindAll` → `ctx.getStorageProperties()`（fe-filesystem typed）→（连接器）`PaimonConnector.buildStorageHadoopConfig()` 合并 `toHadoopConfigurationMap()` → 3 个 `buildXxx` 叠加（+paimon.*/raw 覆盖 last-write-wins）。
+- paimon main 已**零** `org.apache.doris.property` import（grep 归零）；`fe-property` pom 依赖仍在（变 0 import 消费者，P1-T05 删边）。
+- ⚠️ **e2e/docker 未跑**（本 session 仅 compile + UT + 对抗 review）。
 
-## 下一步（明确）：P1-T03（连接器侧首个 task）
-> **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手。** 下面是已知方案，但 paimon 连接器调用流须现场核实。
+## 下一步（明确）：P1-T04（BE 静态凭据改走 toBackendProperties().toMap()）
+> **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手。** 下面是已知方案，但须现场核实。
 
-**目标**：paimon `PaimonCatalogFactory.applyStorageConfig` 改走 `ctx.getStorageProperties()` 的 `toHadoopProperties().toHadoopConfigurationMap()`，取代 `fe-property StorageProperties.buildObjectStorageHadoopConfig(props)`；**保留**其后 `paimon.*/fs./dfs./hadoop.` 覆盖块（保序 last-write-wins，有历史 bug 注释为证）。
+**目标**：paimon `PaimonScanPlanProvider` 的 BE 静态凭据从 `context.getBackendStorageProperties()`（`PaimonScanPlanProvider.java:606`）改为「遍历 `ctx.getStorageProperties()` 调 `toBackendProperties().orElseThrow().toMap()`」合并出 AWS_* map。**vended 动态路径不动**（仍 `ctx.vendStorageCredentials`，D-008；用户定 A=全量切静态、vended 不碰）。
 
 **先做 recon（关键未知）**：
-- `PaimonCatalogFactory` 是**纯静态 util**（无 ctx 字段，只吃 raw `Map props`）；`applyStorageConfig(props, setter)` 现调静态 fe-property 方法。3 调用方：`buildHadoopConfiguration`(:367)、`buildHmsHiveConf`(:478)、`buildDlfHiveConf`(:589)。
-- **须查清**：连接器在哪里调这些 `PaimonCatalogFactory.buildXxx`？那里 `ConnectorContext`（→`getStorageProperties()`）/`List<StorageProperties>` 能否拿到？→ 把 storage list 线程进 `applyStorageConfig`（签名重构），或在调用点先算好 hadoop map 传入。grep `PaimonCatalogFactory.` 找调用方（大概率在 `PaimonConnector`/catalog 创建路径，且在 `ctx.executeAuthenticated` 内）。
-- 注意 fe-property 现路是 object-store-only（HDFS 不贡献，靠 overlay 的 raw passthrough）；fe-filesystem 同理（bindAll skip HDFS）。两边对齐。
+- 读 `PaimonScanPlanProvider.java:600-620` 现有 `getBackendStorageProperties()` 消费点（合并进 scan range location props 的循环）；确认 `ctx`（`context` 字段）在该方法可达（应可达，与 catalog 路同 ctx）。
+- `StorageProperties.toBackendProperties()` 返回 `Optional<BackendStorageProperties>`，`.toMap()` 出 `AWS_*`。注意 fe-filesystem BE map 是**超集**（多 `AWS_BUCKET`/`AWS_ROOT_PATH`/`AWS_CREDENTIALS_PROVIDER_TYPE`，DV-002）——T1 钉常见路径全等 + 记超集（同 P1-T03 的 Option C：真等价 docker 兜底）。
+- vended 叠加顺序：legacy vended REPLACE/overlay 静态（见 catalog-spi P5 FIX-1 记忆）；确认改后 vended 仍后叠（精确保序）。
 
-**T1 等价性测试（R-001 闸，DV-002 框架）**：fe-filesystem `toHadoopConfigurationMap()` 产物 vs fe-property `buildObjectStorageHadoopConfig` 现产物，在**常见静态凭据路径**（S3/OSS/COS/OBS 配齐 endpoint/region/AK/SK、无 role、无 vended）下 key/value **全等**；超集差异（S3 role/anon、endpoint 无条件、BE 多键）写注释记录，不当漂移。
+**编译/测**：`mvn -f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl fe-connector/fe-connector-paimon -am package -Dassembly.skipAssembly=true -Dmaven.build.cache.enabled=false`（看 `BUILD SUCCESS` 行）；`-Dtest=PaimonScanPlanProviderTest` 聚焦。checkstyle 0、import-gate PASS。
 
-**编译/测**：paimon 模块需 `mvn ... -am package -Dassembly.skipAssembly=true`（shade jar 携带 HiveConf）；`-Dmaven.build.cache.enabled=false` 确保 surefire 真跑；后台 task 看 `BUILD SUCCESS/FAILURE` 行非 echo exit code。
-
-**之后**：P1-T04（BE 凭据切 `getStorageProperties().toBackendProperties().toMap()`，用户定 A=全量切，vended 路不动）→ P1-T05（删 paimon→fe-property pom 依赖 + import；`grep org.apache.doris.property` 归零，**不删 fe-property 模块**）→ P1-T06（UT + T1 + docker 5 flavor，不跑则标「未跑 e2e」）。
+**之后**：P1-T05（删 paimon→fe-property **pom 依赖边** + `grep org.apache.doris.property` 归零闸；import 已在 T03 删，DV-003-b）→ P1-T06（paimon UT + docker `enablePaimonTest=true` 5 flavor，**真 T1 等价闸 + 验 R-006 调优默认**；不跑则标「未跑 e2e」）。
 
 ## 未决 / 需注意
-- ✅ 已定：范围 P0+P1（到 P1-T06）｜机制 A（D-009，3 fe-core 文件）｜T1 框架 A（DV-002）。
-- ❓ P1-T03 唯一现场未知 = **连接器调 `PaimonCatalogFactory.buildXxx` 处 ctx/storageList 的可达性**（决定签名重构形态）——recon 后若发现需改连接器其它文件或有阻碍，停下 AskUserQuestion。
+- ✅ 已定：范围 P0+P1（到 P1-T06）｜机制 A（D-009）｜T1=Option C（DV-003）。
+- ❗ **R-006（confirm，需用户定夺）**：fe-filesystem 对调优默认值（S3 50/3000/1000、OSS/COS/OBS 100/10000/10000）**无显式 UT 守护**（删 paimon canonical 测试暴露）。**功能今日正确**（字段默认真发），docker P1-T06 运行期兜底。**修法（超 P1 白名单，禁碰 fe-filesystem）**=在 `S3/Oss/Cos/ObsFileSystemPropertiesTest` 加 test-only 断言 → **建议作 follow-up / 经用户批准的小补丁**，不在 paimon 重复断言（Option C：paimon 无 fe-filesystem impl 于测试 classpath，合成 map 断言同义反复）。**下次 session 可向用户确认是否纳入。**
 - ⚠️ e2e 全程未跑；P1-T06 前如不部署 docker，明确标「未跑 e2e」（CLAUDE.md Rule 12）。
 
-## 红线提醒（WORKFLOW §4，本 session 已扩张 2 次）
-- **可动**（白名单）：`fe-connector-paimon/**`（P1-T03+ 改造）、`fe-connector-spi/**`（已加 getStorageProperties，勿再扩）、fe-core **仅** `connector/DefaultConnectorContext.java` + `fs/FileSystemPluginManager.java` + `fs/FileSystemFactory.java`（均**仅新增方法**，勿碰既有方法）、相关 pom（仅依赖增删）、本跟踪目录。
-- **禁碰**：fe-core `datasource.property.{storage,metastore}` 包、构造点 `PluginDrivenExternalCatalog`、其它连接器（hive/hudi/iceberg/es/jdbc/mc/trino）、fe-filesystem 各模块、`fe-property` 模块删除。
-- 每次提交前 `git diff --name-only` 对照白名单；3 个 fe-core 文件 `git diff` 须只见新增。
+## 红线提醒（WORKFLOW §4）
+- **可动**（白名单）：`fe-connector-paimon/**`（P1-T04+ 改造）、`fe-connector-spi/**`（勿再扩）、fe-core **仅** `connector/DefaultConnectorContext.java` + `fs/FileSystemPluginManager.java` + `fs/FileSystemFactory.java`（均**仅新增方法**）、相关 pom（仅依赖增删）、本跟踪目录。
+- **禁碰**：fe-core `datasource.property.{storage,metastore}` 包、构造点 `PluginDrivenExternalCatalog`、其它连接器（hive/hudi/iceberg/es/jdbc/mc/trino）、**fe-filesystem 各模块**（含其 test——R-006 的 fe-filesystem 断言须经用户批准才动）、`fe-property` 模块删除。
+- paimon 连接器现**允许** import `org.apache.doris.filesystem.properties.*`（fe-filesystem-api，目标边）；**禁** `org.apache.doris.{property,catalog,common,datasource,qe,...}`（import-gate 守）。
+- 每次提交前 `git diff --name-only` 对照白名单。
 
 ## 关键链接
 - 设计：[`../designs/metastore-storage-property-refactor-design-2026-06-17.md`](../designs/metastore-storage-property-refactor-design-2026-06-17.md)
 - 流程：[`WORKFLOW.md`](./WORKFLOW.md) ｜ 任务：[`tasks.md`](./tasks.md) ｜ 决策：[`decisions-log.md`](./decisions-log.md) ｜ 偏差：[`deviations-log.md`](./deviations-log.md) ｜ 风险：[`risks.md`](./risks.md)
+- 对抗 review（P1-T03）：workflow `wf_76df09a4-c2f`（transcript 在 session subagents 目录）

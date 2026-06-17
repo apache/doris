@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -41,6 +42,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -126,11 +128,15 @@ public class PaimonConnector implements Connector {
     private Catalog createCatalog() {
         Options options = PaimonCatalogFactory.buildCatalogOptions(properties);
         String flavor = PaimonCatalogFactory.resolveFlavor(properties);
+        // Canonical object-store storage config from the FE-bound fe-filesystem StorageProperties
+        // (P1-T03), replacing the legacy fe-property buildObjectStorageHadoopConfig path. Empty for
+        // REST (server owns storage) and HDFS-only catalogs (carried by the raw passthrough instead).
+        Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         switch (flavor) {
             case PaimonConnectorProperties.FILESYSTEM: {
                 // filesystem carries a Hadoop Configuration for HDFS/S3 storage.
-                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties);
+                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, conf), flavor,
                         "Failed to create Paimon catalog with filesystem metastore");
             }
@@ -141,7 +147,7 @@ public class PaimonConnector implements Connector {
             }
             case PaimonConnectorProperties.JDBC: {
                 maybeRegisterJdbcDriver();
-                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties);
+                Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, conf), flavor,
                         "Failed to create Paimon catalog with JDBC metastore");
             }
@@ -163,7 +169,7 @@ public class PaimonConnector implements Connector {
                 // file reach the live metastore client (legacy HMSBaseProperties parity).
                 Map<String, String> hiveConfFiles = context.loadHiveConfResources(
                         PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"));
-                HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(properties, hiveConfFiles);
+                HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(properties, hiveConfFiles, storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }
@@ -172,6 +178,7 @@ public class PaimonConnector implements Connector {
                 // generic S3 one). Enforced at catalog build, before the HiveConf is assembled,
                 // matching legacy PaimonAliyunDLFMetaStoreProperties.initializeCatalog timing.
                 PaimonCatalogFactory.requireOssStorageForDlf(properties);
+                // DLF storage is OSS (fe-filesystem-bound, in storageHadoopConfig); overlaid below.
                 // NOTE (B1/cutover-blocker P5-B7): same metastore=hive runtime gap as the hms branch
                 // above — the Thrift metastore client (IMetaStoreClient/HiveMetaStoreClient, here the
                 // Aliyun ProxyMetaStoreClient) is host-provided via hive-catalog-shade at cutover, not
@@ -180,13 +187,32 @@ public class PaimonConnector implements Connector {
                 // metastore=hive paimon catalog created through the plugin throws neither
                 // NoClassDefFoundError (.../IMetaStoreClient) nor a Configuration/HiveConf
                 // LinkageError/ClassCastException.
-                HiveConf hc = PaimonCatalogFactory.buildDlfHiveConf(properties);
+                HiveConf hc = PaimonCatalogFactory.buildDlfHiveConf(properties, storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with DLF metastore");
             }
             default:
                 throw new IllegalArgumentException("Unknown paimon.catalog.type value: " + flavor);
         }
+    }
+
+    /**
+     * Assembles the canonical object-store Hadoop config from the FE-bound storage properties (P1-T03).
+     * fe-core binds the catalog's raw property map to fe-filesystem {@link StorageProperties} and hands
+     * them over via {@link ConnectorContext#getStorageProperties()}; here we merge each one's
+     * {@code toHadoopProperties().toHadoopConfigurationMap()} (fs.s3a.* / Jindo fs.oss.* / fs.cosn.* /
+     * fs.obs.* keys). This replaces the legacy fe-property
+     * {@code StorageProperties.buildObjectStorageHadoopConfig(properties)} call that
+     * {@link PaimonCatalogFactory#buildHadoopConfiguration}/{@code buildHmsHiveConf}/{@code buildDlfHiveConf}
+     * used to make. Empty when no static object-store storage is configured — e.g. an HDFS-only catalog
+     * (which reaches the conf via the raw fs./dfs./hadoop. passthrough) or REST (the server owns storage).
+     */
+    private Map<String, String> buildStorageHadoopConfig() {
+        Map<String, String> merged = new HashMap<>();
+        for (StorageProperties sp : context.getStorageProperties()) {
+            sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
+        }
+        return merged;
     }
 
     private Catalog createCatalogFromContext(CatalogContext catalogContext, String flavor, String failureMessage) {

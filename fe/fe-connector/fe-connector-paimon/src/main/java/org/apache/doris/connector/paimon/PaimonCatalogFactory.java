@@ -17,8 +17,6 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.property.storage.StorageProperties;
-
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -48,11 +46,14 @@ import java.util.function.BiConsumer;
  *
  * <p>B1 also adds three PURE Hadoop config builders ({@link #buildHadoopConfiguration},
  * {@link #buildHmsHiveConf}, {@link #buildDlfHiveConf}) that reconstruct, from the raw property
- * map alone, the {@code Configuration}/{@code HiveConf} that the live HiveCatalog needs. These
- * replace the fe-core {@code StorageProperties.getHadoopStorageConfig()} /
- * {@code HMSBaseProperties.getHiveConf()} / {@code PaimonAliyunDLFMetaStoreProperties.buildHiveConf()}
- * with a minimal, fe-core-free reconstruction. They are still pure (Map in, conf out) so they are
- * unit-testable offline; only the {@code CatalogFactory.createCatalog} call in
+ * map plus a pre-computed canonical object-store storage config, the {@code Configuration}/
+ * {@code HiveConf} that the live HiveCatalog needs. These replace the fe-core
+ * {@code StorageProperties.getHadoopStorageConfig()} / {@code HMSBaseProperties.getHiveConf()} /
+ * {@code PaimonAliyunDLFMetaStoreProperties.buildHiveConf()} with a minimal, fe-core-free
+ * reconstruction. The {@code storageHadoopConfig} arg is assembled by {@code PaimonConnector} from
+ * {@code ConnectorContext.getStorageProperties()} (fe-filesystem's
+ * {@code toHadoopProperties().toHadoopConfigurationMap()}), so the builders stay pure (Maps in, conf
+ * out) and unit-testable offline; only the {@code CatalogFactory.createCatalog} call in
  * {@code PaimonConnector} needs a live metastore.
  */
 public final class PaimonCatalogFactory {
@@ -336,26 +337,29 @@ public final class PaimonCatalogFactory {
     // ---------------------------------------------------------------------
 
     /**
-     * Builds a minimal Hadoop {@link Configuration} for the storage layer (HDFS / S3 / OSS),
-     * reconstructed from the raw property map. This replaces the fe-core
-     * {@code StorageProperties.getHadoopStorageConfig()} + {@code AbstractPaimonProperties
-     * .normalizeS3Config()/appendUserHadoopConfig()} with a fe-core-free port:
+     * Builds a minimal Hadoop {@link Configuration} for the storage layer (HDFS / S3 / OSS), from the
+     * raw property map plus the pre-computed object-store storage config:
      *
      * <ul>
-     *   <li>canonical {@code s3.*}/{@code AWS_*} and {@code oss.*}/{@code fs.oss.*}/{@code dlf.*}
-     *       aliases are translated to {@code fs.s3a.*} / Jindo {@code fs.oss.*} (ported legacy
-     *       {@code appendS3HdfsProperties} + {@code OSSProperties.initializeHadoopStorageConfig};
-     *       see {@link #applyStorageConfig});</li>
+     *   <li>{@code storageHadoopConfig} carries the canonical object-store translation
+     *       ({@code s3.*}/{@code oss.*}/{@code cos.*}/{@code obs.*}/{@code AWS_*} -&gt; {@code fs.s3a.*} /
+     *       Jindo {@code fs.oss.*} / etc.), computed upstream by the connector from
+     *       {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
+     *       {@code toHadoopProperties().toHadoopConfigurationMap()} (P1-T03; replaces the fe-property
+     *       {@code StorageProperties.buildObjectStorageHadoopConfig(props)} call);</li>
      *   <li>{@code paimon.s3.*} / {@code paimon.s3a.*} / {@code paimon.fs.s3.*} / {@code paimon.fs.oss.*}
      *       are normalized to the Hadoop S3A prefix {@code fs.s3a.} (strip the matched prefix,
      *       re-key as {@code fs.s3a.} + remainder), matching legacy {@code normalizeS3Config};</li>
      *   <li>raw {@code fs.*} / {@code dfs.*} / {@code hadoop.*} keys are copied verbatim (these are
-     *       already Hadoop-recognized keys the user passed through).</li>
+     *       already Hadoop-recognized keys the user passed through). HDFS contributes via this
+     *       passthrough only — it is absent from {@code storageHadoopConfig} (fe-filesystem binds
+     *       object stores only), matching legacy.</li>
      * </ul>
      *
-     * <p>PURE: depends only on {@code props}.
+     * <p>PURE: depends only on {@code props} and {@code storageHadoopConfig}.
      */
-    public static Configuration buildHadoopConfiguration(Map<String, String> props) {
+    public static Configuration buildHadoopConfiguration(Map<String, String> props,
+            Map<String, String> storageHadoopConfig) {
         Configuration conf = new Configuration();
         // Pin the Configuration's classloader to the plugin loader (FIX-PAIMON-HADOOP-CLASSLOADER).
         // Hadoop resolves filesystem impls via Configuration.getClass("fs.<scheme>.impl", ...), which
@@ -364,34 +368,35 @@ public final class PaimonCatalogFactory {
         // S3AFileSystem from the parent and fail the cast to the child-loaded FileSystem. Resolving
         // through the plugin loader keeps the whole FS class graph in one loader.
         conf.setClassLoader(PaimonCatalogFactory.class.getClassLoader());
-        applyStorageConfig(props, conf::set);
+        applyStorageConfig(storageHadoopConfig, props, conf::set);
         return conf;
     }
 
     /**
-     * Applies the normalized storage config via the given setter. Shared by
-     * {@link #buildHadoopConfiguration} and the HiveConf builders (which overlay the same storage
-     * config onto the HiveConf, mirroring legacy {@code appendUserHadoopConfig(hiveConf)} +
-     * {@code ossProps.getHadoopStorageConfig()}). Three steps, in legacy precedence order:
+     * Applies the storage config via the given setter. Shared by {@link #buildHadoopConfiguration} and
+     * the HiveConf builders (which overlay the same storage config onto the HiveConf, mirroring legacy
+     * {@code appendUserHadoopConfig(hiveConf)} + {@code ossProps.getHadoopStorageConfig()}). Two steps,
+     * in legacy precedence order:
      *
      * <ol>
-     *   <li>canonical {@code s3.*}/{@code AWS_*} aliases -&gt; {@code fs.s3a.*} (ported legacy
-     *       {@code AbstractS3CompatibleProperties.appendS3HdfsProperties}, credential subset);</li>
-     *   <li>canonical {@code oss.*}/{@code fs.oss.*}/{@code dlf.*} aliases -&gt; Jindo {@code fs.oss.*}
-     *       (ported legacy {@code OSSProperties.initializeHadoopStorageConfig});</li>
+     *   <li>the pre-computed {@code storageHadoopConfig} (canonical object-store translation, produced
+     *       upstream from {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
+     *       {@code toHadoopConfigurationMap()}; replaces the fe-property
+     *       {@code StorageProperties.buildObjectStorageHadoopConfig(props)} call);</li>
      *   <li>the original {@code paimon.s3./s3a./fs.s3./fs.oss.} re-key + raw {@code fs./dfs./hadoop.}
      *       passthrough, which run LAST and overlay the canonical translation (last-write-wins =
      *       legacy {@code addResource(getHadoopStorageConfig())} then {@code appendUserHadoopConfig}).</li>
      * </ol>
      */
-    private static void applyStorageConfig(Map<String, String> props, BiConsumer<String, String> setter) {
-        // Canonical object-store alias -> fs.s3a.*/fs.oss.*/fs.cosn.*/fs.obs.* translation, delegated to the shared
-        // fe-property module (replaces the hand-ported applyCanonicalS3/Minio/Oss/Cos/Obs blocks that diverged and
-        // caused the MinIO bug). It detects each object-store family from the raw props and emits the same Hadoop
-        // keys legacy did; HDFS contributes nothing here (handled by the raw passthrough below), matching legacy
-        // (applyStorageConfig never had an HDFS canonical block).
-        StorageProperties.buildObjectStorageHadoopConfig(props).forEach(setter);
-        // Connector-specific (NOT in fe-property): paimon.* prefix re-key + raw fs./dfs./hadoop. passthrough,
+    private static void applyStorageConfig(Map<String, String> storageHadoopConfig,
+            Map<String, String> props, BiConsumer<String, String> setter) {
+        // Pre-computed canonical object-store config (fs.s3a.*/fs.oss.*/fs.cosn.*/fs.obs.*), assembled by
+        // PaimonConnector from ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap()
+        // (fe-filesystem is now the single source of truth; P1-T03). HDFS is absent here (fe-filesystem
+        // binds object stores only) and reaches the conf via the raw fs./dfs./hadoop. passthrough below,
+        // matching legacy (applyStorageConfig never had an HDFS canonical block).
+        storageHadoopConfig.forEach(setter);
+        // Connector-specific (NOT in fe-filesystem): paimon.* prefix re-key + raw fs./dfs./hadoop. passthrough,
         // run LAST so explicit fs.s3a.* keys overlay the canonical translation (last-write-wins).
         props.forEach((key, value) -> {
             for (String prefix : USER_STORAGE_PREFIXES) {
@@ -408,10 +413,21 @@ public final class PaimonCatalogFactory {
 
     /**
      * Builds the {@link HiveConf} for the {@code hms} flavor, reconstructed from the raw property
-     * map. Replaces fe-core {@code HMSBaseProperties.getHiveConf()} minimally: sets all {@code hive.*}
-     * keys verbatim, the metastore uri, the present auth keys, the kerberos-conditional metastore
-     * SASL/service-principal/auth_to_local keys, the metastore client socket timeout default, then
-     * overlays the storage config.
+     * map. Replaces fe-core {@code HMSBaseProperties.getHiveConf()} minimally: seeds the resolved
+     * external hive-site.xml as the BASE, sets all {@code hive.*} keys verbatim, the metastore uri,
+     * the present auth keys, the kerberos-conditional metastore SASL/service-principal/auth_to_local
+     * keys, the metastore client socket timeout default, then overlays the storage config.
+     *
+     * <p>{@code hiveConfResources} = the pre-resolved key/values of an external
+     * {@code hive.conf.resources} hive-site.xml, loaded FE-side via
+     * {@code ConnectorContext.loadHiveConfResources} (legacy {@code CatalogConfigFileUtils}, which the
+     * connector cannot import). It is the {@code HiveConf} BASE, applied BEFORE the user {@code hive.*}
+     * overrides — matching legacy {@code HMSBaseProperties.checkAndInit} precedence (file is base, user
+     * {@code hive.*} and the resolved uri win).
+     *
+     * <p>{@code storageHadoopConfig} = the pre-computed canonical object-store config (from
+     * {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
+     * {@code toHadoopConfigurationMap()}; P1-T03), overlaid via {@link #applyStorageConfig}.
      *
      * <p>NOTE (B1, post-fix I-2): the kerberos-conditional metastore keys legacy
      * {@code HMSBaseProperties.initHadoopAuthenticator}/{@code checkAndInit} sets ARE now handled
@@ -419,27 +435,14 @@ public final class PaimonCatalogFactory {
      * (when the auth type is kerberos), the metastore SERVICE principal
      * {@code hive.metastore.kerberos.principal} (sourced from {@code hive.metastore.service.principal}
      * or {@code hive.metastore.kerberos.principal}), and {@code hadoop.security.auth_to_local}.
-     * An external hive-site.xml FILE ({@code hive.conf.resources}) is loaded FE-side via
-     * {@code ConnectorContext.loadHiveConfResources} (legacy {@code CatalogConfigFileUtils}, which the
-     * connector cannot import) and passed in to the 2-arg overload as the {@code HiveConf} BASE — see
-     * {@link #buildHmsHiveConf(Map, Map)}. The real Kerberos UGI {@code doAs} is injected by the FE via
+     * The real Kerberos UGI {@code doAs} is injected by the FE via
      * {@code ConnectorContext.executeAuthenticated}; here we only carry the auth keys into the conf
      * (legacy additionally built a {@code HadoopAuthenticator} from them).
      *
-     * <p>PURE: depends only on {@code props} (and the pre-resolved file keys in the overload).
+     * <p>PURE: depends only on the three maps.
      */
-    public static HiveConf buildHmsHiveConf(Map<String, String> props) {
-        return buildHmsHiveConf(props, java.util.Collections.emptyMap());
-    }
-
-    /**
-     * As {@link #buildHmsHiveConf(Map)}, but seeds {@code hiveConfResources} (the pre-resolved
-     * key/values of an external {@code hive.conf.resources} hive-site.xml, loaded FE-side via
-     * {@code ConnectorContext.loadHiveConfResources}) as the {@code HiveConf} BASE, BEFORE the user
-     * {@code hive.*} overrides — matching legacy {@code HMSBaseProperties.checkAndInit} precedence
-     * (file is base, user {@code hive.*} and the resolved uri win). PURE: depends only on the two maps.
-     */
-    public static HiveConf buildHmsHiveConf(Map<String, String> props, Map<String, String> hiveConfResources) {
+    public static HiveConf buildHmsHiveConf(Map<String, String> props, Map<String, String> hiveConfResources,
+            Map<String, String> storageHadoopConfig) {
         HiveConf hiveConf = new HiveConf();
         // External hive-site.xml (hive.conf.resources) as the BASE (legacy checkAndInit loads the
         // file first); the user hive.* keys below then correctly OVERRIDE it.
@@ -475,7 +478,7 @@ public final class PaimonCatalogFactory {
         }
 
         // Overlay the storage config (legacy buildHiveConfiguration + appendUserHadoopConfig).
-        applyStorageConfig(props, hiveConf::set);
+        applyStorageConfig(storageHadoopConfig, props, hiveConf::set);
 
         // Kerberos-conditional metastore keys, ported faithfully from HMSBaseProperties.initHadoopAuthenticator
         // (lines 152-185). This block runs LAST, AFTER the storage overlay, mirroring legacy's
@@ -541,9 +544,11 @@ public final class PaimonCatalogFactory {
      *   CATALOG_PROXY_MODE        = "dlf.catalog.proxyMode"
      * </pre>
      *
-     * <p>PURE: depends only on {@code props}.
+     * <p>PURE: depends only on {@code props} and {@code storageHadoopConfig} (the pre-computed
+     * canonical OSS config from {@code ConnectorContext.getStorageProperties()}; P1-T03).
      */
-    public static HiveConf buildDlfHiveConf(Map<String, String> props) {
+    public static HiveConf buildDlfHiveConf(Map<String, String> props,
+            Map<String, String> storageHadoopConfig) {
         String accessKey = firstNonBlank(props, PaimonConnectorProperties.DLF_ACCESS_KEY);
         String secretKey = firstNonBlank(props, PaimonConnectorProperties.DLF_SECRET_KEY);
         String sessionToken = firstNonBlank(props, PaimonConnectorProperties.DLF_SESSION_TOKEN);
@@ -586,7 +591,7 @@ public final class PaimonCatalogFactory {
         // The OSS endpoint-from-region derivation now lives in the shared fe-property OSSProperties (used by the
         // filesystem/hms flavors too, with the same dlf.access.public source), so no DLF-local OSS derivation is
         // needed here.
-        applyStorageConfig(props, hiveConf::set);
+        applyStorageConfig(storageHadoopConfig, props, hiveConf::set);
         return hiveConf;
     }
 
