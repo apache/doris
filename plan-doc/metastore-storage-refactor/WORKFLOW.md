@@ -21,6 +21,8 @@
 
 ## 2. 单任务开发循环（step-by-step-fix + TDD）
 
+**起步（每个 session / 阶段开始，用户 2026-06-17 立规，强制）**：先读 `PROGRESS.md` → `HANDOFF.md` → 本文件 → 下一 task 的 `tasks.md` 块 + 相关 `decisions-log`/`deviations-log` 条；**再对照真实代码 review 下一步方案**（不照搬 HANDOFF 旧计划——先 grep/读真实调用流确认方案仍成立）；一句话复述确认（必要时 AskUserQuestion 定边界）后才动手。
+
 每个 `Pn-Tnn` 严格走以下 8 步，**一个 task = 一个独立 commit**：
 
 1. **认领**：在 `tasks.md` 把该 task 状态 `⬜→🚧`，在 `HANDOFF.md` 记"正在做 Pn-Tnn"。
@@ -113,7 +115,7 @@ plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 | 完成一个 task | `tasks.md` 状态翻转 + 日期/commit；更新 `PROGRESS.md`；阶段日志追加一行 |
 | 产生新决策 | 先写 `decisions-log.md` 顶部分配 D-NNN；如改设计则回写并加脚注 |
 | 发现偏差 | 先写 `deviations-log.md`（DV-NNN：原计划位置/为何不可行/新方案/影响）；再改设计 |
-| 每次 session 结束 | 覆盖更新 `HANDOFF.md`（完成了什么 / 下一步 / 未决） |
+| **每完成一个 task/阶段 或 session 结束**（用户 2026-06-17 立规） | **覆盖更新 `HANDOFF.md`**（完成了什么 / 下一步含真实代码 review 要点 / 未决 / 红线）**并 commit**（随该 task commit 或单独 doc commit）。下次接手不靠记忆、只靠 HANDOFF。 |
 | 每个 commit | 第一行 `[Pn-Tnn] <subject>`；merge 后立即按上面流程更新状态 |
 
 ---
