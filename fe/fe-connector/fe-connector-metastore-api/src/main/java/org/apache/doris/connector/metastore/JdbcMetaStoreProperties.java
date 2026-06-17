@@ -32,7 +32,12 @@ public interface JdbcMetaStoreProperties extends MetaStoreProperties {
     /** The JDBC password, or empty when not configured. */
     String getPassword();
 
-    /** The resolved driver jar URL, or empty when the engine-provided driver is used. */
+    /**
+     * The configured driver jar URL (raw, alias-resolved), or empty when the engine-provided driver
+     * is used. Resolve it to a full, scheme-bearing URL via the spi's
+     * {@code JdbcDriverSupport.resolveDriverUrl(url, env)} with the engine environment (the same
+     * resolution the FE driver registration and the BE-bound options apply).
+     */
     String getDriverUrl();
 
     /** The JDBC driver class name, or empty when not configured. */

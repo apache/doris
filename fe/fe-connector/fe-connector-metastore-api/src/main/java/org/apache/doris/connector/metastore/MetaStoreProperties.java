@@ -39,8 +39,10 @@ public interface MetaStoreProperties {
     String providerName();
 
     /**
-     * Whether this backend needs the bound {@code List<StorageProperties>} to be supplied during
-     * parsing (FileSystem/DLF do; HMS/REST/JDBC do not). Replaces a per-backend enum switch.
+     * Whether this backend needs the bound storage config supplied. HMS/DLF overlay it into the metastore
+     * conf during parse, in the parity-critical order (e.g. before the HMS kerberos block); FileSystem
+     * needs it bound for the connector to apply at catalog-build time. REST/JDBC do not. Replaces a
+     * per-backend enum switch.
      */
     default boolean needsStorage() {
         return false;

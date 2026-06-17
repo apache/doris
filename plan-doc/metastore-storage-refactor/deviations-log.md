@@ -6,6 +6,21 @@
 
 ---
 
+## DV-007 — P2-T02 共享 parser 的 storage 入参用中立 `Map<String,String> storageHadoopConfig`，**不**用 `List<StorageProperties>`；spi 不依赖 fe-filesystem-api
+- **日期**：2026-06-18 ｜ **原计划位置**：设计 §3.2（`*MetastoreBackend.parse(Map raw, List<StorageProperties> storage)`）/ tasks `P2-T02` header（「依赖 metastore-api + fe-foundation + **fe-filesystem-api**」）/ WORKFLOW §4.2（「新模块 metastore-api/spi 只可依赖 fe-foundation + fe-filesystem-api」）。
+- **为何偏差（recon + 用户定夺 AskUserQuestion）**：recon（report A §6 / report D §4）证：①paimon 现有 up-move 源（`buildHmsHiveConf`/`buildDlfHiveConf`）已经吃**预算好的中立 `Map<String,String> storageHadoopConfig`**（由 `PaimonConnector.buildStorageHadoopConfig` 从 `ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap()` 合并），**不**在 parser 内迭代 `StorageProperties`；②metastore-api 契约只在 javadoc 提 `StorageProperties`、签名零引用 → spi 用中立 Map 即可保持 **hadoop/fs-free**（零 fe-filesystem-api 依赖，最小化模块依赖面 + 无 classloader 面）。**关键不变量保持**：storage 叠加保序 + kerberos-在-storage-之后 由 **parser 拥有**（parser 收 storageHadoopConfig，在 `toHiveConfOverrides()`/`toDlfCatalogConf()` 内部按序 overlay）。
+- **新方案（用户 2026-06-18 选「Neutral Map」）**：`MetaStoreProvider.bind(Map<String,String> props, Map<String,String> storageHadoopConfig)` + `MetaStoreProviders.bind(raw, storageHadoopConfig)`；spi pom **不**含 fe-filesystem-api。P2-T03 paimon adapter 把现有 `buildStorageHadoopConfig()` 产物喂进来（连接器侧仍调 `ctx.getStorageProperties()`，是 ctx SPI 调用，本就连接器侧）。**被否**：`List<StorageProperties>`（设计字面，typed 边界，但引入 fe-filesystem-api 依赖 + parser 重复 `toHadoopConfigurationMap` 迭代，对 P2-T02 无收益——storage 已在连接器算好）。
+- **影响范围**：spi pom 依赖集（−fe-filesystem-api）；parse 签名（storage = Map 非 List）；设计 §3.2 待加（DV-007 修订）脚注；WORKFLOW §4.2 spi 允许依赖集实际为 metastore-api + fe-foundation + fe-extension-spi + fe-kerberos（fe-filesystem-api 未用）。不影响 P2-T03 之后若需 typed 边界再加。
+
+## DV-006 — P2-T02 不在 fe-kerberos 增量补 hadoop authenticator 机制子集（HANDOFF/task 原写「此处增量补」被证伪）；fe-kerberos 仅作 compile 依赖、零新代码
+- **日期**：2026-06-18 ｜ **原计划位置**：HANDOFF「下一步 P2-T02」+ tasks `P2-T02` 原 header（「**此处增量补 fe-kerberos authenticator 机制子集**[hadoop-auth/hadoop-common 依赖 + trino `KerberosTicketUtils`→JDK 替换]——`HmsMetastoreBackend` 产出 `KerberosAuthSpec` 需要它」）/ P3a-T01 续；设计 §3.5 步骤 a。
+- **为何偏差（recon 三重取证 + 直接核实真实代码）**：HANDOFF 断言「产出 `KerberosAuthSpec` 需要 authenticator 机制」**证伪**——
+  1. `KerberosAuthSpec`(commit `51df4fccd01`)是**两 String 不可变值对象**（`KerberosAuthSpec.java:28-29` 明示零 hadoop 类型/不登录）；产出它 = `new KerberosAuthSpec(clientPrincipal, clientKeytab)`，`AuthType.fromString(...)` 纯函数（`AuthType.java:52-57`）。**纯 String→值对象，零 hadoop**。
+  2. paimon 连接器 parse-time 只把 kerberos 键当**普通字符串**塞进 HiveConf（`PaimonCatalogFactory.java:438-440` 注释明示「legacy additionally built a HadoopAuthenticator from them；这里只携带 auth keys」`:465-470,:489-513`），自身**从不**构造 UGI/authenticator。
+  3. 真正的 `UGI.doAs` 机制由 **FE 侧**构建、**storage-derived**：`DefaultConnectorContext.executeAuthenticated`→`authSupplier.get().execute(task)`（`:136-138`），authenticator 来自 `PluginDrivenExternalCatalog:136-137`（storage props 建 `HadoopExecutionAuthenticator`）；全部 UGI 机器（`HadoopKerberosAuthenticator`/`UserGroupInformation`/`Krb5LoginModule`）在 **fe-common**（已带 hadoop classpath）。fe-kerberos 不参与 doAs。
+- **新方案（用户 2026-06-18 选「Compile-dep only」）**：fe-kerberos **零新代码**（仅作 spi 的 compile 依赖，且经 metastore-api 已 transitive）；HMS parser 产出 `getAuthType()`(`AuthType.fromString`) + `kerberos()`(`Optional.of(new KerberosAuthSpec(clientPrincipal, clientKeytab))`) + `toHiveConfOverrides()`(中立 String 键含 service principal/auth_to_local/sasl/auth=kerberos)。`fe-kerberos/pom.xml:36-38` 注的「authenticator 机制子集（D-013）增量补」推迟到**真把 FE 侧 doAs 从 fe-common 搬进 fe-kerberos** 的后续 cutover（P3b 同批），**非** P2-T02。**被否**：照 HANDOFF 字面把 hadoop-auth/hadoop-common + trino→JDK 替换搬进 fe-kerberos（speculative、parse-time 用不上、Rule 2 违反）。
+- **影响范围**：fe-kerberos **不改**（白名单 `fe/fe-kerberos/**` 本 task 不触碰）；P3a-T01「authenticator 机制待续」状态不变（仍待 P3b）；设计 §3.5 步骤 a 待加（DV-006 修订）脚注；不影响 T2 parity（`toHiveConfOverrides()` 串键 == legacy `HMSBaseProperties` 串键）。
+
 ## DV-005 — FU-T02 不新增 `credentialsProviderType` 字段（镜像 S3 的写法），改为内联镜像 legacy 基类条件
 - **日期**：2026-06-18 ｜ **原计划位置**：task `FU-T02` / D-011（「给 `Oss/Cos/ObsFileSystemProperties` 加 `credentialsProviderType` 字段（镜像 `S3FileSystemProperties`）」）。
 - **为何不可行/不必要**：现场 recon（对照 `fe-core .../datasource/property/storage`）证伪「镜像 S3 字段」是正确做法——

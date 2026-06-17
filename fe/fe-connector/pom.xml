@@ -41,6 +41,7 @@ under the License.
         <module>fe-connector-api</module>
         <module>fe-connector-spi</module>
         <module>fe-connector-metastore-api</module>
+        <module>fe-connector-metastore-spi</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
