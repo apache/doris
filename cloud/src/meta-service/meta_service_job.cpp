@@ -340,19 +340,21 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
                 code = MetaServiceCode::JOB_TABLET_BUSY;
                 // Unknown version range of started compaction, BE should not retry other version range
                 if (c.input_versions_size() == 0) return;
-                // Notify version ranges in started compaction to BE, so BE can retry other version range.
-                // Only notify ranges of the same conflict family (e.g., another CUMULATIVE), so the
-                // BE-side retry logic on `version_in_compaction` still works as before. Cross-family
-                // (BASE vs CUMULATIVE) conflicts are not surfaced via `version_in_compaction` to keep
-                // backward compatibility with BE retry semantics.
+                // Notify version ranges of all in-flight compactions that may conflict with the
+                // incoming one, so BE can retry on a non-overlapping range. The notification
+                // predicate is intentionally kept consistent with the conflict predicate above
+                // (`may_conflict_by_type`); previously only same-family ranges were surfaced,
+                // which left BE blind to cross-family (BASE vs CUMULATIVE) conflicts.
+                //
+                // An in-flight EMPTY_CUMULATIVE (or any other family member without a concrete
+                // [v_lo, v_hi]) carries no usable range; surfacing fabricated zeros would
+                // mislead BE retry. Skip such entries defensively here - the real conflict is
+                // already enforced by the version-range check above.
                 for (auto& c : compactions) {
-                    if (is_same_conflict_family(c.type(), compaction.type()) ||
-                        c.type() == TabletCompactionJobPB::FULL) {
-                        // If there are multiple started compaction of same type, they all must has input version range
-                        DCHECK_EQ(c.input_versions_size(), 2) << proto_to_json(c);
-                        response->add_version_in_compaction(c.input_versions(0));
-                        response->add_version_in_compaction(c.input_versions(1));
-                    }
+                    if (!may_conflict_by_type(c.type(), compaction.type())) continue;
+                    if (c.input_versions_size() != 2) continue;
+                    response->add_version_in_compaction(c.input_versions(0));
+                    response->add_version_in_compaction(c.input_versions(1));
                 }
                 return;
             }

@@ -4798,12 +4798,18 @@ TEST(MetaServiceJobTest, BaseCumulativeCrossTypeConflictTest) {
     start_compaction_job(meta_service.get(), tablet_id, "cumu_overlap_base", "BE1", 0, 0,
                          TabletCompactionJobPB::CUMULATIVE, res, {22, 28});
     ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY) << res.status().msg();
-    // The version_in_compaction notification only carries same-family ranges (CUMULATIVE) -
-    // BASE ranges are intentionally excluded to keep BE retry logic backward compatible.
-    // So we expect to see [10, 20] (cumu1) but NOT [0, 9] / [21, 30] (base jobs).
-    ASSERT_EQ(res.version_in_compaction_size(), 2);
+    // The version_in_compaction notification predicate is kept consistent with the conflict
+    // predicate (`may_conflict_by_type`): every in-flight job in the rowset compaction family
+    // (BASE / CUMULATIVE) is surfaced so BE can pick a non-overlapping range to retry.
+    // Active jobs at this point: cumu1[10,20], base_safe_below[0,9], base_safe_above[21,30].
+    // All three carry concrete input_versions so all three must be reported.
+    ASSERT_EQ(res.version_in_compaction_size(), 6);
     EXPECT_EQ(res.version_in_compaction(0), 10);
     EXPECT_EQ(res.version_in_compaction(1), 20);
+    EXPECT_EQ(res.version_in_compaction(2), 0);
+    EXPECT_EQ(res.version_in_compaction(3), 9);
+    EXPECT_EQ(res.version_in_compaction(4), 21);
+    EXPECT_EQ(res.version_in_compaction(5), 30);
 
     // Step 9: A new CUMULATIVE [30, 35] does not overlap with cumu1 [10, 20] but DOES overlap
     // with base_safe_above [21, 30] (sharing version 30). Must be rejected.
