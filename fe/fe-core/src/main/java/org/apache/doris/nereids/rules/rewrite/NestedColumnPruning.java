@@ -267,7 +267,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-            if (shouldSkipAccessInfo(slot, prunedDataType, allPaths, predicateAccessPaths)) {
+            if (shouldSkipAccessInfo(slot, prunedDataType, allPaths)) {
                 continue;
             }
             result.put(slot.getExprId().asInt(),
@@ -369,17 +369,17 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     private static boolean shouldSkipAccessInfo(
-            Slot slot, DataType prunedDataType, List<ColumnAccessPath> allPaths,
-            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> predicateAccessPaths) {
+            Slot slot, DataType prunedDataType, List<ColumnAccessPath> allPaths) {
         if (!prunedDataType.equals(slot.getDataType())) {
             return false;
         }
         if (slot.getDataType() instanceof NestedColumnPrunable || slot.getDataType().isVariantType()) {
             return false;
         }
-        if (!predicateAccessPaths.get(slot.getExprId().asInt()).isEmpty()) {
-            return false;
-        }
+
+        // Only scalar / string-like types reach here (NestedColumnPrunable and Variant
+        // returned false above). A single [col] path means the entire column is read;
+        // no access info needs to be sent to BE.
         if (allPaths.size() != 1) {
             return false;
         }
