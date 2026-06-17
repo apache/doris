@@ -17,7 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
@@ -171,5 +175,17 @@ public class SessionVariablesTest extends TestWithFeService {
         sv.enableMorValuePredicatePushdownTables = "ctl1.db1.tbl1";
         Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
         Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+    }
+
+    @Test
+    public void testEnablePreloadExternalMetadata() throws DdlException {
+        Assertions.assertFalse(sessionVariable.isEnablePreloadExternalMetadata());
+
+        // Verify the new preload switch can be changed through the standard session variable path.
+        VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_PRELOAD_EXTERNAL_METADATA,
+                new StringLiteral("true")));
+
+        Assertions.assertTrue(sessionVariable.isEnablePreloadExternalMetadata());
     }
 }
