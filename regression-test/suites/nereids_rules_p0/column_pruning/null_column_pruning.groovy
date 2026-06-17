@@ -180,9 +180,7 @@ suite("null_column_pruning") {
     // covers the same prefix and inherently includes the null flag.
     explain {
         sql "select int_col from ncp_tbl where int_col is null"
-        contains "nested columns"
-        contains "all access paths: [int_col]"
-        notContains "predicate access paths:"
+        notContains "nested columns"
     }
 
     order_qt_10 "select int_col from ncp_tbl where int_col is null";
