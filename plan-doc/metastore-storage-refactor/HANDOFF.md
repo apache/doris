@@ -7,7 +7,7 @@
 
 ---
 
-**更新时间**：2026-06-18（实现 session：**FU-T02 + FU-T03 完成** — fe-filesystem 对象存储补齐，**R-008 + R-006 闭环**；下一步 P1-T06）
+**更新时间**：2026-06-18（实现 session：**FU-T02 + FU-T03 完成**，R-008 + R-006 闭环；**用户定 D-012：跳过/推迟 P1-T06 docker，直接进 P2 metastore SPI**，下一步 = **P2-T01**）
 **更新人**：Claude（Opus 4.8）
 
 ## 这次 session 完成了什么（FU-T02 + FU-T03）
@@ -43,19 +43,22 @@
 </details>
 
 ## 当前状态
-- 阶段：Research ✅ / Design ✅（**11 决策 D-001..D-011**）/ **Implement 🚧（P1 5/6 + FU-T01/T02/T03 ✅，仅剩 P1-T06 验证）**。
-- 任务计数 **8/14**（P0: 2/2 ✅ ｜ P1: 5/6 ｜ P2: 0/5 ｜ P3a: 0/1）｜ follow-up **FU-T01 ✅ + FU-T02 ✅ + FU-T03 ✅**（均已完成）｜ P3b 占位。
-- **R-006 / R-007 / R-008 全部已闭环**。typed BE 路现对 S3/OSS/COS/OBS/**HDFS** 全产 BE 键 + OSS/COS/OBS 无凭据补 `ANONYMOUS` + 调优默认有 UT 守护。
-- ⚠️ **e2e/docker 未跑**（本 session 仅 compile + UT + mutation 证）。
+- 阶段：Research ✅ / Design ✅（**12 决策 D-001..D-012**）/ **Implement 🚧（P1 storage 5/6，P1-T06 docker 推迟[D-012]；进入 P2 metastore SPI）**。
+- 任务计数 **8/14**（P0: 2/2 ✅ ｜ P1: 5/6，**P1-T06 推迟**［非取消，docker 验证折进 P2-T05 一次跑］｜ P2: 0/5 ｜ P3a: 0/1）｜ follow-up **FU-T01 ✅ + FU-T02 ✅ + FU-T03 ✅**｜ P3b 占位。
+- **R-006 / R-007 / R-008 全部已闭环**（UT/mutation 层面）。typed BE 路现对 S3/OSS/COS/OBS/**HDFS** 全产 BE 键 + OSS/COS/OBS 无凭据补 `ANONYMOUS` + 调优默认有 UT 守护。
+- ⚠️ **e2e/docker 全程未跑**（P1 收口 storage 等价的真闸 + P2 metastore T2/5-flavor 闸 一并留到 P2-T05 docker 跑；D-012）。
 
-## 下一步（明确）：P1-T06（P1 验证收口）
-> **R-006/R-007/R-008 已全闭环** → P1-T06 应为**干净全绿验收**（不带已知漂移）。
+## 下一步（明确）：P2-T01（新建 fe-connector-metastore-api）
+> **用户定 D-012：跳过/推迟 P1-T06 docker，直接进 P2**（docker 验证集中到 P2-T05 一次跑：届时同时覆盖 P1 storage 等价 T1 + P2 metastore T2 + 5 flavor + vended + kerberos）。
 > **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手；实施前 WORKFLOW §2 单任务 TDD + 一句话复述。**
 
-**P1-T06（P1 验证收口）**：paimon UT 全绿（已 293/0/1skip）+ docker `enablePaimonTest=true` **5 flavor**（filesystem/hms/rest/jdbc/dlf）+ vended(REST/DLF) + Kerberos HMS + **真 T1 等价闸 Option C**。
-- **HDFS-warehouse flavor（含 HA / kerberized）应通过**（R-007 闭环验证点，FU-T01）；**无凭据 OSS/COS/OBS 应通过**（R-008 闭环，FU-T02）；**调优默认**由 FU-T03 UT 守护（R-006）→ 干净全绿。
-- **现场 recon 必做**：确认 docker paimon 测试套件入口（`enablePaimonTest=true` 如何起、5 flavor 的 regression-conf）+ 当前分支 jar 打包要点（paimon 模块需 `-am package -Dassembly.skipAssembly=true`，shade jar 携带 HiveConf）。**不部署 docker 则明确标「未跑 e2e」**（CLAUDE.md Rule 12），不得把「编译过」当「验证过」。
-- 之后 P2（metastore SPI：P2-T01 新建 fe-connector-metastore-api …）+ P3a（fe-kerberos 叶子）。
+**P2-T01（新建 `fe-connector-metastore-api`）**：新模块（依赖 fe-foundation + fe-filesystem-api）= `MetaStoreProperties` 接口（`String providerName()` + 能力方法 `needsStorage()`/`needsVendedCredentials()`，**无 per-backend 枚举**，D-006）+ 子接口 HMS/DLF/REST/JDBC/FileSystem（中立 Map/标量，**不暴露** HiveConf/SDK 类型）。**不实现** Glue/S3Tables（留扩展）。新模块声明进 `fe-connector/pom.xml`。
+- **现场 recon 必做**（顶部流程 step 2）：
+  1. 读设计 §3.1（接口签名权威来源）+ **D-006**（确认无 `MetaStoreType` 枚举、用 provider+能力方法）+ **D-004**（@ConnectorProperty 绑定）。
+  2. 对照真实代码：fe-core `datasource/property/metastore/**`（旧 `MetastoreProperties` + `Paimon*MetaStoreProperties` 的接口面/Type/能力）+ paimon 现 `PaimonCatalogFactory`（手抄 HMS/DLF 逻辑，P2-T02/T03 上移的来源）+ `FileSystemProvider`/`FileSystemPluginManager`（D-006 镜像样板）。
+  3. 核对依赖图红线：metastore-api 只可依赖 `fe-foundation` + `fe-filesystem-api`（+ fe-connector-api/spi）；不得 import fe-core/{catalog,common,datasource,...}。
+- **范围张力提示**：P2 是大阶段（2 新模块 + provider SPI + 移植解析逻辑 + P3a fe-kerberos 交织：P3a-T01 依赖 P2-T02 作 facts 消费方）。**P2-T01 仅建 api 接口骨架**（无解析逻辑，纯类型）；解析/provider 在 P2-T02。实施前建议 AskUserQuestion 定 P2-T01 的接口边界（子接口集合、能力方法集合）若设计 §3.1 有不确定。
+- **白名单变更**：P2 需把 `fe-connector-metastore-api/**`（+后续 spi）加入 WORKFLOW §4.1 白名单（原已列为「新建」允许路径，见 §4.1）；`fe-connector/pom.xml` 新增模块声明（已在白名单）。
 
 ## 未决 / 需注意
 - ✅ 已闭环：R-006（FU-T03）、R-007（FU-T01）、R-008（FU-T02）。

@@ -5,6 +5,12 @@
 
 ---
 
+## D-012 — 跳过/推迟 P1-T06 docker 验证，直接进入 P2（metastore SPI）；docker 验证集中到 P2-T05
+- **日期**：2026-06-18 ｜ **决策者**：用户（「跳过 p1-t06，先开始做下一阶段」）
+- **内容**：**不在此刻跑 P1-T06**（P1 storage 收口的 docker 5-flavor 真等价闸）；直接开始 **P2（metastore SPI，从 P2-T01 起）**。P1-T06 **非取消而是推迟**——其 docker 验证（T1 storage 等价：S3/OSS/COS/OBS/HDFS + 无凭据 OSS/COS/OBS + 调优默认）与 P2-T05 的 docker 验证（T2 metastore 等价 + 5 flavor + vended + kerberos）**合并为一次 docker 跑**（P2-T05 本就需要同一套 `enablePaimonTest=true` 5-flavor 环境），避免重复部署。
+- **理由**：R-006/R-007/R-008 已在 UT/mutation 层闭环，P1 storage 路径无已知漂移；P1-T06 与 P2-T05 共用同一 docker 套件，分两次跑无收益。用户优先推进架构进度（P2 大阶段），把所有 e2e 验证留到 P2 收口一次性做。
+- **影响**：实施顺序 P1-T06 → 推迟到 P2-T05 之后/合并；PROGRESS/HANDOFF「下一步」改为 P2-T01；**P1-T06 task 状态保持「未完成（推迟）」**（不标 ✅，docker 未跑）；CLAUDE.md Rule 12：在 P2-T05 docker 真跑前，所有「完成」均须标「未跑 e2e」。WORKFLOW §4.1 白名单按 P2 需要纳入 `fe-connector-metastore-api/spi`（原已列为新建允许路径）。
+
 ## D-011 — P1-T06 之前先处理 R-008 + R-006（授权触碰 fe-filesystem-{s3,oss,cos,obs}）
 - **日期**：2026-06-18 ｜ **决策者**：用户（「在做 p1-t06 之前，把 r-008 和 r-006 先处理掉」）
 - **内容**：**调整实施顺序** = 先 **FU-T02（R-008）** + **FU-T03（R-006）**，再 **P1-T06**。授权本次**局部解禁**对象存储 typed 模块（原 D-005 / WORKFLOW §4.1 禁碰 fe-filesystem，D-010 仅放行 fe-filesystem-hdfs）：

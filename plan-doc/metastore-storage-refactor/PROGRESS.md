@@ -22,11 +22,11 @@
   - **FU-T03（R-006，本次 commit）**：4 个 `*FileSystemPropertiesTest` 各加 1 个调优默认守护测试（BE map + Hadoop map，字面量期望值非常量）；S3 50/3000/1000、OSS/COS/OBS 100/10000/10000（已核 legacy parity）；mutation 改 4 个 `DEFAULT_MAX_CONNECTIONS`→ 4 测全红证有效。S3 15/0·OSS 14/0·COS 13/0·OBS 13/0 + sibling 绿、checkstyle 0。纯 test-only。
   - ⚠️ docker e2e 未跑（两者真闸均在 P1-T06）。
 - **FU-T01 ✅（2026-06-17，D-010，commit `a426648f209`）**：`fe-filesystem-hdfs` HDFS typed BE model（**R-007 闭环**）。78/0 + 对抗 review `wf_5db99e32-2ad` 清场。
-- **下一步 = `P1-T06`（P1 验证收口）**：paimon UT 全绿（已 293/0/1skip）+ docker `enablePaimonTest=true` 5 flavor（filesystem/hms/rest/jdbc/dlf）+ vended(REST/DLF) + Kerberos HMS + **真 T1 等价闸 Option C**。R-006/R-007/R-008 均已闭环 → P1-T06 应为**干净全绿验收**（HDFS-warehouse 含 HA/kerberized 应通过；无凭据 OSS/COS/OBS 应通过）。不部署 docker 则明确标「未跑 e2e」（Rule 12）。之后 P2（metastore SPI）+ P3a（fe-kerberos 叶子）。
+- **下一步 = `P2-T01`（新建 fe-connector-metastore-api）**（用户 2026-06-18 **D-012：跳过/推迟 P1-T06 docker，直接进 P2**）。**P1-T06 非取消而是推迟**——其 docker 验证与 P2-T05 的 docker 5-flavor 合并为一次跑（同一 `enablePaimonTest=true` 套件）。R-006/R-007/R-008 已在 UT/mutation 层闭环。**P2-T01**：新模块（fe-foundation + fe-filesystem-api 依赖）= `MetaStoreProperties`（`providerName()` + 能力方法，无枚举，D-006）+ HMS/DLF/REST/JDBC/FileSystem 子接口（中立类型）。实施前 recon 设计 §3.1 + D-006/D-004 + fe-core metastore 包 + paimon `PaimonCatalogFactory`。⚠️ docker 全程未跑（留 P2-T05）。
 - P0-T01 ✅｜P0-T02 ✅（bindAll）｜P1-T01 ✅（getStorageProperties 默认方法 + 边）｜P1-T02 ✅（getStorageProperties 实现 + FileSystemFactory accessor）｜P1-T03 ✅（paimon storage 配置 `applyStorageConfig` 改走 `toHadoopConfigurationMap()`）｜P1-T04 ✅（paimon BE 静态凭据改走 `getStorageProperties().toBackendProperties().toMap()`，全量切）｜**P1-T05 ✅**（删 paimon→fe-property pom 依赖边 + grep 归零闸）。
 - ✅ **连接器 storage + BE 凭据路全切 fe-filesystem-api typed，且 paimon→fe-property 依赖边已断**：catalog 路 `PaimonConnector.buildStorageHadoopConfig()→toHadoopConfigurationMap()`；BE 扫描分片路 `PaimonScanPlanProvider` 遍历 `getStorageProperties()→toBackendProperties().toMap()`→`location.*`（vended overlays static 保序不动）。paimon 已零 `org.apache.doris.property/datasource` import + pom 无 fe-property 依赖（fe-property 变 0 消费者孤儿,本次不物理删 D-005）。
 - ⚠️ **已知接受回归（fe-filesystem typed BE model 不全,超 P1 白名单)**：HDFS-warehouse paimon BE 配置丢（DV-004/R-007/FU-T01）；无凭据 OSS/COS/OBS 缺 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS`（R-008/FU-T02）。均用户接受、follow-up 修、docker P1-T06 会暴露（非新 bug）。
-- ▶ **下一步**：P1-T06（docker 5-flavor 真等价闸 Option C；验 R-006 调优默认 + R-007/R-008 已知回归边界）→ P1 收口 → 后续 P2（metastore SPI）。
+- ▶ **下一步**：**P2-T01**（新建 fe-connector-metastore-api）。**P1-T06 推迟**（D-012，docker 验证折进 P2-T05 一次跑）。
 
 ## 阻塞 / 待决
 - ✅ 范围已获批（2026-06-17）= **P0+P1（storage 收口），做到 P1-T06 gate 停**。
