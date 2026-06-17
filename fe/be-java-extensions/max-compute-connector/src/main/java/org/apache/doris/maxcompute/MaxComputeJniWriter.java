@@ -25,8 +25,6 @@ import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
-import com.aliyun.odps.table.arrow.ArrowWriter;
-import com.aliyun.odps.table.arrow.ArrowWriterFactory;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.configuration.CompressionCodec;
@@ -67,7 +65,6 @@ import org.apache.log4j.Logger;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
-import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -234,7 +231,7 @@ public class MaxComputeJniWriter extends JniWriter {
         }
 
         try {
-            writeRowsWithRowChecks(inputTable, numRows, numCols);
+            writeBatch(inputTable, numRows, numCols);
         } catch (Exception e) {
             String errorMsg = "Failed to write data to MaxCompute table " + project + "." + tableName;
             LOG.error(errorMsg, e);
@@ -272,79 +269,110 @@ public class MaxComputeJniWriter extends JniWriter {
         openBatchWriter(requestBlockId());
     }
 
-    private void writeRowsWithRowChecks(VectorTable inputTable, int numRows, int numCols) throws IOException {
+    private void writeBatch(VectorTable inputTable, int numRows, int numCols) throws IOException {
         int rowStart = 0;
         while (rowStart < numRows) {
-            int rowEnd = rowStart;
-            long batchEstimatedBytes = 0L;
-            boolean rotateAfterWrite = false;
-            while (rowEnd < numRows) {
-                long rowEstimatedBytes = estimateSingleRowPayloadBytes(inputTable, numCols, rowEnd);
-                boolean exceedsHardLimit = currentBlockWrittenBytes + batchEstimatedBytes
-                        + rowEstimatedBytes > maxBlockBytes;
-                if (exceedsHardLimit) {
-                    if (rowEnd == rowStart) {
-                        if (currentBlockWrittenBytes > 0) {
-                            rotateCurrentBatchWriter();
-                            continue;
-                        }
-                        batchEstimatedBytes += rowEstimatedBytes;
-                        rowEnd++;
-                        rotateAfterWrite = true;
-                    }
-                    break;
-                }
-                batchEstimatedBytes += rowEstimatedBytes;
-                rowEnd++;
-                if (currentBlockWrittenBytes + batchEstimatedBytes >= maxBlockBytes) {
-                    rotateAfterWrite = true;
-                    break;
-                }
-            }
-
-            if (rowEnd == rowStart) {
-                long rowEstimatedBytes = estimateSingleRowPayloadBytes(inputTable, numCols, rowStart);
-                batchEstimatedBytes = rowEstimatedBytes;
-                rowEnd = rowStart + 1;
-                rotateAfterWrite = true;
-            }
-
+            int rowEnd = numRows;
             try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd)) {
-                batchWriter.write(root);
+                long batchBytes = estimateBatchPayloadBytes(root);
+                if (currentBlockWrittenBytes + batchBytes <= maxBlockBytes) {
+                    writeRoot(root, rowEnd - rowStart, batchBytes);
+                    rowStart = rowEnd;
+                    continue;
+                }
             }
-            batchWriter.flush();
-            int rowsWrittenNow = rowEnd - rowStart;
-            writtenRows += rowsWrittenNow;
-            currentBlockWrittenBytes += batchEstimatedBytes;
-            writtenBytes += batchEstimatedBytes;
-            rowStart = rowEnd;
 
-            if (rotateAfterWrite && rowStart < numRows) {
+            RowRange rowRange = findPartialRowRange(rowStart, numRows, currentBlockWrittenBytes,
+                    maxBlockBytes, (rangeStart, rangeEnd) -> estimateRowRangePayloadBytes(
+                            inputTable, numCols, rangeStart, rangeEnd));
+            if (rowRange.rotateBeforeWrite) {
+                rotateCurrentBatchWriter();
+                continue;
+            }
+
+            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowRange.rowEnd)) {
+                writeRoot(root, rowRange.rowEnd - rowStart, rowRange.bytes);
+            }
+            rowStart = rowRange.rowEnd;
+            if (rowStart < numRows && currentBlockWrittenBytes >= maxBlockBytes) {
                 rotateCurrentBatchWriter();
             }
         }
     }
 
-    private static class CountingDiscardOutputStream extends OutputStream {
-        @Override
-        public void write(int b) {
-            // Discard bytes while allowing WriteChannel to track payload size.
-        }
+    private void writeRoot(VectorSchemaRoot root, int numRows, long batchBytes) throws IOException {
+        batchWriter.write(root);
+        batchWriter.flush();
 
-        @Override
-        public void write(byte[] b, int off, int len) {
-            // Discard bytes while allowing WriteChannel to track payload size.
+        writtenRows += numRows;
+        currentBlockWrittenBytes += batchBytes;
+        writtenBytes += batchBytes;
+    }
+
+    private long estimateRowRangePayloadBytes(VectorTable inputTable, int numCols, int rowStart, int rowEnd) {
+        try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd)) {
+            return estimateBatchPayloadBytes(root);
         }
     }
 
-    private long estimateSingleRowPayloadBytes(VectorTable inputTable, int numCols, int rowIndex)
-            throws IOException {
-        try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowIndex, rowIndex + 1);
-                ArrowWriter estimator = ArrowWriterFactory.getRecordBatchWriter(
-                        new CountingDiscardOutputStream(), writerOptions)) {
-            estimator.writeBatch(root);
-            return estimator.bytesWritten();
+    static RowRange findPartialRowRange(int rowStart, int numRows, long currentBlockWrittenBytes,
+            long maxBlockBytes, RowRangeByteEstimator estimator) throws IOException {
+        int low = rowStart + 1;
+        int high = numRows - 1;
+        int bestEnd = rowStart;
+        long bestBytes = 0L;
+        while (low <= high) {
+            int mid = low + (high - low) / 2;
+            long rangeBytes = estimator.estimate(rowStart, mid);
+            if (currentBlockWrittenBytes + rangeBytes <= maxBlockBytes) {
+                bestEnd = mid;
+                bestBytes = rangeBytes;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
         }
+
+        if (bestEnd > rowStart) {
+            return RowRange.write(bestEnd, bestBytes);
+        }
+        if (currentBlockWrittenBytes > 0) {
+            return RowRange.rotateBeforeWrite();
+        }
+        return RowRange.write(rowStart + 1, estimator.estimate(rowStart, rowStart + 1));
+    }
+
+    interface RowRangeByteEstimator {
+        long estimate(int rowStart, int rowEnd) throws IOException;
+    }
+
+    static class RowRange {
+        final int rowEnd;
+        final long bytes;
+        final boolean rotateBeforeWrite;
+
+        private RowRange(int rowEnd, long bytes, boolean rotateBeforeWrite) {
+            this.rowEnd = rowEnd;
+            this.bytes = bytes;
+            this.rotateBeforeWrite = rotateBeforeWrite;
+        }
+
+        static RowRange write(int rowEnd, long bytes) {
+            return new RowRange(rowEnd, bytes, false);
+        }
+
+        static RowRange rotateBeforeWrite() {
+            return new RowRange(-1, 0L, true);
+        }
+    }
+
+    // Estimate an Arrow batch's payload size from its column buffer sizes (O(columns)).
+    static long estimateBatchPayloadBytes(VectorSchemaRoot root) {
+        long total = 0L;
+        for (FieldVector vector : root.getFieldVectors()) {
+            total += vector.getBufferSize();
+        }
+        return total;
     }
 
     private VectorSchemaRoot buildRowRangeRoot(VectorTable inputTable, int numCols, int rowStart, int rowEnd) {
