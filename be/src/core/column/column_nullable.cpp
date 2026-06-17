@@ -48,10 +48,6 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     }
 }
 
-void ColumnNullable::shrink_padding_chars() {
-    get_nested_column_ptr()->shrink_padding_chars();
-}
-
 void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                               const uint8_t* __restrict null_data) const {
     if (!has_null(start, end)) {

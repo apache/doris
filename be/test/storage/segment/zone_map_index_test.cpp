@@ -37,7 +37,6 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/tablet/tablet_schema.h"
@@ -60,7 +59,7 @@ public:
     }
     void TearDown() override { EXPECT_TRUE(_fs->delete_directory(kTestDir).ok()); }
 
-    void test_string(std::string testname, StorageField* field, DataTypePtr data_type_ptr) {
+    void test_string(std::string testname, const TabletColumn* field, DataTypePtr data_type_ptr) {
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
 
@@ -129,10 +128,10 @@ public:
         } else {
             tab_col = create_string_key(0);
         }
-        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
+        const TabletColumn* field = tab_col.get();
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
-        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
 
         // Create a string longer than MAX_ZONE_MAP_INDEX_SIZE (512)
         std::string short_string = "mmmm";
@@ -249,17 +248,17 @@ public:
         auto data_type =
                 DataTypeFactory::instance().create_data_type(TYPE_CHAR, true, 0, 0, length);
         auto tab_col = create_char_key(0, true, length);
-        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
-        std::string s_less_than_schema_length1(length - 1, 'a');
-        std::string s_less_than_schema_length1_expect(length, 'a');
-        s_less_than_schema_length1_expect[length - 1] = '\0';
-        std::string s_less_than_schema_length2(length - 2, 'b');
-        std::string s_less_than_schema_length2_expect(length, 'b');
-        s_less_than_schema_length2_expect[length - 1] = '\0';
-        s_less_than_schema_length2_expect[length - 2] = '\0';
+        const TabletColumn* field = tab_col.get();
+        // ZoneMap writer stores whatever slice bytes it receives. In production
+        // OlapColumnDataConvertorChar pads CHAR slices to the declared length
+        // before they reach the writer; from_olap_string strnlens at read time
+        // so the materialized Field is always unpadded. This test passes raw
+        // shorter slices directly to the writer to exercise the strnlen path.
+        std::string s_less_than_char_len1(length - 1, 'a');
+        std::string s_less_than_char_len2(length - 2, 'b');
         std::unique_ptr<ZoneMapIndexWriter> writer;
-        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
-        Slice slices[] = {Slice(s_less_than_schema_length1), Slice(s_less_than_schema_length2)};
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
+        Slice slices[] = {Slice(s_less_than_char_len1), Slice(s_less_than_char_len2)};
         writer->add_values(&slices, 2);
         if (pass_all) {
             writer->reset_page_zone_map();
@@ -275,13 +274,13 @@ public:
         ASSERT_TRUE(file_writer->close().ok());
 
         const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
-        // Min/Max should be truncated to MAX_ZONE_MAP_INDEX_SIZE and last byte of Max is incremented
-        EXPECT_EQ(seg_zm.min().size(), s_less_than_schema_length1.size());
-        EXPECT_EQ(seg_zm.min(), s_less_than_schema_length1);
-        EXPECT_EQ(seg_zm.max().size(), s_less_than_schema_length2.size());
-        EXPECT_EQ(seg_zm.max(), s_less_than_schema_length2);
+        // On-disk min/max preserve the raw (unpadded) bytes.
+        EXPECT_EQ(seg_zm.min().size(), s_less_than_char_len1.size());
+        EXPECT_EQ(seg_zm.min(), s_less_than_char_len1);
+        EXPECT_EQ(seg_zm.max().size(), s_less_than_char_len2.size());
+        EXPECT_EQ(seg_zm.max(), s_less_than_char_len2);
 
-        // Verify ZoneMap::from_proto can correctly parse the truncated zone map
+        // Verify ZoneMap::from_proto materializes the unpadded Field.
         ZoneMap seg_zone_map;
         ASSERT_TRUE(ZoneMap::from_proto(seg_zm, data_type, seg_zone_map).ok());
         EXPECT_EQ(seg_zone_map.has_null, false);
@@ -290,10 +289,10 @@ public:
         EXPECT_EQ(seg_zone_map.has_positive_inf, false);
         EXPECT_EQ(seg_zone_map.has_negative_inf, false);
         EXPECT_EQ(seg_zone_map.has_nan, false);
-        EXPECT_EQ(seg_zone_map.min_value.get<TYPE_CHAR>().size(), length);
-        EXPECT_EQ(seg_zone_map.min_value.get<TYPE_CHAR>(), s_less_than_schema_length1_expect);
-        EXPECT_EQ(seg_zone_map.max_value.get<TYPE_CHAR>().size(), length);
-        EXPECT_EQ(seg_zone_map.max_value.get<TYPE_CHAR>(), s_less_than_schema_length2_expect);
+        EXPECT_EQ(seg_zone_map.min_value.get<TYPE_CHAR>().size(), s_less_than_char_len1.size());
+        EXPECT_EQ(seg_zone_map.min_value.get<TYPE_CHAR>(), s_less_than_char_len1);
+        EXPECT_EQ(seg_zone_map.max_value.get<TYPE_CHAR>().size(), s_less_than_char_len2.size());
+        EXPECT_EQ(seg_zone_map.max_value.get<TYPE_CHAR>(), s_less_than_char_len2);
 
         io::FileReaderSPtr file_reader;
         EXPECT_TRUE(_fs->open_file(file_path, &file_reader).ok());
@@ -316,12 +315,12 @@ public:
             EXPECT_EQ(page_zone_map.has_negative_inf, false);
             EXPECT_EQ(page_zone_map.has_nan, false);
             if (!pass_all) {
-                EXPECT_EQ(page_zone_map.min_value.get<TYPE_CHAR>().size(), length);
-                EXPECT_EQ(page_zone_map.min_value.get<TYPE_CHAR>(),
-                          s_less_than_schema_length1_expect);
-                EXPECT_EQ(page_zone_map.max_value.get<TYPE_CHAR>().size(), length);
-                EXPECT_EQ(page_zone_map.max_value.get<TYPE_CHAR>(),
-                          s_less_than_schema_length2_expect);
+                EXPECT_EQ(page_zone_map.min_value.get<TYPE_CHAR>().size(),
+                          s_less_than_char_len1.size());
+                EXPECT_EQ(page_zone_map.min_value.get<TYPE_CHAR>(), s_less_than_char_len1);
+                EXPECT_EQ(page_zone_map.max_value.get<TYPE_CHAR>().size(),
+                          s_less_than_char_len2.size());
+                EXPECT_EQ(page_zone_map.max_value.get<TYPE_CHAR>(), s_less_than_char_len2);
             }
         }
     }
@@ -343,10 +342,10 @@ public:
                                                                       precision, scale);
         TabletColumnPtr tab_col;
         tab_col = create_decimalv2_key(0, true);
-        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
+        const TabletColumn* field = tab_col.get();
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
-        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
 
         decimal12_t decimal1 {.integer = 123, .fraction = 456};
         decimal12_t decimal2 {.integer = 223, .fraction = 4567};
@@ -431,10 +430,10 @@ public:
         auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATE, true);
         TabletColumnPtr tab_col;
         tab_col = create_datev1_key(0, true);
-        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
+        const TabletColumn* field = tab_col.get();
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
-        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
 
         VecDateTimeValue value1(false, TIME_DATE, 0, 0, 0, 2026, 2, 1);
         VecDateTimeValue value2(false, TIME_DATE, 0, 0, 0, 2026, 2, 2);
@@ -512,10 +511,10 @@ public:
         auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIME, true);
         TabletColumnPtr tab_col;
         tab_col = create_datetimev1_key(0, true);
-        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
+        const TabletColumn* field = tab_col.get();
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
-        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
 
         VecDateTimeValue value1(false, TIME_DATETIME, 18, 12, 10, 2026, 2, 1);
         VecDateTimeValue value2(false, TIME_DATETIME, 18, 13, 0, 2026, 2, 2);
@@ -586,7 +585,7 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     auto fs = io::global_local_filesystem();
 
     TabletColumnPtr int_column = create_int_key(0);
-    StorageField* field = StorageFieldFactory::create(*int_column);
+    const TabletColumn* field = &(*int_column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
@@ -635,35 +634,31 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
-    delete field;
 }
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
     TabletColumnPtr varchar_column = create_varchar_key(0);
-    StorageField* field = StorageFieldFactory::create(*varchar_column);
+    const TabletColumn* field = &(*varchar_column);
     auto str_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
     test_string("NormalTestVarcharPage", field, str_data_type_ptr);
-    delete field;
 }
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     TabletColumnPtr char_column = create_char_key(0);
-    StorageField* field = StorageFieldFactory::create(*char_column);
+    const TabletColumn* field = &(*char_column);
     auto char_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_CHAR, false);
     test_string("NormalTestCharPage", field, char_data_type_ptr);
-    delete field;
 }
 
 // Test for zone map limit
 TEST_F(ColumnZoneMapTest, ZoneMapCut) {
     TabletColumnPtr varchar_column = create_varchar_key(0);
     varchar_column->set_index_length(1024);
-    StorageField* field = StorageFieldFactory::create(*varchar_column);
+    const TabletColumn* field = &(*varchar_column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
     test_string("ZoneMapCut", field, data_type_ptr);
-    delete field;
 }
 
 TEST_F(ColumnZoneMapTest, StringColumnTruncation) {
@@ -716,7 +711,7 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     auto fs = io::global_local_filesystem();
 
     auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_FLOAT>(0, true);
-    StorageField* field = StorageFieldFactory::create(*column);
+    const TabletColumn* field = &(*column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
@@ -798,7 +793,6 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
-    delete field;
 }
 
 TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
@@ -806,7 +800,7 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     auto fs = io::global_local_filesystem();
 
     auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0, true);
-    StorageField* field = StorageFieldFactory::create(*column);
+    const TabletColumn* field = &(*column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
@@ -889,7 +883,6 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
 
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(false, zone_maps[2].has_not_null());
-    delete field;
 }
 
 TabletColumnPtr create_timestamptz_column(int32_t id, bool is_nullable) {
@@ -910,7 +903,7 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     auto fs = io::global_local_filesystem();
 
     auto column = create_timestamptz_column(0, true);
-    StorageField* field = StorageFieldFactory::create(*column);
+    const TabletColumn* field = &(*column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
@@ -1066,7 +1059,6 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     // page 5
     EXPECT_EQ(true, zone_maps[4].has_null());
     EXPECT_EQ(false, zone_maps[4].has_not_null());
-    delete field;
 }
 
 // Regression test for "all-null page after a value page" — int variant.
@@ -1078,11 +1070,11 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
 // a no-op. This test pins that behavior.
 TEST_F(ColumnZoneMapTest, AllNullPageAfterIntValues_SegmentMinMaxPreserved) {
     TabletColumnPtr int_column = create_int_key(0);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(*int_column));
+    const TabletColumn* field = &(*int_column);
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
 
     std::unique_ptr<ZoneMapIndexWriter> writer;
-    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type_ptr, field.get(), writer).ok());
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type_ptr, field, writer).ok());
 
     // Page 1: integers spanning [100, 200].
     std::vector<int32_t> values = {100, 150, 200};
@@ -1133,10 +1125,10 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterIntValues_SegmentMinMaxPreserved) {
 TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleIncrement) {
     auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
     auto tab_col = create_string_key(0);
-    std::unique_ptr<StorageField> field(StorageFieldFactory::create(*tab_col));
+    const TabletColumn* field = &(*tab_col);
 
     std::unique_ptr<ZoneMapIndexWriter> writer;
-    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
 
     // Page 1: one string of exactly MAX_ZONE_MAP_INDEX_SIZE bytes, all 'x'.
     std::string long_x(MAX_ZONE_MAP_INDEX_SIZE, 'x');

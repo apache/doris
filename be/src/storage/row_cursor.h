@@ -35,7 +35,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class StorageField;
 
 // Delegate the operation of a row of data.
 // Stores values as core::Field objects instead of raw byte buffers.
@@ -66,16 +65,11 @@ public:
 
     size_t field_count() const { return _fields.size(); }
 
-    const StorageField* column_schema(uint32_t cid) const { return _schema->column(cid); }
+    const TabletColumn* column(uint32_t cid) const { return _schema->column(cid); }
     const Schema* schema() const { return _schema.get(); }
 
     // Returns a deep copy of this RowCursor with the same schema and field values.
     RowCursor clone() const;
-
-    // Pad all CHAR-type fields in-place to their declared column length using '\0'.
-    // RowCursor holds CHAR values in compute format (unpadded). Call this before
-    // comparing against storage-format data (e.g. _seek_block) where CHAR is padded.
-    void pad_char_fields();
 
     // Output row cursor content in string format
     std::string to_string() const;
@@ -96,7 +90,7 @@ public:
     void encode_single_field(uint32_t cid, std::string* buf, bool full_encode) const {
         const auto& f = _fields[cid];
         DCHECK(!f.is_null());
-        _encode_field(_schema->column(cid), f, full_encode, buf);
+        _encode_column_value(_schema->column(cid), f, full_encode, buf);
     }
 
 private:
@@ -108,8 +102,8 @@ private:
 
     // Helper: encode a single non-null field for the given column.
     // Converts the core::Field to storage format and calls KeyCoder.
-    void _encode_field(const StorageField* storage_field, const Field& f, bool full_encode,
-                       std::string* buf) const;
+    void _encode_column_value(const TabletColumn* column, const Field& value, bool full_encode,
+                              std::string* buf) const;
 
     std::unique_ptr<Schema> _schema;
     std::vector<Field> _fields;

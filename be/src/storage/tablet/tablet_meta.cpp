@@ -407,15 +407,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TStorageFormat::V1:
         break;
     case TStorageFormat::V3:
-        schema->set_is_external_segment_column_meta_used(true);
-        _schema->set_external_segment_meta_used_default(true);
-
-        schema->set_integer_type_default_use_plain_encoding(true);
-        _schema->set_integer_type_default_use_plain_encoding(true);
-        schema->set_binary_plain_encoding_default_impl(
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
-        _schema->set_binary_plain_encoding_default_impl(
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+        schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
+        _schema->set_storage_format(TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
         break;
     default:
         break;

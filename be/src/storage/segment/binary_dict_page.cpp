@@ -47,13 +47,8 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
-                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                          ? PLAIN_ENCODING_V2
-                          : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
+          _binary_plain_encoding_type(
+                  options.dict_binary_plain_encoding ==
                                   BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
                           ? PLAIN_ENCODING_V2
                           : PLAIN_ENCODING) {}
@@ -74,7 +69,7 @@ Status BinaryDictPageBuilder::init() {
 
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      _dict_word_page_encoding_type, {}, &encoding_info));
+                                      _binary_plain_encoding_type, &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
     return reset();
 }
@@ -183,13 +178,11 @@ Status BinaryDictPageBuilder::reset() {
         _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-            DCHECK(_fallback_binary_encoding_type == PLAIN_ENCODING ||
-                   _fallback_binary_encoding_type == PLAIN_ENCODING_V2);
             const EncodingInfo* encoding_info;
             RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              _fallback_binary_encoding_type, {}, &encoding_info));
+                                              _binary_plain_encoding_type, &encoding_info));
             RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
-            _encoding_type = _fallback_binary_encoding_type;
+            _encoding_type = _binary_plain_encoding_type;
         } else {
             RETURN_IF_ERROR(_data_page_builder->reset());
         }
@@ -210,7 +203,7 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {
-    *encoding = _dict_word_page_encoding_type;
+    *encoding = _binary_plain_encoding_type;
     return Status::OK();
 }
 

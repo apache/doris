@@ -46,7 +46,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/uint24.h"
-#include "runtime/collection_value.h"
 #include "util/slice.h"
 
 namespace doris {

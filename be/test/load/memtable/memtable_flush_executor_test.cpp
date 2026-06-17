@@ -31,7 +31,7 @@
 #include "load/memtable/memtable.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "storage/field.h"
+#include "runtime/thread_context.h"
 #include "storage/options.h"
 #include "storage/schema.h"
 #include "storage/storage_engine.h"

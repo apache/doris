@@ -31,8 +31,8 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "storage/field.h"
 #include "storage/metadata_adder.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 
 namespace doris {
@@ -88,7 +88,7 @@ struct ZoneMap {
 
 class ZoneMapIndexWriter {
 public:
-    static Status create(DataTypePtr data_type, StorageField* field,
+    static Status create(DataTypePtr data_type, const TabletColumn* column,
                          std::unique_ptr<ZoneMapIndexWriter>& res);
 
     ZoneMapIndexWriter() = default;

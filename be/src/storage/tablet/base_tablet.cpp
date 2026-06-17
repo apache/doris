@@ -129,8 +129,7 @@ Status parse_compaction_output_pk_entry(
 
     Slice rowid_slice(encoded_key.get_data() + unique_key_length + seq_col_length + 1,
                       rowid_length - 1);
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-    const auto* rowid_coder = get_key_coder(type_info->type());
+    const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
     uint32_t row_id = 0;
     RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                   reinterpret_cast<uint8_t*>(&row_id)));
@@ -726,8 +725,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min<int64_t>(batch_size, remaining);
-        auto index_type =
-                DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
+        auto index_type = DataTypeFactory::instance().create_data_type(pk_idx->type(), 1, 0);
         auto index_column = index_type->create_column();
         Slice last_key_slice(last_key);
         RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
@@ -765,9 +763,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 Slice rowid_slice =
                         Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
                               rowid_length - 1);
-                const auto* type_info =
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-                const auto* rowid_coder = get_key_coder(type_info->type());
+                const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
                 RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                               (uint8_t*)&row_id));
             }
@@ -1821,8 +1817,7 @@ Status BaseTablet::calc_compaction_output_rowset_internal_delete_bitmap(
         auto scanner = std::make_unique<CompactionOutputPkScanner>();
         scanner->segment_id = segment_id;
         scanner->remaining = pk_index->num_rows();
-        scanner->index_type =
-                DataTypeFactory::instance().create_data_type(pk_index->type_info()->type(), 1, 0);
+        scanner->index_type = DataTypeFactory::instance().create_data_type(pk_index->type(), 1, 0);
         RETURN_IF_ERROR(pk_index->new_iterator(&scanner->iter, nullptr));
         RETURN_IF_ERROR(load_next_compaction_output_pk_entry(
                 output_rowset->rowset_id(), seq_col_length, output_row_sources, scanner.get()));

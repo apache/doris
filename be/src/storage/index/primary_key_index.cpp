@@ -37,21 +37,21 @@ static bvar::Adder<size_t> g_primary_key_index_memory_bytes("doris_primary_key_i
 
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     segment_v2::IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = true;
     options.data_page_size = config::primary_key_data_page_size;
-    options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info->type(), {}, true);
+    options.encoding = segment_v2::EncodingInfo::get_index_column_encoding(type);
     options.compression = segment_v2::ZSTD;
     _primary_key_index_builder.reset(
-            new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
+            new segment_v2::IndexedColumnWriter(options, type, _file_writer));
     RETURN_IF_ERROR(_primary_key_index_builder->init());
 
     auto opt = segment_v2::BloomFilterOptions();
     opt.fpp = 0.01;
     RETURN_IF_ERROR(segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
-            opt, type_info, &_bloom_filter_index_builder));
+            opt, type, &_bloom_filter_index_builder));
     return Status::OK();
 }
 
