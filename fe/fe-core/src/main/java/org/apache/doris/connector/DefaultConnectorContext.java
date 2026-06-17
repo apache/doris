@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
 
 import com.google.common.base.Strings;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -207,6 +208,26 @@ public class DefaultConnectorContext implements ConnectorContext {
         // does not throw; an empty map (non-plugin ctor / local-FS warehouse) yields an empty result
         // (no overlay) — correct parity, unlike normalizeStorageUri which must fail-loud on a bad path.
         return CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesSupplier.get());
+    }
+
+    @Override
+    public List<org.apache.doris.filesystem.properties.StorageProperties> getStorageProperties() {
+        // Hand the connector the catalog's storage bound as typed fe-filesystem StorageProperties
+        // (design D-003): the connector derives its Hadoop/HiveConf config and BE creds from these
+        // without importing fe-core or any provider. Source the catalog raw map from the existing
+        // storage supplier's getOrigProps() (every parsed StorageProperties carries the full catalog
+        // map -- StorageProperties.createAll passes it through), then bind it via the live
+        // plugin-loaded FileSystemPluginManager. An empty supplier (non-plugin ctor / REST-vended /
+        // credential-less warehouse) yields an empty list -- no static storage, correct parity.
+        Map<StorageProperties.Type, StorageProperties> typed = storagePropertiesSupplier.get();
+        if (typed == null || typed.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, String> rawCatalogProps = typed.values().iterator().next().getOrigProps();
+        if (rawCatalogProps == null || rawCatalogProps.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return FileSystemFactory.bindAllStorageProperties(rawCatalogProps);
     }
 
     @Override

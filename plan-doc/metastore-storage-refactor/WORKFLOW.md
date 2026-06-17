@@ -54,6 +54,7 @@ fe/fe-connector/fe-connector-paimon/**                 (改造)
 fe/fe-connector/fe-connector-spi/**                    (仅 ConnectorContext 新增方法)
 fe/fe-core/src/main/java/.../connector/DefaultConnectorContext.java  (仅新增 getStorageProperties)
 fe/fe-core/src/main/java/.../fs/FileSystemPluginManager.java          (仅新增 bindAll；D-009/DV-001)
+fe/fe-core/src/main/java/.../fs/FileSystemFactory.java                (仅新增 bindAllStorageProperties；D-009 二次确认)
 fe/fe-connector/pom.xml ; fe/pom.xml                   (仅新增模块声明)
 plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 ```

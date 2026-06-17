@@ -18,9 +18,10 @@
 - 阶段：Research ✅ / Design ✅（**9 决策 D-001..D-009**）/ **Implement 🚧 进行中**。
 - **范围已获批（2026-06-17 用户确认）= P0 + P1（storage 收口），做到 P1-T06 gate 停**。
 - **P0-T01 ✅**（recon + 定向）→ **DV-001 / D-009**：缺 bind-all 入口，定机制 A（fe-core `FileSystemPluginManager.bindAll` + `getStorageProperties()` 经 `getOrigProps()`，白名单 +`FileSystemPluginManager.java`）。
-- **P0-T02 ✅**（`FileSystemPluginManager.bindAll`，TDD 5 绿）｜ **P1-T01 ✅**（`ConnectorContext.getStorageProperties()` 默认空 + fe-connector-spi→fe-filesystem-api 边，TDD 1 绿 + import-gate PASS）。
-- **下一个：P1-T02**（`DefaultConnectorContext.getStorageProperties()` 实现）——**⛔ 先 AskUserQuestion**：须经 `FileSystemFactory` static accessor 取 **live**（loadPlugins 过的）manager（fresh+loadBuiltins 无对象存储 provider）→ 第 3 个 fe-core 文件、白名单再 +1。
-- 代码 commit：P0-T01（plan-doc）+ P0-T02（bindAll）+ P1-T01（getStorageProperties 默认方法）。
+- **P0-T02 ✅**（`FileSystemPluginManager.bindAll`）｜ **P1-T01 ✅**（`ConnectorContext.getStorageProperties()` 默认空 + 边）｜ **P1-T02 ✅**（`DefaultConnectorContext.getStorageProperties()` + `FileSystemFactory.bindAllStorageProperties`，D-009 二次确认 3 fe-core 文件全 additive，TDD 4 绿 + 2 回归绿）。
+- **fe-core/spi 侧管线已通**：getOrigProps→bindAll(live manager)→ConnectorContext.getStorageProperties()。
+- **下一个：P1-T03**（paimon `applyStorageConfig` 改走 `ctx.getStorageProperties().toHadoopConfigurationMap()` + 保留 `paimon.*/fs./dfs./hadoop.` 覆盖块；**含 T1 等价性测试**，R-001）。**这是连接器侧首个 task，性质不同，建议先与用户对齐 checkpoint。**
+- 代码 commit：P0-T01（plan-doc）+ P0-T02 + P1-T01 + P1-T02。
 
 ## 下一步（明确）
 1. **等待用户批准 `tasks.md`（14 task，含 P3a）** 后进入 Implement。

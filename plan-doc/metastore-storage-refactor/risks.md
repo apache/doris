@@ -25,10 +25,10 @@
 
 ---
 
-## R-004 — fe-core 改动越界 ｜ 状态：监控中（白名单 2026-06-17 +1，DV-001/D-009）
-- **描述**：本项目允许的 fe-core 改动**仅两处、均纯新增**：`DefaultConnectorContext`（+getStorageProperties）与 `FileSystemPluginManager`（+bindAll，D-009 应对 DV-001）。若实现时顺手碰了 `datasource.property.*` 包、`FileSystemPluginManager` 既有方法、或构造点 `PluginDrivenExternalCatalog` 即越红线。
-- **缓解**：每次提交前 `git diff --name-only` 对照 WORKFLOW §4.1 白名单；`git diff` 这两文件须只见**新增**（bindAll / getStorageProperties），无既有方法改动；验收 §6「零改动核对」。
-- **触发判据**：`git diff` 出现 fe-core property 包、其它连接器路径、或这两文件的非新增改动。
+## R-004 — fe-core 改动越界 ｜ 状态：监控中（白名单 2026-06-17 +2，DV-001/D-009 二次确认）
+- **描述**：本项目允许的 fe-core 改动**仅三处、均纯新增**：`DefaultConnectorContext`（+getStorageProperties）、`FileSystemPluginManager`（+bindAll）、`FileSystemFactory`（+bindAllStorageProperties，取 live manager；D-009 二次确认）。若实现时顺手碰了 `datasource.property.*` 包、这三文件的既有方法、或构造点 `PluginDrivenExternalCatalog` 即越红线。
+- **缓解**：每次提交前 `git diff --name-only` 对照 WORKFLOW §4.1 白名单；`git diff` 这三文件须只见**新增**方法，无既有方法改动；验收 §6「零改动核对」。
+- **触发判据**：`git diff` 出现 fe-core property 包、其它连接器路径、或这三文件的非新增改动。
 
 ## R-005 — Kerberos 三处实现漂移（D-007）｜ 状态：监控中
 - **描述**：kerberos 现有**三处实现**：fe-common `security.authentication.*`、fe-filesystem-hdfs 自抄 `KerberosHadoopAuthenticator`（约一年前拷贝、TGT 刷新逻辑可能已偏离）、paimon `PaimonCatalogFactory` 手抄 HMS kerberos HiveConf 键。改一处需同步三处，否则行为分叉。

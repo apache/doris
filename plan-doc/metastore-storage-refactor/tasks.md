@@ -33,11 +33,14 @@
 - **依赖**：无。设计 §4 P1-1 / §3.2。**红线**：仅改 `ConnectorContext.java` + `fe-connector-spi/pom.xml`。
 - **完成态**：`ConnectorContext` 加 `default List<StorageProperties> getStorageProperties() { return Collections.emptyList(); }`（fe-filesystem-api 类型，+25 行纯新增）；pom 加 `fe-filesystem-api` 依赖（=「fe-connector 仅依赖 fe-filesystem-api」边落地）。新建首个测试 `ConnectorContextTest`（默认非空空列表）TDD（RED assertNotNull→GREEN 1/1）。checkstyle 0；`tools/check-connector-imports.sh` PASS（fe-filesystem-api 是纯叶子，无 fe-core/common/datasource 传递依赖）。其它连接器零影响（默认空）。
 
-### P1-T02 ⬜ DefaultConnectorContext.getStorageProperties() 实现
-- **做什么**（D-009）：fe-core `DefaultConnectorContext` override `getStorageProperties()`：从现有 `storagePropertiesSupplier.get()` 取任一 fe-core typed 值的 `getOrigProps()`（= 完整 catalog raw map），喂 `FileSystemPluginManager.bindAll(rawMap)`（P0-T02）返回 fe-filesystem `List<StorageProperties>`。supplier 空（REST/vended、非 plugin ctor）→ 返回空列表（无静态 storage，正确）。**不改构造点。**
-- **验收**：paimon catalog 下 `ctx.getStorageProperties()` 返回正确 typed 列表；hive/iceberg/其它连接器行为不变（默认空）。需确认 fe-core `createAll` 各实例 `origProps` = 完整 raw map（实现时读 `createAll`+ctor 核实）。
-- **依赖**：P1-T01, P0-T02。设计 §4 P1-2 / **D-009**。**红线**：fe-core 仅此文件新增 `getStorageProperties()`（bindAll 在 P0-T02 的 FileSystemPluginManager）。
-- **⚠️ 待解（P0-T02 发现，2026-06-17）**：生产中对象存储 providers 是 `Env.loadPlugins(pluginRoot)` **目录插件**（非 fe-core classpath built-in；fe-core pom 注「Phase 4 P4.1 移除 impl 运行时依赖」）。故 `getStorageProperties()` **必须**用那个**已加载插件的 live** `FileSystemPluginManager`（fresh `new+loadBuiltins` 无对象存储 provider→bindAll 空→paimon storage 失效）。但 live 实例存于 `FileSystemFactory.pluginManager`（private static、**无 getter**）。→ P1-T02 需在 `FileSystemFactory` 加 static accessor（如 `getPluginManager()` 或 `bindAllStorageProperties(map)` 委托），**即第 3 个 fe-core 文件**（白名单需再 +1）。实现 P1-T02 前 AskUserQuestion 确认。
+### P1-T02 ✅ DefaultConnectorContext.getStorageProperties() 实现（+ FileSystemFactory accessor）（2026-06-17，TDD 4 绿 + 2 回归绿 + checkstyle 0）
+- **做什么**（D-009 二次确认）：
+  1. fe-core `FileSystemFactory` 加 additive static `bindAllStorageProperties(Map): List<fe-filesystem StorageProperties>`：有 live `pluginManager`→`pluginManager.bindAll(map)`；否则 ServiceLoader fallback（镜像现有 `getFileSystem(Map)` 双路径）。
+  2. fe-core `DefaultConnectorContext` override `getStorageProperties()`：从现有 `storagePropertiesSupplier.get()` 取任一 fe-core typed 值的 `getOrigProps()`（= 完整 catalog raw map），喂 `FileSystemFactory.bindAllStorageProperties(rawMap)`。supplier 空（REST/vended、非 plugin ctor）→ 空列表（无静态 storage，正确）。**不改构造点。**
+- **验收**：paimon catalog 下 `ctx.getStorageProperties()` 返回正确 typed 列表；hive/iceberg/其它连接器行为不变（默认空）。
+- **依赖**：P1-T01, P0-T02。设计 §4 P1-2 / **D-009**。**红线**：fe-core 仅 `DefaultConnectorContext`（+getStorageProperties）+ `FileSystemFactory`（+bindAllStorageProperties）两文件新增；bindAll 在 P0-T02 的 FileSystemPluginManager。
+- **✅ 已解（用户 2026-06-17 二次确认）**：`getStorageProperties()` 须用 live（loadPlugins 过的）manager，只能经 `FileSystemFactory` static accessor 取（构造点被禁）→ 白名单 +`FileSystemFactory.java`（D-009 二次确认）。`getOrigProps()` = 完整 raw map 已核实（`createAll(origProps)` 全量传入 + `ConnectionProperties` 整存）。
+- **完成态**：`FileSystemFactory.bindAllStorageProperties`（+32 纯新增，live manager 委托 / ServiceLoader fallback，镜像 getFileSystem）+ `DefaultConnectorContext.getStorageProperties`（+21 纯新增，getOrigProps→factory，空 supplier 短路）。TDD：4 新测试（factory 委托/fallback + ctx 空/全量绑定捕获 raw map）RED（stub UOE/NPE）→ GREEN 4/4；回归 `BackendStoragePropsTest` 2/2 + `FileSystemPluginManagerTest` 5/5 不变。checkstyle 0。3 fe-core 文件全 additive，无 property 包/构造点/其它连接器改动。
 
 ### P1-T03 ⬜ PaimonCatalogFactory.applyStorageConfig 改走 toHadoopConfigurationMap
 - **做什么**：把 `fe-property StorageProperties.buildObjectStorageHadoopConfig(props)` 换成"遍历 `ctx.getStorageProperties()` 调 `toHadoopProperties().toHadoopConfigurationMap()`"；**保留**其后的 `paimon.*/fs./dfs./hadoop.` 覆盖块（保序 last-write-wins）。
