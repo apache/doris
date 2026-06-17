@@ -331,7 +331,10 @@ public class Env {
         }
     }
 
-    /** Run source-side cleanup; if incomplete (e.g. slot still held by a dead BE), retry in background. */
+    /**
+     * Run source-side cleanup; if incomplete (e.g. slot still held by a dead BE), retry in
+     * background.
+     */
     public void releaseSourceResourcesOrRetry(SourceReader reader, JobBaseConfig jobConfig) {
         if (!releaseSourceResources(reader, jobConfig)) {
             scheduleSlotDrop(jobConfig);
@@ -360,7 +363,10 @@ public class Env {
                                 resolveDataSource(task.jobConfig.getDataSource()));
                 done = releaseSourceResources(reader, task.jobConfig);
             } catch (Exception ex) {
-                LOG.warn("Background slot drop attempt failed for job {}: {}", jobId, ex.getMessage());
+                LOG.warn(
+                        "Background slot drop attempt failed for job {}: {}",
+                        jobId,
+                        ex.getMessage());
             }
             if (done) {
                 pendingSlotDrops.remove(jobId);

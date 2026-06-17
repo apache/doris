@@ -665,8 +665,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     /**
-     * Drop the Doris-owned slot/publication. Returns false if the slot is still held (e.g. a dead
-     * BE's stale walsender keeps it active until PG reclaims it), so the caller can retry later.
+     * Drop the Doris-owned slot/publication. Returns false if either is still present (e.g. a dead
+     * BE's stale walsender holds the slot until PG reclaims it), so the caller can retry later.
      */
     @Override
     public boolean releaseSourceResources(JobBaseConfig jobConfig) {
@@ -685,28 +685,46 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             return true;
         }
         PostgresDialect dialect = new PostgresDialect(getSourceConfig(jobConfig));
+        boolean cleaned = true;
         if (dropPub) {
             LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
             try (PostgresConnection connection = dialect.openJdbcConnection()) {
                 connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
             } catch (Exception ex) {
-                LOG.warn("Failed to drop publication {} for job {}: {}", pubName, jobId, ex.getMessage());
+                LOG.warn(
+                        "Failed to drop publication {} for job {}: {}",
+                        pubName,
+                        jobId,
+                        ex.getMessage());
+            }
+            if (publicationExists(dialect, pubName)) {
+                LOG.warn(
+                        "Publication {} for job {} still present after drop, will retry",
+                        pubName,
+                        jobId);
+                cleaned = false;
             }
         }
-        if (!dropSlot) {
-            return true;
+        if (dropSlot) {
+            LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
+            try {
+                dialect.removeSlot(slotName);
+            } catch (Exception ex) {
+                LOG.warn(
+                        "Drop of replication slot {} for job {} failed: {}",
+                        slotName,
+                        jobId,
+                        ex.getMessage());
+            }
+            if (slotExists(dialect, slotName)) {
+                LOG.warn(
+                        "Replication slot {} for job {} still present after drop, will retry",
+                        slotName,
+                        jobId);
+                cleaned = false;
+            }
         }
-        LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
-        try {
-            dialect.removeSlot(slotName);
-        } catch (Exception ex) {
-            LOG.warn("Drop of replication slot {} for job {} failed: {}", slotName, jobId, ex.getMessage());
-        }
-        boolean stillHeld = slotExists(dialect, slotName);
-        if (stillHeld) {
-            LOG.warn("Replication slot {} for job {} still present after drop, will retry", slotName, jobId);
-        }
-        return !stillHeld;
+        return cleaned;
     }
 
     private boolean slotExists(PostgresDialect dialect, String slotName) {
@@ -715,8 +733,23 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     "SELECT 1 FROM pg_replication_slots WHERE slot_name = '" + slotName + "'",
                     rs -> rs.next());
         } catch (Exception ex) {
-            // Can't verify -> treat as present so the bounded retry keeps trying instead of leaking.
-            LOG.warn("Failed to check replication slot {} existence: {}", slotName, ex.getMessage());
+            // Can't verify -> treat as present so the bounded retry keeps trying instead of
+            // leaking.
+            LOG.warn(
+                    "Failed to check replication slot {} existence: {}", slotName, ex.getMessage());
+            return true;
+        }
+    }
+
+    private boolean publicationExists(PostgresDialect dialect, String pubName) {
+        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            return connection.queryAndMap(
+                    "SELECT 1 FROM pg_publication WHERE pubname = '" + pubName + "'",
+                    rs -> rs.next());
+        } catch (Exception ex) {
+            // Can't verify -> treat as present so the bounded retry keeps trying instead of
+            // leaking.
+            LOG.warn("Failed to check publication {} existence: {}", pubName, ex.getMessage());
             return true;
         }
     }

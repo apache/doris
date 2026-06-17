@@ -127,7 +127,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     private Set<String> completedSplitIds = ConcurrentHashMap.newKeySet();
 
     // Parallel polling support
-    private ExecutorService pollExecutor;
+    private ExecutorService snapshotPollExecutor;
     private volatile List<CompletableFuture<PollResult>> activePollFutures;
 
     // Binlog reader (single reader for binlog split)
@@ -149,7 +149,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                         config.getOrDefault(
                                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                                 DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
-        this.pollExecutor =
+        this.snapshotPollExecutor =
                 Executors.newFixedThreadPool(
                         parallelism,
                         r -> {
@@ -404,7 +404,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                                         split.splitId(),
                                         split.getTableId().identifier());
                             },
-                            pollExecutor));
+                            snapshotPollExecutor));
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -598,7 +598,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                                 }
                                 return null;
                             },
-                            pollExecutor);
+                            snapshotPollExecutor);
 
             activePollFutures.add(future);
         }
@@ -1222,9 +1222,17 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public synchronized void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
         finishSplitRecords();
+        shutdownSnapshotPollExecutor();
         if (tableSchemas != null) {
             tableSchemas.clear();
             tableSchemas = null;
+        }
+    }
+
+    @Override
+    protected void shutdownSnapshotPollExecutor() {
+        if (snapshotPollExecutor != null) {
+            snapshotPollExecutor.shutdownNow();
         }
     }
 

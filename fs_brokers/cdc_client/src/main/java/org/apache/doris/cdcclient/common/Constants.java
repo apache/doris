@@ -34,6 +34,7 @@ public class Constants {
     // interval.
     public static final long IDLE_READER_MIN_TIMEOUT_MS = 90_000L;
 
-    // Retry dropping a slot still held by a dead BE until it frees (wal_sender_timeout) or this elapses.
+    // Retry dropping a slot still held by a dead BE until it frees (wal_sender_timeout) or this
+    // elapses.
     public static final long SLOT_DROP_RETRY_WINDOW_MS = 300_000L;
 }

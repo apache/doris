@@ -133,7 +133,8 @@ public class ClientController {
         String jobId = jobConfig.getJobId();
         LOG.info("Closing job {}", jobId);
         Env env = Env.getCurrentEnv();
-        // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot dropped.
+        // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot
+        // dropped.
         SourceReader reader = env.getReaderIfPresent(jobId);
         try {
             if (reader != null) {

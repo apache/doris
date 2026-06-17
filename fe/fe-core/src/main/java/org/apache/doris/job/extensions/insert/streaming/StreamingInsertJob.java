@@ -1500,6 +1500,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                             getJobId(), this.runningStreamTask.getTaskId(), offsetRequest.getTaskId());
                     return;
                 }
+                // Reject a late commit from an already-failed task (e.g. brpc timeout) reviving a paused job.
+                if (!TaskStatus.RUNNING.equals(this.runningStreamTask.getStatus())) {
+                    log.info("Streaming multi table job {} skip late commit offset on non-running task {} "
+                                    + "(status: {}, actual: {})",
+                            getJobId(), this.runningStreamTask.getTaskId(),
+                            this.runningStreamTask.getStatus(), offsetRequest.getTaskId());
+                    return;
+                }
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
