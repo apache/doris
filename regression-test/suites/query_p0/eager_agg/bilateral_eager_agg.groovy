@@ -827,6 +827,16 @@ suite("bilateral_eager_agg") {
     sql "SET force_eager_agg_hint = 'sum:u.a1=nopush;sum:u.a2=push;sum:t4.a=nopush;count:*=nopush';"
     order_qt_union_all_count_star_all_not_push union_all_count_star_sql
 
+    // test right semi join sum(3) is pushed to right side
+    sql " SET force_eager_agg_hint = 'sum:3=push';"
+    order_qt_right_semi_join_sum_3_push_down """
+       SELECT /*+SET_VAR(disable_join_reorder = true) */
+           t2m.k1, t2m.k2, sum(3) AS rsum
+       FROM t_bilateral_mg1 t1m
+       RIGHT SEMI JOIN t_bilateral_mg2 t2m ON t1m.k1 = t2m.k1
+       GROUP BY t2m.k1, t2m.k2;
+    """
+
     // Reset session variables to defaults
     sql "SET eager_aggregation_mode = -1;"
     sql "SET force_eager_agg_hint = '';"

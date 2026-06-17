@@ -124,6 +124,10 @@ public class PushDownAggContext {
         return !groupKeys.isEmpty();
     }
 
+    public boolean noGroupKeyAndNoAggFunc() {
+        return groupKeys.isEmpty() && aggFunctions.isEmpty();
+    }
+
     public HashMap<AggregateFunction, Alias> getAliasMap() {
         return aliasMap;
     }

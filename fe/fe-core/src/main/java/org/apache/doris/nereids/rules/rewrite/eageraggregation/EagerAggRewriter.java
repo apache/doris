@@ -121,6 +121,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         for (AggregateFunction f : context.getAggFunctions()) {
             Set<Slot> inputs = f.getInputSlots();
             Alias a = context.getAliasMap().get(f);
+            if (inputs.isEmpty()) {
+                if (join.getJoinType().isRightSemiOrAntiJoin()) {
+                    rightFuncs.add(f);
+                    rightAliasMap.put(f, a);
+                } else {
+                    leftFuncs.add(f);
+                    leftAliasMap.put(f, a);
+                }
+                continue;
+            }
             if (join.left().getOutputSet().containsAll(inputs)) {
                 leftFuncs.add(f);
                 leftAliasMap.put(f, a);
@@ -144,10 +154,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
         Plan newLeft = join.left();
         Plan newRight = join.right();
-        if (leftChildContext.isPresent()) {
+        if (leftChildContext.isPresent() && !leftChildContext.get().noGroupKeyAndNoAggFunc()) {
             newLeft = join.left().accept(this, leftChildContext.get());
         }
-        if (rightChildContext.isPresent()) {
+        if (rightChildContext.isPresent() && !rightChildContext.get().noGroupKeyAndNoAggFunc()) {
             newRight = join.right().accept(this, rightChildContext.get());
         }
 
@@ -183,9 +193,18 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             toRight = true;
         } else {
             for (AggregateFunction aggFunc : context.getAggFunctions()) {
-                if (join.left().getOutputSet().containsAll(aggFunc.getInputSlots())) {
+                Set<Slot> inputs = aggFunc.getInputSlots();
+                if (inputs.isEmpty()) {
+                    if (join.getJoinType().isRightSemiOrAntiJoin()) {
+                        toRight = true;
+                    } else {
+                        toLeft = true;
+                    }
+                    continue;
+                }
+                if (join.left().getOutputSet().containsAll(inputs)) {
                     toLeft = true;
-                } else if (join.right().getOutputSet().containsAll(aggFunc.getInputSlots())) {
+                } else if (join.right().getOutputSet().containsAll(inputs)) {
                     toRight = true;
                 } else {
                     toLeft = false;
@@ -505,6 +524,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                     aliasMapForChild, context.getCascadesContext(),
                     context.isPassThroughBigJoin(), context.hasDecomposedAggIf, context.hasCaseWhen,
                     context.getBilateralState(), context.needOutputCount());
+            if (contextForChild.noGroupKeyAndNoAggFunc()) {
+                break;
+            }
             inheritHintActionsToUnionChild(context, contextForChild, aggFunctionsForChild);
             Plan newChild = child.accept(this, contextForChild);
             if (newChild != child) {
@@ -611,6 +633,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return genAggregate(project, context);
         }
         PushDownAggContext newContext = createContextFromProject(project, context);
+        if (newContext.noGroupKeyAndNoAggFunc()) {
+            return genAggregate(project, context);
+        }
         Plan newChild = project.child().accept(this, newContext);
         if (newChild != project.child()) {
             /*
@@ -691,7 +716,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 .distinct()
                 .collect(Collectors.toList());
         PushDownAggContext childContext = context.withGroupKeys(childGroupKeys);
-        if (!childContext.isValid()) {
+        if (childContext.noGroupKeyAndNoAggFunc()) {
             return genAggregate(filter, context);
         }
         Plan newChild = filter.child().accept(this, childContext);
