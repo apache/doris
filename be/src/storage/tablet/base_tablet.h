@@ -35,6 +35,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/version_graph.h"
+#include "util/bthread_shared_mutex.h"
 
 namespace doris {
 struct RowSetSplits;
@@ -94,7 +95,7 @@ public:
     int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
-    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    BthreadSharedMutex& get_header_lock() { return _meta_lock; }
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
@@ -372,7 +373,7 @@ protected:
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
-    mutable std::shared_mutex _meta_lock;
+    mutable BthreadSharedMutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
     TimestampedVersionTracker _row_binlog_version_tracker;
 

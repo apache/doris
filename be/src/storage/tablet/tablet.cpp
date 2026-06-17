@@ -529,7 +529,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
 
 Status Tablet::add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset) {
     DCHECK(rowset != nullptr);
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     // If the rowset already exist, just return directly.  The rowset_id is an unique-id,
     // we can use it to check this situation.
@@ -845,7 +845,7 @@ RowsetSharedPtr Tablet::_rowset_with_largest_size() {
 Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset,
                               const RowsetSharedPtr& row_binlog_rowset) {
     DCHECK(rowset != nullptr);
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (_contains_rowset(rowset->rowset_id())) {
         // Ensure binlog<row> is also added on retry.
@@ -882,7 +882,7 @@ void Tablet::delete_expired_stale_rowset() {
     std::vector<std::pair<Version, std::vector<RowsetId>>> deleted_stale_rowsets;
     // hold write lock while processing stable rowset
     {
-        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        std::lock_guard wrlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
         int64_t expired_stale_sweep_endtime =
@@ -1064,7 +1064,7 @@ void Tablet::delete_expired_stale_rowset() {
     }
 #ifndef BE_TEST
     {
-        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        std::shared_lock rlock(_meta_lock);
         save_meta();
     }
 #endif
@@ -1208,7 +1208,7 @@ bool Tablet::suitable_for_compaction(
 #ifndef BE_TEST
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION &&
         cumulative_compaction_policy != nullptr) {
-        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        std::lock_guard wrlock(_meta_lock);
         if (_cumulative_compaction_policy == nullptr ||
             _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
             _cumulative_compaction_policy = cumulative_compaction_policy;
@@ -1338,7 +1338,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
 }
 
 void Tablet::calculate_cumulative_point() {
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     int64_t ret_cumulative_point;
     _cumulative_compaction_policy->calculate_cumulative_point(

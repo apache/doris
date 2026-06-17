@@ -411,7 +411,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
 }
 
 void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
-                              std::unique_lock<std::shared_mutex>& meta_lock,
+                              std::unique_lock<BthreadSharedMutex>& meta_lock,
                               bool warmup_delta_data) {
     if (to_add.empty()) {
         return;
@@ -493,7 +493,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 }
 
 void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
-                                 std::unique_lock<std::shared_mutex>&) {
+                                 std::unique_lock<BthreadSharedMutex>&) {
     if (to_delete.empty()) {
         return;
     }
@@ -514,7 +514,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
-                                                   std::unique_lock<std::shared_mutex>&,
+                                                   std::unique_lock<BthreadSharedMutex>&,
                                                    bool recycle_deleted_rowsets) {
     if (to_delete.empty()) {
         return;
@@ -546,7 +546,7 @@ void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetShare
 
 void CloudTablet::replace_rowsets_with_schema_change_output(
         const std::vector<RowsetSharedPtr>& output_rowsets, int64_t alter_version,
-        std::unique_lock<std::shared_mutex>& meta_lock, const char* stage,
+        std::unique_lock<BthreadSharedMutex>& meta_lock, const char* stage,
         bool recycle_deleted_rowsets) {
     std::vector<RowsetSharedPtr> to_delete;
     for (auto& [v, rs] : _rs_version_map) {
@@ -895,7 +895,7 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
     if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         bool has_delete = false;
         int64_t point = cumulative_layer_point();
-        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        std::shared_lock rlock(_meta_lock);
         for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
             if (rs_meta->start_version() >= point) {
                 continue;
@@ -2051,7 +2051,7 @@ void CloudTablet::apply_visible_pending_rowsets() {
     Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
 
     std::unique_lock lock(_sync_meta_lock);
-    std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
+    std::unique_lock meta_wlock(_meta_lock);
     int64_t next_version = _max_version + 1;
     std::vector<RowsetSharedPtr> to_add;
     std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
