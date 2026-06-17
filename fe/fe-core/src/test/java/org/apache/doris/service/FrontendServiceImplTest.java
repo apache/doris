@@ -48,6 +48,8 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetTablesParams;
+import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
@@ -146,6 +148,20 @@ public class FrontendServiceImplTest {
         field.setAccessible(true);
         field.set(target, value);
     }
+
+    @Test
+    public void testGetTableNamesWithSysTablePattern() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TGetTablesParams params = new TGetTablesParams();
+        params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+        params.setDb("test");
+        params.setPattern("test_dropped_partition_field$partitions");
+        params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+        TGetTablesResult result = impl.getTableNames(params);
+        Assert.assertTrue(result.getTables().isEmpty());
+    }
+
 
     @Test
     public void testCreatePartitionRange() throws Exception {
