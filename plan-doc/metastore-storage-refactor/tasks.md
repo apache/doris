@@ -113,7 +113,8 @@
 > **范围说明（用户 2026-06-17 确认）**：拆为 **P3a（paimon-local，✅ 纳入本次）** 与 **P3b（全量去重，follow-up，范围外）**。P3a 纯新增 + 只让 paimon 走新模块，不碰 fe-common/fe-filesystem-hdfs 既有路径 → 符合 D-005；P3b 会改 fe-common + fe-filesystem-hdfs，超出 D-005，与 hive/iceberg 迁移同批，本清单仅占位。
 > **归属/命名已定（D-007）**：顶层中立叶子 **`fe-kerberos`**（**非** fe-connector-*，否则破 `fe-filesystem ↛ fe-connector` gate + fe-common 层级倒挂）。
 
-### P3a-T01 ⬜ 新建 fe-kerberos 叶子模块（仅 paimon 用）
+### P3a-T01 🚧 新建 fe-kerberos 叶子模块（仅 paimon 用）— **facts-carrier 切片已落地（2026-06-18，D-013）**，authenticator 机制待续
+- **进度（2026-06-18，facts-carrier 切片，commit 待提交）**：D-013（用户选「fe-kerberos build it first」）——为解 P2-T01 的 `AuthType`/`KerberosAuthSpec` 依赖，**先建 fe-kerberos 的纯 Java 零依赖 facts 切片**：`org.apache.doris.kerberos.AuthType`（SIMPLE/KERBEROS + `fromString`：仅 "kerberos" 命中、余皆 SIMPLE）+ `KerberosAuthSpec`（client principal+keytab 不可变值对象 + `hasCredentials()` 需两者皆非空）。pom（零 prod 依赖 + junit test）+ `fe/pom.xml` 注册（紧随 fe-foundation）。验证：AuthTypeTest 3/0 + KerberosAuthSpecTest 3/0、checkstyle 0、BUILD SUCCESS。**authenticator 机制子集（hadoop 依赖 + trino `KerberosTicketUtils`→JDK 替换）= 待续**（P2-T02 消费 HMS kerberos 时增量补）。
 - **做什么**：新建顶层模块 `fe-kerberos`（依赖**仅** hadoop-auth/hadoop-common；trino `KerberosTicketUtils` 用 JDK `javax.security.auth.kerberos` 等价替换）。**本步只承载 paimon HMS 所需**的 kerberos facts 载体（`KerberosAuthSpec` + 必要的 `AuthenticationConfig`/`HadoopAuthenticator` 子集），供 `fe-connector-metastore-spi` 的 `HmsMetastoreBackend` 产出 facts。**不碰 fe-common / fe-filesystem-hdfs 既有路径**。
 - **验收**：模块编译、零 fe-core/fe-connector/fe-filesystem import（纯叶子，gate）；paimon HMS kerberos facts 经 fe-kerberos 类型表达；真正 `UGI.doAs` 仍走 `ctx.executeAuthenticated`（§5 不变量 4）；fe-common/fe-filesystem-hdfs 既有 kerberos 路径**零改动**（§6 零改动核对）。
 - **依赖**：P2-T02（facts 消费方）。设计 §3.5 / **D-007 步骤 a**。**✅ 纳入本次（用户 2026-06-17 确认）。**

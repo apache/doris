@@ -5,6 +5,14 @@
 
 ---
 
+## D-013 — Kerberos 中立 facts 类型（AuthType + KerberosAuthSpec）落 fe-kerberos，先于 P2-T01 建；metastore-api 依赖 fe-kerberos
+- **日期**：2026-06-18 ｜ **决策者**：用户（AskUserQuestion 选「In fe-kerberos (build it first)」）
+- **背景**：P2-T01 的 `HmsMetaStoreProperties` 需要 `AuthType`(SIMPLE/KERBEROS) + `KerberosAuthSpec`(principal/keytab facts)。`AuthType` 现仅在 `fe-common`（连接器 import gate 禁）；设计把 `KerberosAuthSpec` 归 `fe-kerberos`（P3a-T01，原排在 P2-T02 之后）→ P2-T01 引用它有构建顺序冲突。
+- **内容**：**遵循 D-007 字面归属** = 这两个中立 facts 类型落 **`fe-kerberos`**；**先建 fe-kerberos 的 facts-carrier 切片**（`AuthType` + `KerberosAuthSpec`，纯 Java、零 hadoop 依赖）于 P2-T01 **之前**；`fe-connector-metastore-api` **依赖 fe-kerberos**（设计 §3.1 header 依赖集 +fe-kerberos）。fe-kerberos 仍是顶层中立叶子（authenticator 机制子集 = hadoop 依赖部分留待 P2-T02 消费时增量补，仍属 P3a-T01 scope）。
+- **被否**：「`KerberosAuthSpec`/`AuthType` 落 metastore-api 自包含」（更简、不改顺序，但偏离 D-007 归属；用户选保持 D-007 单一真相源）。
+- **核实**：现有 `fe-authentication` 模块是**用户登录/角色映射**鉴权（password 插件/Principal/role-mapping），与 hadoop service kerberos **无关**，**不复用**；fe-kerberos 确为新建。
+- **影响**：实施顺序 = **P3a-T01（facts-carrier 切片）→ P2-T01 → P2-T02（补 authenticator 机制 + 消费 facts）**；WORKFLOW §4.1 白名单 +`fe/fe-kerberos/**` + `fe/pom.xml`（新增 `<module>fe-kerberos</module>`，已属「仅新增模块声明」允许）；设计 §3.1 header 注「+fe-kerberos」；tasks P3a-T01 标 🚧（facts-carrier 落地，机制待续）。**fe-kerberos facts-carrier 零 hadoop**：`AuthType` enum(SIMPLE/KERBEROS) + `KerberosAuthSpec`(client `principal`+`keytab` 中立标量——doAs 登录事实；HMS service principal 是 HiveConf override 不在此，镜像 fe-common `KerberosAuthenticationConfig` 字段)。
+
 ## D-012 — 跳过/推迟 P1-T06 docker 验证，直接进入 P2（metastore SPI）；docker 验证集中到 P2-T05
 - **日期**：2026-06-18 ｜ **决策者**：用户（「跳过 p1-t06，先开始做下一阶段」）
 - **内容**：**不在此刻跑 P1-T06**（P1 storage 收口的 docker 5-flavor 真等价闸）；直接开始 **P2（metastore SPI，从 P2-T01 起）**。P1-T06 **非取消而是推迟**——其 docker 验证（T1 storage 等价：S3/OSS/COS/OBS/HDFS + 无凭据 OSS/COS/OBS + 调优默认）与 P2-T05 的 docker 验证（T2 metastore 等价 + 5 flavor + vended + kerberos）**合并为一次 docker 跑**（P2-T05 本就需要同一套 `enablePaimonTest=true` 5-flavor 环境），避免重复部署。

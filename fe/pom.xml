@@ -218,6 +218,7 @@ under the License.
     </build>
     <modules>
         <module>fe-foundation</module>
+        <module>fe-kerberos</module>
         <module>fe-property</module>
         <module>fe-common</module>
         <module>fe-catalog</module>

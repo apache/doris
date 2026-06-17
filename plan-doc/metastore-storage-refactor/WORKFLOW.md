@@ -59,6 +59,7 @@ fe/fe-core/src/main/java/.../fs/FileSystemPluginManager.java          (仅新增
 fe/fe-core/src/main/java/.../fs/FileSystemFactory.java                (仅新增 bindAllStorageProperties；D-009 二次确认)
 fe/fe-filesystem/fe-filesystem-hdfs/**                 (FU-T01：HDFS typed BE model；D-010 授权局部解禁)
 fe/fe-filesystem/fe-filesystem-{s3,oss,cos,obs}/**     (FU-T02 R-008 / FU-T03 R-006；D-011 授权；main+test；其它 fe-filesystem 模块[api,spi,azure,broker,local]仍禁碰)
+fe/fe-kerberos/**                                       (新建；P3a-T01 fe-kerberos 叶子；D-007/D-013)
 fe/fe-connector/pom.xml ; fe/pom.xml                   (仅新增模块声明)
 plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 ```
