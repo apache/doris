@@ -37,6 +37,8 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
             String hive_tb = "tb_test_hive_ctas_to_doris"
             String db_name = "db_test_hive_ctas_to_doris"
 
+            sql "set enable_strict_cast = true;"
+
             // create hive table
             sql """drop catalog if exists ${catalog}"""
             sql """create catalog if not exists ${catalog} properties (
