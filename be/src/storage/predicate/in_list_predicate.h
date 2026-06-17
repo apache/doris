@@ -68,18 +68,16 @@ public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     InListPredicateBase(uint32_t column_id, std::string col_name,
-                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
-                        size_t char_length = 0)
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite)
             : ColumnPredicate(column_id, col_name, Type, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);
 
         // String types need a copy because:
-        // 1. The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
-        //    StringSet<FixedContainer<std::string, N>> for small-set optimization — different
-        //    C++ types, cannot share the pointer.
-        // 2. CHAR type additionally needs padding to char_length.
+        // The caller's set is StringSet<DynamicContainer<std::string>>, but here we want
+        // StringSet<FixedContainer<std::string, N>> for small-set optimization — different
+        // C++ types, cannot share the pointer.
         //
         // Date/DECIMALV2 types do NOT need a copy: their ElementType (CppType) is identical
         // between the caller's HybridSet and InListPredicateBase's, and InListPredicateBase
@@ -93,15 +91,7 @@ public:
             HybridSetBase::IteratorBase* iter = hybrid_set->begin();
             while (iter->has_next()) {
                 const auto* value = (const StringRef*)(iter->get_value());
-                if constexpr (Type == TYPE_CHAR) {
-                    _temp_datas.emplace_back("");
-                    _temp_datas.back().resize(std::max(char_length, value->size));
-                    memcpy(_temp_datas.back().data(), value->data, value->size);
-                    const std::string& str = _temp_datas.back();
-                    _values->insert((void*)str.data(), str.length());
-                } else {
-                    _values->insert((void*)value->data, value->size);
-                }
+                _values->insert((void*)value->data, value->size);
                 iter->next();
             }
         } else {
@@ -129,7 +119,6 @@ public:
         _values = other._values;
         _min_value = other._min_value;
         _max_value = other._max_value;
-        _temp_datas = other._temp_datas;
         DCHECK(_segment_id_to_value_in_dict_flags.empty());
     }
     InListPredicateBase(const InListPredicateBase<Type, PT, N>& other) = delete;
@@ -352,6 +341,12 @@ public:
         if constexpr (PT == PredicateType::IN_LIST) {
             // IN predicate can not use ngram bf, just return true to accept
             if (bf->is_ngram_bf()) {
+                return true;
+            }
+            if constexpr (Type == TYPE_CHAR) {
+                // CHAR BFs hash zero-padded bytes while the predicate value is
+                // unpadded, so probing the BF would always miss. Skip BF
+                // pruning for CHAR entirely.
                 return true;
             }
             HybridSetBase::IteratorBase* iter = _values->begin();
@@ -655,9 +650,6 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-
-    // temp string for char type column
-    std::list<std::string> _temp_datas;
 };
 #include "common/compile_check_end.h"
 } //namespace doris

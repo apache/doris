@@ -51,6 +51,7 @@
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/encoding_info.h"
 #include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/nested_group_routing_plan.h"
 #include "storage/segment/variant/variant_writer_helpers.h"
@@ -63,13 +64,13 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                       CompressionTypePB compression_type) {
+                       const ColumnWriterOptions& opts) {
     meta->Clear();
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
-    meta->set_encoding(DEFAULT_ENCODING);
-    meta->set_compression(compression_type);
+    meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
+    meta->set_compression(opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
@@ -80,8 +81,7 @@ void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColum
     }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
-                          compression_type);
+        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i), opts);
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
@@ -95,7 +95,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                              std::unique_ptr<ColumnWriter>* writer,
                              TabletIndexes& subcolumn_indexes, ColumnWriterOptions* opt,
                              int64_t none_null_value_size, bool need_record_none_null_value_size) {
-    _init_column_meta(opt->meta, cid, column, opt->compression_type);
+    _init_column_meta(opt->meta, cid, column, *opt);
     // no need to record none null value size for typed column or nested column, since it's compaction stage
     // will directly pick it as sub column
     if (need_record_none_null_value_size) {
@@ -456,6 +456,7 @@ Status prepare_materialized_subcolumn_writer(
     opts.compression_type = base_opts.compression_type;
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
+    opts.storage_format = base_opts.storage_format;
     std::unique_ptr<ColumnWriter> writer;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
@@ -535,7 +536,6 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
                                       const DataTypePtr& type, const ColumnPtr& values_column,
                                       const std::vector<uint32_t>& rowids, size_t total_rows) {
     DCHECK_EQ(values_column->size(), rowids.size());
-    const size_t cell_size = writer->get_field()->size();
 
     auto base_type = type;
     if (base_type->is_nullable()) {
@@ -594,6 +594,9 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
         DCHECK(tablet_column.is_nullable());
         return writer->append_nulls(total_rows);
     }
+
+    // Non-ARRAY scalar path: writer cell is strided by sizeof(CppType).
+    const size_t cell_size = field_type_size(writer->get_column()->type());
 
     converter->add_column_data_convertor(tablet_column);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({values_column, type, ""}, 0,
@@ -937,7 +940,7 @@ Status UnifiedSparseColumnWriter::init_single(const TabletColumn& sparse_column,
                                               SegmentFooterPB* footer) {
     _single_opts = base_opts;
     _single_opts.meta = footer->add_columns();
-    _init_column_meta(_single_opts.meta, column_id, sparse_column, base_opts.compression_type);
+    _init_column_meta(_single_opts.meta, column_id, sparse_column, base_opts);
     RETURN_IF_ERROR(ColumnWriter::create_map_writer(_single_opts, &sparse_column,
                                                     base_opts.file_writer, &_single_writer));
     RETURN_IF_ERROR(_single_writer->init());
@@ -957,7 +960,7 @@ Status UnifiedSparseColumnWriter::init_buckets(int bucket_num, const TabletColum
         TabletColumn bucket_col = variant_util::create_sparse_shard_column(parent_column, b);
         _bucket_opts[b] = base_opts;
         _bucket_opts[b].meta = footer->add_columns();
-        _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts.compression_type);
+        _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts);
         RETURN_IF_ERROR(ColumnWriter::create_map_writer(
                 _bucket_opts[b], &bucket_col, base_opts.file_writer, &_bucket_writers[b]));
         RETURN_IF_ERROR(_bucket_writers[b]->init());
@@ -1182,8 +1185,7 @@ Status VariantDocWriter::init(const TabletColumn* parent_column, int bucket_num,
                 variant_util::create_doc_value_column(*parent_column, b);
         _doc_value_column_opts[b] = opts;
         _doc_value_column_opts[b].meta = footer->add_columns();
-        _init_column_meta(_doc_value_column_opts[b].meta, column_id, bucket_column,
-                          opts.compression_type);
+        _init_column_meta(_doc_value_column_opts[b].meta, column_id, bucket_column, opts);
         RETURN_IF_ERROR(ColumnWriter::create_map_writer(_doc_value_column_opts[b], &bucket_column,
                                                         opts.file_writer,
                                                         &_doc_value_column_writers[b]));
@@ -1481,7 +1483,7 @@ Status prepare_subcolumn_writer_target(
     opts.compression_type = base_opts.compression_type;
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
-    opts.encoding_preference = base_opts.encoding_preference;
+    opts.storage_format = base_opts.storage_format;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
     bool need_record_none_null_value_size =
@@ -1554,8 +1556,7 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
                                                      size_t num_rows, int& column_id) {
     // root column
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*_tablet_column)),
-            _opts.file_writer);
+            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
 
     // make sure the root type
@@ -1987,10 +1988,8 @@ Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const u
 }
 
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
-                                               const TabletColumn* column,
-                                               std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
-    _tablet_column = column;
+                                               TabletColumnPtr column)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
     _column = ColumnVariant::create(0, false);
 }
@@ -2024,7 +2023,7 @@ Status VariantSubcolumnWriter::finalize() {
 
     DCHECK(ptr->is_finalized());
     const auto& parent_column =
-            _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
+            _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
 
     TabletColumn flush_column;
     if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
@@ -2034,10 +2033,10 @@ Status VariantSubcolumnWriter::finalize() {
         ptr->ensure_root_node_type(flush_type);
     }
     flush_column = variant_util::get_column_by_type(
-            ptr->get_root_type(), _tablet_column->name(),
+            ptr->get_root_type(), get_column()->name(),
             variant_util::ExtraInfo {.unique_id = -1,
-                                     .parent_unique_id = _tablet_column->parent_unique_id(),
-                                     .path_info = *_tablet_column->path_info_ptr()});
+                                     .parent_unique_id = get_column()->parent_unique_id(),
+                                     .path_info = *get_column()->path_info_ptr()});
 
     int64_t none_null_value_size = ptr->get_subcolumns().get_root()->data.get_non_null_value_size();
     bool need_record_none_null_value_size = (!flush_column.path_info_ptr()->get_is_typed()) &&
@@ -2113,11 +2112,9 @@ Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const ui
 }
 
 VariantDocCompactWriter::VariantDocCompactWriter(const ColumnWriterOptions& opts,
-                                                 const TabletColumn* column,
-                                                 std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
+                                                 TabletColumnPtr column)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
-    _tablet_column = column;
     _column = ColumnVariant::create(0, false);
 }
 
@@ -2220,12 +2217,12 @@ Status VariantDocCompactWriter::_write_doc_value_column(const TabletColumn& pare
                                                         ColumnVariant* variant_column,
                                                         OlapBlockDataConvertor* converter,
                                                         int column_id, size_t num_rows) {
-    std::string doc_value_column_path = _tablet_column->path_info_ptr()->get_path();
+    std::string doc_value_column_path = get_column()->path_info_ptr()->get_path();
     size_t pos = doc_value_column_path.rfind("b");
     int bucket_value = std::stoi(doc_value_column_path.substr(pos + 1));
     TabletColumn doc_value_column =
             variant_util::create_doc_value_column(parent_column, bucket_value);
-    _init_column_meta(_opts.meta, column_id, doc_value_column, _opts.compression_type);
+    _init_column_meta(_opts.meta, column_id, doc_value_column, _opts);
     RETURN_IF_ERROR(ColumnWriter::create_map_writer(_opts, &doc_value_column, _opts.file_writer,
                                                     &_doc_value_column_writer));
     RETURN_IF_ERROR(_doc_value_column_writer->init());
@@ -2246,7 +2243,7 @@ Status VariantDocCompactWriter::finalize() {
     auto* variant_column = assert_cast<ColumnVariant*>(_column.get());
 
     const auto& parent_column =
-            _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
+            _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
 
     size_t num_rows = variant_column->size();
     auto converter = std::make_unique<OlapBlockDataConvertor>();

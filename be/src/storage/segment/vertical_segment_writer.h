@@ -129,7 +129,8 @@ public:
     }
 
 private:
-    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
+    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                           const ColumnWriterOptions& opts);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
     uint64_t _estimated_remaining_size();

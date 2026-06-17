@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -724,30 +725,8 @@ public:
         return 0;
     }
 
-    // Whether new segments use externalized ColumnMetaPB layout (CMO) by default
-    bool is_external_segment_column_meta_used() const {
-        return _is_external_segment_column_meta_used;
-    }
-
-    void set_external_segment_meta_used_default(bool v) {
-        _is_external_segment_column_meta_used = v;
-    }
-
-    bool integer_type_default_use_plain_encoding() const {
-        return _integer_type_default_use_plain_encoding;
-    }
-
-    void set_integer_type_default_use_plain_encoding(bool v) {
-        _integer_type_default_use_plain_encoding = v;
-    }
-
-    BinaryPlainEncodingTypePB binary_plain_encoding_default_impl() const {
-        return _binary_plain_encoding_default_impl;
-    }
-
-    void set_binary_plain_encoding_default_impl(BinaryPlainEncodingTypePB impl) {
-        _binary_plain_encoding_default_impl = impl;
-    }
+    TabletStorageFormatPB storage_format() const { return _storage_format; }
+    void set_storage_format(TabletStorageFormatPB v) { _storage_format = v; }
 
     void add_pruned_columns_data_type(int32_t col_unique_id, DataTypePtr data_type) {
         _pruned_columns_data_type[col_unique_id] = std::move(data_type);
@@ -836,11 +815,10 @@ private:
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 
     // Default behavior for new segments: use external ColumnMeta region + CMO table if true
-    bool _is_external_segment_column_meta_used = false;
-
-    bool _integer_type_default_use_plain_encoding {false};
-    BinaryPlainEncodingTypePB _binary_plain_encoding_default_impl {
-            BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1};
+    // Persisted tablet storage format. Authoritative source for "is this tablet V3?"
+    // decisions in the segment write paths. Old PBs without this field are upgraded in
+    // init_from_pb() by deriving V3 from any of the three legacy V3-flavor flags.
+    TabletStorageFormatPB _storage_format {TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2};
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

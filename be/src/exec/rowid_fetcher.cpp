@@ -213,30 +213,6 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
-bool _has_char_type(const DataTypePtr& type) {
-    switch (type->get_primitive_type()) {
-    case TYPE_CHAR: {
-        return true;
-    }
-    case TYPE_ARRAY: {
-        const auto* arr_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        return _has_char_type(arr_type->get_nested_type());
-    }
-    case TYPE_MAP: {
-        const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
-        return _has_char_type(map_type->get_key_type()) ||
-               _has_char_type(map_type->get_value_type());
-    }
-    case TYPE_STRUCT: {
-        const auto* struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                           [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
-    }
-    default:
-        return false;
-    }
-}
-
 Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     CHECK(!_stubs.empty());
     PMultiGetRequest mget_req = _init_fetch_request(
@@ -286,16 +262,6 @@ Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     }
     // Check row consistency
     RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
-    // shrink for char type
-    std::vector<size_t> char_type_idx;
-    for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        const auto& column_desc = _fetch_option.desc->slots()[i];
-        const auto type = column_desc->type();
-        if (_has_char_type(type)) {
-            char_type_idx.push_back(i);
-        }
-    }
-    res_block->shrink_char_type_column_suffix_zero(char_type_idx);
     VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);
     return Status::OK();
 }
@@ -568,15 +534,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 for (const auto& pslot : request_block_desc.slots()) {
                     slots.push_back(SlotDescriptor(pslot));
                 }
-                // prepare block char vector shrink for char type
-                std::vector<size_t> char_type_idx;
-                for (int j = 0; j < slots.size(); ++j) {
-                    auto slot = slots[j];
-                    if (_has_char_type(slot.type())) {
-                        char_type_idx.push_back(j);
-                    }
-                }
-
                 try {
                     if (first_file_mapping->type == FileMappingType::INTERNAL) {
                         RETURN_IF_ERROR(read_batch_doris_format_row(
@@ -594,9 +551,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                     return Status::Error<false>(e.code(), "Row id fetch failed because {}",
                                                 e.what());
                 }
-
-                // after read the block, shrink char type block
-                result_blocks[i].shrink_char_type_column_suffix_zero(char_type_idx);
             }
 
             [[maybe_unused]] size_t compressed_size = 0;

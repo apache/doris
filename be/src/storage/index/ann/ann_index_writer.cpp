@@ -120,11 +120,6 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::add_array_values(size_t field_size, const CollectionValue* values,
-                                              size_t count) {
-    return Status::InternalError("Ann index should not be used on nullable column");
-}
-
 Status AnnIndexColumnWriter::add_nulls(uint32_t count) {
     return Status::InternalError("Ann index should not be used on nullable column");
 }

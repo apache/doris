@@ -44,7 +44,6 @@
 #include "core/type_limit.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -638,22 +637,20 @@ Status BkdIndexReader::construct_bkd_query_value(const Field& query_value,
                                                  std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                                  InvertedIndexVisitor<QT>* visitor) {
     if constexpr (QT == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
-                                                   _value_key_coder, &visitor->query_max));
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
-                                                   _value_key_coder, &visitor->query_min));
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
+                                                   &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
+                                                   &visitor->query_min));
     } else if constexpr (QT == InvertedIndexQueryType::LESS_THAN_QUERY ||
                          QT == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
-                                                   _value_key_coder, &visitor->query_max));
-        RETURN_IF_ERROR(encode_bkd_min_ascending(_type_info->type(), _value_key_coder,
-                                                 &visitor->query_min));
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
+                                                   &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_min_ascending(_type, _value_key_coder, &visitor->query_min));
     } else if constexpr (QT == InvertedIndexQueryType::GREATER_THAN_QUERY ||
                          QT == InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
-                                                   _value_key_coder, &visitor->query_min));
-        RETURN_IF_ERROR(encode_bkd_max_ascending(_type_info->type(), _value_key_coder,
-                                                 &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type, query_value, _value_key_coder,
+                                                   &visitor->query_min));
+        RETURN_IF_ERROR(encode_bkd_max_ascending(_type, _value_key_coder, &visitor->query_max));
     } else {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "invalid query type when query bkd index");
@@ -776,8 +773,8 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
             return st;
         }
         std::string query_str;
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
-                                                   _value_key_coder, &query_str));
+        RETURN_IF_ERROR(
+                encode_bkd_field_ascending(_type, query_value, _value_key_coder, &query_str));
 
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -816,8 +813,8 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
             return st;
         }
         std::string query_str;
-        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
-                                                   _value_key_coder, &query_str));
+        RETURN_IF_ERROR(
+                encode_bkd_field_ascending(_type, query_value, _value_key_coder, &query_str));
 
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -852,15 +849,15 @@ Status BkdIndexReader::get_bkd_reader(const IndexQueryContextPtr& context,
     auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
     bkd_searcher = std::get_if<BKDIndexSearcherPtr>(&searcher_variant);
     if (bkd_searcher) {
-        _type_info = get_scalar_type_info((FieldType)(*bkd_searcher)->type);
-        if (_type_info == nullptr) {
+        _type = (FieldType)(*bkd_searcher)->type;
+        if (!is_scalar_type(_type)) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                     "unsupported typeinfo, type={}", (*bkd_searcher)->type);
         }
-        _value_key_coder = get_key_coder(_type_info->type());
+        _value_key_coder = get_key_coder(_type);
         bkd_reader = *bkd_searcher;
         if (bkd_reader->bytes_per_dim_ == 0) {
-            bkd_reader->bytes_per_dim_ = cast_set<int32_t>(_type_info->size());
+            bkd_reader->bytes_per_dim_ = cast_set<int32_t>(field_type_size(_type));
         }
         return Status::OK();
     }

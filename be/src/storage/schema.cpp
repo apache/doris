@@ -55,11 +55,9 @@ void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
     _num_key_columns = other._num_key_columns;
 
-    // Deep copy _cols
-    // TODO(lingbin): really need clone?
-    _cols.resize(other._cols.size(), nullptr);
+    _cols.resize(other._cols.size());
     for (auto cid : _col_ids) {
-        _cols[cid] = other._cols[cid]->clone();
+        _cols[cid] = other._cols[cid];
     }
 }
 
@@ -68,29 +66,21 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
 
-    _cols.resize(cols.size(), nullptr);
+    _cols.resize(cols.size());
 
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
-        _cols[cid] = StorageFieldFactory::create(*cols[cid]);
+        _cols[cid] = cols[cid];
     }
 }
 
-Schema::~Schema() {
-    for (auto col : _cols) {
-        delete col;
-    }
-}
+Schema::~Schema() = default;
 
-DataTypePtr Schema::get_data_type_ptr(const StorageField& field) {
-    return DataTypeFactory::instance().create_data_type(field);
-}
-
-IColumn::MutablePtr Schema::get_column_by_field(const StorageField& field) {
-    return get_data_type_ptr(field)->create_column();
+DataTypePtr Schema::get_data_type_ptr(const TabletColumn& column) {
+    return DataTypeFactory::instance().create_data_type(column);
 }
 
 IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type, bool is_nullable,

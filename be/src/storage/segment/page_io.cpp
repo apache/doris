@@ -232,12 +232,16 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
 
     if (opts.pre_decode) {
         const auto* encoding_info = opts.encoding_info;
-        if (opts.is_dict_page) {
-            // for dict page, we need to use encoding_info based on footer->dict_page_footer().encoding()
-            // to get its pre_decoder
-            RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              footer->dict_page_footer().encoding(), {},
-                                              &encoding_info));
+        if (footer->type() == DICTIONARY_PAGE) {
+            // Look up the dict page's encoding_info using the outer column's
+            // field type (not a hardcoded VARCHAR), so CHAR columns reach the
+            // CharStrip pre-decoder for the dict pool too. Falls back to
+            // VARCHAR only when the caller didn't set opts.encoding_info.
+            FieldType dict_field_type = opts.encoding_info != nullptr
+                                                ? opts.encoding_info->type()
+                                                : FieldType::OLAP_FIELD_TYPE_VARCHAR;
+            RETURN_IF_ERROR(EncodingInfo::get(
+                    dict_field_type, footer->dict_page_footer().encoding(), &encoding_info));
         }
         if (encoding_info) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();

@@ -39,7 +39,6 @@
 namespace doris {
 
 class KeyCoder;
-class TypeInfo;
 class BlockCompressionCodec;
 
 namespace segment_v2 {
@@ -67,7 +66,7 @@ public:
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-    const TypeInfo* type_info() const { return _type_info; }
+    FieldType type() const { return _type; }
     bool support_ordinal_seek() const { return _meta.has_ordinal_index_meta(); }
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
@@ -99,7 +98,7 @@ private:
     PageHandle _ordinal_index_page_handle;
     PageHandle _value_index_page_handle;
 
-    const TypeInfo* _type_info = nullptr;
+    FieldType _type = FieldType::OLAP_FIELD_TYPE_NONE;
     const EncodingInfo* _encoding_info = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
     uint64_t _mem_size = 0;

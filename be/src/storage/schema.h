@@ -31,7 +31,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -126,16 +125,14 @@ public:
 
     ~Schema();
 
-    static DataTypePtr get_data_type_ptr(const doris::StorageField& field);
-
-    static IColumn::MutablePtr get_column_by_field(const doris::StorageField& field);
+    static DataTypePtr get_data_type_ptr(const TabletColumn& column);
 
     static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type, bool is_nullable,
                                                         const ReaderType reader_type);
 
-    const std::vector<doris::StorageField*>& columns() const { return _cols; }
+    const std::vector<TabletColumnPtr>& columns() const { return _cols; }
 
-    const doris::StorageField* column(ColumnId cid) const { return _cols[cid]; }
+    const TabletColumn* column(ColumnId cid) const { return _cols[cid].get(); }
 
     size_t num_key_columns() const { return _num_key_columns; }
 
@@ -165,7 +162,7 @@ private:
     std::vector<int32_t> _unique_ids;
     // NOTE: _cols[cid] can only be accessed when the cid is
     // contained in _col_ids
-    std::vector<doris::StorageField*> _cols;
+    std::vector<TabletColumnPtr> _cols;
 
     size_t _num_key_columns;
     int32_t _delete_sign_idx = -1;
