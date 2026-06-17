@@ -20,7 +20,6 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
-import mockit.Expectations;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -51,29 +50,27 @@ public class AutoProfileTest {
     }
 
     @Test
-    public void testAutoProfile() throws InterruptedException {
-        Profile profile = createProfile();
-        SummaryProfile summaryProfile = new SummaryProfile();
-        profile.setSummaryProfile(summaryProfile);
+    public void testAutoProfile() {
         Map<String, String> summaryInfo = new HashMap<>();
 
-        new Expectations(summaryProfile) {
-            {
-                summaryProfile.update(summaryInfo);
-                summaryProfile.getQueryBeginTime();
-                result = System.currentTimeMillis();
-            }
-        };
-        profile.autoProfileDurationMs = 1000;
-        Thread.sleep(899);
-        profile.updateSummary(summaryInfo, true, null);
-        Assertions.assertNull(ProfileManager.getInstance().queryIdToProfileMap.get(profile.getId()));
+        // updateSummary decides whether to keep a profile in memory by comparing the query
+        // duration (queryFinishTimestamp - queryBeginTime) against autoProfileDurationMs.
+        // queryFinishTimestamp is the real wall clock captured inside updateSummary, so we make
+        // the comparison deterministic by controlling queryBeginTime directly (no Thread.sleep):
+        // the begin-time offset gives a ~60s margin that wall-clock jitter cannot flip.
 
-        profile = createProfile();
-        profile.setSummaryProfile(summaryProfile);
-        profile.autoProfileDurationMs = 500;
-        Thread.sleep(899);
-        profile.updateSummary(summaryInfo, true, null);
-        Assertions.assertNotNull(ProfileManager.getInstance().queryIdToProfileMap.get(profile.getId()));
+        // Case 1: duration (~0ms) is far below autoProfileDurationMs -> profile is removed.
+        Profile shortProfile = createProfile();
+        shortProfile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        shortProfile.autoProfileDurationMs = 1000;
+        shortProfile.updateSummary(summaryInfo, true, null);
+        Assertions.assertNull(ProfileManager.getInstance().queryIdToProfileMap.get(shortProfile.getId()));
+
+        // Case 2: duration (~60s) is far above autoProfileDurationMs -> profile is kept.
+        Profile longProfile = createProfile();
+        longProfile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis() - 60_000L);
+        longProfile.autoProfileDurationMs = 500;
+        longProfile.updateSummary(summaryInfo, true, null);
+        Assertions.assertNotNull(ProfileManager.getInstance().queryIdToProfileMap.get(longProfile.getId()));
     }
 }

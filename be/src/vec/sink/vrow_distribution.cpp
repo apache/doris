@@ -141,13 +141,13 @@ Status VRowDistribution::automatic_create_partition() {
     Status status(Status::create(result.status));
     VLOG_NOTICE << "automatic partition rpc end response " << result;
     if (result.status.status_code == TStatusCode::OK) {
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
         // add new created partitions
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
             VLOG_TRACE << "record new id: " << part.id;
         }
-        RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
     }
 
     // Record this request's elapsed time
@@ -159,13 +159,13 @@ Status VRowDistribution::automatic_create_partition() {
 }
 
 // for reuse the same create callback of create-partition
-static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg) {
+static TCreatePartitionResult cast_as_create_result(const TReplacePartitionResult& arg) {
     TCreatePartitionResult result;
     result.status = arg.status;
-    result.nodes = std::move(arg.nodes);
-    result.partitions = std::move(arg.partitions);
-    result.tablets = std::move(arg.tablets);
-    result.slave_tablets = std::move(arg.slave_tablets);
+    result.nodes = arg.nodes;
+    result.partitions = arg.partitions;
+    result.tablets = arg.tablets;
+    result.slave_tablets = arg.slave_tablets;
     return result;
 }
 
@@ -237,6 +237,10 @@ Status VRowDistribution::_replace_overwriting_partition() {
     Status status(Status::create(result.status));
     VLOG_NOTICE << "auto detect replace partition result: " << result;
     if (result.status.status_code == TStatusCode::OK) {
+        // Reuse the function as the args' structure are same. It adds nodes/locations
+        // and waits for incremental_open before the new tablets become routable.
+        auto result_as_create = cast_as_create_result(result);
+        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
         // record new partitions
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
@@ -244,9 +248,6 @@ Status VRowDistribution::_replace_overwriting_partition() {
         }
         // replace data in _partitions
         RETURN_IF_ERROR(_vpartition->replace_partitions(request_part_ids, result.partitions));
-        // reuse the function as the args' structure are same. it add nodes/locations and incremental_open
-        auto result_as_create = cast_as_create_result(result);
-        RETURN_IF_ERROR(_create_partition_callback(_caller, &result_as_create));
     }
 
     return status;
@@ -412,8 +413,6 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     rows_stat_val -= new_bt_rows - old_bt_rows;
     _state->update_num_rows_load_total(old_bt_rows - new_bt_rows);
     _state->update_num_bytes_load_total(old_bt_bytes - new_bt_bytes);
-    DorisMetrics::instance()->load_rows->increment(old_bt_rows - new_bt_rows);
-    DorisMetrics::instance()->load_bytes->increment(old_bt_bytes - new_bt_bytes);
 
     return Status::OK();
 }

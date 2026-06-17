@@ -870,6 +870,20 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
+    public void updateRoutineLoadJobLag() {
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            if (!routineLoadJob.state.isFinalState()) {
+                try {
+                    routineLoadJob.updateLag();
+                } catch (UserException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                            .add("msg", "failed to update routine load lag")
+                            .build(), e);
+                }
+            }
+        }
+    }
+
     public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         unprotectedAddJob(routineLoadJob);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())

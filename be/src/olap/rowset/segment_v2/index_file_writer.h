@@ -50,7 +50,8 @@ class IndexFileWriter {
 public:
     IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix, std::string rowset_id,
                     int64_t seg_id, InvertedIndexStorageFormatPB storage_format,
-                    io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true);
+                    io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true,
+                    int64_t tablet_id = -1);
     virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
@@ -111,6 +112,7 @@ private:
     bool _can_use_ram_dir = true;
 
     IndexStorageFormatPtr _index_storage_format;
+    int64_t _tablet_id = -1;
 
     friend class IndexStorageFormatV1;
     friend class IndexStorageFormatV2;

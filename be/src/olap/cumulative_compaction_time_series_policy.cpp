@@ -24,6 +24,7 @@
 #include "common/logging.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "util/debug_points.h"
 #include "util/time.h"
 
 namespace doris {
@@ -378,8 +379,14 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             if (rs_meta->compaction_level() == 0) {
                 break;
             }
+            // The debug point time_series_level2_file_count lets a test force a level-2
+            // merge by file count regardless of rowset age. Without bypassing this 24h
+            // freshness gate, freshly-created level1 rowsets are all skipped and the debug
+            // point below can never collect them. No effect in production: the debug point
+            // is disabled there, so the added condition is always true.
             if (rs_meta->compaction_level() == 1 &&
-                (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
+                (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT &&
+                !DebugPoints::instance()->is_enable("time_series_level2_file_count")) {
                 continue;
             }
             level1_rowsets.push_back(rowset);
