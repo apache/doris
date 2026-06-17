@@ -27,10 +27,11 @@
 
 ## P1 — paimon storage 收口到 fe-filesystem-api（纯新增/迁移）
 
-### P1-T01 ⬜ ConnectorContext 新增 getStorageProperties()
+### P1-T01 ✅ ConnectorContext 新增 getStorageProperties()（2026-06-17，TDD 1 绿 + checkstyle 0 + import-gate PASS）
 - **做什么**：`fe-connector-spi` 的 `ConnectorContext` 加 `default List<StorageProperties> getStorageProperties() { return List.of(); }`（fe-filesystem-api 类型）。pom 增 `fe-connector-spi → fe-filesystem-api`。
 - **验收**：编译通过；**这条边即"fe-connector 依赖 fe-filesystem-api"落地**；其它连接器零影响（默认空）。
 - **依赖**：无。设计 §4 P1-1 / §3.2。**红线**：仅改 `ConnectorContext.java` + `fe-connector-spi/pom.xml`。
+- **完成态**：`ConnectorContext` 加 `default List<StorageProperties> getStorageProperties() { return Collections.emptyList(); }`（fe-filesystem-api 类型，+25 行纯新增）；pom 加 `fe-filesystem-api` 依赖（=「fe-connector 仅依赖 fe-filesystem-api」边落地）。新建首个测试 `ConnectorContextTest`（默认非空空列表）TDD（RED assertNotNull→GREEN 1/1）。checkstyle 0；`tools/check-connector-imports.sh` PASS（fe-filesystem-api 是纯叶子，无 fe-core/common/datasource 传递依赖）。其它连接器零影响（默认空）。
 
 ### P1-T02 ⬜ DefaultConnectorContext.getStorageProperties() 实现
 - **做什么**（D-009）：fe-core `DefaultConnectorContext` override `getStorageProperties()`：从现有 `storagePropertiesSupplier.get()` 取任一 fe-core typed 值的 `getOrigProps()`（= 完整 catalog raw map），喂 `FileSystemPluginManager.bindAll(rawMap)`（P0-T02）返回 fe-filesystem `List<StorageProperties>`。supplier 空（REST/vended、非 plugin ctor）→ 返回空列表（无静态 storage，正确）。**不改构造点。**
