@@ -173,7 +173,7 @@ public class PartitionIncrementMaintainer {
                 context.collectFailedTableSet(union);
                 context.addFailReason("not union all output pass partition increment check");
             }
-            return super.visit(union, context);
+            return null;
         }
 
         @Override
@@ -261,6 +261,9 @@ public class PartitionIncrementMaintainer {
             // check join type and partition column side
             Set<Slot> leftColumnSet = join.child(0).getOutputSet();
             Set<NamedExpression> namedExpressions = new HashSet<>(context.getPartitionAndRefExpressionMap().keySet());
+            boolean needVisitJoinChildren = false;
+            boolean needCollectInvalidRight = false;
+            boolean needCollectInvalidLeft = false;
             for (NamedExpression partitionSlotToCheck : namedExpressions) {
                 if (!(partitionSlotToCheck instanceof SlotReference)) {
                     continue;
@@ -268,21 +271,30 @@ public class PartitionIncrementMaintainer {
                 boolean useLeft = leftColumnSet.contains(partitionSlotToCheck);
                 JoinType joinType = join.getJoinType();
                 if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
-                    visit(join, context);
+                    needVisitJoinChildren = true;
                 } else if ((joinType.isLeftJoin()
                         || joinType.isLeftSemiJoin()
                         || joinType.isLeftAntiJoin()) && useLeft) {
-                    context.collectInvalidTableSet(join.right());
-                    visit(join, context);
+                    needCollectInvalidRight = true;
+                    needVisitJoinChildren = true;
                 } else if ((joinType.isRightJoin()
                         || joinType.isRightAntiJoin()
                         || joinType.isRightSemiJoin()) && !useLeft) {
-                    context.collectInvalidTableSet(join.left());
-                    visit(join, context);
+                    needCollectInvalidLeft = true;
+                    needVisitJoinChildren = true;
                 } else {
                     context.addFailReason(String.format("partition column is in un supported join null generate side, "
                             + "current join type is %s, partitionSlot is %s", joinType, partitionSlotToCheck));
                 }
+            }
+            if (needCollectInvalidRight) {
+                context.collectInvalidTableSet(join.right());
+            }
+            if (needCollectInvalidLeft) {
+                context.collectInvalidTableSet(join.left());
+            }
+            if (needVisitJoinChildren) {
+                visit(join, context);
             }
             return null;
         }
