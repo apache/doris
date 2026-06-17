@@ -30,6 +30,11 @@
 namespace doris::format::parquet {
 namespace {
 
+// 将 Doris 的 io::FileReader 适配为 Arrow 的 RandomAccessFile 接口。
+//
+// ParquetFileReader::Open() 要求一个 Arrow::RandomAccessFile，
+// 本适配器将 Doris 的 read_at() / size() 等接口映射为 Arrow 的 ReadAt() / GetSize()。
+// Seek() 和 Tell() 维护了内部的 position 游标用于顺序 read() 操作。
 class DorisRandomAccessFile final : public arrow::io::RandomAccessFile {
 public:
     DorisRandomAccessFile(io::FileReaderSPtr file_reader, io::IOContext* io_ctx)
