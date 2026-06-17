@@ -375,12 +375,18 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     }
 
     private static boolean isFunctionNullCheckPath(List<String> suffixPath) {
-        return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
+    return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
     }
 
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
         // MAP_CONTAINS_KEY(<map>, <key>)
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            // map_contains_key(nullable_map, key) IS NULL only when the map is NULL.
+            // The key argument does not affect nullability — skip it and route
+            // the NULL suffix to the map argument alone.
+            return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        }
         // Map argument: only the key sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
         continueCollectAccessPath(mapContainsKey.getArgument(0), context);
@@ -399,6 +405,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
         // MAP_CONTAINS_VALUE(<map>, <value>)
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            // map_contains_value(nullable_map, value) IS NULL only when the map is NULL.
+            // The value argument does not affect nullability — skip it.
+            return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        }
         // Map argument: only the value sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
         continueCollectAccessPath(mapContainsValue.getArgument(0), context);
@@ -414,6 +425,11 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
         // MAP_CONTAINS_ENTRY(<map>, <key>, <value>)
+        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+            // map_contains_entry(nullable_map, key, value) IS NULL only when the map is NULL.
+            // The key and value arguments do not affect nullability — skip them.
+            return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        }
         // Map argument: full access is needed (both keys and values).
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
         continueCollectAccessPath(mapContainsEntry.getArgument(0), context);

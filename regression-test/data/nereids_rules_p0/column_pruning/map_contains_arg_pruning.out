@@ -17,3 +17,39 @@
 3	true	false	\N
 4	true	true	false
 
+-- !case4 --
+1	false
+2	false
+3	true
+4	false
+
+-- !case5 --
+1	false
+2	false
+3	true
+4	false
+
+-- !case6 --
+1	false
+2	false
+3	true
+4	false
+
+-- !case7a --
+1	true
+2	true
+3	false
+4	true
+
+-- !case7b --
+1	true
+2	true
+3	false
+4	true
+
+-- !case7c --
+1	true
+2	true
+3	false
+4	true
+
