@@ -457,7 +457,7 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     1234567890000.12345,
-                    "1234567890000.124",
+                    "1234567890000.1235",
             },
             {
                     0.33,
@@ -538,11 +538,11 @@ TEST_F(OlapTypeTest, ser_deser_double) {
             },
             {
                     12345678901234567.12345,
-                    "1.234567890123457e+16",
+                    "1.2345678901234568e+16",
             },
             {
                     123456789012345678.12345,
-                    "1.234567890123457e+17",
+                    "1.2345678901234568e+17",
             }};
     for (int i = 1; i < 10; ++i) {
         if (i == 7) {
@@ -565,14 +565,14 @@ TEST_F(OlapTypeTest, ser_deser_double) {
                     -0.0,
                     "-0",
             },
-            {std::numeric_limits<float>::min(), "1.175494350822288e-38"},
-            {std::numeric_limits<float>::lowest(), "-3.402823466385289e+38"},
+            {std::numeric_limits<float>::min(), "1.1754943508222875e-38"},
+            {std::numeric_limits<float>::lowest(), "-3.4028234663852886e+38"},
             {std::numeric_limits<float>::denorm_min(), "1.401298464324817e-45"},
-            {std::numeric_limits<float>::max(), "3.402823466385289e+38"},
-            {std::numeric_limits<double>::min(), "2.225073858507201e-308"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::denorm_min(), "4.940656458412465e-324"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308"},
+            {std::numeric_limits<float>::max(), "3.4028234663852886e+38"},
+            {std::numeric_limits<double>::min(), "2.2250738585072014e-308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::denorm_min(), "5e-324"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
             {
                     std::numeric_limits<double>::infinity(),
                     "Infinity",
@@ -607,11 +607,8 @@ TEST_F(OlapTypeTest, ser_deser_double) {
         EXPECT_EQ(result_str, expected_str);
         Field restored_field;
         auto status = data_type_serde->from_fe_string(result_str, restored_field);
-        // from_fe_string rejects NaN/Infinity strings, and also rejects
-        // double::max()/lowest() whose string representation parses to Infinity
-        if (std::isnan(float_value) || std::isinf(float_value) ||
-            float_value == std::numeric_limits<double>::max() ||
-            float_value == std::numeric_limits<double>::lowest()) {
+        // from_fe_string rejects NaN/Infinity strings.
+        if (std::isnan(float_value) || std::isinf(float_value)) {
             EXPECT_FALSE(status.ok());
             continue;
         }
@@ -1026,8 +1023,8 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
             {0.001, "0.001"},
             {1234567890123456.0, "1234567890123456"},
             {1e-100, "1e-100"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
     };
 
     for (const auto& [val, expected_str] : normal_cases) {
@@ -1039,15 +1036,6 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
         // Round-trip
         Field restored_field;
         auto status = serde->from_zonemap_string(result_str, restored_field);
-        if (val == std::numeric_limits<double>::lowest() ||
-            val == std::numeric_limits<double>::max()) {
-            EXPECT_FALSE(status.ok());
-            EXPECT_NE(status.to_string().find("NaN/Infinity not allowed in olap string"),
-                      std::string::npos)
-                    << status.to_string();
-            continue;
-        }
-
         EXPECT_TRUE(status.ok()) << status.to_string();
         double restored_val = restored_field.get<TYPE_DOUBLE>();
         double diff = std::abs(restored_val - val);
@@ -1832,12 +1820,12 @@ TEST_F(OlapTypeTest, double_type) {
             {std::numeric_limits<double>::quiet_NaN(), "NaN", "NaN"},
             {std::numeric_limits<double>::infinity(), "Infinity", "Infinity"},
             {-std::numeric_limits<double>::infinity(), "-Infinity", "-Infinity"},
-            {std::numeric_limits<double>::max(), "1.797693134862316e+308",
-             "1.797693134862316e+308"},
-            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308",
-             "-1.797693134862316e+308"},
-            {std::numeric_limits<double>::min(), "2.225073858507201e-308",
-             "2.225073858507201e-308"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308",
+             "1.7976931348623157e+308"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308",
+             "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::min(), "2.2250738585072014e-308",
+             "2.2250738585072014e-308"},
     };
 
     for (auto& tc : test_cases) {

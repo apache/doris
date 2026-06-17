@@ -87,15 +87,15 @@ TEST_F(NumbersTest, test_double_to_buffer) {
 
     double v6 = std::numeric_limits<double>::max();
     len2 = CastToString::_fast_to_buffer(v6, buffer2);
-    EXPECT_EQ(std::string("1.797693134862316e+308"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("1.7976931348623157e+308"), std::string(buffer2, len2));
 
     double v7 = std::numeric_limits<double>::min();
     len2 = CastToString::_fast_to_buffer(v7, buffer2);
-    EXPECT_EQ(std::string("2.225073858507201e-308"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("2.2250738585072014e-308"), std::string(buffer2, len2));
 
     double v8 = 0 - std::numeric_limits<double>::max();
     len2 = CastToString::_fast_to_buffer(v8, buffer2);
-    EXPECT_EQ(std::string("-1.797693134862316e+308"), std::string(buffer2, len2));
+    EXPECT_EQ(std::string("-1.7976931348623157e+308"), std::string(buffer2, len2));
 }
 
 /*
