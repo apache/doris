@@ -111,6 +111,24 @@ class ObsFileSystemPropertiesTest {
     }
 
     @Test
+    void toMaps_emitObsTuningDefaultsWhenNotConfigured() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        // Parity with fe-core OBSProperties defaults (100 / 10000 / 10000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toMap();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
     void bind_rejectsPartialStaticCredentialsLikeFeCore() {
         IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> ObsFileSystemProperties.of(Map.of(

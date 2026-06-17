@@ -260,6 +260,28 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
+    void toMaps_emitS3TuningDefaultsWhenNotConfigured() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        // Parity with fe-core S3Properties.Env defaults (50 / 3000 / 1000). Literal expected values
+        // (not DEFAULT_* constants) so that mutating a default in the main class fails this guard.
+        Map<String, String> beKv = properties.toFileSystemKv();
+        Assertions.assertEquals("50", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("3000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("50", hadoopKv.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("3000", hadoopKv.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("1000", hadoopKv.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
     void of_rejectsUnsupportedCredentialsProviderType() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");

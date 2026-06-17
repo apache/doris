@@ -142,7 +142,8 @@
 - **验收**：无凭据 OSS/COS/OBS typed BE map 与 legacy 等价（含 `ANONYMOUS`）；有凭据零变化；UT 与 S3 typed 对照；checkstyle 0；`git diff` 仅落 `fe-filesystem-{oss,cos,obs}/**`（recon 若证须 api/spi 共享类型则先 AskUserQuestion）。
 - **依赖**：P1-T04（暴露缺口，对抗 review `wf_09745716-d48`）。**D-011 授权**触碰 `fe-filesystem-{oss,cos,obs}`（白名单已 +）。**先做（与 FU-T03 一道）再 P1-T06。**
 
-### FU-T03 🔜（active-next — 用户 2026-06-18 + D-011 授权；排在 P1-T06 之前）给 fe-filesystem S3/OSS/COS/OBS 加调优默认 UT 断言（修 R-006）
+### FU-T03 ✅（2026-06-18 完成；D-011 授权）给 fe-filesystem S3/OSS/COS/OBS 加调优默认 UT 断言（修 R-006）
+- **完成态（2026-06-18，commit 待提交）**：4 个测试类各加 1 个 `toMaps_emit*TuningDefaultsWhenNotConfigured`（test-only，不动 main）——不显式设调优键时，断 **BE map**（`toMap()`/S3 `toFileSystemKv()`：`AWS_MAX_CONNECTIONS`/`AWS_REQUEST_TIMEOUT_MS`/`AWS_CONNECTION_TIMEOUT_MS`）+ **Hadoop map**（`toHadoopConfigurationMap()`：`fs.s3a.connection.maximum`/`...request.timeout`/`...timeout`）= S3 `50/3000/1000`、OSS/COS/OBS `100/10000/10000`。**期望值用字面量非 `DEFAULT_*` 常量**（否则改常量两侧同步变=测试恒绿，守不住）。已核对 legacy parity：`S3Properties.Env`(50/3000/1000)、`OSS/COS/OBSProperties`(各 100/10000/10000)。**mutation 证**：sed 改 4 个 `DEFAULT_MAX_CONNECTIONS`→ 4 测全红（`expected <50> but was <99>` / `<100> but was <999>`），revert 后全绿。验证：S3 15/0·OSS 14/0·COS 13/0·OBS 13/0 + 全 sibling suite 绿、checkstyle 0、`git diff` 仅落 4 个 `*PropertiesTest.java`。
 - **做什么**：在 `S3/Oss/Cos/ObsFileSystemPropertiesTest` 加 **test-only** 断言守护调优默认值：S3=`fs.s3a.connection.maximum=50`/`request.timeout=3000`/`timeout=1000`（BE `AWS_MAX_CONNECTIONS=50` 等）、OSS/COS/OBS=`100/10000/10000`。守 P1-T03 删 paimon canonical tuning 测试暴露的 fe-filesystem 测试缺口。
 - **TDD**：断言 `toHadoopConfigurationMap()` / `toBackendProperties().toMap()` 在不显式设调优键时发各自默认值（mutation：改 fe-filesystem 字段默认 → 测试应红）。**功能今日正确**（字段默认真发），本任务=补显式 UT 守护。
 - **验收**：4 个 `*FileSystemPropertiesTest` 各含调优默认断言（S3 50/3000/1000；OSS/COS/OBS 100/10000/10000）；checkstyle 0；纯 test additive，不动 main（除非 R-006 与 FU-T02 共享改动）；`git diff` 仅落 `fe-filesystem-{s3,oss,cos,obs}/src/test/**`。
