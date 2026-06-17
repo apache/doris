@@ -6,6 +6,16 @@
 
 ---
 
+## DV-004 — P1-T04 BE 凭据全量切 typed 路会丢 HDFS BE 键（fe-filesystem 无 HDFS typed BE model）→ 用户定「按原计划全切、接受 HDFS 回归、follow-up 补 fe-filesystem HdfsFileSystemProperties」
+- **日期**：2026-06-17 ｜ **原计划位置**：设计 §5 T1 / WORKFLOW §5.2 T1 / **DV-002**（「P1-T03/T04 全量切换 fe-filesystem，含 P1-T04 BE 凭据也切 `toBackendProperties().toMap()`」，隐含与 P1-T03 同源等价）；task `P1-T04`。
+- **为何偏差（现场 recon 取证，对照真实代码）**：新 typed 路对 **HDFS 物理上产不出 BE 键**——
+  - **fe-filesystem 无 HDFS typed BE model**：`HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties>`（基接口泛型,**无**具体 `HdfsFileSystemProperties` 类),**未** override `bind()` → 用 `FileSystemProvider.bind()` 默认实现 `throw UnsupportedOperationException("...does not support typed FileSystemProperties binding yet")`;`FileSystemPluginManager.bindAll` **catch 该异常并跳过** → `getStorageProperties()` 对 HDFS-warehouse catalog 返回**空** → `toBackendProperties().toMap()` 链无 HDFS 项。
+  - **legacy 路有 HDFS**：`getBackendStorageProperties()`(`DefaultConnectorContext:203` → `CredentialUtils.getBackendPropertiesFromStorageMap` → fe-core `HdfsProperties.getBackendConfigProperties:198`)发 HDFS 的 `hadoop.*/dfs.*/HA/kerberos` 键。
+  - **这些键 load-bearing**:经 `PluginDrivenScanNode.getLocationProperties`(去 `location.` 前缀) → `FileQueryScanNode.setLocationPropertiesIfNecessary` → `HdfsResource.generateHdfsParam(locationProperties)` → `THdfsParams`(namenode/HA/kerberos)。故全量切丢 HDFS BE 配置 → **HDFS-warehouse paimon 原生读回归**(解析不了 HA nameservice / 无 kerberos)。对象存储侧两路等价(typed 为超集,DV-002)。
+- **关键事实**：`getBackendStorageProperties()` 是 **`ConnectorContext` SPI 方法、不依赖 fe-property**(连接器只 import `connector.spi.ConnectorContext`),故 **P1-T05 断 paimon→fe-property 边并不需要本切换**;切换纯为 D-003「连接器只见 fe-filesystem-api 的统一 typed 消费」架构收益,而该收益对 HDFS 物理做不到(除非动 fe-filesystem,超 P1 白名单)。
+- **新方案（用户 2026-06-17 定）**：**按原计划全切**——对象存储走 typed 路 `getStorageProperties()→toBackendProperties().toMap()`(`.ifPresent` 跳过无 BE 项,镜像 P1-T03 风格),HDFS 暂丢;**接受 HDFS BE 回归**,后续由用户**补 fe-filesystem `HdfsFileSystemProperties` typed BE model** 修复(记 **follow-up FU-T01** + **R-007**)。代码注释标 `KNOWN GAP (DV-004 / R-007)`。**被否**:(a) 保留 `getBackendStorageProperties`(最安全、零回归,但放弃 D-003 统一);(b) 混合两路(对象存储 typed + HDFS legacy,多代码、要管叠加顺序/防重复,无功能收益)。
+- **影响范围**：P1-T04 实现(`PaimonScanPlanProvider` 静态凭据块 + 注释)与测试(`scanContext` 改喂 `getStorageProperties()` 的 fake `StorageProperties` + 新 `fakeBackendStorage` helper);新增 **R-007** + **follow-up FU-T01**(tasks 占位);**P1-T06 docker HDFS flavor 会暴露此回归**(须知晓为**已接受、非新 bug**);不影响对象存储 flavor、不影响 P2/P3a。`getBackendStorageProperties()` SPI default 方法**保留**(连接器停止调用,移除非「新增」、超 P1-T04 范围,留作 follow-up 清理)。
+
 ## DV-003 — T1 自动等价测试不可在 UT 落地 → 改「connector-local 契约 UT + docker 兜底」；并连带 P1-T03 提前删 fe-property import + 删 ~23 canonical 测试
 - **日期**：2026-06-17 ｜ **原计划位置**：设计 §5 T1 / WORKFLOW §5.2 T1（DV-002 框架：「新 `toHadoopConfigurationMap()` 与旧 `buildObjectStorageHadoopConfig` 在常见静态凭据路径 key/value **全等**」作为切换回归闸）；task P1-T03、P1-T05。
 - **DV-003-a（T1 落地形态，用户 2026-06-17 选 Option C）**：

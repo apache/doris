@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
@@ -595,15 +596,29 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // FIX-STATIC-CREDS-BE (B-9): static catalog-level storage credentials/config, normalized to
-        // BE-canonical keys (AWS_* for object stores, hadoop/dfs for HDFS). Ports legacy
-        // PaimonScanNode.getLocationProperties() = getBackendPropertiesFromStorageMap(storagePropertiesMap):
-        // BE's native (FILE_S3) reader understands ONLY the canonical keys, so the raw catalog aliases
-        // (s3.access_key, oss.access_key, …) must be translated before they leave FE — copying them
-        // verbatim gives the native reader no usable creds (403 on a private bucket). The connector
-        // cannot import fe-core StorageProperties -> it delegates to the ConnectorContext seam. Empty
-        // when no context (offline unit tests) -> no storage props emitted (never the broken raw aliases).
+        // BE-canonical keys (AWS_* for object stores). BE's native (FILE_S3) reader understands ONLY the
+        // canonical keys, so the raw catalog aliases (s3.access_key, oss.access_key, …) must be translated
+        // before they leave FE — copying them verbatim gives the native reader no usable creds (403 on a
+        // private bucket). Sourced from the typed fe-filesystem StorageProperties bound by fe-core and
+        // handed over via ctx.getStorageProperties() (P1-T04): each backend's toBackendProperties().toMap()
+        // yields the canonical map (e.g. S3FileSystemProperties IS-A BackendStorageProperties → AWS_*).
+        // This replaces the legacy getBackendStorageProperties() seam so the connector derives BOTH its
+        // Hadoop config (P1-T03) and its BE creds from the SAME typed source (design D-003). Empty when no
+        // context (offline unit tests) → no storage props emitted (never the broken raw aliases).
+        //
+        // KNOWN GAP 1 (DV-004 / R-007): fe-filesystem has no typed HDFS BE model yet (HdfsFileSystemProvider
+        // throws on bind), so an HDFS-warehouse catalog yields NO entry here → the legacy hadoop/dfs/HA/
+        // kerberos keys that became THdfsParams are dropped, regressing HDFS-backed paimon native reads.
+        // Accepted by the user pending a follow-up that adds fe-filesystem HdfsFileSystemProperties.
+        // KNOWN GAP 2 (R-008): the typed OSS/COS/OBS models omit AWS_CREDENTIALS_PROVIDER_TYPE, which legacy
+        // emitted as ANONYMOUS for credential-less catalogs — a fe-filesystem parity gap (out of P1 whitelist),
+        // tracked as a follow-up; only affects OSS/COS/OBS catalogs with no static ak/sk.
         if (context != null) {
-            for (Map.Entry<String, String> e : context.getBackendStorageProperties().entrySet()) {
+            Map<String, String> backendStorageProps = new HashMap<>();
+            for (StorageProperties sp : context.getStorageProperties()) {
+                sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
+            }
+            for (Map.Entry<String, String> e : backendStorageProps.entrySet()) {
                 props.put("location." + e.getKey(), e.getValue());
             }
         }

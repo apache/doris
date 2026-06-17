@@ -21,6 +21,11 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TField;
@@ -1221,10 +1226,11 @@ public class PaimonScanPlanProviderTest {
                 "a non-RESTTokenFileIO table must yield no vended token");
     }
 
-    /** A ConnectorContext whose getBackendStorageProperties / vendStorageCredentials return fixed
-     * normalized maps. The engine's real StorageProperties normalization is exercised by the fe-core
-     * DefaultConnectorContextBackendStoragePropsTest / DefaultConnectorContextVendTest; here we pin the
-     * connector wiring (overlay order + that the raw catalog aliases are NOT shipped). */
+    /** A ConnectorContext whose getStorageProperties() (typed fe-filesystem seam, P1-T04) and
+     * vendStorageCredentials return fixed normalized maps. The engine's real StorageProperties
+     * binding/normalization is exercised by the fe-core DefaultConnectorContextStoragePropsTest /
+     * DefaultConnectorContextVendTest; here we pin the connector wiring (static creds sourced from
+     * toBackendProperties().toMap(), overlay order, and that the raw catalog aliases are NOT shipped). */
     private static ConnectorContext scanContext(Map<String, String> backendStatic, Map<String, String> vended) {
         return new ConnectorContext() {
             @Override
@@ -1238,13 +1244,67 @@ public class PaimonScanPlanProviderTest {
             }
 
             @Override
-            public Map<String, String> getBackendStorageProperties() {
-                return backendStatic;
+            public List<StorageProperties> getStorageProperties() {
+                return backendStatic.isEmpty()
+                        ? Collections.emptyList()
+                        : Collections.singletonList(fakeBackendStorage(backendStatic));
             }
 
             @Override
             public Map<String, String> vendStorageCredentials(Map<String, String> raw) {
                 return vended;
+            }
+        };
+    }
+
+    /**
+     * A fe-filesystem {@link StorageProperties} whose {@code toBackendProperties().toMap()} returns the
+     * given BE-canonical map — mirrors how a real object-store binding (e.g. S3FileSystemProperties IS-A
+     * {@link BackendStorageProperties}) hands BE creds to the connector. The connector consumes ONLY this
+     * typed seam for static creds (P1-T04), so the fake exercises exactly that path. (HDFS has no typed BE
+     * model in fe-filesystem yet, so a real HDFS catalog yields no entry here — see DV-004 / R-007.)
+     */
+    private static StorageProperties fakeBackendStorage(Map<String, String> beMap) {
+        BackendStorageProperties backend = new BackendStorageProperties() {
+            @Override
+            public BackendStorageKind backendKind() {
+                return BackendStorageKind.S3_COMPATIBLE;
+            }
+
+            @Override
+            public Map<String, String> toMap() {
+                return beMap;
+            }
+        };
+        return new StorageProperties() {
+            @Override
+            public String providerName() {
+                return "fake";
+            }
+
+            @Override
+            public StorageKind kind() {
+                return StorageKind.OBJECT_STORAGE;
+            }
+
+            @Override
+            public FileSystemType type() {
+                return FileSystemType.S3;
+            }
+
+            @Override
+            public Map<String, String> rawProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> matchedProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Optional<BackendStorageProperties> toBackendProperties() {
+                return Optional.of(backend);
             }
         };
     }
@@ -1349,6 +1409,88 @@ public class PaimonScanPlanProviderTest {
                 "no context -> the raw alias must not be shipped to BE");
         Assertions.assertFalse(scanProps.containsKey("location.AWS_ACCESS_KEY"),
                 "no context -> no normalized overlay");
+    }
+
+    @Test
+    public void getScanNodePropertiesSkipsStoragePropsWithoutBackendMappingAndMergesRest() {
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(table);
+
+        Map<String, String> beMap = new HashMap<>();
+        beMap.put("AWS_ACCESS_KEY", "ak");
+        beMap.put("AWS_ENDPOINT", "ep");
+        // A typed list mixing a backend WITHOUT a BE model (toBackendProperties() empty — the real HDFS
+        // case, see DV-004/R-007) and a real object-store backend. Exercises the two facets the single-entry
+        // tests miss: the .ifPresent skip and the multi-entry putAll merge.
+        List<StorageProperties> storage =
+                Arrays.asList(fakeStorageWithoutBackend(), fakeBackendStorage(beMap));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps(), scanContextWithStorage(storage));
+
+        Map<String, String> scanProps = provider.getScanNodeProperties(
+                null, handle, Collections.emptyList(), Optional.empty());
+
+        // WHY: a StorageProperties with no BE model (Optional.empty()) must be SKIPPED, never crash, while
+        // a real object-store entry alongside it still ships its AWS_* under location.* (the merge loop).
+        // MUTATION: .ifPresent -> .get()/.orElseThrow() -> NoSuchElementException on the empty entry -> red;
+        // dropping the iteration / merge -> location.AWS_ACCESS_KEY absent -> red.
+        Assertions.assertEquals("ak", scanProps.get("location.AWS_ACCESS_KEY"));
+        Assertions.assertEquals("ep", scanProps.get("location.AWS_ENDPOINT"));
+    }
+
+    /** A ConnectorContext whose getStorageProperties() returns the given typed list verbatim (no vended). */
+    private static ConnectorContext scanContextWithStorage(List<StorageProperties> storage) {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "c";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+
+            @Override
+            public List<StorageProperties> getStorageProperties() {
+                return storage;
+            }
+        };
+    }
+
+    /** A fe-filesystem {@link StorageProperties} with NO backend model — toBackendProperties() defaults to
+     * Optional.empty() (the real HDFS case: HdfsFileSystemProvider has no typed BE binding, DV-004/R-007). */
+    private static StorageProperties fakeStorageWithoutBackend() {
+        return new StorageProperties() {
+            @Override
+            public String providerName() {
+                return "no-be";
+            }
+
+            @Override
+            public StorageKind kind() {
+                return StorageKind.HDFS_COMPATIBLE;
+            }
+
+            @Override
+            public FileSystemType type() {
+                return FileSystemType.HDFS;
+            }
+
+            @Override
+            public Map<String, String> rawProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> matchedProperties() {
+                return Collections.emptyMap();
+            }
+        };
     }
 
     // ---- FIX-JDBC-DRIVER-URL (B-8a): BE-bound driver_url resolution + paimon.jdbc.* alias ----

@@ -53,10 +53,17 @@
   - **删 ~23 个 canonical-translation 测试**：现 `PaimonCatalogFactoryTest` 的 S3/OSS/COS/OBS/MinIO canonical 翻译断言测的是 **fe-filesystem 现在的职责**。**对抗 review（`wf_76df09a4-c2f`）+ 直接核实结论（修正初判）**：fe-filesystem 已覆盖 **canonical 键翻译**（`S3FileSystemPropertiesTest.toHadoopConfigurationMap`→fs.s3a.impl/endpoint/region/access.key/path.style）**+ endpoint-from-region 派生**（`OssFileSystemPropertiesTest:108-110` region→`-internal`；Cos/Obs endpoint+creds）；**但 NOT 覆盖调优默认值**（S3 50/3000/1000、OSS/COS/OBS 100/10000/10000）→ 删 paimon `buildHadoopConfigurationEmitsS3TuningDefaults` 等丢了这部分**显式 UT 守护**（**功能今日正确**，由 fe-filesystem 字段默认真发；仅测试健壮性缺口）→ **记 R-006**，docker P1-T06 运行期兜底，fe-filesystem 加断言为 follow-up（超白名单）。保留并加 storage 参数的 = paimon.* 改键 / 原始透传 / last-write-wins / kerberos-ordering（含新增 storage-overlay 变体）/ DLF dlf.catalog.* 键与 endpoint-from-region(paimon-local) / hiveConfResources base-merge / socket-timeout / username alias / requireOssStorageForDlf 闸 / buildCatalogOptions / validate。
 - **完成态（2026-06-17）**：实现 = `PaimonCatalogFactory`（applyStorageConfig 收 `storageHadoopConfig` 入参替代 `buildObjectStorageHadoopConfig(props)` call、删 fe-property import、3 builder 加参、HMS 三重载并为单一 3-arg）+ `PaimonConnector`（新增 `buildStorageHadoopConfig()` 遍历 `ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap()` 合并、4 调用点传入、REST 不用）+ pom 加 `fe-filesystem-api` 直接依赖（fe-property 依赖**留** P1-T05 删）。TDD：neuter `storageHadoopConfig.forEach(setter)` → 3 个 Applies/Overlays 测试 RED（`expected <ak/oak> was <null>`）→ 恢复 → GREEN。测试改造：删 ~23 canonical（fe-filesystem 职责，R-006 调优默认缺口）+ 留 adapt + 新增 6 契约测试（3 builder 各 Applies/Overlays storage + explicit-fs.s3a-overrides-storage + paimon-prefix-overrides-storage + kerberos-survives-storage-overlay）。验证：paimon 全模块 **292/0/0/1skip**(docker-gated PaimonLiveConnectivityTest)、`PaimonCatalogFactoryTest` 42/0、checkstyle 0、import-gate PASS、白名单干净。**对抗 review `wf_76df09a4-c2f`**（8 agent，1B+3M+2m；verify 推翻 1B+2M，confirm 1M=R-006 调优默认 UT 缺口[功能正确仅测试健壮性]）。⚠️ **docker e2e 未跑**（真等价 Option C 闸在 P1-T06）。**DV-003-b**：fe-property import 已在 T03 删（P1-T05 退化为仅删 pom 边 + grep 闸）。
 
-### P1-T04 ⬜ PaimonScanPlanProvider BE 静态凭据改走 toBackendProperties().toMap()
-- **做什么**：BE 静态凭据从 `ctx.getBackendStorageProperties()` 改为遍历 `getStorageProperties()` 调 `toBackendProperties().toMap()`。vended 动态路径**不动**（仍 `ctx.vendStorageCredentials`）。
-- **验收**：T1 BE map 等价；vended(REST/DLF) 路径回归不变。
+### P1-T04 ✅ PaimonScanPlanProvider BE 静态凭据改走 getStorageProperties().toBackendProperties().toMap()（2026-06-17，全量切，TDD RED→GREEN，292+1/0/1skip + checkstyle 0 + 对抗 review）
+- **做什么**：BE 静态凭据从 `ctx.getBackendStorageProperties()` 改为遍历 `ctx.getStorageProperties()` 调 `toBackendProperties().ifPresent(b→putAll(b.toMap()))`（镜像 P1-T03 `.ifPresent` 风格）→ 发 `location.<key>`。vended 动态路径**不动**（仍 `ctx.vendStorageCredentials`，叠在后→vended overlays static）。
+- **验收**：T1 BE map 等价（对象存储）；vended(REST/DLF) 路径回归不变。
 - **依赖**：P1-T01。设计 §4 P1-4 / §2.2。
+- **现场 recon 结论（2026-06-17，对照真实代码）**：
+  - **HDFS 缺口（关键发现，DV-002 未覆盖）**：新 typed 路对 **HDFS 物理上产不出 BE 键**——fe-filesystem **无 HDFS typed BE model**（`HdfsFileSystemProvider` 未 override `bind()`→默认抛 `UnsupportedOperationException`→`FileSystemPluginManager.bindAll` catch 并跳过→`getStorageProperties()` 对 HDFS-warehouse catalog 返回空）。legacy `getBackendStorageProperties()`（`DefaultConnectorContext:203`→`CredentialUtils`→fe-core `HdfsProperties.getBackendConfigProperties:198`）会发 HDFS `hadoop/dfs/HA/kerberos` 键,这些经 `PluginDrivenScanNode.getLocationProperties`→`FileQueryScanNode.setLocationPropertiesIfNecessary`→`HdfsResource.generateHdfsParam`→`THdfsParams` 是 **load-bearing**。故全量切会丢 HDFS BE 配置→HDFS-warehouse paimon 原生读回归。**对象存储侧两路等价**（typed 超集,DV-002）。
+  - **关键事实**：`getBackendStorageProperties()` 是 **ConnectorContext SPI 方法、不依赖 fe-property**→**P1-T05 不需要本切换**;切换纯为 D-003 架构统一,而对 HDFS 物理做不到（除非动 fe-filesystem,超白名单）。
+  - **用户定（2026-06-17）**：**按原计划全切**,接受 HDFS BE 回归,后续补 fe-filesystem `HdfsFileSystemProperties`（记 **DV-004 / R-007 / follow-up FU-T01**）。`getBackendStorageProperties()` SPI default 保留（连接器停调,移除非「新增」,留 follow-up 清理）。
+- **完成态（2026-06-17）**：实现 = `PaimonScanPlanProvider`（静态凭据块 `for sp : ctx.getStorageProperties() { sp.toBackendProperties().ifPresent(...putAll(toMap())) }` 替代 `getBackendStorageProperties()` 循环 + 加 `org.apache.doris.filesystem.properties.StorageProperties` import + 注释标 2 KNOWN GAP）。**仅 1 主文件改**（pom 无需改,fe-filesystem-api 依赖 P1-T03 已加）。TDD：`scanContext` 改喂 `getStorageProperties()` 的 fake `StorageProperties`（删 `getBackendStorageProperties` override）→ `getScanNodePropertiesNormalizesStaticCreds` RED（`expected ak was null`）→ 切产线 GREEN。新增 1 测试 `...SkipsStoragePropsWithoutBackendMappingAndMergesRest`（Optional.empty 跳过 + 多 entry merge,镜像 HDFS-空-项）+ 2 helper（`scanContextWithStorage`/`fakeStorageWithoutBackend`）。验证：`PaimonScanPlanProviderTest` **52/0**、paimon 全模块 **292/0/0/1skip**（docker-gated PaimonLiveConnectivityTest）、checkstyle 0、import-gate PASS、白名单干净（仅 2 paimon 文件）、零 `org.apache.doris.property/datasource` import。
+- **对抗 review（`wf_09745716-d48`，10 agent，3 lens + verify）**：7 finding,confirm 4。**(1) MAJOR=R-008**（fe-filesystem OSS/COS/OBS typed BE map 缺 `AWS_CREDENTIALS_PROVIDER_TYPE`,无凭据 catalog 的 legacy `ANONYMOUS` 丢失;**fix 在 fe-filesystem 超白名单**→记 R-008 + **follow-up FU-T02**,仅影响无 ak/sk 的 OSS/COS/OBS）;**(2) MINOR→已修**（fake 恒 `Optional.of` 漏 `.ifPresent` 空分支→新增上述测试覆盖）;**(3) NIT→已修**（多 entry merge 未测→同测试覆盖）;**(4) NIT→已修**（非空 ctx+空 list→同测试覆盖）。verify 推翻 3 假 finding（AWS_BUCKET/ROOT_PATH 超集=DV-002 已接受非回归;「测试没钉新 seam」被**实测 mutation 推翻**——回退旧 seam→RED;OverlaysVended 静态缺失由 sibling NormalizesStaticCreds 覆盖）。
+- ⚠️ **docker e2e 未跑**（真等价 Option C 闸在 P1-T06;HDFS flavor 会暴露 R-007、无凭据 OSS/COS/OBS 暴露 R-008,均**已接受、非新 bug**）。
 
 ### P1-T05 ⬜ 断开 paimon → fe-property 依赖边
 - **做什么**：删 `fe-connector-paimon/pom.xml` 的 `fe-property` 依赖 + `PaimonCatalogFactory:20` 的 import。
@@ -115,6 +122,18 @@
 - **依赖**：P3a-T01 + hive/iceberg 迁移批次。设计 §3.5 / **D-007 步骤 b**。**范围外（与 D-005 张力），独立任务。**
 
 ---
+
+## Follow-ups（范围外占位，本次不做）
+
+### FU-T01 ⬜（follow-up，本次不做）给 fe-filesystem 新建 HDFS typed BE model（修 DV-004 / R-007）
+- **做什么**：在 `fe-filesystem-hdfs` 新建 `HdfsFileSystemProperties`（`implements FileSystemProperties, BackendStorageProperties`，承载 `hadoop.*/dfs.*/HA/kerberos` 的 BE 键），并让 `HdfsFileSystemProvider` override `FileSystemProvider.bind()` 返回它（取代当前默认抛 `UnsupportedOperationException`）。这样 `FileSystemPluginManager.bindAll` 会收集 HDFS 项、`getStorageProperties().toBackendProperties().toMap()` 对 HDFS-warehouse paimon catalog 重新产出 BE 键 → 修复 P1-T04 的 HDFS BE 回归（DV-004 / R-007）。
+- **验收**：HDFS-warehouse paimon docker flavor（含 HA / kerberized HMS+HDFS）原生读恢复；fe-filesystem `HdfsFileSystemProperties` BE 键集与 legacy fe-core `HdfsProperties.getBackendConfigProperties` 等价（HA/kerberos 含齐）；对象存储 flavor 零回归。
+- **依赖**：P1-T04（暴露缺口）。**范围外**：动 `fe-filesystem-hdfs`（超 P1 白名单——fe-filesystem 禁碰），须经用户批准/扩范围，宜与 D-007 fe-kerberos 收口（P3b）或 fe-filesystem 迁移批次同做。
+
+### FU-T02 ⬜（follow-up，本次不做）给 fe-filesystem OSS/COS/OBS 补 AWS_CREDENTIALS_PROVIDER_TYPE（修 R-008）
+- **做什么**：给 `Oss/Cos/ObsFileSystemProperties` 加 `credentialsProviderType` 字段 + 在 `toBackendKv()` 发 `AWS_CREDENTIALS_PROVIDER_TYPE`，**精确镜像 legacy**（ak/sk 皆空 → `ANONYMOUS`，否则**省略**——legacy OSS/COS/OBS 仅 blank-creds 才发，非无条件）。
+- **验收**：无凭据 OSS/COS/OBS catalog 的 typed BE map 与 legacy 等价（含 `ANONYMOUS`）；有凭据零变化；docker 覆盖（含 IAM-role 主机场景）。
+- **依赖**：P1-T04（暴露缺口，对抗 review `wf_09745716-d48`）。**范围外**：动 `fe-filesystem-{oss,cos,obs}`（超 P1 白名单——fe-filesystem 禁碰），与 FU-T01 同批/经用户批准。
 
 ## 阶段日志（append-only）
 - 2026-06-17：创建任务清单（P0×2 / P1×6 / P2×5），状态全 ⬜，待用户批准后开始 P1。

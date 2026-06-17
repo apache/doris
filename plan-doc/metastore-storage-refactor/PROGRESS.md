@@ -10,17 +10,18 @@
 |---|---|---|
 | Research（调研） | ██████████ 100% | ✅ 完成（8-agent + grep；+ 3-agent recon 复核 D-006/7/8） |
 | Design（设计） | ██████████ 100% | ✅ 完成（设计文档 + **7 决策** D-001..D-008，范围已收窄） |
-| **Implement（实现）** | █████░░░░░ ~36% | 🚧 **进行中**（范围 P0+P1 已获批；P0 ✅；P1 3/6，连接器侧已起步：paimon storage 改走 fe-filesystem-api） |
+| **Implement（实现）** | ██████░░░░ ~43% | 🚧 **进行中**（范围 P0+P1 已获批；P0 ✅；P1 4/6，连接器侧 storage(P1-T03)+BE 凭据(P1-T04)均切 fe-filesystem-api typed） |
 
-任务计数：**5 / 14** 完成（P0: 2/2 ✅ ｜ P1: 3/6 ｜ P2: 0/5 ｜ **P3a: 0/1**）｜ + **P3b**（全量去重 follow-up，范围外占位）。
+任务计数：**6 / 14** 完成（P0: 2/2 ✅ ｜ P1: 4/6 ｜ P2: 0/5 ｜ **P3a: 0/1**）｜ + **P3b / FU-T01 / FU-T02**（follow-up，范围外占位）。
 
 ---
 
 ## 当前活跃 task
-- **下一个：`P1-T04`**（paimon `PaimonScanPlanProvider` BE 静态凭据从 `ctx.getBackendStorageProperties()` 切到遍历 `getStorageProperties()` 调 `toBackendProperties().toMap()`；vended 动态路径不动）。
-- P0-T01 ✅｜P0-T02 ✅（bindAll）｜P1-T01 ✅（getStorageProperties 默认方法 + 边）｜P1-T02 ✅（getStorageProperties 实现 + FileSystemFactory accessor）｜**P1-T03 ✅**（paimon `PaimonCatalogFactory.applyStorageConfig` 改走 `ctx.getStorageProperties().toHadoopConfigurationMap()`；连接器侧首个 task）。
-- ✅ **连接器 storage 配置路已切**：`PaimonConnector.buildStorageHadoopConfig()` 经 `ctx.getStorageProperties()` 取 fe-filesystem typed → `toHadoopConfigurationMap()` → 3 个 `PaimonCatalogFactory.buildXxx` 叠加（保留 paimon.*/raw 覆盖 last-write-wins）。paimon main 已零 `org.apache.doris.property` import（DV-003-b：P1-T05 仅剩删 pom 边）。
-- ▶ **下一步**：P1-T04（BE 凭据切 `toBackendProperties().toMap()`）→ P1-T05（删 paimon→fe-property pom 边）→ P1-T06（docker 5-flavor，真等价闸 Option C；并验 R-006 调优默认）。
+- **下一个：`P1-T05`**（删 `fe-connector-paimon/pom.xml` 的 `fe-property` 依赖边 + `grep org.apache.doris.property` 归零闸；import/call 已在 P1-T03 清，DV-003-b → P1-T05 退化为仅删 pom 边）。
+- P0-T01 ✅｜P0-T02 ✅（bindAll）｜P1-T01 ✅（getStorageProperties 默认方法 + 边）｜P1-T02 ✅（getStorageProperties 实现 + FileSystemFactory accessor）｜P1-T03 ✅（paimon storage 配置 `applyStorageConfig` 改走 `toHadoopConfigurationMap()`）｜**P1-T04 ✅**（paimon BE 静态凭据改走 `getStorageProperties().toBackendProperties().toMap()`，全量切）。
+- ✅ **连接器 storage + BE 凭据路全切 fe-filesystem-api typed**：catalog 路 `PaimonConnector.buildStorageHadoopConfig()→toHadoopConfigurationMap()`；BE 扫描分片路 `PaimonScanPlanProvider` 遍历 `getStorageProperties()→toBackendProperties().toMap()`→`location.*`（vended overlays static 保序不动）。paimon main 已零 `org.apache.doris.property/datasource` import（DV-003-b：P1-T05 仅剩删 pom 边）。
+- ⚠️ **已知接受回归（fe-filesystem typed BE model 不全,超 P1 白名单)**：HDFS-warehouse paimon BE 配置丢（DV-004/R-007/FU-T01）；无凭据 OSS/COS/OBS 缺 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS`（R-008/FU-T02）。均用户接受、follow-up 修、docker P1-T06 会暴露（非新 bug）。
+- ▶ **下一步**：P1-T05（删 pom 边）→ P1-T06（docker 5-flavor 真等价闸 Option C；验 R-006 调优默认 + R-007/R-008 已知回归边界）。
 
 ## 阻塞 / 待决
 - ✅ 范围已获批（2026-06-17）= **P0+P1（storage 收口），做到 P1-T06 gate 停**。
@@ -30,6 +31,7 @@
 ---
 
 ## 最近动态（最近 7 天）
+- 2026-06-17 **P1-T04 ✅**（paimon `PaimonScanPlanProvider` BE 静态凭据全量切 `getStorageProperties().toBackendProperties().ifPresent(putAll(toMap()))`→`location.*`；vended 不动、叠后保序）：现场 recon 揪出 **DV-002 未覆盖的 HDFS 缺口**——fe-filesystem 无 HDFS typed BE model（`HdfsFileSystemProvider.bind` 抛→`bindAll` 跳过）,legacy `getBackendStorageProperties()` 经 fe-core 发的 HDFS `hadoop/dfs/HA/kerberos`→`THdfsParams` 是 load-bearing,全量切会丢→HDFS paimon 原生读回归;`getBackendStorageProperties()` 是 ConnectorContext 方法不依赖 fe-property→P1-T05 不需此切换,纯 D-003 统一。**用户定全量切 + 接受 HDFS 回归 + follow-up 补 HDFS typed BE 类**（DV-004/R-007/FU-T01）。TDD RED（`expected ak was null`）→GREEN;52/0 + 全模块 292/0/1skip + checkstyle 0 + import-gate PASS + 白名单干净（2 文件）。**对抗 review `wf_09745716-d48`**（10 agent）confirm 4：MAJOR=R-008（OSS/COS/OBS typed 缺 `AWS_CREDENTIALS_PROVIDER_TYPE` ANONYMOUS,fe-filesystem 超白名单→FU-T02,仅无凭据 catalog）+ 3 test-gap 已修（新增 Optional.empty 跳过 + 多 entry merge 测试）;推翻 3 假 finding（含实测 mutation 证「测试钉了新 seam」）。⚠️ docker e2e 未跑。
 - 2026-06-17 **P1-T03 ✅**（commit `[P1-T03]`；连接器侧首个 task；paimon `applyStorageConfig` 改走 `ctx.getStorageProperties().toHadoopConfigurationMap()`）：recon 证 ctx 在 `PaimonConnector.createCatalog()` 可达 → `buildStorageHadoopConfig()` 合并下发；保留 paimon.*/raw 覆盖 last-write-wins。**T1 = Option C**（用户选；fe-filesystem 对象存储 impl 是运行时插件不在单测 classpath → paimon UT 只钉 connector-local 契约，真等价由 docker P1-T06 兜底；DV-003）。TDD RED（neuter forEach → 3 测红）→GREEN；删 ~23 canonical 测试（fe-filesystem 职责）+ 6 新契约测试；**292/0/0/1skip + checkstyle 0 + import-gate PASS + 白名单干净**。**对抗 review `wf_76df09a4-c2f`** 推翻假 1B+2M、confirm 1M=**R-006**（调优默认 50/3000/1000、100/10000/10000 fe-filesystem 无显式 UT 守护；功能正确，docker 兜底，fe-filesystem 加断言 follow-up 超白名单）。⚠️ docker e2e 未跑。
 - 2026-06-17 **P1-T02 ✅**（`DefaultConnectorContext.getStorageProperties()` + `FileSystemFactory.bindAllStorageProperties`，D-009 二次确认 3 文件）：TDD 4 绿（factory 委托/fallback + ctx 空/全量绑定捕获 raw map）+ 回归 2 绿；checkstyle 0；raw map 经 `getOrigProps()` 取。**fe-core 侧管线打通**。
 - 2026-06-17 **P1-T01 ✅**（`ConnectorContext.getStorageProperties()` 默认空列表 + `fe-connector-spi→fe-filesystem-api` pom 边）：TDD（RED assertNotNull→GREEN 1/1）+ checkstyle 0 + import-gate PASS；新建首个 fe-connector-spi 测试。
