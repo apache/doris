@@ -1531,6 +1531,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 new TreeSet<>(ImmutableList.of(path("str_col", "NULL"))),
                 new TreeSet<>(normalSlot.getPredicateAccessPaths().get()));
 
+        // MV fragment: IS NULL degrades to full column read via default visitor.
+        // [str_col] full-access path passes shouldSkipAccessInfo → no pruning.
         SlotReference fragmentSlot = rewriteAndFindScanSlot(
                 "select 1 from str_tbl where str_col is not null", "str_col", true);
         assertNoAccessPaths(fragmentSlot);
@@ -1544,14 +1546,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 new TreeSet<>(ImmutableList.of(path("s", "city", "NULL"))),
                 new TreeSet<>(nestedNormalSlot.getPredicateAccessPaths().get()));
 
-        // MV rewrite optimizes temporary fragments whose later consumers are not visible.
-        // If the fragment only needs nested null metadata, e.g. [s.city.NULL], pruning the
-        // scan slot to struct<city:...> can break the final rewritten MV plan when it still
-        // needs the full struct or another child. The fragment marker therefore suppresses
-        // nested null-only access info too, not just top-level [col.NULL].
+        // MV fragment: IS NULL degrades to element_at via default visitor,
+        // producing [s, city] data path. struct is NestedColumnPrunable so
+        // pruning to struct<city:text> is safe — no meta suffix remains.
         SlotReference nestedFragmentSlot = rewriteAndFindScanSlot(
                 "select 1 from tbl where element_at(s, 'city') is not null", "s", true);
-        assertNoAccessPaths(nestedFragmentSlot);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("s", "city"))),
+                new TreeSet<>(nestedFragmentSlot.getAllAccessPaths().get()));
+        Assertions.assertTrue(!nestedFragmentSlot.getPredicateAccessPaths().isPresent()
+                || nestedFragmentSlot.getPredicateAccessPaths().get().isEmpty());
     }
 
     @Test
@@ -1579,10 +1583,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 new TreeSet<>(ImmutableList.of(path("c_struct", "f3", "OFFSET"))),
                 new TreeSet<>(nestedNormalSlot.getPredicateAccessPaths().get()));
 
+        // MV fragment: length() degrades to element_at via default visitor,
+        // producing [c_struct, f3] data path without OFFSET suffix.
         SlotReference nestedFragmentSlot = rewriteAndFindScanSlot(
                 "select 1 from str_tbl where length(element_at(c_struct, 'f3')) > 0",
                 "c_struct", true);
-        assertNoAccessPaths(nestedFragmentSlot);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("c_struct", "f3"))),
+                new TreeSet<>(nestedFragmentSlot.getAllAccessPaths().get()));
+        Assertions.assertTrue(!nestedFragmentSlot.getPredicateAccessPaths().isPresent()
+                || nestedFragmentSlot.getPredicateAccessPaths().get().isEmpty());
     }
 
     /**
