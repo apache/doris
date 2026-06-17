@@ -5,6 +5,15 @@
 
 ---
 
+## D-011 — P1-T06 之前先处理 R-008 + R-006（授权触碰 fe-filesystem-{s3,oss,cos,obs}）
+- **日期**：2026-06-18 ｜ **决策者**：用户（「在做 p1-t06 之前，把 r-008 和 r-006 先处理掉」）
+- **内容**：**调整实施顺序** = 先 **FU-T02（R-008）** + **FU-T03（R-006）**，再 **P1-T06**。授权本次**局部解禁**对象存储 typed 模块（原 D-005 / WORKFLOW §4.1 禁碰 fe-filesystem，D-010 仅放行 fe-filesystem-hdfs）：
+  - **FU-T02（R-008）**：给 `fe-filesystem-{oss,cos,obs}` 的 `Oss/Cos/ObsFileSystemProperties` 补 `AWS_CREDENTIALS_PROVIDER_TYPE`（镜像 `S3FileSystemProperties`），**精确 parity** = ak/sk **皆空** → `ANONYMOUS`，否则**省略**（legacy OSS/COS/OBS 仅 blank-creds 才发 ANONYMOUS，**非**无条件 `DEFAULT`；S3 override 恒非空故 S3 typed 已有）。修无凭据 OSS/COS/OBS catalog 在带 IAM-role 云主机的凭据选择漂移。
+  - **FU-T03（R-006）**：给 `S3/Oss/Cos/ObsFileSystemPropertiesTest` 加 **test-only** 调优默认断言（S3=50/3000/1000、OSS/COS/OBS=100/10000/10000），守护 P1-T03 删 paimon canonical 测试暴露的 fe-filesystem 测试缺口（**功能今日正确**，仅测试健壮性）。
+  - 两者均纯新增/外科：**不动** fe-core 旧 storage 包、不动其它连接器、不动 fe-filesystem-{api,spi,hdfs,azure,broker,local}（除非 recon 证 R-008 须给 api/spi 加 credentials-provider-type 共享类型——届时再 AskUserQuestion 扩）。
+- **理由**：R-008/R-006 同源「fe-filesystem typed 对象存储模型对 legacy 不完整」，docker P1-T06 才会暴露 R-008（无凭据 OSS/COS/OBS）；用户决定**在 P1-T06 docker 之前先补齐**，使 P1-T06 成为干净的全绿验收（而非带已知漂移）。FU-T01 已证 fe-filesystem 自有模块可写真 parity UT（非 paimon Option C），故 R-008/R-006 都能 UT 落地 + 与 S3 typed 对照。
+- **影响**：WORKFLOW §4.1 白名单 +`fe/fe-filesystem/fe-filesystem-{s3,oss,cos,obs}/**`（main + test；仅 FU-T02/FU-T03）；tasks FU-T02 ⬜→ active-next、新增 **FU-T03**（R-006）；risks R-008/R-006 状态「监控/已触发」→「修复中（P1-T06 前）」；实施顺序 P1-T06 后移到 FU-T02/FU-T03 之后。**实施前仍按 WORKFLOW §2：先 recon 真实代码 + 一句话复述 + TDD**（R-008 TDD：合成 OSS/COS/OBS 无凭据 map → `toBackendKv()` 应含 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS` 当 ak/sk 皆空，RED→GREEN；对照 legacy `AbstractS3CompatibleProperties` :117-129）。
+
 ## D-010 — 授权触碰 fe-filesystem-hdfs（FU-T01 HDFS typed BE model）+ kerberos 选 K1（不建 fe-kerberos）
 - **日期**：2026-06-17 ｜ **决策者**：用户（确认设计 + AskUserQuestion 选 K1）
 - **内容**：授权本次**局部解禁** `fe-filesystem-hdfs`（原 D-005 / WORKFLOW §4.1 禁碰 fe-filesystem），把 **FU-T01 从 follow-up 提升为 active 任务**，修复 P1-T04 引入的 HDFS BE 配置回归（DV-004 / R-007）。范围：

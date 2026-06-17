@@ -135,10 +135,17 @@
 - **依赖**：P1-T04（暴露缺口）。**D-010 授权**触碰 `fe-filesystem-hdfs`。**红线**：核心改 `fe-filesystem-hdfs/**`；F1 接线 + stale-注释 另碰 3 个已白名单文件（均 project-owned 方法体微改/注释）：fe-core `FileSystemFactory.java`（+1 行 setProperty）、`FileSystemPluginManager.java`（bindAll javadoc）、fe-connector-paimon `PaimonScanPlanProvider.java`（注释）；其它 fe-filesystem 模块仍禁碰。
 - **完成态（2026-06-17，commit 待提交）**：新建 `HdfsFileSystemProperties`（`FileSystemProperties + BackendStorageProperties`，BE-only）+ `HdfsConfigFileLoader`（XML 资源，sysprop 接 `Config.hadoop_config_dir`）；`HdfsFileSystemProvider` re-type + `bind()`/`create(P)`（`create(Map)`/`supports()` 不动）；pom +`fe-foundation`+`commons-lang3`。**移植源 = fe-property `HdfsProperties`，parity by construction**。验证：fe-filesystem-hdfs 全模块 **78/0/0**（含新增 25 golden parity；既有 25 `DFSFileSystemTest` 等绿=create() 路零回归）、checkstyle 0、RED/GREEN 经 mutation 证、fe-core `-pl fe-core -am compile` 绿（验 FileSystemFactory/PluginManager 改）、`git diff` 白名单干净。**对抗 review `wf_5db99e32-2ad`（27 agent，4 lens+verify）**：清场 packaging/parity/scope，3 实质修（malformed-uri fail-loud + 2 stale 注释 + 11 测试），**F1 用户选「现在接好」**（config-dir sysprop 桥）。残留 oss-hdfs JindoFS 凭据=独立 FU（P1-T04 已起）。⚠️ **docker e2e 未跑**（HA/kerberized HDFS-warehouse 真闸在 P1-T06）。
 
-### FU-T02 ⬜（follow-up，本次不做）给 fe-filesystem OSS/COS/OBS 补 AWS_CREDENTIALS_PROVIDER_TYPE（修 R-008）
-- **做什么**：给 `Oss/Cos/ObsFileSystemProperties` 加 `credentialsProviderType` 字段 + 在 `toBackendKv()` 发 `AWS_CREDENTIALS_PROVIDER_TYPE`，**精确镜像 legacy**（ak/sk 皆空 → `ANONYMOUS`，否则**省略**——legacy OSS/COS/OBS 仅 blank-creds 才发，非无条件）。
-- **验收**：无凭据 OSS/COS/OBS catalog 的 typed BE map 与 legacy 等价（含 `ANONYMOUS`）；有凭据零变化；docker 覆盖（含 IAM-role 主机场景）。
-- **依赖**：P1-T04（暴露缺口，对抗 review `wf_09745716-d48`）。**范围外**：动 `fe-filesystem-{oss,cos,obs}`（超 P1 白名单——fe-filesystem 禁碰），与 FU-T01 同批/经用户批准。
+### FU-T02 🔜（active-next — 用户 2026-06-18 提前 + D-011 授权；排在 P1-T06 之前）给 fe-filesystem OSS/COS/OBS 补 AWS_CREDENTIALS_PROVIDER_TYPE（修 R-008）
+- **做什么**：给 `Oss/Cos/ObsFileSystemProperties` 加 `credentialsProviderType` 字段（镜像 `S3FileSystemProperties`）+ 在 `toBackendKv()` 发 `AWS_CREDENTIALS_PROVIDER_TYPE`，**精确镜像 legacy**（ak/sk 皆空 → `ANONYMOUS`，否则**省略**——legacy OSS/COS/OBS 仅 blank-creds 才发 ANONYMOUS，非无条件 `DEFAULT`；S3 override 恒非空）。
+- **TDD（可 UT 落地，参 FU-T01）**：合成无凭据 OSS/COS/OBS map → `toBackendProperties().toMap()` 应含 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS`（RED→GREEN）；带 ak/sk 则不发该键（或发 SimpleAWS-等价，对照 legacy `AbstractS3CompatibleProperties.doBuildS3Configuration` :117-129 + 各 `OSS/COS/OBSProperties` 不 override `getAwsCredentialsProviderTypeForBackend`）。
+- **验收**：无凭据 OSS/COS/OBS typed BE map 与 legacy 等价（含 `ANONYMOUS`）；有凭据零变化；UT 与 S3 typed 对照；checkstyle 0；`git diff` 仅落 `fe-filesystem-{oss,cos,obs}/**`（recon 若证须 api/spi 共享类型则先 AskUserQuestion）。
+- **依赖**：P1-T04（暴露缺口，对抗 review `wf_09745716-d48`）。**D-011 授权**触碰 `fe-filesystem-{oss,cos,obs}`（白名单已 +）。**先做（与 FU-T03 一道）再 P1-T06。**
+
+### FU-T03 🔜（active-next — 用户 2026-06-18 + D-011 授权；排在 P1-T06 之前）给 fe-filesystem S3/OSS/COS/OBS 加调优默认 UT 断言（修 R-006）
+- **做什么**：在 `S3/Oss/Cos/ObsFileSystemPropertiesTest` 加 **test-only** 断言守护调优默认值：S3=`fs.s3a.connection.maximum=50`/`request.timeout=3000`/`timeout=1000`（BE `AWS_MAX_CONNECTIONS=50` 等）、OSS/COS/OBS=`100/10000/10000`。守 P1-T03 删 paimon canonical tuning 测试暴露的 fe-filesystem 测试缺口。
+- **TDD**：断言 `toHadoopConfigurationMap()` / `toBackendProperties().toMap()` 在不显式设调优键时发各自默认值（mutation：改 fe-filesystem 字段默认 → 测试应红）。**功能今日正确**（字段默认真发），本任务=补显式 UT 守护。
+- **验收**：4 个 `*FileSystemPropertiesTest` 各含调优默认断言（S3 50/3000/1000；OSS/COS/OBS 100/10000/10000）；checkstyle 0；纯 test additive，不动 main（除非 R-006 与 FU-T02 共享改动）；`git diff` 仅落 `fe-filesystem-{s3,oss,cos,obs}/src/test/**`。
+- **依赖**：P1-T03（删 canonical 测试暴露，对抗 review `wf_76df09a4-c2f`）。**D-011 授权**。**先做（与 FU-T02 一道）再 P1-T06。**
 
 ## 阶段日志（append-only）
 - 2026-06-17：创建任务清单（P0×2 / P1×6 / P2×5），状态全 ⬜，待用户批准后开始 P1。
