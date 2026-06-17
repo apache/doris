@@ -106,7 +106,7 @@ public class ClientController {
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
         LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
             Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
             return RestResponse.success(reader.getEndOffset(jobConfig));
         } catch (Exception ex) {
@@ -119,7 +119,7 @@ public class ClientController {
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
     public Object compareOffset(@RequestBody CompareOffsetRequest compareOffsetRequest) {
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetRequest);
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(compareOffsetRequest);
             return RestResponse.success(reader.compareOffset(compareOffsetRequest));
         } catch (Exception ex) {
             LOG.error("Failed to compare offset, jobId={}", compareOffsetRequest.getJobId(), ex);

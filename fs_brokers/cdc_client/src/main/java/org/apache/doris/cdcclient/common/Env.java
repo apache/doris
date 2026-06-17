@@ -97,6 +97,19 @@ public class Env {
     }
 
     /**
+     * Reader for stateless metadata ops (end offset / compare): reuse the live one if present, else
+     * a throwaway instance. Never create/cache/initialize a heavy reader, so a metadata RPC for an
+     * idle/absent job can't trigger pub/slot/schema (re)initialization or leak an unreaped context.
+     */
+    public SourceReader getMetaReader(JobBaseConfig jobConfig) {
+        SourceReader existing = getReaderIfPresent(jobConfig.getJobId());
+        if (existing != null) {
+            return existing;
+        }
+        return SourceReaderFactory.createSourceReader(resolveDataSource(jobConfig.getDataSource()));
+    }
+
+    /**
      * Get-or-create this job's reader and claim ownership for {@code taskId} atomically under the
      * per-job lock, so a concurrent stale release cannot stop a reader this task is about to use.
      */
