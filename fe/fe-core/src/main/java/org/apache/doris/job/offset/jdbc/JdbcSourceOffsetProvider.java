@@ -925,13 +925,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public void onTaskCommitted(long scannedRows, long loadBytes) {
-        if (scannedRows == 0 && loadBytes == 0) {
-            hasMoreData = false;
-        }
-    }
-
-    @Override
     public boolean hasReachedEnd() {
         if (!isSnapshotOnlyMode()) {
             return false;
