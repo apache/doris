@@ -506,6 +506,16 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         return ((OlapTable) table);
     }
 
+    public boolean isTargetTableOlap(ConnectContext ctx) {
+        try {
+            List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+            TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+            return table instanceof OlapTable;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /**
      * for explain command
      */

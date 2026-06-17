@@ -1127,15 +1127,11 @@ public class StmtExecutor {
             return true;
         }
 
-        if (plan instanceof UpdateCommand && ((UpdateCommand) plan).isTargetTableOlap(context)) {
-            return true;
-        }
-
-        if (plan instanceof MergeIntoCommand && ((MergeIntoCommand) plan).isTargetTableOlap(context)) {
-            return true;
-        }
-
-        if (plan instanceof DeleteFromUsingCommand) {
+        // Computed DML profiles are currently only supported for OLAP target tables.
+        if ((plan instanceof UpdateCommand && ((UpdateCommand) plan).isTargetTableOlap(context))
+                || (plan instanceof MergeIntoCommand && ((MergeIntoCommand) plan).isTargetTableOlap(context))
+                || (plan instanceof DeleteFromUsingCommand
+                        && ((DeleteFromUsingCommand) plan).isTargetTableOlap(context))) {
             return true;
         }
 
