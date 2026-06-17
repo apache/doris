@@ -32,68 +32,87 @@ class SchemaDescriptor;
 
 namespace doris::format::parquet {
 
+// Schema 节点类型枚举，决定 ParquetColumnReaderFactory 创建哪种 Reader。
 enum class ParquetColumnSchemaKind {
-    PRIMITIVE,
-    STRUCT,
-    LIST,
-    MAP,
+    PRIMITIVE, // 基本类型叶子 → ScalarColumnReader
+    STRUCT,    // 结构体 → StructColumnReader
+    LIST,      // 数组 → ListColumnReader
+    MAP,       // 字典 → MapColumnReader
 };
 
-// New Parquet reader file-local schema tree.
+// ============================================================================
+// Parquet 文件的 file-local schema 树 — build_parquet_column_schema() 的输出
+// ============================================================================
 //
-// The tree describes Parquet logical fields and leaf column ordinals, but its DataType is already
-// converted to Doris external-table semantics: Doris does not expose required nested fields from
-// external files, so STRUCT children, LIST elements, and MAP key/value children are widened to
-// nullable. Parquet required/optional details are still preserved in the level fields and
-// ColumnDescriptor metadata below for reader materialization.
-// LIST repeated-group wrappers and MAP key_value/entry wrappers are folded into their parent
-// schema nodes; LIST children are [element] and MAP children are [key, value]. The folded parent
-// nodes keep the repeated definition/repetition levels needed to assemble nested values.
+// 该树描述 Parquet 逻辑字段及其到物理 leaf column 的映射，将 Arrow 的物理 schema
+// （含 wrapper groups、Dremel levels）转换为 Doris reader 可以直接消费的语义化 schema。
+//
+// 关键设计决策：
+// - LIST/MAP 的物理 wrapper group 在构建时被折叠，children 直接是 [element] 或 [key, value]。
+//   wrapper 的 repeated 属性转为父节点的 level 字段，reader 通过 levels 重建嵌套结构。
+// - 所有类型统一 nullable（Doris external table 的策略：外部数据不可信）。
+// - Dremel levels 在 child_context() 中逐层累加，复杂 reader 用它们从 leaf 的 level 流中
+//   重建嵌套容器（offsets + null_map）。
+// ============================================================================
 struct ParquetColumnSchema {
-    // Reader-local id inside the parent schema node.
-    //
-    // Top-level fields use the root field ordinal. Nested fields use the child ordinal under their
-    // parent. This id is what LocalColumnIndex carries into ParquetColumnReaderFactory.
+    // ======== 标识 ========
+
+    // 在父节点 children 中的序号。顶层字段使用 root field ordinal。
+    // ParquetColumnReaderFactory 通过 LocalColumnIndex 携带的 local_id 路径递归定位 reader。
     int local_id = -1;
-    // Optional Parquet schema field_id from the serialized schema element.
-    //
-    // Arrow returns -1 when the file does not define a field_id. This value is only a schema
-    // matching identifier for table formats such as Iceberg; it is not used to address readers,
-    // row-group column chunks, or nested projections.
+
+    // Parquet 序列化 schema 中的 field_id attribute（-1 表示文件未定义）。
+    // 仅用于 Iceberg 等 table format 的 schema matching 标识，不用于 reader 寻址。
     int parquet_field_id = -1;
+
     std::string name;
+
+    // ======== 类型 ========
+
+    // Doris DataType。复杂类型的 children 已递归 nullable。
     DataTypePtr type = nullptr;
-    // Parquet schema 中的 primitive leaf column ordinal.
-    //
-    // 该 id 用于访问 ColumnDescriptor、RowGroupReader::RecordReader、ColumnChunk
-    // metadata 和 statistics。复杂类型节点本身没有单一 leaf column，因此为 -1。
+
+    // Parquet 物理 leaf column 序号。
+    // PRIMITIVE 节点才有有效值，用于访问 ColumnDescriptor、RecordReader、ColumnChunk、Statistics。
+    // 复杂类型节点本身不是物理列，值为 -1。
     int leaf_column_id = -1;
-    // Parquet physical/logical type metadata resolved from the leaf ColumnDescriptor.
+
+    // 从 leaf ColumnDescriptor 解析出的类型编码信息。仅 PRIMITIVE 节点有效。
     ParquetTypeDescriptor type_descriptor {};
+
     ParquetColumnSchemaKind kind = ParquetColumnSchemaKind::PRIMITIVE;
-    // Arrow Parquet descriptor for primitive leaf nodes. Complex nodes keep this as nullptr.
+
+    // Arrow ColumnDescriptor 指针。仅 PRIMITIVE 节点有效，复杂节点为 nullptr。
     const ::parquet::ColumnDescriptor* descriptor = nullptr;
-    // Maximum Dremel definition/repetition levels below this schema node.
+
+    // ======== Dremel Levels ========
+
+    // 该子树中的最大 def/rep level。PRIMITIVE 从 ColumnDescriptor 获取，复杂节点从 children 上报。
     int16_t max_definition_level = 0;
     int16_t max_repetition_level = 0;
-    // Definition level at which this node itself becomes nullable.
-    //
-    // Complex readers use this to distinguish null containers from empty containers while
-    // assembling STRUCT/LIST/MAP values.
+
+    // 使本节点自身变为 nullable 的 def level 阈值。
+    // 复杂 reader 用此值区分"我的值是 NULL"（def < threshold）和"我有值但内容为空"（def >= threshold）。
     int16_t nullable_definition_level = 0;
-    // Definition/repetition levels used to reconstruct this node from a descendant leaf level
-    // stream. These mirror parquet::internal::LevelInfo but are kept in Doris schema state so
-    // complex readers do not depend on Arrow's Arrow-array reader internals.
+
+    // 从 root 到本节点的累计 def/rep level。在 child_context() 中逐层 +1。
     int16_t definition_level = 0;
     int16_t repetition_level = 0;
+
+    // 最近 repeated 祖先的 def level。
     int16_t repeated_ancestor_definition_level = 0;
-    // Repetition level introduced by this node's repeated container, or the nearest repeated
-    // container carried from its parent.
+
+    // 最近 repeated 祖先的 rep level。
+    // LIST/MAP reader 用此值从孩子 rep level 流中判断"新元素开始"（rep_level >= threshold）。
     int16_t repeated_repetition_level = 0;
+
+    // ======== 子树 ========
+    // LIST: [element]，MAP: [key, value]，STRUCT: 直接孩子，PRIMITIVE: 空
     std::vector<std::unique_ptr<ParquetColumnSchema>> children {};
 };
 
-// 从 Arrow Parquet core schema 构造 file-local schema tree。
+// 从 Arrow Parquet SchemaDescriptor 构造 file-local schema tree。
+// 这是 init() 阶段最重要的转换：物理 schema（含 wrapper groups）→ 语义化 schema（wrapper 已折叠）。
 Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 

@@ -33,14 +33,15 @@
 namespace doris::format::parquet {
 namespace {
 
+// Schema 构建过程中的上下文，携带逐层累加的 Dremel level 状态。
+// child_context() 在递归过程中根据子节点的 optional/repeated 属性递增对应的 level。
 struct SchemaBuildContext {
-    // Reader-local id inside the parent schema node.
-    int32_t local_id = -1;
-    int16_t definition_level = 0;
-    int16_t repetition_level = 0;
-    int16_t nullable_definition_level = 0;
-    int16_t repeated_repetition_level = 0;
-    int16_t repeated_ancestor_definition_level = 0;
+    int32_t local_id = -1;                          // 父节点内的 child ordinal
+    int16_t definition_level = 0;                   // 累计 optional/repeated 数
+    int16_t repetition_level = 0;                   // 累计 repeated 数
+    int16_t nullable_definition_level = 0;          // 最近 optional 节点的 def level
+    int16_t repeated_repetition_level = 0;          // 最近 repeated 节点的 rep level
+    int16_t repeated_ancestor_definition_level = 0; // 最近 repeated 节点的 def level
 };
 
 enum class SchemaBuildMode {
