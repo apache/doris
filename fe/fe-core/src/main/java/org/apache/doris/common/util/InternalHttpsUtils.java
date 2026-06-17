@@ -61,6 +61,8 @@ public class InternalHttpsUtils {
 
     private static SSLContext buildSslContext() {
         try {
+            // The same CA signs all Doris TLS certs (FE HTTPS + MySQL SSL), so mysql_ssl_default_ca_certificate
+            // is the correct trust anchor for FE-to-FE HTTPS. Hostname verification is skipped for IP-based comms.
             KeyStore trustStore = KeyStore.getInstance(Config.ssl_trust_store_type);
             try (InputStream stream = Files.newInputStream(
                     Paths.get(Config.mysql_ssl_default_ca_certificate))) {
