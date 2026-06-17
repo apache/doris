@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -75,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -618,6 +620,44 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         } finally {
             nameToLambdaArguments.pop();
         }
+
+        // After visiting the lambda body, for any bound array whose lambda variable
+        // was NOT referenced in the body (e.g. x -> true where x never appears),
+        // visitArrayItemSlot was never called and the array column's access path is
+        // missing. This gap is exposed when an is-null or offset-only path has been
+        // registered for the same slot — NestedColumnPruning then incorrectly prunes
+        // the complex column to null-only / offset-only instead of reading full data.
+        //
+        // Detect usage by scanning the lambda body for ArrayItemSlots matching the
+        // argument name, which is more reliable than getInputSlots() that deliberately
+        // excludes ArrayItemSlot and may falsely match outer slots.
+        //
+        // Must use a fresh context: when the body DOES reference some variables
+        // (e.g. (x,y) -> x > 0), visitArrayItemSlot mutates context.accessPathBuilder
+        // in-place (addPrefix without cleanup). A fresh context isolates the fallback
+        // path for unreferenced variables from pollution by referenced ones.
+        for (Expression argument : arguments) {
+            if (argument instanceof ArrayItemReference) {
+                ExprId argExprId = ((ArrayItemReference) argument).getExprId();
+                Set<ArrayItemSlot> arrayItemSlots = arguments.get(0)
+                        .<ArrayItemSlot>collect(e -> e instanceof ArrayItemSlot);
+                boolean isReferenced = false;
+                for (ArrayItemSlot slot : arrayItemSlots) {
+                    if (slot.getExprId().equals(argExprId)) {
+                        isReferenced = true;
+                        break;
+                    }
+                }
+                if (!isReferenced) {
+                    Expression boundArray = argument.child(0);
+                    CollectorContext fullAccessCtx = new CollectorContext(
+                            context.statementContext, context.bottomFilter);
+                    fullAccessCtx.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+                    continueCollectAccessPath(boundArray, fullAccessCtx);
+                }
+            }
+        }
+
         return null;
     }
 
