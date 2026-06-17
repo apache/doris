@@ -314,9 +314,10 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams",
                     { tablets_for_schema.clear(); });
+    bool enable_load_stream_profile = _state->enable_profile() && _state->profile_level() >= 2;
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile());
+                           enable_load_stream_profile);
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;
@@ -806,6 +807,15 @@ Status VTabletWriterV2::_close_wait(
     SCOPED_TIMER(_close_load_timer);
     Status status;
     auto streams_for_node = _load_stream_map->get_streams_for_node();
+    auto streams_to_collect_profile = unfinished_streams;
+    Defer collect_load_stream_profiles {[&]() {
+        for (const auto& stream : streams_to_collect_profile) {
+            auto load_stream_profile = stream->collect_load_stream_profile(_state->profile_level());
+            if (load_stream_profile != nullptr) {
+                _state->load_channel_profile()->update(*load_stream_profile);
+            }
+        }
+    }};
     // 1. first wait for quorum success
     std::unordered_set<int64_t> need_finish_tablets;
     auto partition_ids = _tablet_finder->partition_ids();

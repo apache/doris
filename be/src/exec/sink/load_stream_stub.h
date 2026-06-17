@@ -189,6 +189,8 @@ public:
         return _failed_tablets;
     }
 
+    std::shared_ptr<TRuntimeProfileTree> collect_load_stream_profile(int64_t profile_level);
+
     brpc::StreamId stream_id() const { return _stream_id; }
 
     int64_t src_id() const { return _src_id; }
@@ -250,6 +252,8 @@ private:
     void _handle_failure(butil::IOBuf& buf, Status st);
 
 protected:
+    void append_load_stream_profile(const TRuntimeProfileTree& profile);
+
     std::atomic<bool> _is_init;
     std::atomic<bool> _is_open;
     std::atomic<bool> _is_closing;
@@ -287,6 +291,10 @@ protected:
     size_t _bytes_written = 0;
 
     std::atomic<int64_t> _load_back_pressure_version_wait_time_ms {0};
+
+    bthread::Mutex _load_stream_profile_mutex;
+    RuntimeProfile _load_stream_profile {"LoadStream"};
+    bool _has_load_stream_profile = false;
 };
 
 // a collection of LoadStreams connect to the same node

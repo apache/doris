@@ -30,6 +30,9 @@
 
 #include <functional>
 #include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -48,6 +51,7 @@
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/thrift_util.h"
 
 using namespace brpc;
 
@@ -307,6 +311,7 @@ struct ResponseStat {
     std::atomic<int32_t> num;
     std::vector<int64_t> success_tablet_ids;
     std::vector<int64_t> failed_tablet_ids;
+    std::vector<std::string> load_stream_profiles;
 };
 bthread::Mutex g_stat_lock;
 static ResponseStat g_response_stat;
@@ -316,6 +321,7 @@ void reset_response_stat() {
     g_response_stat.num = 0;
     g_response_stat.success_tablet_ids.clear();
     g_response_stat.failed_tablet_ids.clear();
+    g_response_stat.load_stream_profiles.clear();
 }
 
 class LoadStreamMgrTest : public testing::Test {
@@ -335,6 +341,9 @@ public:
                 }
                 for (auto& tablet : response.failed_tablets()) {
                     g_response_stat.failed_tablet_ids.push_back(tablet.id());
+                }
+                if (response.has_load_stream_profile()) {
+                    g_response_stat.load_stream_profiles.push_back(response.load_stream_profile());
                 }
                 g_response_stat.num++;
             }
@@ -420,7 +429,8 @@ public:
             std::function<void()> _cb;
         };
 
-        Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID, int total_streams = 1) {
+        Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID, int total_streams = 1,
+                              bool enable_profile = false) {
             brpc::Channel channel;
             std::cerr << "connect_stream" << std::endl;
             // Initialize the channel, NULL means using default options.
@@ -454,6 +464,7 @@ public:
             request.set_txn_id(NORMAL_TXN_ID);
             request.set_src_id(sender_id);
             request.set_total_streams(total_streams);
+            request.set_enable_profile(enable_profile);
             auto ptablet = request.add_tablets();
             ptablet->set_tablet_id(NORMAL_TABLET_ID);
             ptablet->set_index_id(NORMAL_INDEX_ID);
@@ -574,6 +585,24 @@ public:
         for (int i = 0; i < 3000 && _load_stream_mgr->get_load_stream_num() != 0; i++) {
             bthread_usleep(1000);
         }
+    }
+
+    std::string deserialize_load_stream_profile(const std::string& serialized_profile) {
+        TRuntimeProfileTree tprofile;
+        const uint8_t* buf = reinterpret_cast<const uint8_t*>(serialized_profile.data());
+        uint32_t len = static_cast<uint32_t>(serialized_profile.size());
+        auto status = deserialize_thrift_msg(buf, &len, false, &tprofile);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_FALSE(tprofile.nodes.empty());
+        if (!status.ok() || tprofile.nodes.empty()) {
+            return "";
+        }
+
+        RuntimeProfile profile(tprofile.nodes[0].name);
+        profile.update(tprofile);
+        std::stringstream profile_string;
+        profile.pretty_print(&profile_string);
+        return profile_string.str();
     }
 
     void SetUp() override {
@@ -697,6 +726,33 @@ TEST_F(LoadStreamMgrTest, one_client_normal) {
     EXPECT_EQ(g_response_stat.success_tablet_ids[0], NORMAL_TABLET_ID);
 
     // server will close stream on CLOSE_LOAD
+    wait_for_close();
+    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
+}
+
+TEST_F(LoadStreamMgrTest, one_client_normal_profile) {
+    MockSinkClient client;
+    auto st = client.connect_stream(NORMAL_SENDER_ID, 1, true);
+    EXPECT_TRUE(st.ok());
+
+    write_normal(client);
+
+    reset_response_stat();
+    PTabletID tablet;
+    tablet.set_partition_id(NORMAL_PARTITION_ID);
+    tablet.set_index_id(NORMAL_INDEX_ID);
+    tablet.set_tablet_id(NORMAL_TABLET_ID);
+    tablet.set_num_segments(1);
+    close_load(client, {tablet});
+    wait_for_ack(1);
+    EXPECT_EQ(g_response_stat.num, 1);
+    ASSERT_EQ(g_response_stat.load_stream_profiles.size(), 1);
+
+    auto profile_string = deserialize_load_stream_profile(g_response_stat.load_stream_profiles[0]);
+    EXPECT_NE(std::string::npos, profile_string.find("LoadStream"));
+    EXPECT_NE(std::string::npos, profile_string.find("DeltaWriterV2"));
+    EXPECT_NE(std::string::npos, profile_string.find("MemTableWriter"));
+
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }

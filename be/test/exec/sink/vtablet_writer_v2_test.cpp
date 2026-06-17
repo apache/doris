@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,7 @@
 #include "testutil/creators.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -135,6 +137,47 @@ static TabletSchemaSPtr create_int_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(tablet_schema_pb);
     return tablet_schema;
+}
+
+TEST_F(TestVTabletWriterV2, load_stream_reply_profile_should_be_collected) {
+    UniqueId load_id(1, 2);
+    auto schema_map = std::make_shared<IndexToTabletSchema>();
+    auto mow_map = std::make_shared<IndexToEnableMoW>();
+    auto stub = std::make_shared<LoadStreamStub>(load_id, src_id, schema_map, mow_map);
+
+    RuntimeProfile remote_profile("LoadStream");
+    remote_profile.create_child("DeltaWriterV2 10001", true, true);
+    remote_profile.create_child("MemTableWriter 10001", true, true);
+    TRuntimeProfileTree remote_profile_tree;
+    remote_profile.to_thrift(&remote_profile_tree);
+
+    ThriftSerializer serializer(false, 4096);
+    uint8_t* profile_buf = nullptr;
+    uint32_t profile_len = 0;
+    auto serialize_status = serializer.serialize(&remote_profile_tree, &profile_len, &profile_buf);
+    ASSERT_TRUE(serialize_status.ok()) << serialize_status;
+
+    PLoadStreamResponse response;
+    response.set_eos(true);
+    Status::OK().to_protobuf(response.mutable_status());
+    response.set_load_stream_profile(profile_buf, profile_len);
+
+    butil::IOBuf message;
+    message.append(response.SerializeAsString());
+    butil::IOBuf* messages[] = {&message};
+    LoadStreamReplyHandler handler(load_id.to_proto(), 1, stub);
+    ASSERT_EQ(0, handler.on_received_messages(0, messages, 1));
+
+    auto collected_profile_tree = stub->collect_load_stream_profile(2);
+    ASSERT_NE(nullptr, collected_profile_tree);
+
+    RuntimeProfile collected_profile("Collected");
+    collected_profile.update(*collected_profile_tree);
+    std::stringstream profile_string;
+    collected_profile.pretty_print(&profile_string);
+    ASSERT_NE(std::string::npos, profile_string.str().find("DeltaWriterV2 10001"));
+    ASSERT_NE(std::string::npos, profile_string.str().find("MemTableWriter 10001"));
+    ASSERT_EQ(nullptr, stub->collect_load_stream_profile(2));
 }
 
 static TDataSink create_vtablet_writer_sink(const TOlapTableSchemaParam& schema,
