@@ -46,17 +46,13 @@ namespace doris {
 
 namespace {
 
-template <typename T>
-struct ColumnValueRangePrimitiveType;
-
-template <PrimitiveType PT>
-struct ColumnValueRangePrimitiveType<ColumnValueRange<PT>> {
-    static constexpr PrimitiveType value = PT;
-};
-
 template <typename CvrType>
 bool bloom_may_match_fixed_values(const CvrType& cvr, BloomFilterFuncBase* bloom_filter) {
-    static constexpr PrimitiveType PT = ColumnValueRangePrimitiveType<CvrType>::value;
+    if (cvr.get_fixed_value_size() == 0) {
+        return false;
+    }
+
+    static constexpr PrimitiveType PT = CvrType::type_value;
     using CppType = typename PrimitiveTypeTraits<PT>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<PT>::ColumnType;
 
@@ -66,14 +62,11 @@ bool bloom_may_match_fixed_values(const CvrType& cvr, BloomFilterFuncBase* bloom
     } else {
         values_column = ColumnType::create();
     }
-    auto* typed_column = assert_cast<ColumnType*>(values_column.get());
+    auto* typed_column = static_cast<ColumnType*>(values_column.get());
     for (const auto& value : cvr.get_fixed_value_set()) {
         typed_column->insert_value(value);
     }
     const size_t row_count = values_column->size();
-    if (row_count == 0) {
-        return false;
-    }
 
     std::vector<uint8_t> results(row_count, 0);
     ColumnPtr values_column_ptr = std::move(values_column);
@@ -675,24 +668,11 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
     // FilterBase::contain_null() already folds in `_null_aware`, so we only
     // get a true result when the build side is actually null-aware AND
     // produced a NULL value.
-    bool rf_contains_null = false;
-    if (auto hybrid_set = impl->get_set_func()) {
-        rf_contains_null = hybrid_set->contain_null();
-    } else if (impl->node_type() == TExprNodeType::BLOOM_PRED) {
-        auto bloom = impl->get_bloom_filter_func();
-        rf_contains_null = bloom && bloom->contain_null();
-    } else if (impl->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED) {
-        // Min/Max RF built on a null-safe equal join. The literal child holds
-        // the min or max bound; the NULL semantic is conveyed by the node
-        // type itself (see create_vbin_predicate in runtime_filter/utils.cpp).
-        rf_contains_null = true;
-    }
-
     if (impl->node_type() == TExprNodeType::BLOOM_PRED) {
         auto bloom = impl->get_bloom_filter_func();
-        if (!bloom) {
-            return;
-        }
+        DORIS_CHECK(bloom != nullptr);
+        bool rf_contains_null = bloom->contain_null();
+
         for (const auto& pb : boundaries) {
             if (_pruned_partition_ids.contains(pb.partition_id) ||
                 newly_pruned.contains(pb.partition_id)) {
@@ -726,6 +706,16 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
             }
         }
         return;
+    }
+
+    bool rf_contains_null = false;
+    if (auto hybrid_set = impl->get_set_func()) {
+        rf_contains_null = hybrid_set->contain_null();
+    } else if (impl->node_type() == TExprNodeType::NULL_AWARE_BINARY_PRED) {
+        // Min/Max RF built on a null-safe equal join. The literal child holds
+        // the min or max bound; the NULL semantic is conveyed by the node
+        // type itself (see create_vbin_predicate in runtime_filter/utils.cpp).
+        rf_contains_null = true;
     }
 
     std::optional<ColumnValueRangeType> rf_cvr;

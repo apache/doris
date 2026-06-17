@@ -60,6 +60,8 @@ namespace doris {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
+    static constexpr PrimitiveType type_value = primitive_type;
+
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;
