@@ -122,6 +122,21 @@ class CosFileSystemPropertiesTest {
         Assertions.assertEquals("cos-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("cos-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("COS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        CosFileSystemProperties properties = CosFileSystemProperties.of(Map.of(
+                "cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 
     @Test

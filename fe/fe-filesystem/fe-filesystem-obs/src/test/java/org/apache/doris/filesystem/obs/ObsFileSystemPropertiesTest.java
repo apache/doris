@@ -93,6 +93,21 @@ class ObsFileSystemPropertiesTest {
         Assertions.assertEquals("obs-bucket", backendMap.get("AWS_BUCKET"));
         Assertions.assertEquals("obs-role", backendMap.get("AWS_ROLE_ARN"));
         Assertions.assertFalse(backendMap.keySet().stream().anyMatch(key -> key.startsWith("OBS_")));
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // when static credentials are present the type is omitted (BE uses SimpleAWSCredentialsProvider).
+        Assertions.assertNull(backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+    }
+
+    @Test
+    void toBackendProperties_emitsAnonymousProviderTypeWhenNoStaticCredentials() {
+        ObsFileSystemProperties properties = ObsFileSystemProperties.of(Map.of(
+                "obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com"));
+
+        Map<String, String> backendMap = properties.toBackendProperties().orElseThrow().toMap();
+
+        // Parity with fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // both access key and secret key blank => anonymous access.
+        Assertions.assertEquals("ANONYMOUS", backendMap.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 
     @Test

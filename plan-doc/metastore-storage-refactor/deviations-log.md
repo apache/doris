@@ -6,6 +6,14 @@
 
 ---
 
+## DV-005 — FU-T02 不新增 `credentialsProviderType` 字段（镜像 S3 的写法），改为内联镜像 legacy 基类条件
+- **日期**：2026-06-18 ｜ **原计划位置**：task `FU-T02` / D-011（「给 `Oss/Cos/ObsFileSystemProperties` 加 `credentialsProviderType` 字段（镜像 `S3FileSystemProperties`）」）。
+- **为何不可行/不必要**：现场 recon（对照 `fe-core .../datasource/property/storage`）证伪「镜像 S3 字段」是正确做法——
+  1. **legacy OSS/COS/OBS 没有可配置的 provider type**：`OSSProperties/COSProperties/OBSProperties` 均**不** override `AbstractS3CompatibleProperties.getAwsCredentialsProviderTypeForBackend()`（:124-129），该基类仅在 **ak/sk 皆空**时返回 `ANONYMOUS`、否则 `null`（省略）。只有 `S3Properties` override（:308 恒非空，故 S3 typed 才有字段）。加可配置字段会引入 legacy 不存在的旋钮，并可能对**有凭据** catalog 误发 `DEFAULT`（D-011/FU-T02 验收明确「**非**无条件 DEFAULT」）。
+  2. **`S3CredentialsProviderType` 枚举在 `fe-filesystem-s3`**，而 `fe-filesystem-{oss,cos,obs}` **不依赖** s3 模块（仅 `fe-filesystem-spi`）→ 复用须移类到 api/spi = 扩白名单 + AskUserQuestion。recon 结论是**反过来**：根本不需要共享类型。
+- **新方案**：在每个 `toBackendKv()` 末尾**内联**镜像 legacy `doBuildS3Configuration`(:117-120)——`StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)` 时 `kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS")`，否则省略；字面量 `"ANONYMOUS"` == `AwsCredentialsProviderMode.ANONYMOUS.name()`。**仅** BE map（`toBackendKv`），**不**碰 `toHadoopConfigurationMap`（legacy 该键只进 `getBackendConfigProperties`）。无字段、无枚举、无跨模块依赖、无白名单扩展、无 AskUserQuestion。
+- **影响范围**：FU-T02 实现仅落 `fe-filesystem-{oss,cos,obs}/src/main` 各 +5 行 + test 各 +2 断言；与原 D-011 **功能等价且更贴 legacy**（更简、更外科，CLAUDE.md Rule 2/3/7）；不影响 S3 typed（已有字段，行为不变）、不影响 R-006/FU-T03。**R-008 闭环**。
+
 ## DV-004 — P1-T04 BE 凭据全量切 typed 路会丢 HDFS BE 键（fe-filesystem 无 HDFS typed BE model）→ 用户定「按原计划全切、接受 HDFS 回归、follow-up 补 fe-filesystem HdfsFileSystemProperties」
 - **日期**：2026-06-17 ｜ **原计划位置**：设计 §5 T1 / WORKFLOW §5.2 T1 / **DV-002**（「P1-T03/T04 全量切换 fe-filesystem，含 P1-T04 BE 凭据也切 `toBackendProperties().toMap()`」，隐含与 P1-T03 同源等价）；task `P1-T04`。
 - **为何偏差（现场 recon 取证，对照真实代码）**：新 typed 路对 **HDFS 物理上产不出 BE 键**——
