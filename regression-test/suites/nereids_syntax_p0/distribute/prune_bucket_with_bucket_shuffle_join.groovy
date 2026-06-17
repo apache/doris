@@ -76,10 +76,14 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         assertTrue(exchangeNum > 1)
     }
 
+    // Pin parallelism so the bucket-shuffle downgrade heuristic
+    // (totalBucketNum < backEndNum*paraNum*0.8 in ChildrenPropertiesRegulator) cannot fire on
+    // high-core or multi-BE hosts; with paraNum=1 the 10-bucket left side keeps BUCKET_SHUFFLE.
     multi_sql """
         set enable_nereids_distribute_planner=true;
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
+        set parallel_pipeline_task_num=1;
         """
 
     extractFragment(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->

@@ -152,7 +152,7 @@ public class EnvFactory {
         if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
             return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
         }
-        return new Coordinator(context, planner, statsErrorEstimator);
+        return new Coordinator(context, planner, statsErrorEstimator, jobId);
     }
 
     // Used for broker load task/export task/update coordinator
