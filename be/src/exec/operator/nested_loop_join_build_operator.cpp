@@ -52,10 +52,21 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status NestedLoopJoinBuildSinkLocalState::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    if (_runtime_filter_producer_helper && !_shared_state->build_side_eos) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
+    return JoinBuildSinkLocalState::terminate(state);
+}
+
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
     // A filter built from only the incrementally published prefix is not a valid build-side
     // runtime filter. Publish it only when the build side really reached eos.
-    if (!state->is_cancelled() && _shared_state->build_side_eos) {
+    if (!state->is_cancelled() && _shared_state->build_side_eos && !_terminated) {
         RETURN_IF_ERROR(
                 _runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
     }
@@ -74,6 +85,8 @@ NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* p
                                                                    const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
                                                                     tnode, descs),
+          _enable_partial_build_output(NestedLoopJoinSharedState::can_output_from_partial_build(
+                  _join_op, _is_mark_join)),
           _row_descriptor(descs, tnode.row_tuples) {}
 
 Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -124,8 +137,8 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
     if (eos) {
         local_state._shared_state->build_side_eos = true;
         local_state._dependency->set_ready_to_read();
-    } else if (rows != 0 &&
-               NestedLoopJoinSharedState::can_output_from_partial_build(_join_op, _is_mark_join)) {
+    } else if (rows != 0 && _enable_partial_build_output &&
+               local_state._shared_state->probe_side_is_waiting_for_build()) {
         local_state._dependency->block();
         local_state._dependency->set_ready_to_read();
     }

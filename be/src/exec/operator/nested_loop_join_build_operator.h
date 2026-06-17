@@ -38,6 +38,7 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     bool is_finished() const override;
 
@@ -80,6 +81,7 @@ private:
 
     VExprContextSPtrs _filter_src_expr_ctxs;
 
+    const bool _enable_partial_build_output;
     RowDescriptor _row_descriptor;
 };
 

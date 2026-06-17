@@ -141,6 +141,9 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
     _update_visited_flags_timer = ADD_TIMER(custom_profile(), "UpdateVisitedFlagsTime");
     _join_conjuncts_evaluation_timer = ADD_TIMER(custom_profile(), "JoinConjunctsEvaluationTime");
     _filtered_by_join_conjuncts_timer = ADD_TIMER(custom_profile(), "FilteredByJoinConjunctsTime");
+    if (_can_output_from_partial_build()) {
+        _dependency->set_ready();
+    }
     return Status::OK();
 }
 
@@ -159,6 +162,16 @@ Status NestedLoopJoinProbeLocalState::open(RuntimeState* state) {
     }
     _construct_mutable_join_block();
     return Status::OK();
+}
+
+Status NestedLoopJoinProbeLocalState::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    _finish_probe_side_for_incremental_build();
+    return JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>::terminate(
+            state);
 }
 
 Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {

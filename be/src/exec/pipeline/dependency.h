@@ -775,6 +775,10 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
     }
 
     bool should_stop_build() const { return build_side_no_more_required; }
+    bool probe_side_is_waiting_for_build() const {
+        DCHECK_EQ(source_deps.size(), 1);
+        return !source_deps.front()->ready();
+    }
 
     // if true, probe child has no more rows to process
     bool probe_side_eos = false;
