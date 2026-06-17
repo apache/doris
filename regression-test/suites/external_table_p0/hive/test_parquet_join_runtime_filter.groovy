@@ -18,6 +18,10 @@
 import groovy.json.JsonSlurper
 
 suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,external_docker_hive") {
+    if (true) {
+        // 4.0 does not support this feature, skip it now.
+        return;
+    }
 
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress

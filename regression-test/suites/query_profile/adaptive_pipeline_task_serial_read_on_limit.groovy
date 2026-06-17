@@ -19,29 +19,34 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
-    // Sleep 500ms to wait for the profile collection 
-    Thread.sleep(500)
-    // Get profile list by using getProfileList
     def profileAction = new ProfileAction(suiteContext)
-    List profileData = profileAction.getProfileList()
-    // Find the profile id for the query that we just emitted
-    String profileId = ""
-    for (def profileItem : profileData) {
-        if (profileItem["Sql Statement"].toString().contains(stmt)) {
-            profileId = profileItem["Profile ID"].toString()
-            logger.info("Profile ID of ${stmt} is ${profileId}")
-            break
+    // The BE reports the detailed execution profile to FE asynchronously, after
+    // the query result has already been returned to the client and the FE
+    // coordinator has been torn down. Fetching too early yields a profile whose
+    // MergedProfile carries no operators, so the MaxScanConcurrency counter is
+    // not present yet. A fixed sleep keeps racing the report under CI load, so
+    // poll until the scan operator's MaxScanConcurrency counter has landed.
+    String profileContent = ""
+    Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until {
+        List profileData = profileAction.getProfileList()
+        // Find the profile id for the query that we just emitted
+        String profileId = ""
+        for (def profileItem : profileData) {
+            if (profileItem["Sql Statement"].toString().contains(stmt)) {
+                profileId = profileItem["Profile ID"].toString()
+                break
+            }
         }
+        if (profileId == "" || profileId == null) {
+            return false
+        }
+        profileContent = profileAction.getProfile(profileId)
+        return profileContent.contains("MaxScanConcurrency")
     }
-
-    if (profileId == "" || profileId == null) {
-        logger.error("Profile ID of ${stmt} is not found")
-        return false
-    }
-    // Get profile content by using getProfile
-    String profileContent = profileAction.getProfile(profileId)
     logger.info("Profile content of ${stmt} is\n${profileContent}")
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {
