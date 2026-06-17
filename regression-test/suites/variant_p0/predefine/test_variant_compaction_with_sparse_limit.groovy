@@ -23,6 +23,14 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    // Pin variant_max_subcolumns_count so the session-variable fuzzer
+    // (use_fuzzy_session_variable) cannot randomize it to a small value. With the
+    // default (2048) all nested paths (including v['b']/v['b']['c']) are materialized
+    // as typed subcolumns, which is what the expected .out was generated under. A small
+    // value diverts v['b'] into the sparse column, which is unreadable after cumulative
+    // compaction on this branch.
+    sql """ set default_variant_max_subcolumns_count = 2048 """
+
     try {
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))

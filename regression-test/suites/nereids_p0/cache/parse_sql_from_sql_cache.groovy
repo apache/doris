@@ -794,7 +794,11 @@ suite("parse_sql_from_sql_cache") {
                             sql "set enable_sql_cache=true"
                             sql "set enable_strong_consistency_read=true"
 
-                            assertNoCache "select * from test_use_plan_cache18"
+                            // Do NOT assertNoCache here: the sql cache result is held on the shared BE
+                            // (the FE picks the cache BE by a deterministic hash of the query), so once
+                            // fe1 above populated it this fe2 can legitimately serve the same query from
+                            // cache without having executed it locally. The point of this thread is only
+                            // that the cache is usable from a second FE, so just assert that.
                             sql "select * from test_use_plan_cache18"
                             assertHasCache "select * from test_use_plan_cache18"
                         }

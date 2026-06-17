@@ -733,8 +733,11 @@ public class OlapScanNode extends ScanNode {
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            setHasPartitionPredicate(ScanNode.containsPartitionPredicate(
+                    partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo));
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
+            setHasPartitionPredicate(false);
             selectedPartitionIds = olapTable.getPartitionIds();
         }
         selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);

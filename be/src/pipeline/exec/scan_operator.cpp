@@ -1224,11 +1224,6 @@ Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
         _slot_id_to_slot_desc[slot->id()] = slot;
     }
     for (auto id : topn_filter_source_node_ids) {
-        if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-            // compatible with older versions fe
-            continue;
-        }
-
         int cid = -1;
         if (state->get_query_ctx()->get_runtime_predicate(id).target_is_slot(node_id())) {
             auto s = _slot_id_to_slot_desc[state->get_query_ctx()

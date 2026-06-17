@@ -683,6 +683,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getCardinality()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getGlobal()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getEnable()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getRequirePartitionFilter()));
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getBlockCount().getValue()));
             Snapshot snapshot = sqlBlockRule.getTryBlockHistogram().getSnapshot();
             trow.addToColumnValue(new TCell().setLongVal((long) snapshot.getMean()));
@@ -1650,15 +1651,17 @@ public class MetadataGenerator {
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // REMOTE_DATA_SIZE
                     trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString())); // STATE
-                    trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getReplicaAllocation(partitionId)
-                            .toCreateStmt())); // REPLICA_ALLOCATION
+                    String replicaAllocation = PartitionsProcDir.getReplicaAllocationDisplay(
+                            partitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
+                    trow.addToColumnValue(new TCell().setStringVal(replicaAllocation)); // REPLICA_ALLOCATION
                     trow.addToColumnValue(new TCell().setIntVal(partitionInfo.getReplicaAllocation(partitionId)
                             .getTotalReplicaNum())); // REPLICA_NUM
                     trow.addToColumnValue(new TCell().setStringVal(partitionInfo
                             .getStoragePolicy(partitionId))); // STORAGE_POLICY
                     DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                    trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium()
-                            .name())); // STORAGE_MEDIUM
+                    String storageMedium = PartitionsProcDir
+                            .getStorageMediumDisplay(dataProperty.getStorageMedium().name());
+                    trow.addToColumnValue(new TCell().setStringVal(storageMedium)); // STORAGE_MEDIUM
                     trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(dataProperty
                             .getCooldownTimeMs()))); // COOLDOWN_TIME_MS
                     trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(partition

@@ -172,11 +172,6 @@ class ScanLocalState : public ScanLocalStateBase {
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
         for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
-            if (!state->get_query_ctx()->has_runtime_predicate(id)) {
-                // compatible with older versions fe
-                continue;
-            }
-
             const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
             if (!pred.enable()) {
                 continue;

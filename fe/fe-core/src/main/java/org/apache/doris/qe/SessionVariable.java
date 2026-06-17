@@ -5913,10 +5913,6 @@ public class SessionVariable implements Serializable, Writable {
     public static boolean enableStrictCast() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            StatementContext statementContext = connectContext.getStatementContext();
-            if (statementContext != null && statementContext.isInsert()) {
-                return connectContext.getSessionVariable().enableInsertStrict;
-            }
             return connectContext.getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
