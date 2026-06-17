@@ -72,6 +72,85 @@ constexpr uint32_t kMaxPathLen = 1024;
         }                                            \
     } while (false)
 
+const char* index_probe_source_name(IndexProbeSource source) {
+    switch (source) {
+    case IndexProbeSource::COLUMN_PREDICATE:
+        return "COLUMN_PREDICATE";
+    case IndexProbeSource::EXPR_PUSHDOWN:
+        return "EXPR_PUSHDOWN";
+    case IndexProbeSource::SEARCH_FUNCTION:
+        return "SEARCH_FUNCTION";
+    }
+    return "UNKNOWN";
+}
+
+const char* index_probe_state_name(IndexProbeState state) {
+    switch (state) {
+    case IndexProbeState::APPLIED:
+        return "APPLIED";
+    case IndexProbeState::FALLBACK:
+        return "FALLBACK";
+    case IndexProbeState::NOT_ATTEMPTED:
+        return "NOT_ATTEMPTED";
+    }
+    return "UNKNOWN";
+}
+
+const char* index_fallback_reason_name(IndexFallbackReason reason) {
+    switch (reason) {
+    case IndexFallbackReason::NONE:
+        return "NONE";
+    case IndexFallbackReason::MISSING_INDEX:
+        return "MISSING_INDEX";
+    case IndexFallbackReason::BYPASS:
+        return "BYPASS";
+    case IndexFallbackReason::NO_TERMS:
+        return "NO_TERMS";
+    case IndexFallbackReason::CORRUPTED:
+        return "CORRUPTED";
+    case IndexFallbackReason::EVALUATE_SKIPPED:
+        return "EVALUATE_SKIPPED";
+    case IndexFallbackReason::QUERY_DISABLED:
+        return "QUERY_DISABLED";
+    case IndexFallbackReason::NOT_SUPPORTED:
+        return "NOT_SUPPORTED";
+    }
+    return "UNKNOWN";
+}
+
+std::string describe_index_probe_events(const IndexReadResult& result) {
+    std::ostringstream oss;
+    oss << "\nindex_probe_events=" << result.stats.index_probe_events.size();
+    for (size_t i = 0; i < result.stats.index_probe_events.size(); ++i) {
+        const auto& event = result.stats.index_probe_events[i];
+        oss << "\n  [" << i << "]"
+            << " column_uid=" << event.column_uid
+            << " path=" << (event.variant_path.has_value() ? event.variant_path.value() : "<none>")
+            << " index_id=" << event.index_id << " segment_id=" << event.segment_id
+            << " source=" << index_probe_source_name(event.source)
+            << " state=" << index_probe_state_name(event.state)
+            << " reason=" << index_fallback_reason_name(event.reason)
+            << " counts_filter=" << event.counts_toward_filter_stats
+            << " input_rows=" << event.input_rows << " output_rows=" << event.output_rows
+            << " filtered_rows=" << event.filtered_rows;
+    }
+    return oss.str();
+}
+
+std::string describe_filter_stats(const IndexReadResult& result) {
+    std::ostringstream oss;
+    oss << "\nfilter_stats:"
+        << " rows_read=" << result.rows_read << " raw_rows_read=" << result.stats.raw_rows_read
+        << " total_segments=" << result.stats.total_segment_number
+        << " filtered_segments=" << result.stats.filtered_segment_number
+        << " rows_stats_filtered=" << result.stats.rows_stats_filtered
+        << " rows_stats_rp_filtered=" << result.stats.rows_stats_rp_filtered
+        << " rows_bf_filtered=" << result.stats.rows_bf_filtered
+        << " segment_dict_filtered=" << result.stats.segment_dict_filtered
+        << " rows_conditions_filtered=" << result.stats.rows_conditions_filtered;
+    return oss.str();
+}
+
 std::string escape_for_variant_index_suffix(const std::string& value) {
     auto hex_digit = [](int value) -> char {
         return value < 10 ? static_cast<char>('0' + value) : static_cast<char>('A' + value - 10);
@@ -220,6 +299,10 @@ TQueryOptions make_read_query_options(const IndexReadOptions& options) {
     query_options.__set_disable_file_cache(true);
     query_options.__set_enable_segment_cache(false);
     query_options.__set_batch_size(1024);
+    if (options.inverted_index_skip_threshold.has_value()) {
+        query_options.__set_inverted_index_skip_threshold(
+                options.inverted_index_skip_threshold.value());
+    }
     return query_options;
 }
 
@@ -970,6 +1053,9 @@ TabletSchemaSPtr build_schema_with_variant_path_column(const TabletSchema& base_
     path_column.set_variant_doc_hash_shard_count(parent_column.variant_doc_hash_shard_count());
     path_column.set_variant_enable_nested_group(parent_column.variant_enable_nested_group());
     path_column.set_is_nullable(true);
+    if (type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+        path_column.set_frac(0);
+    }
     schema->append_column(std::move(path_column));
     return schema;
 }
@@ -986,19 +1072,22 @@ void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_f
 }
 
 void expect_raw_rows_read(const IndexReadResult& result, int64_t expected_raw_rows_read) {
-    EXPECT_EQ(result.stats.raw_rows_read, expected_raw_rows_read);
+    EXPECT_EQ(result.stats.raw_rows_read, expected_raw_rows_read) << describe_filter_stats(result);
 }
 
 void expect_segment_pruned(const IndexReadResult& result, int64_t expected_filtered_segments) {
-    EXPECT_EQ(result.stats.filtered_segment_number, expected_filtered_segments);
+    EXPECT_EQ(result.stats.filtered_segment_number, expected_filtered_segments)
+            << describe_filter_stats(result);
 }
 
 void expect_zone_map_filtered(const IndexReadResult& result, int64_t expected_filtered_rows) {
-    EXPECT_EQ(result.stats.rows_stats_filtered, expected_filtered_rows);
+    EXPECT_EQ(result.stats.rows_stats_filtered, expected_filtered_rows)
+            << describe_filter_stats(result);
 }
 
 void expect_bloom_filter_filtered(const IndexReadResult& result, int64_t expected_filtered_rows) {
-    EXPECT_EQ(result.stats.rows_bf_filtered, expected_filtered_rows);
+    EXPECT_EQ(result.stats.rows_bf_filtered, expected_filtered_rows)
+            << describe_filter_stats(result);
 }
 
 void expect_inverted_index_used(const IndexReadResult& result) {
@@ -1007,20 +1096,24 @@ void expect_inverted_index_used(const IndexReadResult& result) {
             << result.stats.rows_inverted_index_filtered
             << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
             << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
-            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count;
-    EXPECT_EQ(result.stats.inverted_index_downgrade_count, 0);
+            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count
+            << describe_index_probe_events(result);
+    EXPECT_EQ(result.stats.inverted_index_downgrade_count, 0)
+            << describe_index_probe_events(result);
 }
 
 void expect_inverted_index_fallback(const IndexReadResult& result) {
     EXPECT_TRUE(result.inverted_index_attempted())
-            << "expected fallback after an inverted index attempt";
+            << "expected fallback after an inverted index attempt"
+            << describe_index_probe_events(result);
     EXPECT_TRUE(result.inverted_index_downgraded())
             << "expected scalar fallback downgrade, rows_inverted_index_filtered="
             << result.stats.rows_inverted_index_filtered
             << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
             << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
-            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count;
-    EXPECT_FALSE(result.inverted_index_used());
+            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count
+            << describe_index_probe_events(result);
+    EXPECT_FALSE(result.inverted_index_used()) << describe_index_probe_events(result);
 }
 
 void expect_inverted_index_not_attempted(const IndexReadResult& result) {
@@ -1029,7 +1122,8 @@ void expect_inverted_index_not_attempted(const IndexReadResult& result) {
             << result.stats.rows_inverted_index_filtered
             << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
             << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
-            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count;
+            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count
+            << describe_index_probe_events(result);
 }
 
 bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectation& expectation) {
@@ -1077,14 +1171,16 @@ bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectati
 void expect_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation) {
     EXPECT_TRUE(std::any_of(
             result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
-            [&](const auto& event) { return index_probe_matches(event, expectation); }));
+            [&](const auto& event) { return index_probe_matches(event, expectation); }))
+            << describe_index_probe_events(result);
 }
 
 void expect_no_index_probe(const IndexReadResult& result,
                            const IndexProbeExpectation& expectation) {
     EXPECT_FALSE(std::any_of(
             result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
-            [&](const auto& event) { return index_probe_matches(event, expectation); }));
+            [&](const auto& event) { return index_probe_matches(event, expectation); }))
+            << describe_index_probe_events(result);
 }
 
 int64_t count_index_probes(const IndexReadResult& result,
@@ -1096,7 +1192,8 @@ int64_t count_index_probes(const IndexReadResult& result,
 
 void expect_index_probe_count(const IndexReadResult& result,
                               const IndexProbeExpectation& expectation, int64_t expected_count) {
-    EXPECT_EQ(count_index_probes(result, expectation), expected_count);
+    EXPECT_EQ(count_index_probes(result, expectation), expected_count)
+            << describe_index_probe_events(result);
 }
 
 void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
@@ -1116,8 +1213,8 @@ void expect_applied_variant_path_index(const IndexReadResult& result, std::strin
         ++applied_events;
         filtered_rows += event.filtered_rows;
     }
-    EXPECT_GT(applied_events, 0);
-    EXPECT_EQ(filtered_rows, expected_filtered_rows);
+    EXPECT_GT(applied_events, 0) << describe_index_probe_events(result);
+    EXPECT_EQ(filtered_rows, expected_filtered_rows) << describe_index_probe_events(result);
 }
 
 void expect_index_not_applied(const IndexReadResult& result, int64_t index_id, int32_t column_uid) {

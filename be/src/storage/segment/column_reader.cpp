@@ -519,13 +519,23 @@ Status ColumnReader::_get_filtered_pages(
 
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     size_t page_size = _zone_map_index->num_pages();
+    VLOG_DEBUG << fmt::format("page zonemap start rows={} pages={} type={}", _num_rows, page_size,
+                              _data_type ? _data_type->get_name() : "null");
     for (size_t i = 0; i < page_size; ++i) {
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(cast_set<uint32_t>(i));
+            VLOG_DEBUG << fmt::format("page zonemap page={} pass_all=true keep=true", i);
         } else {
             segment_v2::ZoneMap zone_map;
             RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            if (_zone_map_match_condition(zone_map, col_predicates)) {
+            const bool matched = _zone_map_match_condition(zone_map, col_predicates);
+            VLOG_DEBUG << fmt::format(
+                    "page zonemap page={} pass_all=false has_null={} has_not_null={} "
+                    "min={} max={} predicate_match={}",
+                    i, zone_map.has_null, zone_map.has_not_null,
+                    zone_map.min_value.to_debug_string(0), zone_map.max_value.to_debug_string(0),
+                    matched);
+            if (matched) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
@@ -540,6 +550,7 @@ Status ColumnReader::_get_filtered_pages(
                 if (should_read) {
                     page_indexes->push_back(cast_set<uint32_t>(i));
                 }
+                VLOG_DEBUG << fmt::format("page zonemap page={} keep={}", i, should_read);
             }
         }
     }
@@ -558,9 +569,13 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     for (auto i : page_indexes) {
         ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
         ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i);
+        VLOG_DEBUG << fmt::format("page zonemap ranges page={} first={} last={}", i, page_first_id,
+                                  page_last_id);
         RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
         RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
     }
+    VLOG_DEBUG << fmt::format("page zonemap ranges result count={} ranges={}", row_ranges->count(),
+                              row_ranges->to_string());
     return Status::OK();
 }
 
@@ -2478,6 +2493,8 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
         RowRanges* row_ranges) {
+    VLOG_DEBUG << fmt::format("file column zonemap column={} has_zone_map={} rows={}",
+                              column_name(), _reader->has_zone_map(), _reader->num_rows());
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
                                                             row_ranges, _opts));

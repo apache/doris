@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/value/vdatetime_value.h"
@@ -60,6 +61,25 @@ std::shared_ptr<ColumnPredicate> int_greater(int32_t column_id, std::string colu
     return create_comparison_predicate<PredicateType::GT>(
             column_id, std::move(column_name), std::make_shared<DataTypeInt32>(),
             Field::create_field<TYPE_INT>(value), false);
+}
+
+DataTypePtr nullable_target_type(const DataTypePtr& type) {
+    return make_nullable(type);
+}
+
+DataTypePtr nullable_int32_target_type() {
+    return make_nullable(std::make_shared<DataTypeInt32>());
+}
+
+DataTypePtr nullable_int64_target_type() {
+    return make_nullable(std::make_shared<DataTypeInt64>());
+}
+
+void disable_bkd_skip_for_index_probe_assertions(IndexReadOptions* read_options) {
+    // These cases assert the field-pattern index binding all the way to an APPLIED
+    // probe. Tiny three-row segments can hit the default 50% BKD skip threshold first
+    // and report a valid INVERTED_INDEX_BYPASS fallback instead of an applied probe.
+    read_options->inverted_index_skip_threshold = 100;
 }
 
 VariantColumnSpec typed_pattern_variant_column() {
@@ -148,12 +168,28 @@ Field datetime_v2_field(int64_t yyyymmddhhmmss) {
 
 std::vector<std::string> split_int_variant_rows(size_t low_rows, int32_t low_value,
                                                 size_t high_rows, int32_t high_value) {
+    // Keep both ranges in one data source. The fixture flushes the rowset writer after
+    // each data source, so splitting low/high ranges into separate sources creates two
+    // segments and lets segment ZoneMap prune before page ZoneMap or BloomFilter can run.
     std::vector<std::string> rows;
     rows.reserve(low_rows + high_rows);
     for (size_t i = 0; i < low_rows; ++i) {
         rows.push_back(R"({"int_1": )" + std::to_string(low_value) + "}");
     }
     for (size_t i = 0; i < high_rows; ++i) {
+        rows.push_back(R"({"int_1": )" + std::to_string(high_value) + "}");
+    }
+    return rows;
+}
+
+std::vector<std::string> interleaved_int_variant_rows(size_t pairs, int32_t low_value,
+                                                      int32_t high_value) {
+    // BF assertions must keep both segment and page ZoneMaps matched. Alternating values keeps each
+    // page range wide enough that ZoneMap cannot prune before the BloomFilter reader is exercised.
+    std::vector<std::string> rows;
+    rows.reserve(pairs * 2);
+    for (size_t i = 0; i < pairs; ++i) {
+        rows.push_back(R"({"int_1": )" + std::to_string(low_value) + "}");
         rows.push_back(R"({"int_1": )" + std::to_string(high_value) + "}");
     }
     return rows;
@@ -214,8 +250,7 @@ void IndexStorageVariantFieldPatternIndexTest::run_typed_int_field_pattern_index
 
     IndexReadOptions read_options;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 42));
 
     auto before_compaction = read_rowsets(readable_rowsets.value(), read_options);
@@ -228,7 +263,7 @@ void IndexStorageVariantFieldPatternIndexTest::run_typed_int_field_pattern_index
     IndexReadOptions range_read_options;
     range_read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
     range_read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+            nullable_int32_target_type();
     range_read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 10));
 
     auto range_before_compaction = read_rowsets(readable_rowsets.value(), range_read_options);
@@ -275,10 +310,10 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedIntIndexAfterFullCompactio
     run_typed_int_field_pattern_index_lifecycle(IndexCompactionKind::FULL, 110033);
 }
 
-// Expected-red: BIGINT/DOUBLE/BOOL Variant field-pattern indexes currently downgrade instead of
-// producing applied index probes.
+// Non-INT typed Variant field-pattern indexes should bind to the matching path and report the
+// applied probe metadata for each physical storage type.
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_BigIntDoubleAndBoolFieldPatternIndexesUseExpectedPathAndIndexIds) {
+       BigIntDoubleAndBoolFieldPatternIndexesUseExpectedPathAndIndexIds) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_multi_typed_field_pattern_index_matrix")
                     .tablet_id(110040)
@@ -303,16 +338,22 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
     ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
 
-    auto read_and_verify = [&](std::string_view path, DataTypePtr data_type, Field value,
-                               int64_t index_id, int64_t expected_rows,
-                               int64_t expected_filtered_rows) {
+    auto read_and_verify = [&](std::string_view path, FieldType expected_storage_type,
+                               DataTypePtr data_type, Field value, int64_t index_id,
+                               int64_t expected_rows, int64_t expected_filtered_rows) {
         const int32_t path_column_id = column_id_by_path("v." + std::string(path));
         ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
         const auto& path_column = tablet_schema()->column(path_column_id);
+        EXPECT_EQ(path_column.type(), expected_storage_type)
+                << "unexpected storage type for " << path_column.name();
+        EXPECT_EQ(data_type->get_storage_field_type(), expected_storage_type)
+                << "unexpected predicate type for " << path_column.name();
 
         IndexReadOptions read_options;
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-        read_options.target_cast_type_for_variants[path_column.name()] = data_type;
+        read_options.target_cast_type_for_variants[path_column.name()] =
+                nullable_target_type(data_type);
+        disable_bkd_skip_for_index_probe_assertions(&read_options);
         read_options.predicates.push_back(
                 typed_equals(path_column_id, path_column.name(), data_type, value));
 
@@ -339,19 +380,20 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
         expect_index_not_applied(read_result.value(), kStringPatternIndexId);
     };
 
-    read_and_verify("big_1", std::make_shared<DataTypeInt64>(),
+    read_and_verify("big_1", FieldType::OLAP_FIELD_TYPE_BIGINT, std::make_shared<DataTypeInt64>(),
                     Field::create_field<TYPE_BIGINT>(Int64(9000000000LL)), kBigIntPatternIndexId, 2,
                     1);
-    read_and_verify("double_1", std::make_shared<DataTypeFloat64>(),
+    read_and_verify("double_1", FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                    std::make_shared<DataTypeFloat64>(),
                     Field::create_field<TYPE_DOUBLE>(Float64(3.5)), kDoublePatternIndexId, 1, 2);
-    read_and_verify("bool_1", std::make_shared<DataTypeBool>(),
+    read_and_verify("bool_1", FieldType::OLAP_FIELD_TYPE_BOOL, std::make_shared<DataTypeBool>(),
                     Field::create_field<TYPE_BOOLEAN>(UInt8(1)), kBoolPatternIndexId, 2, 1);
 }
 
-// Expected-red: DATEV2/DATETIMEV2 Variant field-pattern indexes should behave like the typed INT
-// matrix once typed path index probing is generalized beyond the currently green type.
+// DATEV2/DATETIMEV2 Variant field-pattern indexes should bind to the matching path and report the
+// expected applied probe metadata.
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_DateAndDateTimeFieldPatternIndexesUseExpectedPathAndIndexIds) {
+       DateAndDateTimeFieldPatternIndexesUseExpectedPathAndIndexIds) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_date_time_field_pattern_index_matrix")
                     .tablet_id(110044)
@@ -384,7 +426,9 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
 
         IndexReadOptions read_options;
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-        read_options.target_cast_type_for_variants[path_column.name()] = data_type;
+        read_options.target_cast_type_for_variants[path_column.name()] =
+                nullable_target_type(data_type);
+        disable_bkd_skip_for_index_probe_assertions(&read_options);
         read_options.predicates.push_back(
                 typed_equals(path_column_id, path_column.name(), data_type, value));
 
@@ -440,8 +484,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapP
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
@@ -452,10 +495,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapP
     expect_inverted_index_not_attempted(read_result.value());
 }
 
-// Expected-red: Variant typed-path zone-map pruning currently works at segment level, but does not
-// prune pages within a surviving segment.
-TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_TypedVariantPathPageZoneMapPrunesWithinSegment) {
+TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathPageZoneMapPrunesWithinSegment) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
     auto variant = typed_pattern_variant_column();
@@ -475,7 +515,15 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     auto rowsets = write_rowsets({rowset});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
-    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    // The initial flush can pack all 4096 values into a single data page whose ZoneMap is [1, 100].
+    // Verify page-level pruning only on the compacted rowset, where low/high values split by page.
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    auto reloaded = reload_rowsets({compacted.value()});
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(reloaded.value());
     ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
     const int32_t path_column_id = column_id_by_path("v.int_1");
     ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
@@ -484,17 +532,15 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, kHighRows);
     expect_segment_pruned(read_result.value(), 0);
-    EXPECT_GT(read_result->stats.raw_rows_read, 0);
-    EXPECT_LT(read_result->stats.raw_rows_read, static_cast<int64_t>(kLowRows + kHighRows));
-    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
+    expect_raw_rows_read(read_result.value(), kHighRows);
+    expect_zone_map_filtered(read_result.value(), kLowRows);
     expect_inverted_index_not_attempted(read_result.value());
 }
 
@@ -525,8 +571,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 42));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
@@ -536,10 +581,10 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_inverted_index_not_attempted(read_result.value());
 }
 
-// Expected-red: an unsafe target cast should make Variant typed-path zone-map pruning opt out
-// before page/segment pruning statistics are affected.
+// Expected-red: this is separate from the DORIS-26471 BF case fix. Today the extracted typed-path
+// column still uses segment ZoneMap pruning even when this test passes a different target cast.
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_UnsafeTargetCastSkipsVariantPathZoneMapPruning) {
+       TargetCastTypeMismatchSkipsVariantPathZoneMapPruning) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_unsafe_target_cast_zone_map_reverse_case")
                     .tablet_id(110047)
@@ -564,8 +609,9 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeString>();
+    // Keep nullability aligned with Variant typed paths so this case checks the stored
+    // physical type mismatch, not a nullable/non-nullable wrapper mismatch.
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int64_target_type();
     read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
@@ -577,10 +623,10 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_inverted_index_not_attempted(read_result.value());
 }
 
-// Expected-red: segment pruning works, but rows_stats_filtered is not updated for this Variant
-// typed-path zone-map prune path.
+// Expected-red: this is separate from the DORIS-26471 BF case fix. Segment-level typed-path ZoneMap
+// pruning works, but rows_stats_filtered is still not updated on this path.
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_TypedVariantPathZoneMapRowsStatsFilteredCountsPrunedRows) {
+       TypedVariantPathZoneMapRowsStatsFilteredCountsPrunedRows) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_typed_path_segment_zone_map_rows_stats")
                     .tablet_id(110042)
@@ -605,8 +651,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
@@ -618,10 +663,8 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_inverted_index_not_attempted(read_result.value());
 }
 
-// Expected-red: page-level Variant typed-path zone-map pruning updates rows_stats_filtered, but
-// rows_stats_rp_filtered remains zero today.
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_TypedVariantPathPageZoneMapRowsStatsRpFilteredCountsPrunedRows) {
+       TypedVariantPathPageZoneMapRowsStatsRpFilteredCountsPrunedRows) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
 
@@ -640,7 +683,15 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     auto rowsets = write_rowsets({rowset});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
-    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    // The initial flush can keep all 4096 values in a single data page whose ZoneMap is [1, 100].
+    // Use a compacted rowset so low/high values are split across pages and page pruning is testable.
+    auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    ASSERT_NE(compacted.value(), nullptr);
+    auto reloaded = reload_rowsets({compacted.value()});
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+
+    auto readable_rowsets = rowsets_with_variant_extended_schema(reloaded.value());
     ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
     const int32_t path_column_id = column_id_by_path("v.int_1");
     ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
@@ -649,24 +700,24 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, kHighRows);
-    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
-    EXPECT_GT(read_result->stats.rows_stats_rp_filtered, 0);
+    expect_segment_pruned(read_result.value(), 0);
+    expect_zone_map_filtered(read_result.value(), kLowRows);
+    EXPECT_EQ(read_result->stats.rows_stats_rp_filtered, kLowRows);
     expect_inverted_index_not_attempted(read_result.value());
 }
 
-// Expected-red: Variant subcolumn bloom filters should be inherited from the parent Variant column
-// and filter equality misses before zone-map pruning.
-TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DISABLED_VariantTypedPathBloomFilterFiltersMissingValue) {
+// Variant typed-path BloomFilter is inherited from the parent Variant column and filters equality
+// misses before ZoneMap pruning.
+TEST_F(IndexStorageVariantFieldPatternIndexTest, VariantTypedPathBloomFilterFiltersMissingValue) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
+    constexpr int32_t kMissingValueInsideSegmentZoneMap = 50;
     auto variant = typed_pattern_variant_column();
     variant.is_bf_column = true;
 
@@ -678,8 +729,8 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexRowsetSpec rowset;
     rowset.version = 0;
     rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
-    rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
-            split_int_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+    rowset.data_sources.push_back(
+            IndexDataSourceSpec::inline_variant(interleaved_int_variant_rows(kLowRows, 1, 100), 0));
 
     ASSERT_TRUE(create_tablet(options).ok());
     auto rowsets = write_rowsets({rowset});
@@ -694,9 +745,11 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
-    read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 999));
+    // Variant extracted paths are nullable in the extended schema. Keep the target cast nullable so
+    // can_apply_predicate_safely allows this case to exercise the BloomFilter reader.
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
+    read_options.predicates.push_back(
+            int_equals(path_column_id, path_column.name(), kMissingValueInsideSegmentZoneMap));
 
     ScopedDebugPoint must_filter("bloom_filter_must_filter_data");
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
@@ -736,8 +789,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     IndexReadOptions read_options;
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeInt32>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
     read_options.predicates.push_back(int_equals(path_column_id, path_column.name(), 999));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);

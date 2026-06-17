@@ -150,7 +150,8 @@ IndexReadOptions make_is_null_read_options(const TabletSchema& schema, int32_t p
 
     IndexReadOptions options;
     options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    options.target_cast_type_for_variants[path_column.name()] = std::make_shared<DataTypeInt32>();
+    options.target_cast_type_for_variants[path_column.name()] =
+            make_nullable(std::make_shared<DataTypeInt32>());
     options.common_expr_ctxs_push_down.push_back(make_is_null_context(1, is_null));
     return options;
 }
@@ -293,13 +294,16 @@ TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprUsesVariantFieldPatternInd
                                                });
 }
 
-TEST_F(IndexStorageVariantExprPushdownTest, DISABLED_IsNullExprUsesSparseVariantFieldPatternIndex) {
+TEST_F(IndexStorageVariantExprPushdownTest, IsNullExprSkipsSparseVariantFieldPatternIndex) {
     VariantColumnSpec variant;
     variant.unique_id = kVariantUid;
     variant.name = "v";
     variant.max_subcolumns_count = 1;
     variant.sparse_hash_shard_count = 2;
 
+    // "rare" is kept in the sparse map instead of a materialized typed subcolumn. The
+    // field-pattern index metadata should not make sparse map entries look indexable unless the
+    // writer creates a real sparse-path inverted index.
     const auto index_case =
             IndexStorageCaseBuilder("variant_sparse_is_null_expr_field_pattern_index")
                     .tablet_id(110038)
@@ -331,38 +335,16 @@ TEST_F(IndexStorageVariantExprPushdownTest, DISABLED_IsNullExprUsesSparseVariant
                          make_is_null_read_options(*tablet_schema(), path_column_id, false));
     ASSERT_TRUE(not_null_read.has_value()) << not_null_read.error();
     EXPECT_EQ(not_null_read->rows_read, 2);
-    expect_index_filter_stats(not_null_read.value(), 3);
-    expect_index_probe_count(not_null_read.value(),
-                             IndexProbeExpectation {
-                                     .source = IndexProbeSource::EXPR_PUSHDOWN,
-                                     .state = IndexProbeState::APPLIED,
-                                     .reason = IndexFallbackReason::NONE,
-                                     .column_uid = kVariantUid,
-                                     .variant_path = "rare",
-                                     .index_id = kSparseIntPatternIndexId,
-                                     .counts_toward_filter_stats = true,
-                                     .filtered_rows = std::nullopt,
-                             },
-                             2);
+    EXPECT_EQ(not_null_read->stats.rows_inverted_index_filtered, 0);
+    expect_inverted_index_not_attempted(not_null_read.value());
 
     auto null_read =
             read_rowsets(readable_rowsets.value(),
                          make_is_null_read_options(*tablet_schema(), path_column_id, true));
     ASSERT_TRUE(null_read.has_value()) << null_read.error();
     EXPECT_EQ(null_read->rows_read, 3);
-    expect_index_filter_stats(null_read.value(), 2);
-    expect_index_probe_count(null_read.value(),
-                             IndexProbeExpectation {
-                                     .source = IndexProbeSource::EXPR_PUSHDOWN,
-                                     .state = IndexProbeState::APPLIED,
-                                     .reason = IndexFallbackReason::NONE,
-                                     .column_uid = kVariantUid,
-                                     .variant_path = "rare",
-                                     .index_id = kSparseIntPatternIndexId,
-                                     .counts_toward_filter_stats = true,
-                                     .filtered_rows = std::nullopt,
-                             },
-                             2);
+    EXPECT_EQ(null_read->stats.rows_inverted_index_filtered, 0);
+    expect_inverted_index_not_attempted(null_read.value());
 }
 
 TEST_F(IndexStorageVariantExprPushdownTest, ArrayContainsUsesVariantArrayFieldPatternIndex) {

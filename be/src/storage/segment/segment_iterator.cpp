@@ -528,10 +528,6 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
-        if (!_segment->can_apply_predicate_safely(predicate->column_id(), *_schema,
-                                                  _opts.target_cast_type_for_variants, _opts)) {
-            continue;
-        }
         _col_predicates.emplace_back(predicate);
     }
     _tablet_id = opts.tablet_id;
@@ -1249,6 +1245,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
                     &column_row_ranges));
+            VLOG_DEBUG << fmt::format(
+                    "segment page zonemap column cid={} input_rows={} column_rows={} ranges={}",
+                    cid, num_rows(), column_row_ranges.count(), column_row_ranges.to_string());
             // intersect different columns's row ranges to get final row ranges by zone map
             RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
                                            &zone_map_row_ranges);
@@ -1258,11 +1257,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
 
-        size_t pre_size2 = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                       condition_row_ranges);
-        _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
-        _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+        const size_t zone_map_filtered_rows = pre_size - condition_row_ranges->count();
+        _opts.stats->rows_stats_rp_filtered += zone_map_filtered_rows;
+        _opts.stats->rows_stats_filtered += zone_map_filtered_rows;
+        VLOG_DEBUG << fmt::format(
+                "segment page zonemap stats pre_rows={} post_rows={} filtered_rows={} ranges={}",
+                pre_size, condition_row_ranges->count(), zone_map_filtered_rows,
+                condition_row_ranges->to_string());
     }
 
     return Status::OK();

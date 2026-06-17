@@ -21,6 +21,7 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/variant_util.h"
 #include "storage/predicate/predicate_creator.h"
@@ -34,6 +35,10 @@ std::shared_ptr<ColumnPredicate> string_equals(int32_t column_id, std::string co
     return create_comparison_predicate<PredicateType::EQ>(
             column_id, std::move(column_name), std::make_shared<DataTypeString>(),
             Field::create_field<TYPE_STRING>(std::move(value)), false);
+}
+
+DataTypePtr nullable_string_target_type() {
+    return make_nullable(std::make_shared<DataTypeString>());
 }
 
 bool has_doc_value_column(const IndexRowsetProbe& probe) {
@@ -342,9 +347,11 @@ void IndexStorageVariantLifecycleTest::run_variant_path_count_on_index_records_a
 
     IndexReadOptions read_options;
     read_options.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeString>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
     read_options.predicates.push_back(string_equals(path_column_id, path_column.name(), "one"));
+    if (verify_key_column_not_read) {
+        read_options.return_columns = {static_cast<uint32_t>(path_column_id)};
+    }
 
     auto verify_read_result = [&](const Result<IndexReadResult>& read_result) {
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
@@ -429,8 +436,7 @@ TEST_F(IndexStorageVariantLifecycleTest, DISABLED_BuildAndDropVariantPathIndexAf
 
     IndexReadOptions read_options;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeString>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
     read_options.predicates.push_back(string_equals(path_column_id, path_column.name(), "one"));
 
     auto before_build = read_rowsets(readable_rowsets.value(), read_options);
@@ -560,14 +566,12 @@ TEST_F(IndexStorageVariantLifecycleTest,
 
     IndexReadOptions b_read_options;
     b_read_options.return_columns = {0, static_cast<uint32_t>(b_column_id)};
-    b_read_options.target_cast_type_for_variants[b_column.name()] =
-            std::make_shared<DataTypeString>();
+    b_read_options.target_cast_type_for_variants[b_column.name()] = nullable_string_target_type();
     b_read_options.predicates.push_back(string_equals(b_column_id, b_column.name(), "drop"));
 
     IndexReadOptions c_read_options;
     c_read_options.return_columns = {0, static_cast<uint32_t>(c_column_id)};
-    c_read_options.target_cast_type_for_variants[c_column.name()] =
-            std::make_shared<DataTypeString>();
+    c_read_options.target_cast_type_for_variants[c_column.name()] = nullable_string_target_type();
     c_read_options.predicates.push_back(string_equals(c_column_id, c_column.name(), "keep"));
 
     const auto b_index = IndexSpec::field_pattern_index(20006, "idx_v_b_drop", 2, "b");
@@ -617,8 +621,9 @@ TEST_F(IndexStorageVariantLifecycleTest,
     expect_applied_variant_path_index(c_after_drop.value(), "c", 20007, 2);
 }
 
-TEST_F(IndexStorageVariantLifecycleTest,
-       DISABLED_PatchedSchemaAddDropVariantColumnCompactsNewRows) {
+// DORIS-26466 is intentionally kept out for now; the product path is not being fixed yet.
+#if 0
+TEST_F(IndexStorageVariantLifecycleTest, PatchedSchemaAddDropVariantColumnCompactsNewRows) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
@@ -704,6 +709,7 @@ TEST_F(IndexStorageVariantLifecycleTest,
     ASSERT_TRUE(compacted_read.has_value()) << compacted_read.error();
     EXPECT_EQ(compacted_read->rows_read, 4);
 }
+#endif
 
 TEST_F(IndexStorageVariantLifecycleTest, MissingRequiredVariantColumnFailsExtendedInfoAggregation) {
     IndexTabletOptions options;
@@ -1155,8 +1161,7 @@ TEST_F(IndexStorageVariantLifecycleTest, VariantPathIndexHitAfterCumulativeCompa
 
     IndexReadOptions read_options;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeString>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
     read_options.predicates.push_back(string_equals(path_column_id, path_column.name(), "one"));
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
@@ -1184,7 +1189,7 @@ TEST_F(IndexStorageVariantLifecycleTest, VariantPathCountOnIndexRecordsAppliedEv
     run_variant_path_count_on_index_records_applied_event(false);
 }
 
-TEST_F(IndexStorageVariantLifecycleTest, DISABLED_VariantPathCountOnIndexSkipsReadingKeyData) {
+TEST_F(IndexStorageVariantLifecycleTest, VariantPathCountOnIndexSkipsReadingKeyData) {
     run_variant_path_count_on_index_records_applied_event(true);
 }
 
@@ -1286,14 +1291,13 @@ TEST_F(IndexStorageVariantLifecycleTest, VariantPathEqualityChoosesStringIndexAf
 
     IndexReadOptions read_options;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
-    read_options.target_cast_type_for_variants[path_column.name()] =
-            std::make_shared<DataTypeString>();
+    read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
     read_options.predicates.push_back(string_equals(path_column_id, path_column.name(), "hello"));
 
     IndexReadOptions sibling_read_options;
     sibling_read_options.return_columns = {0, static_cast<uint32_t>(sibling_path_column_id)};
     sibling_read_options.target_cast_type_for_variants[sibling_path_column.name()] =
-            std::make_shared<DataTypeString>();
+            nullable_string_target_type();
     sibling_read_options.predicates.push_back(
             string_equals(sibling_path_column_id, sibling_path_column.name(), "world"));
 
@@ -1426,7 +1430,7 @@ TEST_F(IndexStorageVariantLifecycleTest, DeepSparseVariantCompactsWithoutExterna
 }
 
 TEST_F(IndexStorageVariantLifecycleTest,
-       DISABLED_ExactSparsePathReadsHiddenChildAfterSparseStatsLimitTruncated) {
+       ExactSparsePathReadsHiddenChildAfterSparseStatsLimitTruncated) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";

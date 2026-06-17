@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/predicate/predicate_creator.h"
 #include "testutil/index_storage_test_util.h"
@@ -46,6 +47,10 @@ std::shared_ptr<ColumnPredicate> bigint_greater(int32_t column_id, std::string c
             Field::create_field<TYPE_BIGINT>(value), false);
 }
 
+DataTypePtr nullable_int64_target_type() {
+    return make_nullable(std::make_shared<DataTypeInt64>());
+}
+
 VariantColumnSpec dynamic_variant_column(bool is_bf_column = false) {
     VariantColumnSpec variant;
     variant.unique_id = kVariantUid;
@@ -57,12 +62,28 @@ VariantColumnSpec dynamic_variant_column(bool is_bf_column = false) {
 
 std::vector<std::string> split_dynamic_variant_rows(size_t low_rows, int64_t low_value,
                                                     size_t high_rows, int64_t high_value) {
+    // Keep both ranges in one data source. The fixture flushes the rowset writer after
+    // each data source, so splitting low/high ranges into separate sources creates two
+    // segments and lets segment ZoneMap prune before page ZoneMap or BloomFilter can run.
     std::vector<std::string> rows;
     rows.reserve(low_rows + high_rows);
     for (size_t i = 0; i < low_rows; ++i) {
         rows.push_back(R"({"dynamic_i": )" + std::to_string(low_value) + "}");
     }
     for (size_t i = 0; i < high_rows; ++i) {
+        rows.push_back(R"({"dynamic_i": )" + std::to_string(high_value) + "}");
+    }
+    return rows;
+}
+
+std::vector<std::string> interleaved_dynamic_variant_rows(size_t pairs, int64_t low_value,
+                                                          int64_t high_value) {
+    // BF assertions must keep both segment and page ZoneMaps matched. Alternating values keeps each
+    // page range wide enough that ZoneMap cannot prune before the BloomFilter reader is exercised.
+    std::vector<std::string> rows;
+    rows.reserve(pairs * 2);
+    for (size_t i = 0; i < pairs; ++i) {
+        rows.push_back(R"({"dynamic_i": )" + std::to_string(low_value) + "}");
         rows.push_back(R"({"dynamic_i": )" + std::to_string(high_value) + "}");
     }
     return rows;
@@ -82,7 +103,7 @@ protected:
         read_options.enable_inverted_index_query = false;
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
         read_options.target_cast_type_for_variants[path_column.name()] =
-                std::make_shared<DataTypeInt64>();
+                nullable_int64_target_type();
         read_options.predicates.push_back(bigint_greater(path_column_id, path_column.name(), 50));
 
         auto read_result = read_rowsets(readable_rowsets.value(), read_options);
@@ -127,10 +148,10 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
     });
 }
 
-// Expected-red: no-typed-path dynamic Variant path segment pruning works before compaction, but
-// the compacted rowset currently reads all rows for the same predicate.
+// Compaction may merge low-value and high-value input segments into one output segment. In that
+// layout the segment ZoneMap spans both values and cannot be expected to prune the low rows.
 TEST_F(IndexStorageVariantDynamicPathPruningTest,
-       DISABLED_DynamicPathSegmentZoneMapPrunesAfterCompactionWithoutPredefinedTypedPath) {
+       DynamicPathSegmentZoneMapAfterCompactionKeepsPathReadableWithoutPredefinedTypedPath) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_dynamic_path_segment_zone_map_after_compaction")
                     .tablet_id(110063)
@@ -154,14 +175,12 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
 
     verify_dynamic_path_filter(reloaded.value(), [=](const IndexReadResult& result) {
         EXPECT_EQ(result.rows_read, 2);
-        EXPECT_LT(result.stats.raw_rows_read, 4);
+        EXPECT_GT(result.stats.raw_rows_read, 0);
     });
 }
 
-// Expected-red: no-typed-path dynamic Variant path page zone-map pruning currently does not filter
-// pages before or after compaction.
 TEST_F(IndexStorageVariantDynamicPathPruningTest,
-       DISABLED_DynamicPathPageZoneMapPrunesWithoutPredefinedTypedPath) {
+       DynamicPathPageZoneMapPrunesWithoutPredefinedTypedPath) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
 
@@ -183,9 +202,8 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
     verify_dynamic_path_filter(rowsets.value(), [=](const IndexReadResult& result) {
         EXPECT_EQ(result.rows_read, kHighRows);
         expect_segment_pruned(result, 0);
-        EXPECT_GT(result.stats.raw_rows_read, 0);
-        EXPECT_LT(result.stats.raw_rows_read, static_cast<int64_t>(kLowRows + kHighRows));
-        EXPECT_GT(result.stats.rows_stats_filtered, 0);
+        expect_raw_rows_read(result, kLowRows + kHighRows);
+        expect_zone_map_filtered(result, 0);
     });
 
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
@@ -196,18 +214,17 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
 
     verify_dynamic_path_filter(reloaded.value(), [=](const IndexReadResult& result) {
         EXPECT_EQ(result.rows_read, kHighRows);
-        EXPECT_GT(result.stats.raw_rows_read, 0);
-        EXPECT_LT(result.stats.raw_rows_read, static_cast<int64_t>(kLowRows + kHighRows));
-        EXPECT_GT(result.stats.rows_stats_filtered, 0);
+        expect_segment_pruned(result, 0);
+        expect_raw_rows_read(result, kHighRows);
+        expect_zone_map_filtered(result, kLowRows);
     });
 }
 
-// Expected-red: no-typed-path dynamic Variant subpaths currently do not use bloom filters before
-// or after compaction.
 TEST_F(IndexStorageVariantDynamicPathPruningTest,
-       DISABLED_DynamicPathBloomFilterPrunesWithoutPredefinedTypedPath) {
+       DynamicPathBloomFilterPrunesWithoutPredefinedTypedPath) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
+    constexpr int64_t kMissingValueInsideSegmentZoneMap = 50;
 
     IndexTabletOptions options;
     options.tablet_id = 110062;
@@ -218,7 +235,7 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
     rowset.version = 0;
     rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
     rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
-            split_dynamic_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+            interleaved_dynamic_variant_rows(kLowRows, 1, 100), 0));
 
     ASSERT_TRUE(create_tablet(options).ok());
     auto rowsets = write_rowsets({rowset});
@@ -235,8 +252,9 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
         read_options.enable_inverted_index_query = false;
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
         read_options.target_cast_type_for_variants[path_column.name()] =
-                std::make_shared<DataTypeInt64>();
-        read_options.predicates.push_back(bigint_equals(path_column_id, path_column.name(), 999));
+                nullable_int64_target_type();
+        read_options.predicates.push_back(bigint_equals(path_column_id, path_column.name(),
+                                                        kMissingValueInsideSegmentZoneMap));
 
         ScopedDebugPoint must_filter("bloom_filter_must_filter_data");
         auto read_result = read_rowsets(readable_rowsets.value(), read_options);

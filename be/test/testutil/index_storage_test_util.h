@@ -171,6 +171,7 @@ struct IndexReadOptions {
     bool enable_no_need_read_data_opt = true;
     bool enable_common_expr_pushdown = true;
     bool enable_inverted_index_query_cache = false;
+    std::optional<int32_t> inverted_index_skip_threshold = std::nullopt;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 };
 
