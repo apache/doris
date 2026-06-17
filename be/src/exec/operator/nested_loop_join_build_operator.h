@@ -39,6 +39,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    bool is_finished() const override;
 
     Blocks& build_blocks() { return _shared_state->build_blocks; }
 

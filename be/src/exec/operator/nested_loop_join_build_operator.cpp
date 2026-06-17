@@ -53,13 +53,19 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    if (!state->is_cancelled()) {
+    // A filter built from only the incrementally published prefix is not a valid build-side
+    // runtime filter. Publish it only when the build side really reached eos.
+    if (!state->is_cancelled() && _shared_state->build_side_eos) {
         RETURN_IF_ERROR(
                 _runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
     }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
+}
+
+bool NestedLoopJoinBuildSinkLocalState::is_finished() const {
+    return _shared_state->should_stop_build();
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
@@ -98,6 +104,10 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
                                                    bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    if (local_state._shared_state->should_stop_build()) {
+        return Status::OK();
+    }
+
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     auto rows = block->rows();
     auto mem_usage = block->allocated_bytes();
@@ -112,6 +122,11 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
     }
 
     if (eos) {
+        local_state._shared_state->build_side_eos = true;
+        local_state._dependency->set_ready_to_read();
+    } else if (rows != 0 &&
+               NestedLoopJoinSharedState::can_output_from_partial_build(_join_op, _is_mark_join)) {
+        local_state._dependency->block();
         local_state._dependency->set_ready_to_read();
     }
 

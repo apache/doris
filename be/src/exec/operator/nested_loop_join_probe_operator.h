@@ -114,6 +114,9 @@ private:
 
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(Block* block);
+    void _request_more_build_data();
+    void _finish_probe_side_for_incremental_build();
+    bool _can_output_from_partial_build() const;
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(Block& block, size_t batch_size);
     void _reset_with_next_probe_row();
@@ -237,6 +240,7 @@ private:
     int _probe_block_pos; // current scan pos in _probe_block
     int _probe_side_process_count = 0;
     bool _need_more_input_data = true;
+    bool _need_more_build_data = false;
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
     std::vector<int8_t> _cur_probe_row_mark_flags;

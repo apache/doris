@@ -770,8 +770,16 @@ struct PartitionedHashJoinSharedState
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
+    static bool can_output_from_partial_build(TJoinOp::type join_op, bool is_mark_join) {
+        return !is_mark_join && (join_op == TJoinOp::INNER_JOIN || join_op == TJoinOp::CROSS_JOIN);
+    }
+
+    bool should_stop_build() const { return build_side_no_more_required; }
+
     // if true, probe child has no more rows to process
     bool probe_side_eos = false;
+    bool build_side_eos = false;
+    bool build_side_no_more_required = false;
     // Visited flags for each row in build side.
     MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()
