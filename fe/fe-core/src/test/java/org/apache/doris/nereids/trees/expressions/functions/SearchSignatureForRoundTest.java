@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
@@ -38,7 +39,7 @@ public class SearchSignatureForRoundTest {
 
     private static final DoubleLiteral DOUBLE_VAL = new DoubleLiteral(81.56996587030717);
 
-    private static void assertDecimalReturn(int expectedScale, org.apache.doris.nereids.trees.expressions.Expression expr) {
+    private static void assertDecimalReturn(int expectedScale, Expression expr) {
         Assertions.assertTrue(expr.getDataType() instanceof DecimalV3Type,
                 () -> "expected DecimalV3Type, got " + expr.getDataType());
         DecimalV3Type t = (DecimalV3Type) expr.getDataType();
@@ -46,7 +47,7 @@ public class SearchSignatureForRoundTest {
                 () -> "expected scale=" + expectedScale + ", got " + t);
     }
 
-    private static void assertDoubleReturn(org.apache.doris.nereids.trees.expressions.Expression expr) {
+    private static void assertDoubleReturn(Expression expr) {
         Assertions.assertTrue(expr.getDataType() instanceof DoubleType,
                 () -> "expected DoubleType, got " + expr.getDataType());
     }
@@ -117,5 +118,17 @@ public class SearchSignatureForRoundTest {
         // FLOAT input keeps the original DOUBLE return path.
         SlotReference floatCol = new SlotReference("f", FloatType.INSTANCE);
         assertDoubleReturn(new Round(floatCol, new IntegerLiteral(2)));
+    }
+
+    @Test
+    void roundDoubleAtMaxPreservableScaleReturnsDecimal() {
+        // scale 15 == DOUBLE_DECIMAL.scale.
+        assertDecimalReturn(15, new Round(DOUBLE_VAL, new IntegerLiteral(15)));
+    }
+
+    @Test
+    void roundDoubleScaleAboveMaxPreservableStaysDouble() {
+        // scale 17 exceeds DOUBLE_DECIMAL.scale (15).
+        assertDoubleReturn(new Round(DOUBLE_VAL, new IntegerLiteral(17)));
     }
 }

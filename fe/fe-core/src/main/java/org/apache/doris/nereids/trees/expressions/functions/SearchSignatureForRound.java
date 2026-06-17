@@ -45,6 +45,9 @@ import java.util.List;
  * overflow during the cast.
  */
 public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
+
+    int DOUBLE_DECIMAL_RESULT_MAX_SCALE = 15;
+
     @Override
     default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
         List<Expression> arguments = getArguments();
@@ -53,7 +56,8 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
                 return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
             } else if (arguments.size() == 2) {
                 if (arguments.get(0).getDataType().isDoubleType()
-                        && isNonNegativeIntegerLiteral(arguments.get(1))) {
+                        && isNonNegativeIntegerLiteralAtMost(arguments.get(1),
+                                DOUBLE_DECIMAL_RESULT_MAX_SCALE)) {
                     return ExplicitlyCastableSignature.super.searchSignature(
                             withoutFloatLikeReturnTypes(signatures));
                 }
@@ -64,9 +68,9 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
     }
 
     /**
-     * True iff scale folds to a non-negative integer literal.
+     * True iff scale folds to an integer literal in the closed range [0, maxValue].
      */
-    static boolean isNonNegativeIntegerLiteral(Expression scale) {
+    static boolean isNonNegativeIntegerLiteralAtMost(Expression scale, int maxValue) {
         Expression folded = scale;
         if (!folded.isLiteral() && !folded.isSlot()) {
             ExpressionRewriteContext ctx = new ExpressionRewriteContext(CascadesContext.initTempContext());
@@ -78,7 +82,8 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
             unwrapped = unwrapped.child(0);
         }
         if (unwrapped instanceof IntegerLikeLiteral) {
-            return ((IntegerLikeLiteral) unwrapped).getIntValue() >= 0;
+            int value = ((IntegerLikeLiteral) unwrapped).getIntValue();
+            return value >= 0 && value <= maxValue;
         }
         return false;
     }
