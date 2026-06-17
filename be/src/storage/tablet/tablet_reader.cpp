@@ -27,7 +27,9 @@
 #include <memory>
 #include <numeric>
 #include <ostream>
+#include <set>
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -43,10 +45,12 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "storage/delete/delete_handler.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/itoken_extractor.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
@@ -75,6 +79,21 @@ Status TabletReader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
     }
     return res;
+}
+
+void TabletReader::remove_delete_columns_from_access_paths(
+        const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+        std::map<int32_t, TColumnAccessPaths>& all_access_paths) {
+    auto delete_predicates = AndBlockColumnPredicate::create_shared();
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            del_predicates_for_zone_map;
+    delete_handler.get_delete_conditions_after_version(0, delete_predicates.get(),
+                                                       &del_predicates_for_zone_map);
+    std::set<ColumnId> delete_column_ids;
+    delete_predicates->get_all_column_ids(delete_column_ids);
+    for (auto cid : delete_column_ids) {
+        all_access_paths.erase(tablet_schema.column(cid).unique_id());
+    }
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -198,6 +217,14 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
     _reader_context.all_access_paths = read_params.all_access_paths;
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
+
+    // Force a full read of delete-condition columns: the FE can't see storage deletes and may
+    // mark them meta-only (OFFSET/NULL), whose content-less read makes the delete predicate
+    // match nothing and leak deleted rows.
+    if (!_delete_handler.empty() && !_reader_context.all_access_paths.empty()) {
+        remove_delete_columns_from_access_paths(_delete_handler, *_tablet_schema,
+                                                _reader_context.all_access_paths);
+    }
 
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
