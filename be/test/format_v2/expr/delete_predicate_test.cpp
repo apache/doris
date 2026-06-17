@@ -99,14 +99,27 @@ TEST_F(DeletePredicateTest, DeletedRowsOutsideInputRangeReturnAllFalse) {
     EXPECT_EQ(result_column_data(block, result_column_id), std::vector<UInt8>({0, 0, 0}));
 }
 
-TEST_F(DeletePredicateTest, EmptyBlockDoesNotAppendResultColumn) {
+TEST_F(DeletePredicateTest, EmptyRowIdColumnAppendsEmptyResultColumn) {
     const std::vector<int64_t> deleted_rows {1, 2, 3};
-    Block block;
+    auto block = make_block({});
 
     int result_column_id = -1;
     auto status = execute_delete_predicate(deleted_rows, &block, &result_column_id);
     ASSERT_TRUE(status.ok()) << status;
 
+    EXPECT_EQ(block.columns(), 2);
+    EXPECT_EQ(result_column_id, 1);
+    EXPECT_EQ(result_column_data(block, result_column_id), std::vector<UInt8>({}));
+}
+
+TEST_F(DeletePredicateTest, MissingRowIdColumnReturnsError) {
+    const std::vector<int64_t> deleted_rows {1, 2, 3};
+    Block block;
+
+    int result_column_id = -1;
+    auto status = execute_delete_predicate(deleted_rows, &block, &result_column_id);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("invalid column id"), std::string::npos);
     EXPECT_EQ(block.columns(), 0);
     EXPECT_EQ(result_column_id, -1);
 }

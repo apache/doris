@@ -75,6 +75,11 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
     }
     int slot = -1;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &slot));
+    if (slot < 0 || static_cast<size_t>(slot) >= block->columns()) {
+        return Status::InternalError(
+                "DeletePredicate row id child returned invalid column id {}, block has {} columns",
+                slot, block->columns());
+    }
     const auto& row_ids =
             assert_cast<const ColumnInt64&>(*block->get_by_position(slot).column).get_data();
     const auto count = row_ids.size();
