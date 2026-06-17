@@ -193,7 +193,9 @@ public final class MetaPathNormalizer {
 
     /**
      * Level 1 — same-depth OFFSET strips NULL: {@code [a, OFFSET]} strips
-     * {@code [a, NULL]}.
+     * {@code [a, NULL]}. Uses type-aware comparison so that map-level
+     * {@code *}/VALUES equivalence is recognized
+     * (e.g. {@code [m, *, *, OFFSET]} strips {@code [m, VALUES, *, NULL]}).
      */
     private static void stripNullBySameDepthOffset(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
@@ -215,9 +217,14 @@ public final class MetaPathNormalizer {
                 if (other == path || other.isEmpty()) {
                     continue;
                 }
-                if (other.size() == path.size()
-                        && AccessPathInfo.ACCESS_OFFSET.equals(other.get(other.size() - 1))
-                        && other.subList(0, prefix.size()).equals(prefix)) {
+                if (other.size() != path.size()
+                        || !AccessPathInfo.ACCESS_OFFSET.equals(other.get(other.size() - 1))) {
+                    continue;
+                }
+                List<String> otherPrefix = other.subList(0, other.size() - 1);
+                OffsetPathRewrite rewrite = compareMetaPathPrefixCoverage(
+                        slot.getDataType(), prefix, otherPrefix);
+                if (rewrite.shouldRemoveOffsetPath()) {
                     toRemove.add(p);
                     break;
                 }
@@ -374,7 +381,7 @@ public final class MetaPathNormalizer {
     }
 
     /**
-     * Level 2 — for each target path ending with {@code targetSuffix}, remove it
+     * Level 2 — for each target path ending with {@code metaSuffix}, remove it
      * when a strictly deeper meta path has the target prefix as a strict prefix.
      *
      * <p>Both target and covering paths have their meta suffix stripped before
@@ -382,30 +389,40 @@ public final class MetaPathNormalizer {
      * is handled by {@link #stripNullBySameDepthOffset} instead.
      */
     private static void stripCoveredMetaByPrefix(
-            DataType slotType, int slotId, String targetSuffix,
-            List<List<String>> coveringMetaPaths,
+            DataType slotType, int slotId, String metaSuffix,
+            List<List<String>> coveringPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths) {
         Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths =
                 targetAccessPaths.get(slotId);
-        if (targetPaths.isEmpty() || coveringMetaPaths.isEmpty()) {
+        if (targetPaths.isEmpty() || coveringPaths.isEmpty()) {
             return;
         }
 
         List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            List<String> path = p.second;
-            if (path.isEmpty() || !targetSuffix.equals(path.get(path.size() - 1))) {
+            List<String> targetPath = p.second;
+            if (targetPath.isEmpty() || !metaSuffix.equals(targetPath.get(targetPath.size() - 1))) {
                 continue;
             }
-            List<String> targetPrefix = path.subList(0, path.size() - 1);
-            for (List<String> other : coveringMetaPaths) {
-                if (other == path || other.isEmpty()) {
+            List<String> targetPrefix = targetPath.subList(0, targetPath.size() - 1);
+            for (List<String> coveringPath : coveringPaths) {
+                if (coveringPath == targetPath || coveringPath.isEmpty()) {
+                    continue;
+                }
+                // Strip meta suffix from both and compare prefix depth: only
+                // strictly deeper covering paths subsume the target. Same-depth
+                // cross-type is handled by Level-1 priority (OFFSET > NULL).
+                if (coveringPath.size() - 1 <= targetPath.size() - 1) {
                     continue;
                 }
                 OffsetPathRewrite rewrite = compareMetaPathPrefixCoverage(
-                        slotType, targetPrefix, other);
+                        slotType, targetPrefix, coveringPath);
                 if (rewrite.shouldRemoveOffsetPath()) {
                     toRemove.add(p);
+                    for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                        pathsToAdd.add(Pair.of(p.first, supplementalPath));
+                    }
                     break;
                 }
             }
@@ -413,6 +430,7 @@ public final class MetaPathNormalizer {
         for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
             targetAccessPaths.remove(slotId, r);
         }
+        targetAccessPaths.putAll(slotId, pathsToAdd);
     }
 
     private static void stripCoveredOffsetByPaths(
@@ -566,8 +584,8 @@ public final class MetaPathNormalizer {
     }
 
     /**
-     * Walk {@code prefix} and {@code nonOffset} component-by-component, type-aware.
-     * Returns {@code remove()} when {@code nonOffset} already reads the container
+     * Walk {@code prefix} and {@code coveringPath} component-by-component, type-aware.
+     * Returns {@code remove()} when {@code coveringPath} already reads the container
      * targeted by the OFFSET/NULL path whose prefix is {@code prefix}, making the
      * meta path redundant.
      *
@@ -580,24 +598,24 @@ public final class MetaPathNormalizer {
      * </ul>
      */
     private static OffsetPathRewrite compareMetaPathPrefixCoverage(
-            DataType slotType, List<String> prefix, List<String> nonOffset) {
-        if (nonOffset.isEmpty()) {
+            DataType slotType, List<String> prefix, List<String> coveringPath) {
+        if (coveringPath.isEmpty()) {
             return OffsetPathRewrite.remove();
         }
-        int minLen = Math.min(prefix.size(), nonOffset.size());
+        int minLen = Math.min(prefix.size(), coveringPath.size());
         List<List<String>> supplementalPaths = new ArrayList<>();
         DataType currentType = slotType;
         for (int i = 0; i < minLen; i++) {
             String prefixComponent = prefix.get(i);
-            String nonOffsetComponent = nonOffset.get(i);
+            String coveringPathComponent = coveringPath.get(i);
             if (i == 0) {
-                if (!prefixComponent.equals(nonOffsetComponent)) {
+                if (!prefixComponent.equals(coveringPathComponent)) {
                     return OffsetPathRewrite.keep();
                 }
                 continue;
             }
             if (currentType.isStructType()) {
-                if (!prefixComponent.equals(nonOffsetComponent)) {
+                if (!prefixComponent.equals(coveringPathComponent)) {
                     return OffsetPathRewrite.keep();
                 }
                 StructField field = ((StructType) currentType).getField(prefixComponent);
@@ -608,7 +626,7 @@ public final class MetaPathNormalizer {
                 continue;
             }
             if (currentType.isArrayType()) {
-                if (!prefixComponent.equals(nonOffsetComponent)
+                if (!prefixComponent.equals(coveringPathComponent)
                         || !AccessPathInfo.ACCESS_ALL.equals(prefixComponent)) {
                     return OffsetPathRewrite.keep();
                 }
@@ -617,29 +635,29 @@ public final class MetaPathNormalizer {
             }
             if (currentType.isMapType()) {
                 MapType mapType = (MapType) currentType;
-                if (prefixComponent.equals(nonOffsetComponent)) {
+                if (prefixComponent.equals(coveringPathComponent)) {
                     currentType = descendMapType(mapType, prefixComponent);
                     continue;
                 }
                 if (AccessPathInfo.ACCESS_ALL.equals(prefixComponent)
-                        && AccessPathInfo.ACCESS_MAP_VALUES.equals(nonOffsetComponent)) {
+                        && AccessPathInfo.ACCESS_MAP_VALUES.equals(coveringPathComponent)) {
                     supplementalPaths.add(buildMapKeysOnlyPath(prefix, i));
                     currentType = mapType.getValueType();
                     continue;
                 }
                 if (AccessPathInfo.ACCESS_MAP_VALUES.equals(prefixComponent)
-                        && AccessPathInfo.ACCESS_ALL.equals(nonOffsetComponent)) {
+                        && AccessPathInfo.ACCESS_ALL.equals(coveringPathComponent)) {
                     currentType = mapType.getValueType();
                     continue;
                 }
                 if (AccessPathInfo.ACCESS_MAP_KEYS.equals(prefixComponent)
-                        && AccessPathInfo.ACCESS_ALL.equals(nonOffsetComponent)) {
+                        && AccessPathInfo.ACCESS_ALL.equals(coveringPathComponent)) {
                     currentType = mapType.getKeyType();
                     continue;
                 }
                 return OffsetPathRewrite.keep();
             }
-            if (!prefixComponent.equals(nonOffsetComponent)) {
+            if (!prefixComponent.equals(coveringPathComponent)) {
                 return OffsetPathRewrite.keep();
             }
         }
