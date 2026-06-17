@@ -103,4 +103,13 @@ suite("percentile") {
     qt_percentile_all_nan """select percentile(v_double, 0.5) from percentile_all_nan_t;"""
     qt_percentile_array_all_nan """select percentile_array(v_double, [0.25, 0.5, 0.75]) from percentile_all_nan_t;"""
     qt_percentile_approx_all_nan """select percentile_approx(v_double, 0.5) from percentile_all_nan_t;"""
+
+    test {
+        sql """select percentile(col_double, -0.1) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile(col_double, 1.1) from d_table;"""
+        exception "percentile quantile must be in [0, 1]"
+    }
 }

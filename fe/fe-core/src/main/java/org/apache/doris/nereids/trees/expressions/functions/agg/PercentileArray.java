@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -85,6 +87,28 @@ public class PercentileArray extends NotNullableAggregateFunction
         if (!getArgument(1).isConstant()) {
             throw new AnalysisException(
                     "percentile_array requires second parameter must be a constant : " + this.toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        Expression quantiles = getArgument(1);
+        if (!(quantiles instanceof ArrayLiteral)) {
+            return;
+        }
+        for (Expression item : ((ArrayLiteral) quantiles).getValue()) {
+            if (item instanceof NullLiteral) {
+                throw new AnalysisException(
+                        "percentile_array quantile should not be null : " + this.toSql());
+            }
+            if (!(item instanceof Literal) || !item.getDataType().isNumericType()) {
+                continue;
+            }
+            double value = ((Literal) item).getDouble();
+            if (value < 0.0 || value > 1.0) {
+                throw new AnalysisException("percentile_array quantile must be in [0, 1], but got "
+                        + value + ": " + this.toSql());
+            }
         }
     }
 

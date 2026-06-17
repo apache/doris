@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
@@ -85,15 +86,31 @@ public class PercentileApprox extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(1).isConstant()) {
+        Expression quantile = getArgument(1);
+        if (!quantile.isConstant()) {
             throw new AnalysisException(
                     "percentile_approx requires second parameter must be a constant : " + this.toSql());
         }
         if (arity() == 3) {
-            if (!getArgument(2).isConstant()) {
+            Expression compressionArg = getArgument(2);
+            if (!compressionArg.isConstant()) {
                 throw new AnalysisException(
                         "percentile_approx requires the third parameter must be a constant : " + this.toSql());
             }
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+        Expression quantile = getArgument(1);
+        if (!(quantile instanceof Literal) || !quantile.getDataType().isNumericType()) {
+            return;
+        }
+        double value = ((Literal) quantile).getDouble();
+        if (value < 0.0 || value > 1.0) {
+            throw new AnalysisException(
+                    "percentile_approx quantile must be in [0, 1], but got " + value + ": " + this.toSql());
         }
     }
 

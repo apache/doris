@@ -26,12 +26,14 @@
 #include <memory>
 #include <ostream>
 #include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/materialize_block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/util.hpp"
@@ -72,7 +74,8 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key,
           _without_key(without_key),
           _is_window_function(is_window_function),
           _data_type(DataTypeFactory::instance().create_data_type(
-                  desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)) {
+                  desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)),
+          _const_argument_idx(desc.num_children, false) {
     if (desc.agg_expr.__isset.param_types) {
         const auto& param_types = desc.agg_expr.param_types;
         for (const auto& param_type : param_types) {
@@ -255,7 +258,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
     }
-
     if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
     }
@@ -274,7 +276,38 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status AggFnEvaluator::open(RuntimeState* state) {
-    return VExpr::open(_input_exprs_ctxs, state);
+    RETURN_IF_ERROR(VExpr::open(_input_exprs_ctxs, state));
+    return _init_const_arguments();
+}
+
+// Agg functions such as percentile require some arguments to be constant, but
+// the const argument may still be represented as an unevaluated expression when
+// FE skips constant folding, e.g. percentile(x, 0.1 + 0.2). Such an expression
+// is not necessarily `VExpr::is_constant()`, so evaluate it after input exprs
+// are opened.
+
+Status AggFnEvaluator::_init_const_arguments() {
+    if (_is_merge) {
+        return Status::OK();
+    }
+
+    const auto& const_argument_indexes = _function->get_const_argument_indexes();
+    if (const_argument_indexes.empty()) {
+        return Status::OK();
+    }
+    for (const auto i : const_argument_indexes) {
+        if (i >= _input_exprs_ctxs.size()) [[unlikely]] {
+            return Status::InternalError("Aggregate function {} requires invalid const argument {}",
+                                         _function->get_name(), i);
+        }
+        _const_argument_idx[i] = true;
+    }
+
+    ColumnsWithTypeAndName const_arguments(_input_exprs_ctxs.size());
+    for (const auto i : const_argument_indexes) {
+        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_arguments[i]));
+    }
+    return _function->set_const_arguments(const_arguments);
 }
 
 void AggFnEvaluator::create(AggregateDataPtr place) {
@@ -381,15 +414,23 @@ Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
     std::vector<int> column_ids(_input_exprs_ctxs.size());
+
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        int column_id = -1;
-        RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
-        column_ids[i] = column_id;
-    }
-    materialize_block_inplace(*block, column_ids.data(),
-                              column_ids.data() + _input_exprs_ctxs.size());
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        _agg_columns[i] = block->get_by_position(column_ids[i]).column.get();
+        int column_id = block->columns();
+        if (_const_argument_idx[i]) {
+            ColumnWithTypeAndName const_argument;
+            RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute_const_expr(const_argument));
+            auto column = const_argument.column;
+            if (const auto* const_column = check_and_get_column<ColumnConst>(*column)) {
+                column = const_column->get_data_column_ptr();
+            }
+            const_argument.column = ColumnConst::create(std::move(column), block->rows());
+            block->insert(std::move(const_argument));
+        } else {
+            RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));
+            block->replace_by_position_if_const(column_id);
+        }
+        _agg_columns[i] = block->get_by_position(column_id).column.get();
     }
     return Status::OK();
 }
@@ -411,7 +452,8 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _data_type(evaluator._data_type),
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
-          _agg_columns(evaluator._agg_columns) {
+          _agg_columns(evaluator._agg_columns),
+          _const_argument_idx(evaluator._const_argument_idx) {
     if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         DataTypes tmp_argument_types;
         tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());

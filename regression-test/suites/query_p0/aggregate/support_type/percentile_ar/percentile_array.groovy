@@ -61,4 +61,13 @@ suite("percentile_array") {
     qt_percentile_array_largeint """select percentile_array(col_largeint, array(0.5, 0.8)) from d_table;"""
     qt_percentile_array_float """select percentile_array(col_float, array(0.5, 0.8)) from d_table;"""
     qt_percentile_array_double """select percentile_array(col_double, array(0.5, 0.8)) from d_table;"""
+
+    test {
+        sql """select percentile_array(col_double, array(-0.1, 0.8)) from d_table;"""
+        exception "percentile_array quantile must be in [0, 1]"
+    }
+    test {
+        sql """select percentile_array(col_double, array(0.5, 1.1)) from d_table;"""
+        exception "percentile_array quantile must be in [0, 1]"
+    }
 }
