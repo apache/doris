@@ -89,8 +89,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 def msg = exception.toString()
                 logger.info("exception: " + msg)
                 // 'date/datetime literal [+271768-09-11 00:00:00] is invalid'
-                // assertTrue(msg.contains('date/datetime literal') && msg.contains('is invalid'))
-                assertTrue(msg.contains('too small'))
+                assertTrue(msg.contains('date/datetime literal') && msg.contains('is invalid'))
             }
 
         }

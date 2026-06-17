@@ -353,10 +353,17 @@ public class TimeUtils {
                 ? temporal.get(ChronoField.MINUTE_OF_HOUR) : 0;
         int second = temporal.isSupported(ChronoField.SECOND_OF_MINUTE)
                 ? temporal.get(ChronoField.SECOND_OF_MINUTE) : 0;
-        int milliSecond = temporal.isSupported(ChronoField.MILLI_OF_SECOND)
-                ? temporal.get(ChronoField.MILLI_OF_SECOND) : 0;
+        int nanoSecond;
+        if (temporal.isSupported(ChronoField.NANO_OF_SECOND)) {
+            nanoSecond = temporal.get(ChronoField.NANO_OF_SECOND);
+        } else if (temporal.isSupported(ChronoField.MILLI_OF_SECOND)) {
+            // Fallback: some formatters only expose millisecond precision.
+            nanoSecond = temporal.get(ChronoField.MILLI_OF_SECOND) * 1_000_000;
+        } else {
+            nanoSecond = 0;
+        }
         return LocalDateTime.of(LocalDate.of(year, month, day),
-                LocalTime.of(hour, minute, second, milliSecond * 1000000));
+                LocalTime.of(hour, minute, second, nanoSecond));
     }
 
     private static String formatDateStr(String dateStr) {

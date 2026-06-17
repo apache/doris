@@ -51,28 +51,18 @@ public class FixedRangePartition extends PartitionDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        // Fixed-range bounds must match the partition column count exactly.
-        // Extra values are not silently dropped — reject them.
-        if (lowerBounds.size() != partitionTypes.size()) {
-            throw new AnalysisException(String.format(
-                    "Fixed range partition %s has %d lower bound values but %d partition column(s)",
-                    partitionName, lowerBounds.size(), partitionTypes.size()));
+        List<Expression> newLowerBounds = new ArrayList<>();
+        List<Expression> newUpperBounds = new ArrayList<>();
+        for (int i = 0; i < partitionTypes.size(); ++i) {
+            if (i < lowerBounds.size()) {
+                newLowerBounds.add(lowerBounds.get(i).castTo(partitionTypes.get(i)));
+            }
+            if (i < upperBounds.size()) {
+                newUpperBounds.add(upperBounds.get(i).castTo(partitionTypes.get(i)));
+            }
         }
-        if (upperBounds.size() != partitionTypes.size()) {
-            throw new AnalysisException(String.format(
-                    "Fixed range partition %s has %d upper bound values but %d partition column(s)",
-                    partitionName, upperBounds.size(), partitionTypes.size()));
-        }
-        // Route fixed-range bounds through the same strict typing /
-        // lossless-cast path that VALUES LESS THAN and IN use.
-        List<Expression> newLower = new ArrayList<>();
-        List<Expression> newUpper = new ArrayList<>();
-        for (int i = 0; i < partitionTypes.size(); i++) {
-            newLower.add(typedPartitionExpression(lowerBounds.get(i), i));
-            newUpper.add(typedPartitionExpression(upperBounds.get(i), i));
-        }
-        lowerBounds = newLower;
-        upperBounds = newUpper;
+        lowerBounds = newLowerBounds;
+        upperBounds = newUpperBounds;
     }
 
     public String getPartitionName() {

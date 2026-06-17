@@ -484,7 +484,7 @@ public class CreateTableInfoTest {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 stepPartition::translateToCatalogStyle);
         Assertions.assertTrue(exception.getMessage().contains(
-                "partition column number in multi partition clause must be one but start column size is 2, end column size is 2."));
+                "Number of partition boundary values (2 start, 2 end) exceeds partition column count (1)"));
     }
 
     @Test
@@ -498,7 +498,7 @@ public class CreateTableInfoTest {
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 alterMultiPartitionOp::getPartitionKeyDesc);
         Assertions.assertTrue(exception.getMessage().contains(
-                "partition column number in multi partition clause must be one but start column size is 2, end column size is 2."));
+                "Number of partition boundary values (2 start, 2 end) exceeds partition column count (1)"));
     }
 
     @Test

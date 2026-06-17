@@ -224,8 +224,14 @@ public abstract class PartitionDefinition {
         String value = ((Literal) expression).getStringValue();
         try {
             if (targetType.isDateTimeType() || targetType.isDateTimeV2Type() || targetType.isTimeStampTzType()) {
-                // TODO we need some lossless‌ cast check
-                return convertPartitionLiteral(value, targetType).checkedCastTo(targetType);
+                Literal literal = convertPartitionLiteral(value, targetType);
+                if (literal.getDataType().isInjectiveCastTo(targetType)) {
+                    return literal.castTo(targetType);
+                } else {
+                    throw new AnalysisException(String.format(
+                            "Partition value %s's data type %s is different from column's data type %s",
+                            literal, literal.getDataType(), targetType));
+                }
             }
             validateCharacterLength(value, targetType);
             LiteralExpr typedLiteral = LiteralExprUtils.createLiteral(
