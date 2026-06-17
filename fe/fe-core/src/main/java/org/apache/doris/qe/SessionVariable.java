@@ -1320,7 +1320,7 @@ public class SessionVariable implements Serializable, Writable {
             setter = "setLcTimeNames")
     public String lcTimeNames = "en_US";
 
-    @VarAttrDef.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
+    @VarAttrDef.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM, needForward = true)
     public int exchangeInstanceParallel = 256;
 
     @VarAttrDef.VarAttr(name = SQL_SAFE_UPDATES)
@@ -2594,7 +2594,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = true;
 
-    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE)
+    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE, needForward = true)
     public int loadStreamPerNode = 2;
 
     @VarAttrDef.VarAttr(name = GROUP_COMMIT, needForward = true)

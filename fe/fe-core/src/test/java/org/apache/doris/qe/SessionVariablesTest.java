@@ -134,6 +134,33 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testParallelExchangeInstanceNumForward() {
+        Map<String, String> forwardVars = sessionVariable.getForwardVariables();
+        Assertions.assertTrue(
+                forwardVars.containsKey(SessionVariable.PARALLEL_EXCHANGE_INSTANCE_NUM),
+                "parallel_exchange_instance_num should be in forward variables after needForward=true");
+
+        Assertions.assertEquals(256, sessionVariable.getExchangeInstanceParallel());
+
+        forwardVars.put(SessionVariable.PARALLEL_EXCHANGE_INSTANCE_NUM, "300");
+        sessionVariable.setForwardedSessionVariables(forwardVars);
+        Assertions.assertEquals(300, sessionVariable.getExchangeInstanceParallel());
+
+        forwardVars.put(SessionVariable.PARALLEL_EXCHANGE_INSTANCE_NUM, "201");
+        sessionVariable.setForwardedSessionVariables(forwardVars);
+        Assertions.assertEquals(201, sessionVariable.getExchangeInstanceParallel());
+    }
+
+    @Test
+    public void testCloneSessionVariablesWithSessionOriginValueNotEmpty() throws NoSuchFieldException {
+        Field txIsolation = SessionVariable.class.getField("txIsolation");
+        SessionVariableField txIsolationSessionVariableField = new SessionVariableField(txIsolation);
+        sessionVariable.addSessionOriginValue(txIsolationSessionVariableField, "test");
+
+        SessionVariable sessionVariableClone = VariableMgr.cloneSessionVariable(sessionVariable);
+    }
+
+    @Test
     public void testInsertVisibleTimeoutReturnModeDefaultsAndCheckerBranches() {
         // Cover the default branch and the helper methods used by setter/checker paths.
         SessionVariable sessionVar = new SessionVariable();
