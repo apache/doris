@@ -129,7 +129,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                v1,
                v2
         FROM binlog("table" = "test_dup_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql """
@@ -157,7 +157,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                v1,
                v2
         FROM binlog("table" = "test_mow_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql """
@@ -187,7 +187,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_with_before_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql """
@@ -238,7 +238,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_seq_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
 
     sql "SET skip_delete_bitmap = true"
@@ -253,7 +253,7 @@ suite("test_row_binlog_basic", "nonConcurrent") {
                __BEFORE__v1__,
                __BEFORE__v2__
         FROM binlog("table" = "test_mow_seq_with_binlog")
-        ORDER BY __DORIS_BINLOG_LSN__
+        ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
     """
     
     sql "SET skip_delete_bitmap = false"

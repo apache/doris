@@ -540,7 +540,7 @@ message TabletSchemaPB {
     // storage_format; the fallback path lives in TabletSchema::init_from_pb.
     optional TabletStorageFormatPB storage_format = 36;
 
-    // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
+    // cid of the binlog timestamp column (__DORIS_BINLOG_TSO__).
     optional int32 binlog_timestamp_col_idx = 37 [default = -1];
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).
@@ -596,7 +596,7 @@ message TabletSchemaCloudPB {
     // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
     optional TabletStorageFormatPB storage_format = 37;
 
-    // cid of the binlog timestamp column (__DORIS_BINLOG_TIMESTAMP__).
+    // cid of the binlog timestamp column (__DORIS_BINLOG_TSO__).
     optional int32 binlog_timestamp_col_idx = 38 [default = -1];
 
     // cid of the binlog lsn column (__DORIS_BINLOG_LSN__).

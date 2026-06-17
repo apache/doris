@@ -125,7 +125,7 @@ public:
     // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
     // For example, use lower rowset version / segment id first.
     bool use_insert_order_when_same = false;
-    int binlog_lsn_idx = -1;
+    int binlog_tso_idx = -1;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;

@@ -59,6 +59,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "cpp/sync_point.h"
+#include "exec/sink/autoinc_buffer.h"
 #include "exec/sink/vrow_distribution.h"
 #include "exec/sink/vtablet_block_convertor.h"
 #include "exec/sink/vtablet_finder.h"
@@ -72,6 +73,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "storage/binlog.h"
 #include "storage/tablet_info.h"
 #include "util/brpc_closure.h"
 #include "util/debug_points.h"
@@ -935,6 +937,9 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
             _cur_add_block_request->add_tablet_ids(row_part_tablet_ids->tablet_ids[route_idx]);
         }
     }
+    for (auto row_binlog_lsn : payload->row_binlog_lsns) {
+        _cur_add_block_request->add_row_binlog_lsns(row_binlog_lsn);
+    }
     _write_bytes.fetch_add(_cur_mutable_block->bytes());
 
     if (_cur_mutable_block->rows() >= _batch_size ||
@@ -959,6 +964,7 @@ Status VNodeChannel::add_block(Block* block, const Payload* payload) {
         _cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request->clear_tablet_ids();
         _cur_add_block_request->clear_partition_ids();
+        _cur_add_block_request->clear_row_binlog_lsns();
     }
 
     return Status::OK();
@@ -1684,6 +1690,12 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
+    bool has_row_binlog = std::any_of(_schema->indexes().begin(), _schema->indexes().end(),
+                                      [](const auto* index) { return index->row_binlog_id > 0; });
+    if (has_row_binlog) {
+        _row_binlog_lsn_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                _schema->db_id(), _schema->table_id(), kBinlogLsnAutoIncId);
+    }
     _schema->set_timestamp_ms(state->timestamp_ms());
     _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
@@ -2204,6 +2216,12 @@ Status VTabletWriter::_generate_one_index_channel_payload(
     auto& tablet_ids = row_part_tablet_id.tablet_ids;
 
     size_t row_cnt = row_ids.size();
+    bool has_row_binlog = _schema->indexes()[index_idx]->row_binlog_id > 0;
+    std::vector<int64_t> row_binlog_lsns;
+    if (has_row_binlog && row_cnt > 0) {
+        DCHECK(_row_binlog_lsn_buffer != nullptr);
+        RETURN_IF_ERROR(allocate_binlog_lsn(_row_binlog_lsn_buffer, row_cnt, row_binlog_lsns));
+    }
 
     for (size_t i = 0; i < row_ids.size(); i++) {
         if (_tablet_finder->is_adaptive_random_bucket() && config::is_cloud_mode()) {
@@ -2219,13 +2237,19 @@ Status VTabletWriter::_generate_one_index_channel_payload(
                 auto [tmp_it, _] = channel_payload.emplace(
                         partition_it->second.get(),
                         Payload {std::make_unique<IColumn::Selector>(), &row_part_tablet_id,
-                                 std::vector<uint32_t>()});
+                                 std::vector<uint32_t>(), std::vector<int64_t>()});
                 payload_it = tmp_it;
                 payload_it->second.row_ids->reserve(row_cnt);
                 payload_it->second.route_idxs.reserve(row_cnt);
+                if (has_row_binlog) {
+                    payload_it->second.row_binlog_lsns.reserve(row_cnt);
+                }
             }
             payload_it->second.row_ids->push_back(row_ids[i]);
             payload_it->second.route_idxs.push_back(cast_set<uint32_t>(i));
+            if (has_row_binlog) {
+                payload_it->second.row_binlog_lsns.push_back(row_binlog_lsns[i]);
+            }
             continue;
         }
 
@@ -2243,13 +2267,20 @@ Status VTabletWriter::_generate_one_index_channel_payload(
             if (payload_it == channel_payload.end()) {
                 auto [tmp_it, _] = channel_payload.emplace(
                         locate_node.get(), Payload {std::make_unique<IColumn::Selector>(),
-                                                    &row_part_tablet_id, std::vector<uint32_t>()});
+                                                    &row_part_tablet_id, std::vector<uint32_t>(),
+                                                    std::vector<int64_t>()});
                 payload_it = tmp_it;
                 payload_it->second.row_ids->reserve(row_cnt);
                 payload_it->second.route_idxs.reserve(row_cnt);
+                if (has_row_binlog) {
+                    payload_it->second.row_binlog_lsns.reserve(row_cnt);
+                }
             }
             payload_it->second.row_ids->push_back(row_ids[i]);
             payload_it->second.route_idxs.push_back(cast_set<uint32_t>(i));
+            if (has_row_binlog) {
+                payload_it->second.row_binlog_lsns.push_back(row_binlog_lsns[i]);
+            }
         }
     }
     return Status::OK();

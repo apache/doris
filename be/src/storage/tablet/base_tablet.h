@@ -374,7 +374,8 @@ protected:
     static bool _key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
                                        bool is_segments_key_bounds_truncated);
 
-    Status sort_block(Block& in_block, Block& output_block);
+    Status sort_block(Block& in_block, Block& output_block,
+                      std::vector<uint32_t>* permutation = nullptr);
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 

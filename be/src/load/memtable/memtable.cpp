@@ -31,6 +31,7 @@
 #include "core/column/column.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -51,13 +52,14 @@ using namespace ErrorCode;
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-                   const std::shared_ptr<ResourceContext>& resource_ctx)
+                   const std::shared_ptr<ResourceContext>& resource_ctx, bool need_row_binlog_lsn)
         : _mem_type(MemType::ACTIVE),
           _tablet_id(tablet_id),
           _enable_unique_key_mow(enable_unique_key_mow),
           _keys_type(tablet_schema->keys_type()),
           _tablet_schema(tablet_schema),
           _resource_ctx(resource_ctx),
+          _need_row_binlog_lsn(need_row_binlog_lsn),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
@@ -182,6 +184,8 @@ MemTable::~MemTable() {
         _agg_functions.clear();
         _input_mutable_block.clear();
         _output_mutable_block.clear();
+        // Release LSN sidecar capacity tracked by the memtable tracker.
+        DorisVector<int64_t>().swap(_output_row_binlog_lsns);
     }
     if (_is_flush_success) {
         // If the memtable is flush success, then its memtracker's consumption should be 0
@@ -197,10 +201,26 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
                                *_pblock, -1);
 }
 
-Status MemTable::insert(const Block* input_block, const DorisVector<uint32_t>& row_idxs) {
+Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& rows) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+    const auto& row_idxs = rows.row_idxs;
+    const auto& row_binlog_lsns = rows.row_binlog_lsns;
+
+    if (_need_row_binlog_lsn) {
+        if (row_binlog_lsns.empty()) {
+            return Status::InternalError(
+                    "row binlog lsn is missing for memtable insert, "
+                    "tablet_id={}",
+                    _tablet_id);
+        }
+        DCHECK_EQ(row_binlog_lsns.size(), row_idxs.size());
+    } else if (!row_binlog_lsns.empty()) {
+        return Status::InternalError(
+                "row binlog lsn is unexpectedly provided for memtable insert, tablet_id={}",
+                _tablet_id);
+    }
 
     if (_is_first_insertion) {
         _is_first_insertion = false;
@@ -245,15 +265,23 @@ Status MemTable::insert(const Block* input_block, const DorisVector<uint32_t>& r
     RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
                                                   row_idxs.data() + num_rows, &_column_offset));
     for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks->emplace_back(std::make_shared<RowInBlock>(cursor_in_mutableblock + i));
+        _row_in_blocks->emplace_back(std::make_shared<RowInBlock>(
+                cursor_in_mutableblock + i, _need_row_binlog_lsn ? row_binlog_lsns[i] : 0));
     }
 
     _stat.raw_rows += num_rows;
     return Status::OK();
 }
 
+void MemTable::_merge_row_binlog_lsn(RowInBlock* src_row, RowInBlock* dst_row) {
+    if (_need_row_binlog_lsn) {
+        dst_row->_row_binlog_lsn = std::max(dst_row->_row_binlog_lsn, src_row->_row_binlog_lsn);
+    }
+}
+
 void MemTable::_aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
                                                     RowInBlock* src_row, RowInBlock* dst_row) {
+    _merge_row_binlog_lsn(src_row, dst_row);
     // for each mapping replace value columns according to the sequence column compare result
     // for example: a b c d s1 s2  (key:a , s1=>[b,c], s2=>[d])
     // src row:     1 4 5 6  8 9
@@ -293,6 +321,7 @@ void MemTable::_aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
 template <bool has_skip_bitmap_col>
 void MemTable::_aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* src_row,
                                            RowInBlock* dst_row) {
+    _merge_row_binlog_lsn(src_row, dst_row);
     // for flexible partial update, the caller must guarantees that either src_row and dst_row
     // both specify the sequence column, or src_row and dst_row both don't specify the
     // sequence column
@@ -341,8 +370,14 @@ Status MemTable::_put_into_output(Block& in_block) {
     DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
+    if (_need_row_binlog_lsn) {
+        _output_row_binlog_lsns.reserve(_output_row_binlog_lsns.size() + in_block.rows());
+    }
     for (int i = 0; i < _row_in_blocks->size(); i++) {
         row_pos_vec.emplace_back((*_row_in_blocks)[i]->_row_pos);
+        if (_need_row_binlog_lsn) {
+            _output_row_binlog_lsns.emplace_back((*_row_in_blocks)[i]->_row_binlog_lsn);
+        }
     }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                           row_pos_vec.data() + in_block.rows());
@@ -401,8 +436,19 @@ Status MemTable::_sort_by_cluster_keys() {
 
     DorisVector<std::shared_ptr<RowInBlock>> row_in_blocks;
     row_in_blocks.reserve(mutable_block.rows());
+    if (_need_row_binlog_lsn) {
+        DCHECK_EQ(_output_row_binlog_lsns.size(), mutable_block.rows());
+    }
     for (size_t i = 0; i < mutable_block.rows(); i++) {
-        row_in_blocks.emplace_back(std::make_shared<RowInBlock>(i));
+        if (_need_row_binlog_lsn) {
+            row_in_blocks.emplace_back(std::make_shared<RowInBlock>(i, _output_row_binlog_lsns[i]));
+        } else {
+            row_in_blocks.emplace_back(std::make_shared<RowInBlock>(i));
+        }
+    }
+    if (_need_row_binlog_lsn) {
+        _output_row_binlog_lsns.clear();
+        _output_row_binlog_lsns.reserve(mutable_block.rows());
     }
     Tie tie = Tie(0, mutable_block.rows());
 
@@ -434,6 +480,9 @@ Status MemTable::_sort_by_cluster_keys() {
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < row_in_blocks.size(); i++) {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
+        if (_need_row_binlog_lsn) {
+            _output_row_binlog_lsns.emplace_back(row_in_blocks[i]->_row_binlog_lsn);
+        }
     }
     std::vector<int> column_offset;
     for (int i = 0; i < _column_offset.size(); ++i) {
@@ -496,6 +545,9 @@ void MemTable::_finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, i
             _output_mutable_block.get_column_by_position(i)->insert_from(
                     *mutable_block.get_column_by_position(i), row->_row_pos);
         }
+    }
+    if (_need_row_binlog_lsn) {
+        _output_row_binlog_lsns.emplace_back(row->_row_binlog_lsn);
     }
     if constexpr (!is_final) {
         row->_row_pos = row_pos;
@@ -589,6 +641,7 @@ void MemTable::_aggregate() {
         //TODO(weixang):opt here.
         _output_mutable_block = MutableBlock::build_mutable_block(std::move(*empty_input_block));
         _output_mutable_block.clear_column_data();
+        _output_row_binlog_lsns.clear();
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();
     }
@@ -642,6 +695,7 @@ void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
             if (cur_row_has_delete_sign) {
                 if (row_without_delete_sign != nullptr) {
                     // if there exits row without delete sign, remove it first
+                    _merge_row_binlog_lsn(row_without_delete_sign.get(), cur_row);
                     _clear_row_agg(row_without_delete_sign.get());
                     _stat.merged_rows++;
                     row_without_delete_sign = nullptr;
@@ -752,10 +806,17 @@ size_t MemTable::get_flush_reserve_memory_size() const {
 }
 
 Status MemTable::_to_block(std::unique_ptr<Block>* res) {
+    _output_row_binlog_lsns.clear();
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
+            if (_need_row_binlog_lsn) {
+                _output_row_binlog_lsns.reserve(_row_in_blocks->size());
+                for (const auto& row : *_row_in_blocks) {
+                    _output_row_binlog_lsns.emplace_back(row->_row_binlog_lsn);
+                }
+            }
         } else {
             Block in_block = _input_mutable_block.to_block();
             RETURN_IF_ERROR(_put_into_output(in_block));
@@ -770,6 +831,9 @@ Status MemTable::_to_block(std::unique_ptr<Block>* res) {
                     "Partial update for mow with cluster keys is not supported");
         }
         RETURN_IF_ERROR(_sort_by_cluster_keys());
+    }
+    if (_need_row_binlog_lsn) {
+        DCHECK_EQ(_output_row_binlog_lsns.size(), _output_mutable_block.rows());
     }
     _input_mutable_block.clear();
     *res = Block::create_unique(_output_mutable_block.to_block());

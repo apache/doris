@@ -393,7 +393,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
-    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/op/lsn/before
+    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/op/tso/before
     // columns to drive the row-level merge in BlockReader. The storage-layer
     // statistics fast path (VStatisticsIterator, picked when push_down_agg_type
     // is COUNT/MINMAX) bypasses SegmentIterator entirely, returning raw segment
@@ -469,8 +469,8 @@ Status OlapScanner::_init_tablet_reader_params(
     };
 
     // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
-    // every key column, every requested value column, the binlog meta columns (op / lsn /
-    // tso) and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
+    // every key column, every requested value column, the binlog meta columns (op / tso)
+    // and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
     const bool need_before_columns =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
@@ -486,8 +486,8 @@ Status OlapScanner::_init_tablet_reader_params(
             op_idx >= 0) {
             add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
-        if (int32_t lsn_idx = tablet_schema->binlog_lsn_col_idx(); lsn_idx >= 0) {
-            add_return_column_if_absent(static_cast<uint32_t>(lsn_idx));
+        if (int32_t tso_idx = tablet_schema->binlog_timestamp_col_idx(); tso_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(tso_idx));
         }
 
         for (auto cid : _return_columns) {

@@ -682,7 +682,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
 void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   const PFetchDataRequest* request, PFetchDataResult* result,
                                   google::protobuf::Closure* done) {
-    // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
+    // row_binlog_segment_writer is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
     auto ctx = GetResultBatchCtx::create_shared(result, done);
     TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id

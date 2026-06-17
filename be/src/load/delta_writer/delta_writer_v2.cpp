@@ -144,12 +144,12 @@ Status DeltaWriterV2::init() {
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+Status DeltaWriterV2::write(const Block* block, const TabletAddRowsPayload& rows,
                             const std::function<Status()>& cancel_check, bool* memtable_flushed) {
     if (memtable_flushed != nullptr) {
         *memtable_flushed = false;
     }
-    if (UNLIKELY(row_idxs.empty())) {
+    if (UNLIKELY(rows.row_idxs.empty())) {
         return Status::OK();
     }
     if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
@@ -180,7 +180,7 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
         }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
-    return _memtable_writer->write(block, row_idxs, memtable_flushed);
+    return _memtable_writer->write(block, rows, memtable_flushed);
 }
 
 Status DeltaWriterV2::close() {

@@ -199,7 +199,7 @@ protected:
 
     Status create_group_flush_token(const GroupFlushTestContext& ctx,
                                     const std::shared_ptr<GroupRowsetWriter>& group_writer,
-                                    int64_t start_lsn, std::shared_ptr<FlushToken>* flush_token,
+                                    std::shared_ptr<FlushToken>* flush_token,
                                     ThreadPool* pool = nullptr) {
         auto table_schema_param = create_group_flush_table_schema_param(ctx);
         if (table_schema_param == nullptr) {
@@ -216,14 +216,10 @@ protected:
             *flush_token = std::move(token);
         }
 
-        auto row_binlog_lsn_buffer = AutoIncIDBuffer::create_shared(
-                table_schema_param->db_id(), table_schema_param->table_id(), kBinlogLsnAutoIncId);
-        row_binlog_lsn_buffer->append_range_for_test(start_lsn, ctx.memtable->raw_rows());
-        (*flush_token)->set_row_binlog_lsn_buffer_for_test(row_binlog_lsn_buffer);
         return Status::OK();
     }
 
-    void prepare_group_flush_test_context(int64_t tablet_id, int32_t schema_hash,
+    void prepare_group_flush_test_context(int64_t tablet_id, int32_t schema_hash, int64_t start_lsn,
                                           GroupFlushTestContext* ctx) {
         ctx->request = testutil::create_tablet_request(tablet_id, schema_hash, 30002, 3,
                                                        TKeysType::UNIQUE_KEYS,
@@ -247,7 +243,7 @@ protected:
 
         ctx->memtable = std::make_shared<MemTable>(
                 ctx->request.tablet_id, ctx->tablet->tablet_schema(), &ctx->tuple_desc->slots(),
-                ctx->tuple_desc, false, nullptr, thread_context()->resource_ctx());
+                ctx->tuple_desc, false, nullptr, thread_context()->resource_ctx(), true);
         Block block;
         for (const auto& slot : ctx->tuple_desc->slots()) {
             block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
@@ -263,7 +259,10 @@ protected:
             cols[1]->insert_data((const char*)&k2, sizeof(k2));
             cols[2]->insert_data((const char*)&k3, sizeof(k3));
         }
-        ASSERT_TRUE(ctx->memtable->insert(&block, {0}).ok());
+        TabletAddRowsPayload rows;
+        rows.row_idxs.emplace_back(0);
+        rows.row_binlog_lsns.emplace_back(start_lsn);
+        ASSERT_TRUE(ctx->memtable->insert(&block, rows).ok());
     }
 
     void drop_tablet(const TCreateTabletReq& request) {
@@ -446,7 +445,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
 
     {
         GroupFlushTestContext ctx;
-        prepare_group_flush_test_context(10001, 270068373, &ctx);
+        prepare_group_flush_test_context(10001, 270068373, 1000, &ctx);
 
         std::atomic<int> data_flush_cnt = 0;
         std::atomic<int> binlog_flush_cnt = 0;
@@ -457,7 +456,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
                 create_group_rowset_writer(ctx, 1, data_writer, binlog_writer, &group_writer).ok());
 
         std::shared_ptr<FlushToken> flush_token;
-        ASSERT_TRUE(create_group_flush_token(ctx, group_writer, 1000, &flush_token).ok());
+        ASSERT_TRUE(create_group_flush_token(ctx, group_writer, &flush_token).ok());
         ASSERT_TRUE(flush_token->submit(ctx.memtable).ok());
         ASSERT_TRUE(flush_token->wait().ok());
         EXPECT_EQ(1, data_flush_cnt.load());
@@ -477,7 +476,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
 
     {
         GroupFlushTestContext ctx;
-        prepare_group_flush_test_context(10002, 270068374, &ctx);
+        prepare_group_flush_test_context(10002, 270068374, 2000, &ctx);
 
         std::atomic<int> data_flush_cnt = 0;
         std::atomic<int> binlog_flush_cnt = 0;
@@ -489,7 +488,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
                 create_group_rowset_writer(ctx, 2, data_writer, binlog_writer, &group_writer).ok());
 
         std::shared_ptr<FlushToken> flush_token;
-        ASSERT_TRUE(create_group_flush_token(ctx, group_writer, 2000, &flush_token).ok());
+        ASSERT_TRUE(create_group_flush_token(ctx, group_writer, &flush_token).ok());
         ASSERT_TRUE(flush_token->submit(ctx.memtable).ok());
 
         Status wait_st = flush_token->wait();
@@ -509,7 +508,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
     SCOPED_INIT_THREAD_CONTEXT();
 
     GroupFlushTestContext ctx;
-    prepare_group_flush_test_context(10003, 270068375, &ctx);
+    prepare_group_flush_test_context(10003, 270068375, 3000, &ctx);
 
     std::atomic<int> data_flush_cnt = 0;
     std::atomic<int> binlog_flush_cnt = 0;
@@ -527,7 +526,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
                         .ok());
 
     std::shared_ptr<FlushToken> flush_token;
-    ASSERT_TRUE(create_group_flush_token(ctx, group_writer, 3000, &flush_token, pool.get()).ok());
+    ASSERT_TRUE(create_group_flush_token(ctx, group_writer, &flush_token, pool.get()).ok());
     ASSERT_TRUE(flush_token->submit(ctx.memtable).ok());
 
     Status wait_st = flush_token->wait();

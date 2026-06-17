@@ -203,7 +203,7 @@ public:
         }
     }
 
-    // The tso column (__DORIS_BINLOG_TIMESTAMP__) is a NULL placeholder on disk on a
+    // The tso column (__DORIS_BINLOG_TSO__) is a NULL placeholder on disk on a
     // single-version binlog segment, replaced with the real commit_tso at read time
     // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
     // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.

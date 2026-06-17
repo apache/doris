@@ -142,26 +142,24 @@ inline auto make_row_binlog_key(const TabletUid& tablet_uid, const RowsetId& row
 // Allocate per-row LSNs for row-binlog data.
 // The caller must provide a valid auto-inc buffer (typically from GlobalAutoIncBuffers).
 inline Status allocate_binlog_lsn(const std::shared_ptr<AutoIncIDBuffer>& lsn_buffer,
-                                  size_t num_rows, std::shared_ptr<std::vector<int64_t>>* lsn_ids) {
+                                  size_t num_rows, std::vector<int64_t>& lsn_ids) {
     if (lsn_buffer == nullptr) {
         return Status::InternalError("binlog<row> try to get lsn buffer but null");
     }
-    DCHECK(lsn_ids != nullptr);
     DCHECK(num_rows > 0);
 
     std::vector<std::pair<int64_t, size_t>> ranges;
     RETURN_IF_ERROR(lsn_buffer->sync_request_ids(num_rows, &ranges));
 
-    auto ids = std::make_shared<std::vector<int64_t>>();
-    ids->reserve(num_rows);
+    lsn_ids.clear();
+    lsn_ids.reserve(num_rows);
     for (const auto& [start, length] : ranges) {
         for (size_t i = 0; i < length; ++i) {
             DCHECK_LE(start, std::numeric_limits<int64_t>::max() - static_cast<int64_t>(i));
-            ids->push_back(start + static_cast<int64_t>(i));
+            lsn_ids.push_back(start + static_cast<int64_t>(i));
         }
     }
-    DCHECK_EQ(ids->size(), num_rows);
-    *lsn_ids = std::move(ids);
+    DCHECK_EQ(lsn_ids.size(), num_rows);
     return Status::OK();
 }
 
@@ -169,11 +167,6 @@ constexpr int64_t kTsoLogicalBits = 18;
 
 inline int64_t extract_tso_physical_time(int64_t tso) {
     return tso <= 0 ? 0 : tso >> kTsoLogicalBits;
-}
-
-inline int128_t make_row_binlog_lsn(int64_t tso, int128_t row_id) {
-    static constexpr int128_t kLow64Mask = (static_cast<int128_t>(1) << 64) - 1;
-    return (static_cast<int128_t>(tso) << 64) | (row_id & kLow64Mask);
 }
 
 namespace segment_v2 {
@@ -225,6 +218,8 @@ public:
         std::shared_ptr<MowContext> mow_context;
         bool is_transient_rowset_writer = false;
         DataWriteType source_write_type = DataWriteType::TYPE_DEFAULT;
+        // input rowset's row-binlog, read LSN from it at publish time
+        RowsetSharedPtr row_binlog_rowset = nullptr;
     } source;
 
     void insert_seg_lsn(int64_t seg_id, std::shared_ptr<std::vector<int64_t>> lsn_ids) {

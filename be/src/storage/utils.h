@@ -39,7 +39,7 @@ static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
-static const std::string BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
+static const std::string BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TSO__";
 static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
 
