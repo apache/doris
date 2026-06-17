@@ -41,6 +41,13 @@ suite("exponential_moving_average") {
         select exponential_moving_average(5.0, v, t) from ema_test;
     """
 
+    test {
+        sql """
+            select exponential_moving_average(v, v, t) from ema_test;
+        """
+        exception "The half_decay argument of exponential_moving_average must be a constant"
+    }
+
     // Single-row: EMA of one value (v=95, t=1) with half_decay=1
     // state={95,1}, sum_weights(1)=1/(1-0.5)=2, result=95/2=47.5
     qt_single_row """

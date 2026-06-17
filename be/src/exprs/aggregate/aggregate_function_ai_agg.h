@@ -22,11 +22,14 @@
 #include <memory>
 
 #include "common/status.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
@@ -275,6 +278,37 @@ public:
 
     bool is_blockable() const override { return true; }
 
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        static const std::vector<size_t> indexes {0, 2};
+        return indexes;
+    }
+
+    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
+        const auto& const_resource_name =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*arguments[0].column);
+        const IColumn* resource_name_column = &const_resource_name.get_data_column();
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
+                    *const_resource_name.get_data_column_ptr())) {
+            resource_name_column = &nullable_column->get_nested_column();
+        }
+        _resource_name =
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*resource_name_column)
+                        .get_data_at(0)
+                        .to_string();
+
+        const auto& const_task =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*arguments[2].column);
+        const IColumn* task_column = &const_task.get_data_column();
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(*const_task.get_data_column_ptr())) {
+            task_column = &nullable_column->get_nested_column();
+        }
+        _task = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*task_column)
+                        .get_data_at(0)
+                        .to_string();
+        return Status::OK();
+    }
+
     void create(AggregateDataPtr __restrict place) const override {
         new (place) AggregateFunctionAIAggData;
         data(place).set_query_context(_ctx);
@@ -282,11 +316,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        data(place).prepare(
-                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                        .get_data_at(0),
-                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2])
-                        .get_data_at(0));
+        data(place).prepare(StringRef(_resource_name), StringRef(_task));
 
         data(place).add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                 .get_data_at(row_num));
@@ -295,11 +325,7 @@ public:
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
         if (!data(place).inited) {
-            data(place).prepare(
-                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                            .get_data_at(0),
-                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2])
-                            .get_data_at(0));
+            data(place).prepare(StringRef(_resource_name), StringRef(_task));
         }
 
         const auto& data_column =
@@ -310,9 +336,9 @@ public:
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
-        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_const_argument_column_type<ColumnString>(columns[0]);
         this->template check_argument_column_type<ColumnString>(columns[1]);
-        this->template check_argument_column_type<ColumnString>(columns[2]);
+        this->template check_const_argument_column_type<ColumnString>(columns[2]);
     }
 
     void reset(AggregateDataPtr place) const override {
@@ -349,6 +375,8 @@ public:
 
 private:
     QueryContext* _ctx = nullptr;
+    std::string _resource_name;
+    std::string _task;
 };
 
 } // namespace doris

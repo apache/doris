@@ -72,15 +72,26 @@ public class PercentileReservoir extends NullableAggregateFunction
             throw new AnalysisException(
                     "percentile_reservoir requires second parameter must be a constant : " + this.toSql());
         }
-        if (levelArgument instanceof Literal) {
+        if (levelArgument instanceof Literal && levelArgument.getDataType().isNumericType()) {
             double value = ((Literal) levelArgument).getDouble();
             if (value < 0 || value > 1) {
                 throw new AnalysisException(
                         "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
             }
-        } else {
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+        Expression levelArgument = getArgument(1);
+        if (!(levelArgument instanceof Literal) || !levelArgument.getDataType().isNumericType()) {
+            return;
+        }
+        double value = ((Literal) levelArgument).getDouble();
+        if (value < 0 || value > 1) {
             throw new AnalysisException(
-                "percentile_reservoir requires second parameter must be a constant: " + this.toSql());
+                    "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
         }
     }
 

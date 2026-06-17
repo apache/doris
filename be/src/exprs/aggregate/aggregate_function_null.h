@@ -29,12 +29,16 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/block/columns_with_type_and_name.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_distinct.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -44,6 +48,8 @@ protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
     bool is_window_function = false;
+    std::vector<bool> const_argument_idx;
+    bool has_const_null_argument = false;
 
     /** In addition to data for nested aggregate function, we keep a flag
       *  indicating - was there at least one non-NULL value accumulated.
@@ -111,7 +117,8 @@ public:
                                     const DataTypes& arguments, bool is_window_function_)
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)},
-              is_window_function(is_window_function_) {
+              is_window_function(is_window_function_),
+              const_argument_idx(arguments.size(), false) {
         DCHECK(nested_function_ != nullptr);
         if constexpr (result_is_nullable) {
             if (this->is_window_function) {
@@ -134,6 +141,29 @@ public:
     }
 
     bool is_blockable() const override { return nested_function->is_blockable(); }
+
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        return nested_function->get_const_argument_indexes();
+    }
+
+    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
+        has_const_null_argument = false;
+        const auto& const_argument_indexes = nested_function->get_const_argument_indexes();
+        for (auto index : const_argument_indexes) {
+            if (index >= arguments.size() || !arguments[index].column) [[unlikely]] {
+                return Status::InternalError(
+                        "Aggregate function {} requires invalid const argument {}",
+                        nested_function->get_name(), index);
+            }
+            const auto& argument = arguments[index];
+            const_argument_idx[index] = true;
+            if (this->argument_types[index]->is_nullable() && argument.column->is_null_at(0)) {
+                has_const_null_argument = true;
+                return Status::OK();
+            }
+        }
+        return this->nested_function->set_const_arguments(arguments);
+    }
 
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
@@ -346,6 +376,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
+        if (this->has_const_null_argument) {
+            return;
+        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (!column->is_null_at(row_num)) {
@@ -359,7 +392,7 @@ public:
 
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
-        const auto* column = check_and_get_column<ColumnNullable>(*columns[0]);
+        const auto* column = check_and_get_column_with_const<ColumnNullable>(*columns[0]);
         if (UNLIKELY(column == nullptr)) {
             throw doris::Exception(Status::InternalError(
                     "Aggregate function {} argument 0 type check failed: Column type {} is not "
@@ -385,6 +418,9 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
                    const IColumn** columns, Arena& arena, bool agg_many) const override {
+        if (this->has_const_null_argument) {
+            return;
+        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();
@@ -413,6 +449,9 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
+        if (this->has_const_null_argument) {
+            return;
+        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         bool has_null = column->has_null();
@@ -431,6 +470,9 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena& arena, bool has_null) override {
+        if (this->has_const_null_argument) {
+            return;
+        }
         const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
 
@@ -606,10 +648,17 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
+        if (this->has_const_null_argument) {
+            return;
+        }
         /// This container stores the columns we really pass to the nested function.
         std::vector<const IColumn*> nested_columns(number_of_arguments);
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
+            if (this->const_argument_idx[i]) {
+                nested_columns[i] = nullptr;
+                continue;
+            }
             if (is_nullable[i]) {
                 const auto& nullable_col =
                         assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
@@ -635,7 +684,8 @@ public:
         std::vector<const IColumn*> nested_columns(number_of_arguments);
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
-                const auto* nullable_col = check_and_get_column<ColumnNullable>(*columns[i]);
+                const auto* nullable_col =
+                        check_and_get_column_with_const<ColumnNullable>(*columns[i]);
                 if (UNLIKELY(nullable_col == nullptr)) {
                     throw doris::Exception(Status::InternalError(
                             "Aggregate function {} argument {} type check failed: Column type {} "

@@ -188,6 +188,17 @@ public:
         return Status::OK();
     }
 
+    // Only used by agg_state wrapper functions.
+    virtual Status set_const_arguments(const ColumnsWithTypeAndName& /*arguments*/) {
+        return Status::OK();
+    }
+
+    // Only used by agg_state wrapper functions.
+    virtual const std::vector<size_t>& get_const_argument_indexes() const {
+        static const std::vector<size_t> indexes;
+        return indexes;
+    }
+
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t input_rows_count) const {
         // Some function implementations may not handle the case where input_rows_count is 0
@@ -497,6 +508,14 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->close(context, scope);
+    }
+
+    Status set_const_arguments(const ColumnsWithTypeAndName& const_arguments) override {
+        return function->set_const_arguments(const_arguments);
+    }
+
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        return function->get_const_argument_indexes();
     }
 
     Status evaluate_inverted_index(

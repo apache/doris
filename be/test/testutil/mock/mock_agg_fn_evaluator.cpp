@@ -36,6 +36,8 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge, bo
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
     mock_agg_fn_evaluator->_input_exprs_ctxs =
             MockSlotRef::create_mock_contexts(mock_agg_fn_evaluator->_function->get_return_type());
+    mock_agg_fn_evaluator->_const_argument_idx.resize(
+            mock_agg_fn_evaluator->_input_exprs_ctxs.size(), false);
     return mock_agg_fn_evaluator;
 }
 
@@ -47,6 +49,8 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs
             BeExecVersionManager::get_newest_version(), {.column_names = {}});
     EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
     mock_agg_fn_evaluator->_input_exprs_ctxs = input_exprs_ctxs;
+    mock_agg_fn_evaluator->_const_argument_idx.resize(
+            mock_agg_fn_evaluator->_input_exprs_ctxs.size(), false);
     return mock_agg_fn_evaluator;
 }
 
@@ -64,6 +68,8 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
         mock_agg_fn_evaluator->_input_exprs_ctxs.push_back(
                 MockSlotRef::create_mock_context(i, args_types[i]));
     }
+    mock_agg_fn_evaluator->_const_argument_idx.resize(
+            mock_agg_fn_evaluator->_input_exprs_ctxs.size(), false);
     mock_agg_fn_evaluator->_data_type = mock_agg_fn_evaluator->_function->get_return_type();
     return mock_agg_fn_evaluator;
 }

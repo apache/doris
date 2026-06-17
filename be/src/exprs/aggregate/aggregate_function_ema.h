@@ -20,14 +20,19 @@
 
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <memory>
 
 #include "core/assert_cast.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "exprs/vexpr_context.h"
 
 namespace doris {
 class Arena;
@@ -135,24 +140,40 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
+    const std::vector<size_t>& get_const_argument_indexes() const override {
+        static const std::vector<size_t> indexes {0};
+        return indexes;
+    }
+
+    Status set_const_arguments(const ColumnsWithTypeAndName& arguments) override {
+        const auto& const_half_decay =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(*arguments[0].column);
+        const IColumn* half_decay_column = &const_half_decay.get_data_column();
+        if (const auto* nullable_column =
+                    check_and_get_column<ColumnNullable>(*const_half_decay.get_data_column_ptr())) {
+            half_decay_column = &nullable_column->get_nested_column();
+        }
+        _half_decay =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*half_decay_column)
+                        .get_data()[0];
+        return Status::OK();
+    }
+
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        const double half_decay =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0])
-                        .get_data()[row_num];
         const double new_value =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                         .get_data()[row_num];
         const double current_time =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2])
                         .get_data()[row_num];
-        this->data(place).add(new_value, current_time, half_decay);
+        this->data(place).add(new_value, current_time, _half_decay);
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
-        this->template check_argument_column_type<ColumnFloat64>(columns[0]);
+        this->template check_const_argument_column_type<ColumnFloat64>(columns[0]);
         this->template check_argument_column_type<ColumnFloat64>(columns[1]);
         this->template check_argument_column_type<ColumnFloat64>(columns[2]);
     }
@@ -175,6 +196,9 @@ public:
         assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 this->data(place).get());
     }
+
+private:
+    double _half_decay = 0.0;
 };
 
 } // namespace doris
