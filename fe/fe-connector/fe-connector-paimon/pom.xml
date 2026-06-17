@@ -64,15 +64,6 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Shared, fe-core-free storage-property parsing/normalization (raw props -> fs.s3a.*/fs.oss.* map).
-             Replaces the hand-ported applyCanonical* storage-config blocks. Bundled child-first in the plugin
-             zip (it + its only sibling dep fe-foundation carry no heavy deps). -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-property</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
         <dependency>
             <groupId>${project.groupId}</groupId>

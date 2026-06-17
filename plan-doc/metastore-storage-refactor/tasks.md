@@ -65,10 +65,12 @@
 - **对抗 review（`wf_09745716-d48`，10 agent，3 lens + verify）**：7 finding,confirm 4。**(1) MAJOR=R-008**（fe-filesystem OSS/COS/OBS typed BE map 缺 `AWS_CREDENTIALS_PROVIDER_TYPE`,无凭据 catalog 的 legacy `ANONYMOUS` 丢失;**fix 在 fe-filesystem 超白名单**→记 R-008 + **follow-up FU-T02**,仅影响无 ak/sk 的 OSS/COS/OBS）;**(2) MINOR→已修**（fake 恒 `Optional.of` 漏 `.ifPresent` 空分支→新增上述测试覆盖）;**(3) NIT→已修**（多 entry merge 未测→同测试覆盖）;**(4) NIT→已修**（非空 ctx+空 list→同测试覆盖）。verify 推翻 3 假 finding（AWS_BUCKET/ROOT_PATH 超集=DV-002 已接受非回归;「测试没钉新 seam」被**实测 mutation 推翻**——回退旧 seam→RED;OverlaysVended 静态缺失由 sibling NormalizesStaticCreds 覆盖）。
 - ⚠️ **docker e2e 未跑**（真等价 Option C 闸在 P1-T06;HDFS flavor 会暴露 R-007、无凭据 OSS/COS/OBS 暴露 R-008,均**已接受、非新 bug**）。
 
-### P1-T05 ⬜ 断开 paimon → fe-property 依赖边
-- **做什么**：删 `fe-connector-paimon/pom.xml` 的 `fe-property` 依赖 + `PaimonCatalogFactory:20` 的 import。
-- **验收**：`grep -r 'org.apache.doris.property' fe/fe-connector/fe-connector-paimon/src` == 0；模块编译通过。**fe-property 模块本身不删**（变 0 消费者孤儿）。
+### P1-T05 ✅ 断开 paimon → fe-property 依赖边（2026-06-17，仅删 pom 边 + grep 闸，293/0/1skip + checkstyle 0）
+- **做什么**：删 `fe-connector-paimon/pom.xml` 的 `fe-property` 依赖块（comment + dependency，原 :67-74）。**import/call 已在 P1-T03 删（DV-003-b），故 P1-T05 退化为仅删 pom 边**。**fe-property 模块本身不删**（D-005，变 0 消费者孤儿）。
+- **验收**：`grep -r 'org.apache.doris.property' fe/fe-connector/fe-connector-paimon/src` == 0；模块编译 + 全 UT 通过。
 - **依赖**：P1-T03, P1-T04。设计 §4 P1-5 / §0.1。
+- **现场 recon 结论（2026-06-17，对照真实代码）**：`grep org.apache.doris.property` 在 paimon src（main + test）**已 ZERO**（DV-003-b 已清 import/call）；唯一 `fe-property` 物理耦合 = pom :72 依赖块；其余 `fe-property` 字样均为**历史注释**（PaimonCatalogFactory :348/:384/:591、PaimonConnector :132/:204、test :382/:542 描述「替代 legacy fe-property 路」），不依赖 classpath、准确记录历史 → **不动**（surgical）。无 test-scope/transitive 用途。
+- **完成态（2026-06-17）**：删 pom :67-74（fe-property comment + dependency 块），**仅改 `fe-connector-paimon/pom.xml` 1 文件**。**RED/GREEN = 构建闸**（无 UT 可写）：删后**全模块编译 + 全 UT 仍绿 = 证无隐藏 transitive 依赖断裂**（paimon 现仅依赖 `fe-connector-{api,spi}` + `fe-filesystem-api` + `fe-thrift(provided)` + paimon SDK + hive-shade）。验证：paimon 全模块 **293/0/0/1skip**（含 P1-T04 新增 1 测试；docker-gated PaimonLiveConnectivityTest）、`grep org.apache.doris.property src` == 0、`<artifactId>fe-property</artifactId>` 在 paimon pom 已无、checkstyle 0、import-gate PASS、白名单干净（仅 pom 1 文件）。**P1 storage 收口的依赖边正式断开**（paimon 不再依赖 fe-property，变孤儿模块——本次不物理删，D-005）。⚠️ docker e2e 未跑。
 
 ### P1-T06 ⬜ P1 验证
 - **做什么**：paimon UT 全绿；docker `enablePaimonTest=true` 5 flavor；T1 等价性测试。
