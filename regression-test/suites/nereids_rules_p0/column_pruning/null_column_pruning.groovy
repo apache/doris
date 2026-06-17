@@ -351,7 +351,15 @@ suite("null_column_pruning") {
     explain {
         sql "select count(1) from ncp_tbl where map_col['a'] is null"
         contains "nested columns"
-        contains "map_col.*.NULL"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES.NULL"
+    // expectedPlan
+    //    nested columns:
+    //    map_col:
+    //      origin type: map<text,int>
+    //      all access paths: [map_col.KEYS, map_col.VALUES.NULL]
+    //      predicate access paths: [map_col.KEYS, map_col.VALUES.NULL]
+
     }
 
     order_qt_20 "select count(1) from ncp_tbl where map_col['a'] is null";
@@ -360,7 +368,8 @@ suite("null_column_pruning") {
     explain {
         sql "select count(1) from ncp_tbl where map_col['a'] is not null"
         contains "nested columns"
-        contains "map_col.*.NULL"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES.NULL"
     }
 
     order_qt_21 "select count(1) from ncp_tbl where map_col['a'] is not null";
