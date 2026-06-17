@@ -401,6 +401,8 @@ Status BaseBetaRowsetWriter::add_block(const Block* block) {
 
 bool BaseBetaRowsetWriter::_is_segment_delete_bitmap_calculated(uint32_t segment_id) const {
     if (_context.mow_context == nullptr) {
+        // This segcompaction gate is only for local MoW rowsets. Non-MoW rowsets
+        // have no pending async delete bitmap work.
         return true;
     }
     std::lock_guard lock(_delete_bitmap_calculated_segments_mutex);
@@ -434,6 +436,9 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                                                    specified_rowsets = std::move(
                                                            specified_rowsets)]() -> Status {
         Status st = Status::OK();
+        // If this async pipeline fails, leave the segment unmarked. build() waits
+        // on the token and aborts this writer; marking here would allow
+        // segcompaction to consume a segment whose delete bitmap was not published.
         // Step 1: Close file_writer (must be done before load_segments)
         auto* file_writer = _seg_files.get(segment_id);
         if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
@@ -454,7 +459,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
             }
         }
 
-        DBUG_EXECUTE_IF("BetaRowsetWriter.generate_delete_bitmap.sleep_before_load_segments", {
+        DBUG_EXECUTE_IF("BetaRowsetWriter.generate_delete_bitmap.sleep_before_build_tmp", {
             auto sleep_ms = dp->param<int64_t>("sleep_ms", 30000);
             std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
         });
@@ -498,6 +503,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << ", delete_bitmap_cardinality: "
                   << _context.mow_context->delete_bitmap->cardinality()
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        // Mark only after delete bitmap entries are published to mow_context. Otherwise
+        // segcompaction could convert bitmap before this segment's entries exist.
         _mark_segment_delete_bitmap_calculated(segment_id);
         return Status::OK();
     });
@@ -561,6 +568,9 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     for (segid = _segcompacted_point;
          segid < last_segment && segments->size() < config::segcompaction_batch_size; segid++) {
         if (!_is_segment_delete_bitmap_calculated(segid)) {
+            VLOG_DEBUG << "stop segcompaction at segid=" << segid
+                       << " because its delete bitmap is not calculated yet, tablet_id="
+                       << _context.tablet_id << ", rowset_id=" << _context.rowset_id;
             break;
         }
         segment_v2::SegmentSharedPtr segment;

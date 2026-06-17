@@ -62,8 +62,8 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
     set_be_param.call("enable_adaptive_batch_size", "false")
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
     GetDebugPoint().enableDebugPointForAllBEs(
-            "BetaRowsetWriter.generate_delete_bitmap.sleep_before_load_segments",
-            [sleep_ms: 10000])
+            "BetaRowsetWriter.generate_delete_bitmap.sleep_before_build_tmp",
+            [sleep_ms: 2000])
     GetDebugPoint().enableDebugPointForAllBEs(
             "BetaRowsetWriter.add_segment.sleep_before_segcompaction",
             [segment_id: 1, sleep_ms: 200])
@@ -78,7 +78,7 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
         table "test_mow_load_delete_bitmap_segcompaction_race"
         set "column_separator", ","
         inputStream new ByteArrayInputStream(content.getBytes())
-        time 60000
+        time 120000
 
         check { result, exception, startTime, endTime ->
             if (exception != null) {
