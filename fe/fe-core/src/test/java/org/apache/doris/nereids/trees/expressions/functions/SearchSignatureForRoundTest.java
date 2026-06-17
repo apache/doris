@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import org.junit.jupiter.api.Assertions;
@@ -109,5 +110,12 @@ public class SearchSignatureForRoundTest {
     void roundDoubleWithCastIntLiteralReturnsDecimal() {
         Cast wrapped = new Cast(new IntegerLiteral(3), IntegerType.INSTANCE);
         assertDecimalReturn(3, new Round(DOUBLE_VAL, wrapped));
+    }
+
+    @Test
+    void roundFloatWithConstScaleStaysDouble() {
+        // FLOAT input keeps the original DOUBLE return path.
+        SlotReference floatCol = new SlotReference("f", FloatType.INSTANCE);
+        assertDoubleReturn(new Round(floatCol, new IntegerLiteral(2)));
     }
 }

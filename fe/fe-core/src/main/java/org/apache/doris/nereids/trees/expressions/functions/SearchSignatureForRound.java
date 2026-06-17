@@ -38,8 +38,11 @@ import java.util.List;
  * when a non-negative integer-literal scale is given: the rounded double cannot land on a
  * clean N-decimal value (e.g. round(23900/293, 2) stores 81.56999999999999488…
  * in IEEE-754 and renders as "81.56999999999999").
- * In that case we route the call through the existing decimal signature, which both
- * gives the user the value they asked for and matches MySQL's behavior.
+ * In that case, for DOUBLE input we route the call through the existing decimal
+ * signature, which both gives the user the value they asked for and matches MySQL's
+ * behavior. FLOAT input is left on the original DOUBLE path: float promotes to
+ * decimal(14, 7) which can only hold 7 integer digits —- values |f| >= 1e7 would
+ * overflow during the cast.
  */
 public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
     @Override
@@ -49,7 +52,8 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
             if (arguments.size() == 1) {
                 return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
             } else if (arguments.size() == 2) {
-                if (isNonNegativeIntegerLiteral(arguments.get(1))) {
+                if (arguments.get(0).getDataType().isDoubleType()
+                        && isNonNegativeIntegerLiteral(arguments.get(1))) {
                     return ExplicitlyCastableSignature.super.searchSignature(
                             withoutFloatLikeReturnTypes(signatures));
                 }
