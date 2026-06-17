@@ -46,13 +46,13 @@ namespace doris {
 
 namespace {
 
-template <typename CvrType>
-bool bloom_may_match_fixed_values(const CvrType& cvr, BloomFilterFuncBase* bloom_filter) {
+template <PrimitiveType PT>
+bool bloom_may_match_fixed_values(const ColumnValueRange<PT>& cvr,
+                                  BloomFilterFuncBase* bloom_filter) {
     if (cvr.get_fixed_value_size() == 0) {
         return false;
     }
 
-    static constexpr PrimitiveType PT = CvrType::type_value;
     using CppType = typename PrimitiveTypeTraits<PT>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<PT>::ColumnType;
 
