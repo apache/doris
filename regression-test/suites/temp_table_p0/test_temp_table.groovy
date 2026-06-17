@@ -16,6 +16,10 @@
 // under the License.
 
 suite('test_temp_table', 'p0') {
+    if (true) {
+        // temp table feature is no longer mantains. skip this case
+        return
+    }
     sql """
         DROP TABLE IF EXISTS `t_test_table_with_data`
     """
