@@ -749,10 +749,13 @@ public class PipelineCoordinator {
     }
 
     public StreamingTaskStatus getTaskStatus(String taskId) {
-        AtomicLong scannedRows = taskProgressMap.get(taskId);
+        // On failure, drop progress so FE won't renew the deadline on a failed task.
         String reason = taskErrorMaps.remove(taskId);
-        return new StreamingTaskStatus(
-                scannedRows == null ? -1 : scannedRows.get(), reason == null ? "" : reason);
+        if (StringUtils.isNotEmpty(reason)) {
+            return new StreamingTaskStatus(-1, reason);
+        }
+        AtomicLong scannedRows = taskProgressMap.get(taskId);
+        return new StreamingTaskStatus(scannedRows == null ? -1 : scannedRows.get(), "");
     }
 
     /**
