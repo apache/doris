@@ -715,9 +715,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     "SELECT 1 FROM pg_replication_slots WHERE slot_name = '" + slotName + "'",
                     rs -> rs.next());
         } catch (Exception ex) {
-            // Can't verify -> assume gone so a transient query error doesn't cause endless retries.
+            // Can't verify -> treat as present so the bounded retry keeps trying instead of leaking.
             LOG.warn("Failed to check replication slot {} existence: {}", slotName, ex.getMessage());
-            return false;
+            return true;
         }
     }
 }
