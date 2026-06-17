@@ -6,6 +6,16 @@
 
 ---
 
+## DV-002 — T1 等价性从「全等」放宽为「常见静态凭据路径全等 + 文档记超集」
+- **日期**：2026-06-17 ｜ **原计划位置**：设计 §5 T1 / §6.4 验收 item 4 / WORKFLOW §5.2 T1（"新 == 旧 key/value **全等**"）。
+- **为何不可行（P0-T01 取证）**：fe-filesystem `toHadoopConfigurationMap()`/`toBackendProperties().toMap()` 是 paimon 现走 fe-property 路（`buildObjectStorageHadoopConfig`）的**超集**，非全等：
+  - **S3**：fe-filesystem 加 assume-role 分支（`fs.s3a.assumed.role.*`）+ 无 AK 时 anonymous/default `fs.s3a.aws.credentials.provider`；fe-property base 二者皆无。
+  - **OSS/COS/OBS**：配置齐时一致（jindo/cosn/obs 块都在），但 fe-filesystem `fs.s3a.endpoint`/`.region` **无条件**发（`cfg.put`）vs fe-property **懒发**（仅非空时）。
+  - **BE map**：fe-filesystem `toMap()` 多 `AWS_BUCKET`/`AWS_ROOT_PATH`/`AWS_CREDENTIALS_PROVIDER_TYPE`。
+  - 均为 fe-filesystem 更完整的**有意设计**，非 bug。故字面「全等」测试必红。
+- **新方案（用户 2026-06-17 定 A）**：认 fe-filesystem 为**新事实源**。**T1 = 常见静态凭据路径**（S3/OSS/COS/OBS 配齐 endpoint/region/AK/SK，无 role、无 vended）下各后端 key/value **全等**（含调优默认分叉 S3=50/3000/1000 vs 其它 100/10000/10000）+ **文档明记超集差异为「有意、更完整」**。P1-T03/T04 全量切换 fe-filesystem（含 P1-T04 BE 凭据也切 `toBackendProperties().toMap()`）。
+- **影响**：设计 §5 T1 / §6.4 / WORKFLOW §5.2 T1 加（DV-002 修订）脚注；risks R-001 缓解更新；P1-T03/T04 的 T1 测试钉常见路径全等 + 注释超集（对照 fe-property 现产物）。
+
 ## DV-001 — P0-1 预期「fe-filesystem-api 已够用、无需门面」被证伪：缺 raw map → List<StorageProperties> 的 bind-all 入口
 - **日期**：2026-06-17 ｜ **原计划位置**：设计 §4 P0-1 / §2.1 / 决策 D-003；task P0-T01；WORKFLOW §4.1 路径白名单（"唯一 fe-core 改动 = DefaultConnectorContext"）。
 - **为何不可行（取证）**：

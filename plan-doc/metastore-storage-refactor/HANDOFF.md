@@ -20,8 +20,12 @@
 - **P0-T01 ✅**（recon + 定向）→ **DV-001 / D-009**：缺 bind-all 入口，定机制 A（fe-core `FileSystemPluginManager.bindAll` + `getStorageProperties()` 经 `getOrigProps()`，白名单 +`FileSystemPluginManager.java`）。
 - **P0-T02 ✅**（`FileSystemPluginManager.bindAll`）｜ **P1-T01 ✅**（`ConnectorContext.getStorageProperties()` 默认空 + 边）｜ **P1-T02 ✅**（`DefaultConnectorContext.getStorageProperties()` + `FileSystemFactory.bindAllStorageProperties`，D-009 二次确认 3 fe-core 文件全 additive，TDD 4 绿 + 2 回归绿）。
 - **fe-core/spi 侧管线已通**：getOrigProps→bindAll(live manager)→ConnectorContext.getStorageProperties()。
-- **下一个：P1-T03**（paimon `applyStorageConfig` 改走 `ctx.getStorageProperties().toHadoopConfigurationMap()` + 保留 `paimon.*/fs./dfs./hadoop.` 覆盖块；**含 T1 等价性测试**，R-001）。**这是连接器侧首个 task，性质不同，建议先与用户对齐 checkpoint。**
-- 代码 commit：P0-T01（plan-doc）+ P0-T02 + P1-T01 + P1-T02。
+- **下一个：P1-T03**（连接器侧首个 task）。T1 框架已定 **A（DV-002）**：认 fe-filesystem 新事实源，T1 = 常见静态凭据路径全等 + 文档记超集。实现要点：
+  1. paimon `PaimonCatalogFactory.applyStorageConfig` 改走 `ctx.getStorageProperties()` 的 `toHadoopProperties().toHadoopConfigurationMap()`（取代 `fe-property StorageProperties.buildObjectStorageHadoopConfig`），**保留**其后 `paimon.*/fs./dfs./hadoop.` 覆盖块（保序 last-write-wins）。
+  2. **先 recon**：`PaimonCatalogFactory` 是纯静态 util（无 ctx），`applyStorageConfig` 3 调用方（buildHadoopConfiguration/buildHmsHiveConf/buildDlfHiveConf）；须找到连接器调 factory 处 ctx/storageList 从哪来，把 `List<StorageProperties>` 线程进去（签名重构）。
+  3. T1 等价性测试：fe-filesystem 产物 vs fe-property 现产物，常见路径全等 + 注释超集（R-001 闸）。
+  4. 编译/测 paimon 模块需 `-am package -Dassembly.skipAssembly=true`（shade jar 带 HiveConf）。
+- 代码 commit：P0-T01（plan-doc）+ P0-T02 + P1-T01 + P1-T02 + DV-002 决策记录。
 
 ## 下一步（明确）
 1. **等待用户批准 `tasks.md`（14 task，含 P3a）** 后进入 Implement。

@@ -87,7 +87,7 @@ plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 - 后台 task 的退出码以输出里的 `BUILD SUCCESS/FAILURE` 行为准（非 echo 的 exit code）。
 
 ### 5.2 阶段验收测试（强制，设计文档 §5）
-- **T1**（P1）：S3/OSS/COS/OBS/HDFS 代表输入下，新 `toHadoopConfigurationMap()`/`toBackendProperties().toMap()` 与 fe-core 旧 `getHadoopStorageConfig()`/`getBackendConfigProperties()` 的 key/value **全等**（含默认调优值分叉 S3=50/3000/1000 vs OSS/COS/OBS=100/10000/10000）。
+- **T1**（P1，**DV-002 修订**）：S3/OSS/COS/OBS/HDFS 代表输入下，新 `toHadoopConfigurationMap()`/`toBackendProperties().toMap()` 与 paimon 现走 fe-property 旧产物在**常见静态凭据路径**（配齐 endpoint/region/AK/SK，无 role/无 vended）下 key/value **全等**（含默认调优值分叉 S3=50/3000/1000 vs OSS/COS/OBS=100/10000/10000）；fe-filesystem 超集差异（S3 role/anon、endpoint 无条件、BE 多 AWS_BUCKET/ROOT_PATH/CREDENTIALS_PROVIDER_TYPE）作有意记录，非漂移。
 - **T2**（P2）：HMS(simple/kerberos)/DLF/REST/JDBC/filesystem 下，共享 `*MetastoreBackend.parse` 产物与 fe-core 旧 `Paimon*MetaStoreProperties` 一致（HiveConf key 集 + ParamRules 报错文案）。
 - **T3**：依赖图守门（CI gate + 可加 ArchUnit）。
 - **T4**：docker `enablePaimonTest=true` 跑 paimon 5 flavor（filesystem/hms/rest/jdbc/dlf）+ vended(REST/DLF) + Kerberos HMS。
