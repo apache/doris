@@ -34,6 +34,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.jmockit.FieldReflection;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -253,6 +254,57 @@ public class KafkaRoutineLoadJobTest {
 
         String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
         Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testReadCommittedZeroRowsWithLagDelaysNextTask(
+            @Injectable RoutineLoadManager routineLoadManager) throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        new Expectations() {
+            {
+                routineLoadManager.getJob(1L);
+                minTimes = 0;
+                result = routineLoadJob;
+            }
+        };
+
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("isolation.level", "read_committed");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newHashMap();
+        cachedPartitionWithLatestOffsets.put(1, 20L);
+        Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                cachedPartitionWithLatestOffsets);
+
+        Map<Integer, Long> taskProgress = Maps.newHashMap();
+        taskProgress.put(1, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(taskProgress));
+
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                taskProgress, false, 1000, false);
+        FieldReflection.setField(RoutineLoadTaskInfo.class, kafkaTaskInfo, "routineLoadManager",
+                routineLoadManager);
+        FieldReflection.setField(KafkaTaskInfo.class, kafkaTaskInfo, "routineLoadManager",
+                routineLoadManager);
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+        routineLoadTaskInfoList.add(kafkaTaskInfo);
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", new KafkaProgress(taskProgress));
+        Deencapsulation.setField(attachment, "taskExecutionTimeMs",
+                routineLoadJob.getMaxBatchIntervalS() * 1000);
+
+        kafkaTaskInfo.handleTaskByTxnCommitAttachment(attachment);
+
+        Assert.assertFalse(kafkaTaskInfo.getIsEof());
+        Assert.assertTrue(kafkaTaskInfo.needDedalySchedule());
+
+        RoutineLoadTaskInfo newTask = Deencapsulation.invoke(routineLoadJob,
+                "unprotectRenewTask", kafkaTaskInfo, false);
+        Assert.assertTrue(newTask.needDedalySchedule());
     }
 
     @Test
