@@ -112,6 +112,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
+    request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -208,6 +209,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
+    request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());

@@ -1414,6 +1414,8 @@ struct TCreatePartitionRequest {
     6: optional bool write_single_replica = false
     // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using load_to_single_tablet mode.
+    8: optional bool load_to_single_tablet = false
 }
 
 struct TCreatePartitionResult {
@@ -1434,6 +1436,8 @@ struct TReplacePartitionRequest {
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using load_to_single_tablet mode.
+    8: optional bool load_to_single_tablet = false
 }
 
 struct TReplacePartitionResult {

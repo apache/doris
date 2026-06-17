@@ -38,6 +38,7 @@ import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -340,6 +341,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -3856,6 +3858,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
+        boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
             // For thread safety, we preserve the tablet distribution information of each partition
@@ -3879,16 +3882,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tPartition.setNumBuckets(index.getTablets().size());
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            boolean randomDistribution =
+                    partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
+            boolean cacheLoadTabletIdx = loadToSingleTablet && randomDistribution;
             partitions.add(tPartition);
             // tablet
+            AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                    partitionSlaveTablets)) {
+                                    partitionSlaveTablets, cachedLoadTabletIdx)) {
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
+                }
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
                 continue;
+            }
+            if (cacheLoadTabletIdx) {
+                try {
+                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                            .getCurrentTabletLoadIndex(dbId, olapTable.getId(), partition);
+                    tPartition.setLoadTabletIdx(tabletIndex);
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send create partition error status: {}", result);
+                    return result;
+                }
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
@@ -3953,9 +3975,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (needUseCache) {
-                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
+                long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                partitionSlaveTablets);
+                                partitionSlaveTablets, loadTabletIdx);
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedTabletIdx);
+                }
             }
 
             tablets.addAll(partitionTablets);
@@ -4173,6 +4199,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
         for (long partitionId : resultPartitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
             // For thread safety, we preserve the tablet distribution information of each partition
@@ -4198,16 +4225,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 tPartition.setNumBuckets(index.getTablets().size());
             }
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
+            boolean randomDistribution =
+                    partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
+            boolean cacheLoadTabletIdx = loadToSingleTablet && randomDistribution;
             partitions.add(tPartition);
             // tablet
+            AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache && txnId != 0
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                             .getAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                    partitionSlaveTablets)) {
+                                    partitionSlaveTablets, cachedLoadTabletIdx)) {
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
+                }
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
                 continue;
+            }
+            if (cacheLoadTabletIdx) {
+                try {
+                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                            .getCurrentTabletLoadIndex(dbId, olapTable.getId(), partition);
+                    tPartition.setLoadTabletIdx(tabletIndex);
+                } catch (UserException ex) {
+                    errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                    result.setStatus(errorStatus);
+                    LOG.warn("send replace partition error status: {}", result);
+                    return result;
+                }
             }
             int quorum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2
                     + 1;
@@ -4276,9 +4322,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (needUseCache) {
-                Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
+                long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
+                long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
                         .getOrSetAutoPartitionInfo(txnId, partition.getId(), partitionTablets,
-                                partitionSlaveTablets);
+                                partitionSlaveTablets, loadTabletIdx);
+                if (cacheLoadTabletIdx) {
+                    tPartition.setLoadTabletIdx(cachedTabletIdx);
+                }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
                             + "tablets: {}, slaveTablets: {}", txnId, partition.getId(),
