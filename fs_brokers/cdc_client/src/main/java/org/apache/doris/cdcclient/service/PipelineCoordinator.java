@@ -376,7 +376,8 @@ public class PipelineCoordinator {
                     System.currentTimeMillis() - startTime,
                     fetchRecord.getJobId());
         } finally {
-            cleanupReaderResources(sourceReader, fetchRecord.getJobId(), readResult);
+            // Debug fetch path is out of reuse scope: finish the reader each round.
+            cleanupReaderResources(sourceReader, fetchRecord.getJobId(), readResult, false);
         }
 
         // Extract and set offset metadata
@@ -608,7 +609,11 @@ public class PipelineCoordinator {
             // A displaced task must not touch the reader (finishSplitRecords would kill the
             // successor's fetcher) nor commit anything.
             if (stillOwner) {
-                cleanupReaderResources(sourceReader, writeRecordRequest.getJobId(), readResult);
+                cleanupReaderResources(
+                        sourceReader,
+                        writeRecordRequest.getJobId(),
+                        readResult,
+                        writeRecordRequest.isReuseReader());
             }
         }
         if (!stillOwner) {
@@ -766,7 +771,10 @@ public class PipelineCoordinator {
      * @param readResult the read result containing split information
      */
     private void cleanupReaderResources(
-            SourceReader sourceReader, String jobId, SplitReadResult readResult) {
+            SourceReader sourceReader,
+            String jobId,
+            SplitReadResult readResult,
+            boolean reuseReader) {
         boolean isSnapshotSplit =
                 readResult != null
                         && readResult.getSplit() != null
@@ -779,8 +787,8 @@ public class PipelineCoordinator {
                 sourceReader.commitSourceOffset(jobId, readResult.getSplit());
             }
         } finally {
-            // Binlog keeps the reader alive across tasks for reuse; only snapshot finishes here.
-            if (isSnapshotSplit) {
+            // Keep the binlog reader alive only when FE asked to reuse it; else close each round.
+            if (isSnapshotSplit || !reuseReader) {
                 sourceReader.finishSplitRecords();
             }
         }

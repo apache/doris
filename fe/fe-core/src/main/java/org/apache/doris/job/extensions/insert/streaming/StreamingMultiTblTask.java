@@ -231,6 +231,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
         request.setTaskTimeoutMs(getTaskTimeoutMs());
         request.setRebuildReader(getStreamingJob().isNeedRebuildReader());
+        // Reader reuse applies only to the binlog phase (snapshot rebinds/closes per split).
+        request.setReuseReader(!offset.snapshotSplit());
         if (offsetProvider instanceof JdbcSourceOffsetProvider) {
             String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
             if (schemas != null) {

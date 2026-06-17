@@ -33,4 +33,6 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private Map<String, String> streamLoadProps;
     // previous task ended abnormally, rebuild reader instead of reusing
     private boolean rebuildReader;
+    // off by default: an old FE omits it, so a new cdc_client falls back to per-round reader close
+    private boolean reuseReader;
 }
