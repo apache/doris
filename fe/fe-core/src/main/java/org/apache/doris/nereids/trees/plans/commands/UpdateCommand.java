@@ -295,6 +295,9 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         return logicalQuery;
     }
 
+    /**
+     * check whether the target table is OLAP table.
+     */
     public boolean isTargetTableOlap(ConnectContext ctx) {
         try {
             List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
