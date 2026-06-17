@@ -44,6 +44,7 @@ suite('test_balance_warm_up', 'docker') {
         'cache_read_from_peer_expired_seconds=100',
         'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
+        'skip_writing_empty_rowset_metadata=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)
