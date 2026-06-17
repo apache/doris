@@ -542,6 +542,19 @@ public class PipelineCoordinator {
                 while (recordIterator.hasNext()) {
                     // streamload backpressure can stall this loop past the reaper timeout
                     Env.getCurrentEnv().keepAlive(writeRecordRequest.getJobId());
+                    // A successor task took over: stop draining into the shared batchStreamLoad.
+                    if (!Env.getCurrentEnv()
+                            .isOwner(
+                                    writeRecordRequest.getJobId(),
+                                    writeRecordRequest.getTaskId())) {
+                        LOG.info(
+                                "Task {} displaced mid-write for job {} after {} rows, stop writing",
+                                writeRecordRequest.getTaskId(),
+                                writeRecordRequest.getJobId(),
+                                scannedRows);
+                        shouldStop = true;
+                        break;
+                    }
                     SourceRecord element = recordIterator.next();
 
                     // Check if this is a heartbeat message
