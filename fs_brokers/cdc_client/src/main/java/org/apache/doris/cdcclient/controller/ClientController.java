@@ -130,12 +130,24 @@ public class ClientController {
     /** Close job */
     @RequestMapping(path = "/api/close", method = RequestMethod.POST)
     public Object close(@RequestBody JobBaseConfig jobConfig) {
-        LOG.info("Closing job {}", jobConfig.getJobId());
+        String jobId = jobConfig.getJobId();
+        LOG.info("Closing job {}", jobId);
         Env env = Env.getCurrentEnv();
-        SourceReader reader = env.getReader(jobConfig);
-        reader.close(jobConfig);
-        env.close(jobConfig.getJobId());
-        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
+        // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot dropped.
+        SourceReader reader = env.getReaderIfPresent(jobId);
+        try {
+            if (reader != null) {
+                reader.release(jobConfig);
+            }
+            SourceReader dropper = reader != null ? reader : env.getMetaReader(jobConfig);
+            env.releaseSourceResourcesOrRetry(dropper, jobConfig);
+        } catch (Exception ex) {
+            LOG.warn("Close job {} teardown failed: {}", jobId, ex.getMessage());
+            env.scheduleSlotDrop(jobConfig);
+        } finally {
+            env.close(jobId);
+            pipelineCoordinator.closeJobStreamLoad(jobId);
+        }
         return RestResponse.success(true);
     }
 

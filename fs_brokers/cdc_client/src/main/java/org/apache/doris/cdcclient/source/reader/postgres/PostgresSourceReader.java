@@ -661,6 +661,15 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         super.close(jobConfig);
+        releaseSourceResources(jobConfig);
+    }
+
+    /**
+     * Drop the Doris-owned slot/publication. Returns false if the slot is still held (e.g. a dead
+     * BE's stale walsender keeps it active until PG reclaims it), so the caller can retry later.
+     */
+    @Override
+    public boolean releaseSourceResources(JobBaseConfig jobConfig) {
         Map<String, String> config = jobConfig.getConfig();
         String jobId = jobConfig.getJobId();
         String slotName = resolveSlotName(config, jobId);
@@ -673,29 +682,42 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     slotName,
                     pubName,
                     jobId);
-            return;
+            return true;
         }
+        PostgresDialect dialect = new PostgresDialect(getSourceConfig(jobConfig));
+        if (dropPub) {
+            LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
+            try (PostgresConnection connection = dialect.openJdbcConnection()) {
+                connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
+            } catch (Exception ex) {
+                LOG.warn("Failed to drop publication {} for job {}: {}", pubName, jobId, ex.getMessage());
+            }
+        }
+        if (!dropSlot) {
+            return true;
+        }
+        LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
         try {
-            PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            if (dropSlot) {
-                LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
-                dialect.removeSlot(slotName);
-            } else {
-                LOG.info("Skipping drop of user-provided slot {} for job {}", slotName, jobId);
-            }
-            if (dropPub) {
-                LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
-                try (PostgresConnection connection = dialect.openJdbcConnection()) {
-                    connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
-                }
-            } else {
-                LOG.info(
-                        "Skipping drop of user-provided publication {} for job {}", pubName, jobId);
-            }
+            dialect.removeSlot(slotName);
         } catch (Exception ex) {
-            LOG.warn(
-                    "Failed to clean up postgres resources for job {}: {}", jobId, ex.getMessage());
+            LOG.warn("Drop of replication slot {} for job {} failed: {}", slotName, jobId, ex.getMessage());
+        }
+        boolean stillHeld = slotExists(dialect, slotName);
+        if (stillHeld) {
+            LOG.warn("Replication slot {} for job {} still present after drop, will retry", slotName, jobId);
+        }
+        return !stillHeld;
+    }
+
+    private boolean slotExists(PostgresDialect dialect, String slotName) {
+        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            return connection.queryAndMap(
+                    "SELECT 1 FROM pg_replication_slots WHERE slot_name = '" + slotName + "'",
+                    rs -> rs.next());
+        } catch (Exception ex) {
+            // Can't verify -> assume gone so a transient query error doesn't cause endless retries.
+            LOG.warn("Failed to check replication slot {} existence: {}", slotName, ex.getMessage());
+            return false;
         }
     }
 }

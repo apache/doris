@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.common;
 
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
+import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -44,7 +45,8 @@ public class Env {
     private static volatile Env INSTANCE;
     private final Map<String, JobContext> jobContexts;
     private final Map<String, Lock> jobLocks;
-    private final ScheduledExecutorService idleReaderScheduler;
+    private final Map<String, SlotDropTask> pendingSlotDrops;
+    private final ScheduledExecutorService backgroundCleaner;
     @Setter private int backendHttpPort;
     @Setter @Getter private String clusterToken;
     @Setter @Getter private volatile String feMasterAddress;
@@ -52,17 +54,18 @@ public class Env {
     private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
         this.jobLocks = new ConcurrentHashMap<>();
-        this.idleReaderScheduler =
+        this.pendingSlotDrops = new ConcurrentHashMap<>();
+        this.backgroundCleaner =
                 Executors.newSingleThreadScheduledExecutor(
                         r -> {
-                            Thread t = new Thread(r, "cdc-idle-reader-cleaner");
+                            Thread t = new Thread(r, "cdc-background-cleaner");
                             t.setDaemon(true);
                             return t;
                         });
-        this.idleReaderScheduler.scheduleWithFixedDelay(
-                this::releaseIdleReaders,
-                Constants.IDLE_READER_SCAN_INTERVAL_MS,
-                Constants.IDLE_READER_SCAN_INTERVAL_MS,
+        this.backgroundCleaner.scheduleWithFixedDelay(
+                this::runBackgroundCleanup,
+                Constants.BACKGROUND_CLEANUP_INTERVAL_MS,
+                Constants.BACKGROUND_CLEANUP_INTERVAL_MS,
                 TimeUnit.MILLISECONDS);
     }
 
@@ -310,6 +313,75 @@ public class Env {
                     LOG.warn("Failed to release idle reader for job {}", jobId, ex);
                 }
             }
+        }
+    }
+
+    // Each chore is guarded independently: one failing must not skip the other, and an uncaught
+    // throwable here would silently cancel the whole periodic task.
+    private void runBackgroundCleanup() {
+        try {
+            releaseIdleReaders();
+        } catch (Exception e) {
+            LOG.warn("releaseIdleReaders failed", e);
+        }
+        try {
+            retryPendingSlotDrops();
+        } catch (Exception e) {
+            LOG.warn("retryPendingSlotDrops failed", e);
+        }
+    }
+
+    /** Run source-side cleanup; if incomplete (e.g. slot still held by a dead BE), retry in background. */
+    public void releaseSourceResourcesOrRetry(SourceReader reader, JobBaseConfig jobConfig) {
+        if (!releaseSourceResources(reader, jobConfig)) {
+            scheduleSlotDrop(jobConfig);
+        }
+    }
+
+    public void scheduleSlotDrop(JobBaseConfig jobConfig) {
+        long deadline = System.currentTimeMillis() + Constants.SLOT_DROP_RETRY_WINDOW_MS;
+        pendingSlotDrops.putIfAbsent(jobConfig.getJobId(), new SlotDropTask(jobConfig, deadline));
+        LOG.info("Scheduled background slot drop for job {}", jobConfig.getJobId());
+    }
+
+    private boolean releaseSourceResources(SourceReader reader, JobBaseConfig jobConfig) {
+        return ((AbstractCdcSourceReader) reader).releaseSourceResources(jobConfig);
+    }
+
+    private void retryPendingSlotDrops() {
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, SlotDropTask> entry : pendingSlotDrops.entrySet()) {
+            String jobId = entry.getKey();
+            SlotDropTask task = entry.getValue();
+            boolean done = false;
+            try {
+                SourceReader reader =
+                        SourceReaderFactory.createSourceReader(
+                                resolveDataSource(task.jobConfig.getDataSource()));
+                done = releaseSourceResources(reader, task.jobConfig);
+            } catch (Exception ex) {
+                LOG.warn("Background slot drop attempt failed for job {}: {}", jobId, ex.getMessage());
+            }
+            if (done) {
+                pendingSlotDrops.remove(jobId);
+                LOG.info("Background slot drop succeeded for job {}", jobId);
+            } else if (now >= task.deadlineMs) {
+                pendingSlotDrops.remove(jobId);
+                LOG.warn(
+                        "Gave up dropping replication slot for job {} after retry window; "
+                                + "manual cleanup may be needed",
+                        jobId);
+            }
+        }
+    }
+
+    private static final class SlotDropTask {
+        private final JobBaseConfig jobConfig;
+        private final long deadlineMs;
+
+        private SlotDropTask(JobBaseConfig jobConfig, long deadlineMs) {
+            this.jobConfig = jobConfig;
+            this.deadlineMs = deadlineMs;
         }
     }
 

@@ -76,6 +76,11 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
         finishSplitRecords();
     }
 
+    /** Drop source-side owned resources. Returns false if cleanup is incomplete (retry later). */
+    public boolean releaseSourceResources(JobBaseConfig jobConfig) {
+        return true;
+    }
+
     protected abstract Class<?> probeSplitKeyClass(
             TableId tableId, Column splitColumn, JobBaseConfig jobConfig);
 
