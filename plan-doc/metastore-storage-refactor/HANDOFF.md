@@ -18,8 +18,10 @@
 - 阶段：Research ✅ / Design ✅（**9 决策 D-001..D-009**）/ **Implement 🚧 进行中**。
 - **范围已获批（2026-06-17 用户确认）= P0 + P1（storage 收口），做到 P1-T06 gate 停**。
 - **P0-T01 ✅**（recon + 定向）→ **DV-001 / D-009**：缺 bind-all 入口，定机制 A（fe-core `FileSystemPluginManager.bindAll` + `getStorageProperties()` 经 `getOrigProps()`，白名单 +`FileSystemPluginManager.java`）。
-- **下一个：P0-T02**（实现 `FileSystemPluginManager.bindAll`，TDD）+ `P1-T01`（ConnectorContext 默认方法，可并行）。
-- 代码 commit：尚无（P0-T01 仅 plan-doc）。
+- **P0-T02 ✅**（`FileSystemPluginManager.bindAll`，TDD 5 绿 + checkstyle 0，纯新增 34 行）。
+- **下一个：P1-T01**（`ConnectorContext.getStorageProperties()` 默认方法 + pom 边）。
+- ⚠️ **P1-T02 待解**：须经 `FileSystemFactory` static accessor 取 **live**（loadPlugins 过的）manager（fresh+loadBuiltins 无对象存储 provider）→ 第 3 个 fe-core 文件，P1-T02 前 AskUserQuestion。
+- 代码 commit：P0-T01（plan-doc）+ P0-T02（bindAll）。
 
 ## 下一步（明确）
 1. **等待用户批准 `tasks.md`（14 task，含 P3a）** 后进入 Implement。

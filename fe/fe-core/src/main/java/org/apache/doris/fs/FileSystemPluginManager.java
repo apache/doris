@@ -24,6 +24,7 @@ import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.apache.logging.log4j.LogManager;
@@ -133,6 +134,39 @@ public class FileSystemPluginManager {
         }
         throw new IOException("No FileSystemProvider supports the given properties: "
                 + properties.get("_STORAGE_TYPE_") + ". Registered providers: " + providerNames());
+    }
+
+    /**
+     * Binds the given raw properties against every registered provider that
+     * {@link FileSystemProvider#supports(Map)}, collecting each provider's typed
+     * {@link StorageProperties}.
+     *
+     * <p>Unlike {@link #createFileSystem(Map)} (which uses only the first supporting provider to
+     * build one runtime FileSystem), this returns ALL supporting providers' bound property models —
+     * mirroring the legacy {@code StorageProperties.createAll(rawMap)} so a catalog configured with
+     * more than one backend (e.g. an object store plus HDFS) yields one entry per backend.
+     *
+     * <p>Providers not yet migrated to typed binding (their {@link FileSystemProvider#bind(Map)}
+     * still throws {@link UnsupportedOperationException}: HDFS / broker / local) are skipped — they
+     * contribute no typed {@code StorageProperties} (the connector handles those backends via raw
+     * {@code fs.}/{@code dfs.}/{@code hadoop.} passthrough), matching the legacy object-store-only
+     * Hadoop config helper. Returns an empty list when nothing matches. Binding/validation errors
+     * from a migrated provider propagate (fail-loud), mirroring legacy {@code createAll}.
+     */
+    public List<StorageProperties> bindAll(Map<String, String> properties) {
+        List<StorageProperties> result = new ArrayList<>();
+        for (FileSystemProvider provider : providers) {
+            if (!provider.supports(properties)) {
+                continue;
+            }
+            try {
+                result.add(provider.bind(properties));
+            } catch (UnsupportedOperationException e) {
+                LOG.debug("FileSystemProvider {} supports the properties but has no typed binding; "
+                        + "skipping in bindAll", provider.name());
+            }
+        }
+        return result;
     }
 
     /** Registers a provider at highest priority. For testing overrides. */

@@ -17,9 +17,10 @@
   - **F2 可行性 = 阻塞**：**无** raw map → `List<fe-filesystem StorageProperties>` 的 bind-all 入口（provider registry 私有，仅首个命中 `createFileSystem`）。`getStorageProperties()` **无法**只改 `DefaultConnectorContext`，须额外 additive `bindAll(...)`（fe-core `FileSystemPluginManager` 或 fe-filesystem-spi）。**白名单假设被推翻** → 需用户定向 + 最小扩张（DV-001 三选项，已 AskUserQuestion）。
 - **✅ 定向（用户 2026-06-17）**：选机制 **A**（DV-001 → D-009）——bind-all 落 fe-core `FileSystemPluginManager.bindAll`，`getStorageProperties()` 经 `getOrigProps()` 取 raw map、不碰构造点。白名单 +`FileSystemPluginManager.java`（仅新增）。P0-T01 闭环;进入 P0-T02。
 
-### P0-T02 ⬜ fe-core FileSystemPluginManager 新增 bindAll（raw map → List<fe-filesystem StorageProperties>）
+### P0-T02 ✅ fe-core FileSystemPluginManager 新增 bindAll（raw map → List<fe-filesystem StorageProperties>）（2026-06-17，TDD 5 绿 + checkstyle 0）
 - **做什么**（D-009）：在 fe-core `FileSystemPluginManager` 加 additive `public List<StorageProperties> bindAll(Map<String,String>)`：遍历已注册 providers，对 `supports(props)` 命中者调 `provider.bind(props)` **全量收集**（非首个命中），返回 `List<org.apache.doris.filesystem.properties.StorageProperties>`（`FileSystemProperties extends StorageProperties`，故 bind 产物 IS-A 目标类型）。**仅新增方法，不动 `createFileSystem` 等既有方法。**
 - **验收**：单测：给定 S3/OSS/HDFS 等代表性 raw props，`bindAll` 返回非空、类型正确、覆盖期望后端的列表（与 fe-core 旧 `StorageProperties.createAll` 选中的后端集合对齐）；空/无匹配返回空列表不抛。`createFileSystem` 行为零回归。fe-core 旧 `datasource.property.storage` 包 + fe-filesystem 模块零改动。
+- **完成态**：`FileSystemPluginManagerTest` 加 4 个 bindAll 测试（collect-supporting / skip-non-supporting / skip-legacy-no-bind / empty），全绿（5/5，含原 registerProvider 测）；`FileSystemPluginManager.java` +34 行纯新增（import + bindAll + javadoc，未动既有方法）；checkstyle 0。**实证修订**：真对象存储 providers 是运行时目录插件（不在 fe-core 单测 classpath，pom 注「Phase 4 P4.1 移除 impl 运行时依赖」）→ 删除原打算的 real-S3 集成测试（移交 P1-T06 docker 全插件 classpath）；bindAll 用 fake providers 钉契约。测试文件 `fs/FileSystemPluginManagerTest.java` 为白名单 bindAll 的伴随测试（合理在范围内）。
 - **依赖**：无（∥ P1-T01）。设计 §4 P0-2 / §2.1 / **D-009 / DV-001**。**红线**：仅改 `FileSystemPluginManager.java`（新增 bindAll）。
 
 ---
@@ -35,6 +36,7 @@
 - **做什么**（D-009）：fe-core `DefaultConnectorContext` override `getStorageProperties()`：从现有 `storagePropertiesSupplier.get()` 取任一 fe-core typed 值的 `getOrigProps()`（= 完整 catalog raw map），喂 `FileSystemPluginManager.bindAll(rawMap)`（P0-T02）返回 fe-filesystem `List<StorageProperties>`。supplier 空（REST/vended、非 plugin ctor）→ 返回空列表（无静态 storage，正确）。**不改构造点。**
 - **验收**：paimon catalog 下 `ctx.getStorageProperties()` 返回正确 typed 列表；hive/iceberg/其它连接器行为不变（默认空）。需确认 fe-core `createAll` 各实例 `origProps` = 完整 raw map（实现时读 `createAll`+ctor 核实）。
 - **依赖**：P1-T01, P0-T02。设计 §4 P1-2 / **D-009**。**红线**：fe-core 仅此文件新增 `getStorageProperties()`（bindAll 在 P0-T02 的 FileSystemPluginManager）。
+- **⚠️ 待解（P0-T02 发现，2026-06-17）**：生产中对象存储 providers 是 `Env.loadPlugins(pluginRoot)` **目录插件**（非 fe-core classpath built-in；fe-core pom 注「Phase 4 P4.1 移除 impl 运行时依赖」）。故 `getStorageProperties()` **必须**用那个**已加载插件的 live** `FileSystemPluginManager`（fresh `new+loadBuiltins` 无对象存储 provider→bindAll 空→paimon storage 失效）。但 live 实例存于 `FileSystemFactory.pluginManager`（private static、**无 getter**）。→ P1-T02 需在 `FileSystemFactory` 加 static accessor（如 `getPluginManager()` 或 `bindAllStorageProperties(map)` 委托），**即第 3 个 fe-core 文件**（白名单需再 +1）。实现 P1-T02 前 AskUserQuestion 确认。
 
 ### P1-T03 ⬜ PaimonCatalogFactory.applyStorageConfig 改走 toHadoopConfigurationMap
 - **做什么**：把 `fe-property StorageProperties.buildObjectStorageHadoopConfig(props)` 换成"遍历 `ctx.getStorageProperties()` 调 `toHadoopProperties().toHadoopConfigurationMap()`"；**保留**其后的 `paimon.*/fs./dfs./hadoop.` 覆盖块（保序 last-write-wins）。
