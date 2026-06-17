@@ -966,6 +966,9 @@ public class CloudSystemInfoService extends SystemInfoService {
                     if (acg == null || System.currentTimeMillis() - acg.getUnavailableSince()
                             > policy.getFailoverFailureThreshold() * Config.heartbeat_interval_second * 1000) {
                         switchActiveStandby(cg, acgName, scgName);
+                        String acgId = acg == null ? clusterNameToId.get(acgName) : acg.getId();
+                        MetricRepo.increaseVirtualComputeGroupSwitch(cg.getId(), cg.getName(), acgId,
+                                acgName, scg.getId(), scgName);
                         policy.setActiveComputeGroup(scgName);
                         policy.setStandbyComputeGroup(acgName);
                         cg.setNeedRebuildFileCache(true);
