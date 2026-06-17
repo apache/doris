@@ -440,6 +440,17 @@ public class CreateRoutineLoadInfo {
         if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
+
+        if ((isPartialUpdate || uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT)
+                && table instanceof OlapTable
+                && ((OlapTable) table).hasExpressionDefaultValue()
+                && !ctx.getSessionVariable().isAllowPartialUpdateWithExpressionDefault()) {
+            throw new AnalysisException("Partial update is not supported for table with expression default value. "
+                    + "You can set session variable '"
+                    + org.apache.doris.qe.SessionVariable.ALLOW_PARTIAL_UPDATE_WITH_EXPRESSION_DEFAULT
+                    + "'=true to bypass this check (may be unsafe). ");
+        }
+
         // Validate flexible partial update constraints
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
             validateFlexiblePartialUpdate((OlapTable) table);

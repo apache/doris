@@ -26,7 +26,16 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -39,6 +48,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
@@ -525,17 +535,25 @@ public class ColumnDefinition {
      * translate to catalog create table stmt
      */
     public Column translateToCatalogStyle() {
+        String defaultValueStr = defaultValue.map(DefaultValue::getValue).orElse(null);
+        DefaultValueExprDef defaultExprDef = defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null);
+        String realDefaultValueStr = defaultValueStr;
+
+        if (defaultValue.isPresent() && defaultExprDef != null && defaultExprDef.isExpressionSql()) {
+            realDefaultValueStr = computeRealDefaultValueForExpressionSql(type, defaultValueStr);
+        }
+
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
-                defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                autoIncInitValue, defaultValueStr, comment, isVisible,
+                defaultExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE,
+                realDefaultValueStr, onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
                 generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
-                        .orElse(null)
-                );
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                .orElse(null)
+        );
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }
@@ -544,18 +562,44 @@ public class ColumnDefinition {
      * translate to catalog column for schema change
      */
     public Column translateToCatalogStyleForSchemaChange() {
+        String defaultValueStr = defaultValue.map(DefaultValue::getValue).orElse(null);
+        DefaultValueExprDef defaultExprDef = defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null);
+        String realDefaultValueStr = defaultValue.map(DefaultValue::getRawValue).orElse(null);
+
+        if (defaultValue.isPresent() && defaultExprDef != null && defaultExprDef.isExpressionSql()) {
+            realDefaultValueStr = computeRealDefaultValueForExpressionSql(type, defaultValueStr);
+        }
+
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
-                defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                autoIncInitValue, defaultValueStr, comment, isVisible,
+                defaultExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE,
+                realDefaultValueStr, onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis,
                 generatedColumnDesc.map(desc ->
-                        ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
-                        .orElse(null));
+                    ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get()))
+                .orElse(null)
+        );
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
+    }
+
+    private static String computeRealDefaultValueForExpressionSql(DataType targetType, String defaultExprSql) {
+        Expression expr = new NereidsParser().parseExpression(defaultExprSql);
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, true, true);
+        expr = analyzer.analyze(expr);
+
+        expr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(CascadesContext.initTempContext());
+        Expression folded = FoldConstantRuleOnFE.evaluate(expr, rewriteContext);
+
+        if (!(folded instanceof Literal) || folded instanceof NullLiteral) {
+            throw new AnalysisException("Default value expression must be foldable to a non-null literal: "
+                + defaultExprSql);
+        }
+        return ((Literal) folded).getStringValue();
     }
 
     /**

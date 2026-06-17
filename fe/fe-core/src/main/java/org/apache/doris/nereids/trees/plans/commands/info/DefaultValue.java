@@ -77,6 +77,15 @@ public class DefaultValue {
         this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
     }
 
+    private DefaultValue(String value, DefaultValueExprDef defaultValueExprDef) {
+        this.value = value;
+        this.defaultValueExprDef = defaultValueExprDef;
+    }
+
+    public static DefaultValue expressionSqlDefaultValue(String exprSql) {
+        return new DefaultValue(exprSql, DefaultValueExprDef.fromSql(exprSql));
+    }
+
     /**
      * default value current_timestamp(precision)
      */

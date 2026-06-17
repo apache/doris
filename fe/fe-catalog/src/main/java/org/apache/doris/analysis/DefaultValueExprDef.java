@@ -35,6 +35,8 @@ public class DefaultValueExprDef implements GsonPostProcessable {
     @SerializedName("precision")
     private Long precision;
 
+    @SerializedName("exprSql")
+    private String exprSql;
 
     public DefaultValueExprDef(String exprName) {
         this.exprName = exprName;
@@ -45,7 +47,20 @@ public class DefaultValueExprDef implements GsonPostProcessable {
         this.precision = precision;
     }
 
+    public static DefaultValueExprDef fromSql(String exprSql) {
+        DefaultValueExprDef def = new DefaultValueExprDef((String) null);
+        def.exprSql = exprSql;
+        return def;
+    }
+
+    public boolean isExpressionSql() {
+        return exprSql != null;
+    }
+
     public String getSql() {
+        if (exprSql != null) {
+            return exprSql;
+        }
         StringBuilder sb = new StringBuilder();
         sb.append(exprName);
         sb.append("(");
