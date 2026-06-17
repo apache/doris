@@ -295,6 +295,16 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         return logicalQuery;
     }
 
+    public boolean isTargetTableOlap(ConnectContext ctx) {
+        try {
+            List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
+            TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
+            return table instanceof OlapTable;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUpdateCommand(this, context);

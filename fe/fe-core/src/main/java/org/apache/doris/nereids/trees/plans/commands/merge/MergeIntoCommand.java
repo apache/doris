@@ -153,6 +153,14 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         return RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
     }
 
+    public boolean isTargetTableOlap(ConnectContext ctx) {
+        try {
+            return getTargetTableIf(ctx) instanceof OlapTable;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private OlapTable getTargetTable(ConnectContext ctx) {
         TableIf table = getTargetTableIf(ctx);
         if (!(table instanceof OlapTable) || !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {

@@ -1127,8 +1127,15 @@ public class StmtExecutor {
             return true;
         }
 
-        if (plan instanceof UpdateCommand || plan instanceof MergeIntoCommand
-                || plan instanceof DeleteFromUsingCommand) {
+        if (plan instanceof UpdateCommand && ((UpdateCommand) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
+        if (plan instanceof MergeIntoCommand && ((MergeIntoCommand) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
+        if (plan instanceof DeleteFromUsingCommand) {
             return true;
         }
 
