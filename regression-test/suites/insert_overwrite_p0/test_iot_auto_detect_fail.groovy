@@ -160,12 +160,12 @@ PROPERTIES (
     // reported). Accept all of them, same as insert_overwrite_auto_detect.groovy. The point is
     // that the statement fails (not silently creating a partition / succeeding).
     def checkOverwriteFail = { result, exception, startTime, endTime ->
-        assertTrue("expect insert-overwrite auto-detect to fail (no matching origin partition), "
-                + "but got result=${result}, exception=${exception?.getMessage()}",
-            exception != null && (
+        assertTrue(exception != null && (
                 exception.getMessage().contains('Cannot found origin partitions')
                 || exception.getMessage().contains('no partition for this tuple')
-                || exception.getMessage().contains('Insert has filtered data in strict mode')))
+                || exception.getMessage().contains('Insert has filtered data in strict mode')),
+            "expect insert-overwrite auto-detect to fail (no matching origin partition), "
+                + "but got result=${result}, exception=${exception?.getMessage()}")
     }
     test {
         sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
