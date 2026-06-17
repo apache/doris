@@ -61,10 +61,11 @@ public:
     }
 
     void unlock() {
-        {
-            std::lock_guard<bthread::Mutex> lk(_mutex);
-            _state = 0;
-        }
+        std::lock_guard<bthread::Mutex> lk(_mutex);
+        _state = 0;
+        // Notify while still holding `_mutex`. Releasing the mutex before
+        // notifying can lose a wakeup with bthread::ConditionVariable when the
+        // waiter is a pthread and the notifier is a bthread (or vice versa).
         _gate1.notify_all();
     }
 
@@ -95,14 +96,16 @@ public:
         unsigned num_readers = (_state & _n_readers) - 1;
         _state &= ~_n_readers;
         _state |= num_readers;
+        // Notify while still holding `_mutex` (do not unlock first): with
+        // bthread::ConditionVariable a notify issued after releasing the mutex
+        // can be lost across pthread/bthread contexts, leaving a writer parked
+        // forever on a reader count that is already zero.
         if (_state & _write_entered) {
             if (num_readers == 0) {
-                lk.unlock();
                 _gate2.notify_one();
             }
         } else {
             if (num_readers == _n_readers - 1) {
-                lk.unlock();
                 _gate1.notify_one();
             }
         }
