@@ -81,10 +81,11 @@
 
 ## P2 — MetaStore Property SPI + paimon adapter（纯新增/迁移）
 
-### P2-T01 ⬜ 新建 fe-connector-metastore-api
-- **做什么**：新模块（依赖 fe-foundation + fe-filesystem-api）：`MetaStoreProperties`（`String providerName()` + 能力方法 `needsStorage()`/`needsVendedCredentials()`，**无 per-backend 枚举**，D-006）+ 子接口 **HMS/DLF/REST/JDBC/FileSystem**（中立 Map/标量，不暴露 HiveConf/SDK 类型）。**不实现 Glue/S3Tables**（iceberg/hive 专用，留扩展）。
+### P2-T01 ✅（2026-06-18 完成）新建 fe-connector-metastore-api
+- **完成态（2026-06-18，commit 待提交）**：新模块 `fe-connector-metastore-api`（`org.apache.doris.connector.metastore`）= `MetaStoreProperties`（`providerName()` + 能力方法 `needsStorage()`/`needsVendedCredentials()` 默认 false + `validate()` 默认 no-op + `rawProperties()`/`matchedProperties()`，**无 `MetaStoreType` 枚举**，D-006）+ 5 子接口 **HMS/DLF/REST/JDBC/FileSystem**（中立 Map/标量；`HmsMetaStoreProperties` 用 fe-kerberos `AuthType`+`Optional<KerberosAuthSpec>`）。**未建 Glue/S3Tables**（留扩展——加子接口零改 api/spi）。**依赖 = fe-kerberos**（D-013；非设计 header 原写的 fe-foundation+fe-filesystem-api——api 纯接口不用 @ConnectorProperty/StorageProperties，那些留 spi 用时再加，Rule 2/3 外科）。pom 镜像 `fe-connector-api`（copy-plugin-deps phase=none，编入 fe-core 非插件部署）；注册进 `fe-connector/pom.xml`（fe-connector-spi 之后）。**TDD**：`MetaStorePropertiesContractTest` 3/0（能力默认 false[Rule 9 intent]/可 override/HMS 子接口承载 fe-kerberos facts）。验证：BUILD SUCCESS、checkstyle 0、import-gate exit 0、无 fe-core 禁包 import、`git diff` 白名单干净（仅 fe-connector/pom.xml + 新模块）。
+- **做什么**：新模块（依赖 fe-foundation + fe-filesystem-api）：`MetaStoreProperties`（`String providerName()` + 能力方法 `needsStorage()`/`needsVendedCredentials()`，**无 per-backend 枚举**，D-006）+ 子接口 **HMS/DLF/REST/JDBC/FileSystem**（中立 Map/标量，不暴露 HiveConf/SDK 类型）。**不实现 Glue/S3Tables**（iceberg/hive 专用，留扩展）。**[D-013 修订：依赖 fe-kerberos（AuthType/KerberosAuthSpec）；fe-foundation/fe-filesystem-api 当前 api 未用，留 spi]**
 - **验收**：模块编译；接口签名对齐设计 §3.1（**确认无 `MetaStoreType` 枚举**）；新模块声明进 `fe-connector/pom.xml`。
-- **依赖**：无。设计 §4 P2-1 / §3.1 / **D-006**。
+- **依赖**：~~无~~ **fe-kerberos（D-013，P3a-T01 facts-carrier 先建）**。设计 §4 P2-1 / §3.1 / **D-006 / D-013**。
 
 ### P2-T02 ⬜ 新建 fe-connector-metastore-spi（共享后端解析器 + Provider 发现）
 - **做什么**：新模块（依赖 metastore-api + fe-foundation + fe-filesystem-api）：`Hms/Dlf/Rest/Jdbc/FileSystem MetastoreBackend.parse(raw, storageList)` + `JdbcDriverSupport` + `@ConnectorProperty` typed holders；**+ `MetaStoreProvider<P>` SPI（`supports(Map)` 自识别 + `bind`）+ 5 个内置 provider + 各自 `META-INF/services` + `MetaStoreProviders.bind(...)` 派发**（D-006，镜像 `FileSystemProvider`/`FileSystemPluginManager`）。来源 = 上移 paimon 现有 `PaimonCatalogFactory` 手抄逻辑（去 fe-core 化）。**fe-core 旧类不动**。

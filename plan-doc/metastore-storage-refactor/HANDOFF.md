@@ -7,8 +7,16 @@
 
 ---
 
-**更新时间**：2026-06-18（实现 session：**FU-T02 + FU-T03 完成**，R-008 + R-006 闭环；**用户定 D-012：跳过/推迟 P1-T06 docker，直接进 P2 metastore SPI**，下一步 = **P2-T01**）
+**更新时间**：2026-06-18（实现 session：FU-T02 + FU-T03 闭环 → **D-012 跳过 P1-T06 进 P2** → **P3a-T01 facts-carrier ✅（fe-kerberos）+ P2-T01 ✅（fe-connector-metastore-api）**；下一步 = **P2-T02**）
 **更新人**：Claude（Opus 4.8）
+
+> **本 session P2 进度补注（最新在最前）**：
+> - **P2-T01 ✅（commit 待提交）**：新建 `fe-connector-metastore-api`（`org.apache.doris.connector.metastore`）= `MetaStoreProperties`（`providerName()`+能力方法 `needsStorage()`/`needsVendedCredentials()` 默认 false+`validate()` no-op+`rawProperties()`/`matchedProperties()`，**无 `MetaStoreType` 枚举** D-006）+ 5 子接口 HMS/DLF/REST/JDBC/FileSystem（中立 Map/标量；`HmsMetaStoreProperties` 用 fe-kerberos `AuthType`+`Optional<KerberosAuthSpec>`）。**依赖仅 fe-kerberos**（D-013；fe-foundation/fe-filesystem-api api 纯接口未用→留 spi）。pom 镜像 fe-connector-api（copy-plugin-deps none）；注册 fe-connector/pom.xml。**未建 Glue/S3Tables**（留扩展）。`MetaStorePropertiesContractTest` 3/0、checkstyle 0、import-gate exit 0、无 fe-core 禁包 import。
+> - **P3a-T01 facts-carrier ✅（commit `51df4fccd01`，D-013）**：新顶层叶子 `fe-kerberos`（**零生产依赖**）facts 切片 `AuthType`(SIMPLE/KERBEROS, `fromString` 仅 "kerberos" 命中余皆 SIMPLE) + `KerberosAuthSpec`(client principal+keytab 不可变值对象, `hasCredentials()` 需两者非空；HMS service principal 不在此=HiveConf override)。6 测绿、checkstyle 0。**authenticator 机制子集（hadoop 依赖 + trino KerberosTicketUtils→JDK）= 待 P2-T02 增量补**。
+> - **决策**：D-012（跳过/推迟 P1-T06 docker，验证折进 P2-T05）｜D-013（kerberos facts 归 fe-kerberos、先建；metastore-api 依赖 fe-kerberos）。
+> - ⚠️ **docker e2e 全程未跑**（留 P2-T05）。
+
+<details><summary>更早本 session（FU-T02 + FU-T03，已完成）</summary>
 
 ## 这次 session 完成了什么（FU-T02 + FU-T03）
 
@@ -41,24 +49,23 @@
 
 **对抗 review（`wf_5db99e32-2ad`，27 agent，4 lens + verify）**：清场——packaging 无跨 loader 风险、独立 agent 逐键复核 byte-level parity、BE-only 无新 catalog 路回归、强 oss-hdfs-wrong-keys 断言被 verify **推翻**、`new Configuration()` 默认 bloat 是 legacy-faithful。**3 实质修**：①malformed-`uri` swallow→**fail-loud**（对齐 legacy）；②2 stale 注释；③+11 测试。**F1**（config-dir 未接 `Config.hadoop_config_dir`）→ 用户选「现在接好」=sysprop 桥。
 </details>
+</details>
 
 ## 当前状态
-- 阶段：Research ✅ / Design ✅（**12 决策 D-001..D-012**）/ **Implement 🚧（P1 storage 5/6，P1-T06 docker 推迟[D-012]；进入 P2 metastore SPI）**。
-- 任务计数 **8/14**（P0: 2/2 ✅ ｜ P1: 5/6，**P1-T06 推迟**［非取消，docker 验证折进 P2-T05 一次跑］｜ P2: 0/5 ｜ P3a: 0/1）｜ follow-up **FU-T01 ✅ + FU-T02 ✅ + FU-T03 ✅**｜ P3b 占位。
-- **R-006 / R-007 / R-008 全部已闭环**（UT/mutation 层面）。typed BE 路现对 S3/OSS/COS/OBS/**HDFS** 全产 BE 键 + OSS/COS/OBS 无凭据补 `ANONYMOUS` + 调优默认有 UT 守护。
-- ⚠️ **e2e/docker 全程未跑**（P1 收口 storage 等价的真闸 + P2 metastore T2/5-flavor 闸 一并留到 P2-T05 docker 跑；D-012）。
+- 阶段：Research ✅ / Design ✅（**13 决策 D-001..D-013**）/ **Implement 🚧（P1 storage 5/6 P1-T06 docker 推迟[D-012]；P2: 1/5 = P2-T01 ✅；P3a facts-carrier ✅）**。
+- 任务计数 **9/14**（P0: 2/2 ✅ ｜ P1: 5/6，**P1-T06 推迟** ｜ **P2: 1/5（P2-T01 ✅）** ｜ P3a: 0/1，facts-carrier 切片 ✅ 机制待续）｜ follow-up FU-T01/02/03 ✅｜ P3b 占位。
+- **新增 2 模块**：顶层叶子 `fe-kerberos`（facts 切片）+ `fe-connector-metastore-api`（5 子接口）。**R-006/R-007/R-008 已闭环**（UT/mutation 层）。
+- ⚠️ **e2e/docker 全程未跑**（P1 storage 等价 T1 + P2 metastore T2/5-flavor 闸 一并留 P2-T05 docker 跑；D-012）。
 
-## 下一步（明确）：P2-T01（新建 fe-connector-metastore-api）
-> **用户定 D-012：跳过/推迟 P1-T06 docker，直接进 P2**（docker 验证集中到 P2-T05 一次跑：届时同时覆盖 P1 storage 等价 T1 + P2 metastore T2 + 5 flavor + vended + kerberos）。
+## 下一步（明确）：P2-T02（新建 fe-connector-metastore-spi）
 > **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手；实施前 WORKFLOW §2 单任务 TDD + 一句话复述。**
 
-**P2-T01（新建 `fe-connector-metastore-api`）**：新模块（依赖 fe-foundation + fe-filesystem-api）= `MetaStoreProperties` 接口（`String providerName()` + 能力方法 `needsStorage()`/`needsVendedCredentials()`，**无 per-backend 枚举**，D-006）+ 子接口 HMS/DLF/REST/JDBC/FileSystem（中立 Map/标量，**不暴露** HiveConf/SDK 类型）。**不实现** Glue/S3Tables（留扩展）。新模块声明进 `fe-connector/pom.xml`。
-- **现场 recon 必做**（顶部流程 step 2）：
-  1. 读设计 §3.1（接口签名权威来源）+ **D-006**（确认无 `MetaStoreType` 枚举、用 provider+能力方法）+ **D-004**（@ConnectorProperty 绑定）。
-  2. 对照真实代码：fe-core `datasource/property/metastore/**`（旧 `MetastoreProperties` + `Paimon*MetaStoreProperties` 的接口面/Type/能力）+ paimon 现 `PaimonCatalogFactory`（手抄 HMS/DLF 逻辑，P2-T02/T03 上移的来源）+ `FileSystemProvider`/`FileSystemPluginManager`（D-006 镜像样板）。
-  3. 核对依赖图红线：metastore-api 只可依赖 `fe-foundation` + `fe-filesystem-api`（+ fe-connector-api/spi）；不得 import fe-core/{catalog,common,datasource,...}。
-- **范围张力提示**：P2 是大阶段（2 新模块 + provider SPI + 移植解析逻辑 + P3a fe-kerberos 交织：P3a-T01 依赖 P2-T02 作 facts 消费方）。**P2-T01 仅建 api 接口骨架**（无解析逻辑，纯类型）；解析/provider 在 P2-T02。实施前建议 AskUserQuestion 定 P2-T01 的接口边界（子接口集合、能力方法集合）若设计 §3.1 有不确定。
-- **白名单变更**：P2 需把 `fe-connector-metastore-api/**`（+后续 spi）加入 WORKFLOW §4.1 白名单（原已列为「新建」允许路径，见 §4.1）；`fe-connector/pom.xml` 新增模块声明（已在白名单）。
+**P2-T02（新建 `fe-connector-metastore-spi`，依赖 metastore-api + fe-foundation + fe-filesystem-api + fe-kerberos）**：5 个 `Hms/Dlf/Rest/Jdbc/FileSystem MetastoreBackend.parse(raw, storageList)`（`@ConnectorProperty` typed holder 绑定，D-004）+ `JdbcDriverSupport` + **`MetaStoreProvider<P>` SPI（`supports(Map)` 自识别 + `bind`）+ 5 内置 provider + 各 `META-INF/services` + `MetaStoreProviders.bind` 派发**（D-006，镜像 `FileSystemProvider`/`FileSystemPluginManager`）。
+- **来源 = 上移 paimon `PaimonCatalogFactory`（631 LOC 手抄）去 fe-core 化**：HiveConf→中立 map、authenticator→`KerberosAuthSpec` facts。**fe-core 旧 `HMSBaseProperties`/`Paimon*MetaStoreProperties` 一律不动**（仍服务 hive/hudi/iceberg）。
+- **此处增量补 fe-kerberos authenticator 机制子集**（hadoop-auth/hadoop-common 依赖 + trino `KerberosTicketUtils`→JDK `javax.security.auth.kerberos` 替换；P3a-T01 续）——`HmsMetastoreBackend` 产出 `KerberosAuthSpec` 需要它。
+- **现场 recon 必做**：①设计 §3.2（权威）+ D-006/D-004；②真实代码 `PaimonCatalogFactory`（`buildHmsHiveConf`:444 / `buildDlfHiveConf` / `resolveDriverUrl` / `validate` / 别名常量 `PaimonConnectorProperties`）= parse 逻辑来源；③`FileSystemPluginManager.bindAll` / `FileSystemProvider` ServiceLoader 样板；④fe-core `HMSBaseProperties.initHadoopAuthenticator`（kerberos 键顺序）+ `PaimonAliyunDLFMetaStoreProperties.buildHiveConf`（DLF 8 键 + endpoint-from-region）作 T2 等价参照（**不动**，只读对照）。
+- **T2 等价性**（设计 §5）：`*MetastoreBackend.parse` 产出中立 map == fe-core 旧 `Paimon*MetaStoreProperties`（HiveConf key 集 + ParamRules 报错文案）；UT 落地（docker 真闸 P2-T05）。
+- **白名单**：`fe-connector-metastore-spi/**`（§4.1 已列「新建」）+ fe-kerberos/**（机制补充，D-013/§4.1 已加）+ `fe-connector/pom.xml`。
 
 ## 未决 / 需注意
 - ✅ 已闭环：R-006（FU-T03）、R-007（FU-T01）、R-008（FU-T02）。

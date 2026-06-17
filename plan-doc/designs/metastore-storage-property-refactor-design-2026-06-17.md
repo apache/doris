@@ -145,6 +145,8 @@ fe-core/BE: 由 AWS_* map 组装 TS3StorageParam（thrift 仍在 fe-core S3-RPC 
 
 ### 3.1 `fe-connector-metastore-api`（纯契约，依赖 fe-foundation + fe-filesystem-api）
 
+> **（D-013 修订）** P2-T01 落地时 api 仅依赖 **fe-kerberos**（为 `HmsMetaStoreProperties` 的 `AuthType`/`KerberosAuthSpec` 中立 facts）；`fe-foundation`/`fe-filesystem-api` 当前 api 纯接口未直接引用（`@ConnectorProperty` 绑定、`StorageProperties` 入参均在 spi 用），故留待 spi（P2-T02）按需引入，避免 api 声明未用依赖。`AuthType`/`KerberosAuthSpec` 归 fe-kerberos（先于 P2-T01 建，D-013）。
+
 镜像 `fe-filesystem-api` 的瘦接口风格，**只暴露中立的 Map / 标量 facts，不暴露 `HiveConf`/Hadoop/SDK 类型**（HiveConf 的实体装配在连接器侧，连接器有 hive-shade）。
 
 ```java

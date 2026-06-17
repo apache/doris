@@ -40,6 +40,7 @@ under the License.
     <modules>
         <module>fe-connector-api</module>
         <module>fe-connector-spi</module>
+        <module>fe-connector-metastore-api</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
