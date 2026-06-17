@@ -606,10 +606,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Hadoop config (P1-T03) and its BE creds from the SAME typed source (design D-003). Empty when no
         // context (offline unit tests) → no storage props emitted (never the broken raw aliases).
         //
-        // KNOWN GAP 1 (DV-004 / R-007): fe-filesystem has no typed HDFS BE model yet (HdfsFileSystemProvider
-        // throws on bind), so an HDFS-warehouse catalog yields NO entry here → the legacy hadoop/dfs/HA/
-        // kerberos keys that became THdfsParams are dropped, regressing HDFS-backed paimon native reads.
-        // Accepted by the user pending a follow-up that adds fe-filesystem HdfsFileSystemProperties.
+        // HDFS (DV-004 / R-007 — CLOSED by FU-T01): fe-filesystem now has a typed HDFS BE model
+        // (HdfsFileSystemProperties); HdfsFileSystemProvider.bind() yields it, so an HDFS-warehouse catalog
+        // emits the hadoop/dfs/HA/kerberos keys here (→ THdfsParams) at parity with the legacy path
+        // (hadoop.config.resources resolved under the operator-configured Config.hadoop_config_dir).
         // KNOWN GAP 2 (R-008): the typed OSS/COS/OBS models omit AWS_CREDENTIALS_PROVIDER_TYPE, which legacy
         // emitted as ANONYMOUS for credential-less catalogs — a fe-filesystem parity gap (out of P1 whitelist),
         // tracked as a follow-up; only affects OSS/COS/OBS catalogs with no static ak/sk.

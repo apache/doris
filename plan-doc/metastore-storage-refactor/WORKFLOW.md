@@ -57,6 +57,7 @@ fe/fe-connector/fe-connector-spi/**                    (仅 ConnectorContext 新
 fe/fe-core/src/main/java/.../connector/DefaultConnectorContext.java  (仅新增 getStorageProperties)
 fe/fe-core/src/main/java/.../fs/FileSystemPluginManager.java          (仅新增 bindAll；D-009/DV-001)
 fe/fe-core/src/main/java/.../fs/FileSystemFactory.java                (仅新增 bindAllStorageProperties；D-009 二次确认)
+fe/fe-filesystem/fe-filesystem-hdfs/**                 (FU-T01：HDFS typed BE model；D-010 授权局部解禁；其它 fe-filesystem 模块仍禁碰)
 fe/fe-connector/pom.xml ; fe/pom.xml                   (仅新增模块声明)
 plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 ```

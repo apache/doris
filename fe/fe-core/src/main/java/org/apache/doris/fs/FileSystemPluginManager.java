@@ -147,11 +147,13 @@ public class FileSystemPluginManager {
      * more than one backend (e.g. an object store plus HDFS) yields one entry per backend.
      *
      * <p>Providers not yet migrated to typed binding (their {@link FileSystemProvider#bind(Map)}
-     * still throws {@link UnsupportedOperationException}: HDFS / broker / local) are skipped — they
+     * still throws {@link UnsupportedOperationException}: broker / local) are skipped — they
      * contribute no typed {@code StorageProperties} (the connector handles those backends via raw
      * {@code fs.}/{@code dfs.}/{@code hadoop.} passthrough), matching the legacy object-store-only
-     * Hadoop config helper. Returns an empty list when nothing matches. Binding/validation errors
-     * from a migrated provider propagate (fail-loud), mirroring legacy {@code createAll}.
+     * Hadoop config helper. (HDFS is migrated: it binds a typed BE model whose {@code toBackendProperties()}
+     * re-emits the {@code hadoop./dfs./HA/kerberos} backend keys — FU-T01.) Returns an empty list when
+     * nothing matches. Binding/validation errors from a migrated provider propagate (fail-loud),
+     * mirroring legacy {@code createAll}.
      */
     public List<StorageProperties> bindAll(Map<String, String> properties) {
         List<StorageProperties> result = new ArrayList<>();

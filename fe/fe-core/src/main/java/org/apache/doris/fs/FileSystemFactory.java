@@ -118,6 +118,10 @@ public final class FileSystemFactory {
      */
     public static List<org.apache.doris.filesystem.properties.StorageProperties> bindAllStorageProperties(
             Map<String, String> properties) {
+        // Bridge the operator-configured hadoop config dir to filesystem plugins: a plugin leaf cannot import
+        // fe-core Config, so the HDFS plugin's config-resource loader reads this system property instead. Keep
+        // the key in sync with HdfsConfigFileLoader.CONFIG_DIR_PROPERTY ("doris.hadoop.config.dir").
+        System.setProperty("doris.hadoop.config.dir", Config.hadoop_config_dir);
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
             return mgr.bindAll(properties);

@@ -17,7 +17,7 @@
 - **缓解**：**docker P1-T06** 为运行期兜底；**建议 follow-up**（**超出当前 P1 白名单——fe-filesystem 禁碰**）：在 `S3FileSystemPropertiesTest` + `Oss/Cos/ObsFileSystemPropertiesTest` 加调优默认断言（test-only additive）。在 fe-filesystem 收口/迁移批次或经用户批准的小补丁中做。**不在 paimon 重复断言**（Option C：paimon 无 fe-filesystem impl 于测试 classpath，合成 map 断言为同义反复，不守 fe-filesystem 默认）。
 - **触发判据**：fe-filesystem 调优默认被改且 docker P1-T06 未跑 → 静默 mis-tune。
 
-## R-007 — HDFS-warehouse paimon BE 配置回归（typed BE 路无 HDFS model）｜ 状态：已触发（用户接受，待 follow-up FU-T01 修）
+## R-007 — HDFS-warehouse paimon BE 配置回归（typed BE 路无 HDFS model）｜ 状态：已闭环（2026-06-17 FU-T01 完成 — `HdfsFileSystemProperties` typed BE model + provider bind；UT golden parity 25/0，对抗 review `wf_5db99e32-2ad` 清场；⚠️ docker HA/kerberized 真闸在 P1-T06）
 - **描述（P1-T04，DV-004）**：BE 静态凭据全量切到 `getStorageProperties()→toBackendProperties().toMap()`。fe-filesystem **无 HDFS typed BE model**(`HdfsFileSystemProvider` 未 override `bind()`→默认抛 `UnsupportedOperationException`→`bindAll` 跳过)→ HDFS-warehouse paimon catalog 的 `getStorageProperties()` 返回空 → BE 扫描分片**不再带** `hadoop.*/dfs.*/HA/kerberos` 键(legacy 经 `getBackendStorageProperties`→`THdfsParams` 发)。
 - **影响**：HDFS(尤其 **HA / kerberized**)上的 paimon **原生读失败**(解析不了 nameservice / 无鉴权);**对象存储 flavor 不受影响**(typed 路 AWS_* 等价/超集)。
 - **缓解**：**follow-up FU-T01**——给 `fe-filesystem-hdfs` 新建 `HdfsFileSystemProperties`(`implements BackendStorageProperties`,override `FileSystemProvider.bind`)让 `bindAll` 收集 HDFS 项、`toBackendProperties()` 产 BE 键。**过渡期 HDFS-warehouse paimon 为已知回归**(用户 2026-06-17 明确接受)。
