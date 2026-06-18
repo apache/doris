@@ -1159,10 +1159,10 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {

@@ -162,6 +162,8 @@ public class ExternalRowCountCache {
         return -1;
     }
 
+    // Catalog/db invalidation is O(N): row-count keys are numeric ids, and Caffeine
+    // does not support prefix invalidation by catalog or database id.
     void invalidateCatalog(long catalogId) {
         rowCountCache.asMap().keySet().removeIf(key -> key.catalogId == catalogId);
     }
