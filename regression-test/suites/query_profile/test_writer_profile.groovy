@@ -43,28 +43,58 @@ suite('test_writer_profile', "nonConcurrent") {
     if (isCloudMode()) {
         return
     }
-    
-    sql "set enable_profile=true;"
 
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
     def ak = getS3AK()
     def sk = getS3SK()
     def s3Uri = "s3://${getS3BucketName()}/load/data by line.json"
+    def level1TableName = "test_writer_profile_l1_${System.currentTimeMillis()}"
+    def level2TableName = "test_writer_profile_l2_${System.currentTimeMillis()}"
 
-    sql "drop table if exists t;"
-    sql """
-        CREATE TABLE t(
-            a INT,
-            b INT
-        )
-        DUPLICATE KEY(a) 
-        PROPERTIES("replication_num" = "1");
-    """
+    def createTable = { tableName ->
+        sql """
+            CREATE TABLE ${tableName}(
+                a INT,
+                b INT
+            )
+            DUPLICATE KEY(a)
+            PROPERTIES("replication_num" = "1");
+        """
+    }
+
+    def getInsertProfileId = { masterAddress, tableName ->
+        def profileListString = getProfileList(masterAddress)
+        def jsonSlurper = new JsonSlurper()
+        def profileList = jsonSlurper.parseText(profileListString)
+        def queryId = ""
+        def targetTableName = tableName.toUpperCase()
+        if (profileList.data && profileList.data.rows && profileList.data.rows.size() > 0) {
+            for (def row : profileList.data.rows) {
+                def taskType = row."Task Type" ?: row['Task Type']
+                def sqlStatement = row."Sql Statement" ?: row['Sql Statement']
+                def sqlStatementString = sqlStatement == null ? "" : sqlStatement.toString().toUpperCase()
+                if (taskType == "LOAD" && sqlStatementString.contains("INSERT")
+                        && sqlStatementString.contains(targetTableName)) {
+                    queryId = row."Profile ID" ?: row['Profile ID']
+                    break
+                }
+            }
+        }
+        return queryId
+    }
+
+    sql "drop table if exists ${level1TableName};"
+    sql "drop table if exists ${level2TableName};"
+    createTable(level1TableName)
+    createTable(level2TableName)
+
+    sql "set enable_profile=true;"
+    sql "set profile_level=1;"
 
     try {
         def sql_str = """
-            INSERT INTO t
+            INSERT INTO ${level1TableName}
             SELECT * FROM S3(
                 "uri" = "$s3Uri",
                 "s3.access_key" = "$ak",
@@ -100,22 +130,7 @@ suite('test_writer_profile', "nonConcurrent") {
         def masterAddress = masterIP + ":" + masterHTTPPort
         logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-        def profileListString = getProfileList(masterAddress)
-        def jsonSlurper = new JsonSlurper()
-        def profileList = jsonSlurper.parseText(profileListString)
-        
-        def queryId = ""
-        if (profileList.data && profileList.data.rows && profileList.data.rows.size() > 0) {
-            for (def row : profileList.data.rows) {
-                def taskType = row."Task Type" ?: row['Task Type']
-                def sqlStatement = row."Sql Statement" ?: row['Sql Statement']
-                if (taskType == "LOAD" && sqlStatement && sqlStatement.toString().toUpperCase().contains("INSERT")) {
-                    queryId = row."Profile ID" ?: row['Profile ID']
-                    break
-                }
-            }
-        }
-
+        def queryId = getInsertProfileId(masterAddress, level1TableName)
         assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
         def profileString = getProfile(masterAddress, queryId)
         logger.info(profileString)
@@ -123,6 +138,7 @@ suite('test_writer_profile', "nonConcurrent") {
         assertFalse(profileString.contains("MemTableWriter"), "should not contain MemTableWriter")
     } finally {
         sql "set enable_profile=false;"   
+        sql "set profile_level=1;"
     }
 
 
@@ -131,7 +147,7 @@ suite('test_writer_profile', "nonConcurrent") {
 
     try {
         def sql_str = """
-            INSERT INTO t
+            INSERT INTO ${level2TableName}
             SELECT * FROM S3(
                 "uri" = "$s3Uri",
                 "s3.access_key" = "$ak",
@@ -167,21 +183,7 @@ suite('test_writer_profile', "nonConcurrent") {
         def masterAddress = masterIP + ":" + masterHTTPPort
         logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-        def profileListString = getProfileList(masterAddress)
-        def jsonSlurper = new JsonSlurper()
-        def profileList = jsonSlurper.parseText(profileListString)
-        
-        def queryId = ""
-        if (profileList.data && profileList.data.rows && profileList.data.rows.size() > 0) {
-            for (def row : profileList.data.rows) {
-                def taskType = row."Task Type" ?: row['Task Type']
-                def sqlStatement = row."Sql Statement" ?: row['Sql Statement']
-                if (taskType == "LOAD" && sqlStatement && sqlStatement.toString().toUpperCase().contains("INSERT")) {
-                    queryId = row."Profile ID" ?: row['Profile ID']
-                    break
-                }
-            }
-        }
+        def queryId = getInsertProfileId(masterAddress, level2TableName)
         assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
         def profileString = getProfile(masterAddress, queryId)
         logger.info(profileString)
@@ -191,4 +193,7 @@ suite('test_writer_profile', "nonConcurrent") {
         sql "set enable_profile=false;"
         sql "set profile_level=1;"
     }
+
+    sql "drop table if exists ${level1TableName};"
+    sql "drop table if exists ${level2TableName};"
 }
