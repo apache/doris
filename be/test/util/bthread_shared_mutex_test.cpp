@@ -83,11 +83,23 @@ TEST(BthreadSharedMutexTest, WriterPendingBlocksNewReaders) {
     bthread_t w;
     ASSERT_EQ(0, bthread_start_background(&w, nullptr, writer_pending_fn, &ctx));
 
-    // Give the writer time to reach lock() and set the write-entered bit.
-    bthread_usleep(100 * 1000);
+    // Wait until the writer has reached lock() and set the write-entered bit,
+    // observed via try_lock_shared() beginning to fail (writer-preferring: a new
+    // reader must not barge ahead of a pending writer). Probe instead of a fixed
+    // sleep so a slow CI worker doesn't flake; bounded so a stuck writer fails
+    // the test rather than hanging. Successful probes are released immediately so
+    // they don't add a lingering reader.
+    bool writer_pending = false;
+    for (int i = 0; i < 1000; ++i) { // up to ~10s
+        if (!m.try_lock_shared()) {
+            writer_pending = true;
+            break;
+        }
+        m.unlock_shared();
+        bthread_usleep(10 * 1000);
+    }
+    ASSERT_TRUE(writer_pending);       // writer set _write_entered, blocking new readers
     ASSERT_FALSE(ctx.acquired.load()); // still waiting on R1 to drain
-    // A new reader must NOT barge ahead of the pending writer.
-    ASSERT_FALSE(m.try_lock_shared());
 
     m.unlock_shared(); // drain R1 -> writer can now acquire
     ASSERT_EQ(0, bthread_join(w, nullptr));

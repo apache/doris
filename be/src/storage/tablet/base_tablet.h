@@ -128,6 +128,10 @@ public:
     // this method just return the compaction sum on each rowset
     // note(tsy): we should unify the compaction score calculation finally
     uint32_t get_real_compaction_score() const;
+    // MUST hold shared `_meta_lock`. Use this variant when the caller already
+    // holds the header lock to avoid recursively re-acquiring the (now
+    // writer-preferring) `_meta_lock`, which would self-deadlock.
+    uint32_t get_real_compaction_score_unlocked() const;
 
     // MUST hold shared meta lock
     Status capture_rs_readers_unlocked(const Versions& version_path,

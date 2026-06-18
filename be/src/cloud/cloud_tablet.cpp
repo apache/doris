@@ -187,7 +187,10 @@ Result<std::vector<Version>> CloudTablet::capture_versions_prefer_cache(
         const Version& spec_version) const {
     g_capture_prefer_cache_count << 1;
     Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    // Caller (capture_consistent_versions_unlocked) already holds shared
+    // `_meta_lock`; do NOT re-acquire it here. The lock is writer-preferring,
+    // so a recursive shared acquisition self-deadlocks if a writer queues in
+    // between the outer and inner lock.
     auto st = _timestamped_version_tracker.capture_consistent_versions_prefer_cache(
             spec_version, version_path,
             [&](int64_t start, int64_t end) { return rowset_is_warmed_up_unlocked(start, end); });
@@ -239,7 +242,10 @@ Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolera
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
     // find a version path where every edge(rowset) has been warmuped
     Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    // Caller (capture_consistent_versions_unlocked) already holds shared
+    // `_meta_lock`; do NOT re-acquire it here. The lock is writer-preferring,
+    // so a recursive shared acquisition self-deadlocks if a writer queues in
+    // between the outer and inner lock.
     if (enable_unique_key_merge_on_write()) {
         // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
@@ -265,7 +271,8 @@ Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolera
             std::ranges::any_of(std::views::values(_tablet_meta->all_rs_metas()), check_fn) ||
             std::ranges::any_of(std::views::values(_tablet_meta->all_stale_rs_metas()), check_fn);
     if (should_fallback) {
-        rlock.unlock();
+        // The outer caller still holds the shared `_meta_lock`; the base
+        // unlocked fallback below runs under that lock.
         g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
         // but has not been warmuped up yet, fallback to capture rowsets as usual
