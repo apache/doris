@@ -257,6 +257,35 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDataPathCoversNullPathWithMapAwareComparison() throws Exception {
+        // element_at(map_col, 'a')   -> [map_col, *]
+        // map_values(map_col) IS NULL -> [map_col, VALUES, NULL]
+        // [map_col, *] should cover [map_col, VALUES, NULL] because
+        // * ≡ VALUES at the map level (type-aware comparison).
+        // Without the fix, the lexical prefix check fails and the
+        // BE receives VALUES.NULL alongside *, causing the value
+        // iterator to enter NULL_MAP_ONLY and skip real data.
+        assertAllAccessPathsContain(
+                "select element_at(map_col, 'a') from str_tbl"
+                        + " where map_values(map_col) is null",
+                ImmutableList.of(path("map_col", "*")),
+                ImmutableList.of(path("map_col", "VALUES", "NULL")));
+    }
+
+    @Test
+    public void testDataPathCoversOffsetPathWithMapAwareComparison() throws Exception {
+        // element_at(map_col, 'a')            -> [map_col, *]
+        // cardinality(map_values(map_col))    -> [map_col, VALUES, OFFSET]
+        // [map_col, *] should cover [map_col, VALUES, OFFSET] because
+        // * ≡ VALUES at the map level (type-aware comparison).
+        assertAllAccessPathsContain(
+                "select element_at(map_col, 'a') from str_tbl"
+                        + " where cardinality(map_values(map_col)) > 0",
+                ImmutableList.of(path("map_col", "*")),
+                ImmutableList.of(path("map_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
     public void testNestedMapElementLengthKeepsValueOffsetPath() throws Exception {
         assertColumn("select length(element_at(element_at(s, 'm'), 'a')) from nested_container_tbl",
                 "struct<m:map<text,text>>",

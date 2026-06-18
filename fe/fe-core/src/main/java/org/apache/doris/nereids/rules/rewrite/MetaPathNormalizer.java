@@ -140,29 +140,31 @@ public final class MetaPathNormalizer {
      *
      * <p>Stripping is organised in two levels:
      *
-     * <p><b>Level 1 — Same-depth priority:</b> when two paths share the same prefix and
-     * differ only in the final meta suffix, the higher-priority one eliminates the lower.
+     * <p><b>Level 1 — Same-prefix priority:</b> when two paths target the same
+     * column/subcolumn and differ only in the suffix, the higher-priority suffix
+     * eliminates the lower.
      * <pre>{@code
-     *   Data  >  OFFSET  >  NULL
+     *   [prefix]  >  [prefix, OFFSET]  >  [prefix, NULL]
      * }</pre>
      * <ul>
-     *   <li>{@code Data} strips {@code OFFSET}: {@code [a]} strips {@code [a, OFFSET]}.</li>
-     *   <li>{@code Data} strips {@code NULL}:  {@code [a]} strips {@code [a, NULL]}.</li>
-     *   <li>{@code OFFSET} strips {@code NULL}: {@code [a, OFFSET]} strips {@code [a, NULL]}.</li>
+     *   <li>{@code [prefix]} strips {@code [prefix, OFFSET]} and
+     *       {@code [prefix, NULL]} — full access covers all metadata.</li>
+     *   <li>{@code [prefix, OFFSET]} strips {@code [prefix, NULL]} — offset read
+     *       provides null information for variable-length columns.</li>
      * </ul>
      *
-     * <p><b>Level 2 — Deeper path covers shallower meta:</b> when a covering path goes
-     * deeper into the type tree, its data reader already materialises the container,
-     * making a shallower meta-only path redundant.
+     * <p><b>Level 2 — Deeper-prefix coverage:</b> when a covering path has a prefix
+     * that strictly contains the target path's prefix, traversing the deeper container
+     * already materialises the container, making the shorter-prefix meta path redundant.
      * <ul>
-     *   <li>Target suffix {@code OFFSET}, covered by deeper:
+     *   <li>Target suffix {@code OFFSET}, covered by deeper prefix:
      *     <ul>
      *       <li>{@code Data}:   {@code [a, *, field]}  strips {@code [a, OFFSET]}.</li>
      *       <li>{@code OFFSET}: {@code [a, *, OFFSET]} strips {@code [a, OFFSET]}.</li>
      *       <li>{@code NULL}:   {@code [a, *, NULL]}   strips {@code [a, OFFSET]}.</li>
      *     </ul>
      *   </li>
-     *   <li>Target suffix {@code NULL}, covered by deeper:
+     *   <li>Target suffix {@code NULL}, covered by deeper prefix:
      *     <ul>
      *       <li>{@code Data}:   {@code [a, b, c]}      strips {@code [a, b, NULL]}.</li>
      *       <li>{@code OFFSET}: {@code [a, *, OFFSET]} strips {@code [a, NULL]}.</li>
@@ -179,25 +181,36 @@ public final class MetaPathNormalizer {
     private static void stripCoveredMetaPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
-        // Level 1: same-depth priority — Data > OFFSET > NULL.
+        //stripCoveredMetaPaths
+        //    Level 1: same-prefix priority — [prefix] > [prefix, OFFSET] > [prefix, NULL]
+        //      ├── stripExactPrefixCoveredMetaPaths     full access covers both
+        //      └── stripNullBySamePrefixOffset          OFFSET covers NULL
+        //
+        //    Level 2: deeper-prefix coverage
+        //      ├── stripMetaPathsByDeeperPrefix(OFFSET) deeper data/meta → OFFSET
+        //      └── stripMetaPathsByDeeperPrefix(NULL)   deeper data/meta → NULL
+        //
+        //    Special
+        //      └── stripCoveredArrayNullMetaPaths       array NULL + map key supplementation
+
         stripExactPrefixCoveredMetaPaths(slot, targetAccessPaths, coveringAccessPaths);
-        stripNullBySameDepthOffset(slot, targetAccessPaths);
+        stripNullBySamePrefixOffset(slot, targetAccessPaths);
 
-        // Level 2: deeper path covers shallower meta path.
-        stripShallowerOffsetPaths(slot, targetAccessPaths, coveringAccessPaths);
-        stripShallowerNullPaths(slot, targetAccessPaths);
+        stripMetaPathsByDeeperPrefix(slot, AccessPathInfo.ACCESS_OFFSET,
+                targetAccessPaths, coveringAccessPaths);
+        stripMetaPathsByDeeperPrefix(slot, AccessPathInfo.ACCESS_NULL,
+                targetAccessPaths, coveringAccessPaths);
 
-        // Special: array NULL + map key supplementation.
         stripCoveredArrayNullMetaPaths(slot, targetAccessPaths, coveringAccessPaths);
     }
 
     /**
-     * Level 1 — same-depth OFFSET strips NULL: {@code [a, OFFSET]} strips
-     * {@code [a, NULL]}. Uses type-aware comparison so that map-level
+     * Level 1 — same-prefix OFFSET strips NULL: {@code [prefix, OFFSET]} strips
+     * {@code [prefix, NULL]}. Uses type-aware comparison so that map-level
      * {@code *}/VALUES equivalence is recognized
      * (e.g. {@code [m, *, *, OFFSET]} strips {@code [m, VALUES, *, NULL]}).
      */
-    private static void stripNullBySameDepthOffset(
+    private static void stripNullBySamePrefixOffset(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
         int slotId = slot.getExprId().asInt();
         Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = allAccessPaths.get(slotId);
@@ -275,16 +288,20 @@ public final class MetaPathNormalizer {
     }
 
     /**
-     * Level 2 — deeper paths cover shallower OFFSET paths:
-     * <ul>
-     *   <li>Deeper {@code Data}:   delegates to {@link #stripCoveredOffsetByPaths}
-     *       for map key supplementation.</li>
-     *   <li>Deeper {@code OFFSET} / {@code NULL}: delegates to
-     *       {@link #stripCoveredMetaByPrefix}.</li>
-     * </ul>
+     * Level 2 — strip target paths ending with {@code metaSuffix}
+     * (OFFSET or NULL) when a deeper-prefix path covers them.
+     *
+     * <p>Data covering paths collected from both {@code coveringAccessPaths}
+     * and {@code targetAccessPaths} are compared against target prefixes via
+     * {@link #compareMetaPathPrefixCoverage}. OFFEST targets additionally
+     * use {@link #stripCoveredOffsetByPaths} for map key supplementation.
+     *
+     * <p>Meta covering paths (OFFSET/NULL) are collected from both sources
+     * and delegated to {@link #stripCoveredMetaByPrefix}.
      */
-    private static void stripShallowerOffsetPaths(
-            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+    private static void stripMetaPathsByDeeperPrefix(
+            Slot slot, String metaSuffix,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
         int slotId = slot.getExprId().asInt();
         Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
@@ -292,101 +309,67 @@ public final class MetaPathNormalizer {
             return;
         }
 
+        // Collect data (non-meta) paths from both covering and target.
         List<List<String>> dataPaths = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            List<String> path = p.second;
-            if (!path.isEmpty() && !isMetaPath(path)) {
-                dataPaths.add(path);
+            if (!p.second.isEmpty() && !isMetaPath(p.second)) {
+                dataPaths.add(p.second);
             }
         }
         for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            List<String> path = p.second;
-            if (!path.isEmpty() && !isMetaPath(path)) {
-                dataPaths.add(path);
+            if (!p.second.isEmpty() && !isMetaPath(p.second)) {
+                dataPaths.add(p.second);
             }
-        }
-        stripCoveredOffsetByPaths(slot, targetAccessPaths, dataPaths);
-
-        List<List<String>> deeperMetaPaths = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            if (!p.second.isEmpty() && isMetaPath(p.second)) {
-                deeperMetaPaths.add(p.second);
-            }
-        }
-        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            if (!p.second.isEmpty() && isMetaPath(p.second)) {
-                deeperMetaPaths.add(p.second);
-            }
-        }
-        stripCoveredMetaByPrefix(slot.getDataType(), slotId, AccessPathInfo.ACCESS_OFFSET,
-                deeperMetaPaths, targetAccessPaths);
-    }
-
-    /**
-     * Level 2 — deeper paths cover shallower NULL paths:
-     * <ul>
-     *   <li>Deeper {@code Data}: same-depth exact prefix match strips NULL
-     *       (e.g. {@code [a]} strips {@code [a, NULL]}), and deeper paths use
-     *       {@link #compareMetaPathPrefixCoverage} for type-aware comparison
-     *       (e.g. {@code [m, *, v]} strips {@code [m, VALUES, NULL]}).</li>
-     *   <li>Deeper {@code OFFSET} / {@code NULL}: delegates to
-     *       {@link #stripCoveredMetaByPrefix}.</li>
-     * </ul>
-     */
-    private static void stripShallowerNullPaths(
-            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
-        int slotId = slot.getExprId().asInt();
-        Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = allAccessPaths.get(slotId);
-        if (slotPaths.isEmpty()) {
-            return;
         }
 
-        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
-            List<String> path = p.second;
-            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
-                continue;
-            }
-            List<String> prefix = path.subList(0, path.size() - 1);
-            for (Pair<ColumnAccessPathType, List<String>> q : slotPaths) {
-                List<String> other = q.second;
-                if (other == path || other.isEmpty() || isMetaPath(other)) {
+        if (AccessPathInfo.ACCESS_OFFSET.equals(metaSuffix)) {
+            // OFFSET: use stripCoveredOffsetByPaths for map key supplementation.
+            stripCoveredOffsetByPaths(slot, targetAccessPaths, dataPaths);
+        } else {
+            // NULL: inline check — remove NULL targets covered by data paths.
+            List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+            for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+                List<String> path = p.second;
+                if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
                     continue;
                 }
-                if (other.equals(prefix)) {
-                    toRemove.add(p);
-                    break;
-                }
-                if (other.size() > prefix.size()
-                        && compareMetaPathPrefixCoverage(
-                                slot.getDataType(), prefix, other)
-                                .shouldRemoveOffsetPath()) {
-                    toRemove.add(p);
-                    break;
+                List<String> prefix = path.subList(0, path.size() - 1);
+                for (List<String> other : dataPaths) {
+                    if (other.size() >= prefix.size()
+                            && compareMetaPathPrefixCoverage(
+                                    slot.getDataType(), prefix, other)
+                                    .shouldRemoveOffsetPath()) {
+                        toRemove.add(p);
+                        break;
+                    }
                 }
             }
-        }
-        for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
-            allAccessPaths.remove(slotId, r);
+            for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
+                targetAccessPaths.remove(slotId, r);
+            }
         }
 
+        // Collect meta paths from both covering and target for rows 2+3.
         List<List<String>> metaPaths = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
             if (!p.second.isEmpty() && isMetaPath(p.second)) {
                 metaPaths.add(p.second);
             }
         }
-        stripCoveredMetaByPrefix(slot.getDataType(), slotId, AccessPathInfo.ACCESS_NULL,
-                metaPaths, allAccessPaths);
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            if (!p.second.isEmpty() && isMetaPath(p.second)) {
+                metaPaths.add(p.second);
+            }
+        }
+        stripCoveredMetaByPrefix(slot.getDataType(), slotId, metaSuffix,
+                metaPaths, targetAccessPaths);
     }
 
     /**
      * Level 2 — for each target path ending with {@code metaSuffix}, remove it
-     * when a strictly deeper meta path has the target prefix as a strict prefix.
-     *
-     * <p>Both target and covering paths have their meta suffix stripped before
-     * comparison, so only genuinely deeper paths match. Same-depth cross-type
-     * is handled by {@link #stripNullBySameDepthOffset} instead.
+     * when a covering meta path has a deeper prefix after both paths have their
+     * meta suffixes stripped. Same-prefix cross-type is handled by
+     * {@link #stripNullBySamePrefixOffset} instead.
      */
     private static void stripCoveredMetaByPrefix(
             DataType slotType, int slotId, String metaSuffix,
@@ -411,7 +394,7 @@ public final class MetaPathNormalizer {
                     continue;
                 }
                 // Strip meta suffix from both and compare prefix depth: only
-                // strictly deeper covering paths subsume the target. Same-depth
+                // strictly deeper covering paths subsume the target. Same-prefix
                 // cross-type is handled by Level-1 priority (OFFSET > NULL).
                 if (coveringPath.size() - 1 <= targetPath.size() - 1) {
                     continue;
