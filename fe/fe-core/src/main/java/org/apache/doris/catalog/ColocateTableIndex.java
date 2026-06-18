@@ -427,6 +427,11 @@ public class ColocateTableIndex implements Writable {
         return table2Group.get(tableId);
     }
 
+    public int getBucketsNumNoLock(GroupId groupId) {
+        Preconditions.checkState(group2Schema.containsKey(groupId));
+        return group2Schema.get(groupId).getBucketsNum();
+    }
+
     public GroupId getGroup(long tableId) {
         readLock();
         try {

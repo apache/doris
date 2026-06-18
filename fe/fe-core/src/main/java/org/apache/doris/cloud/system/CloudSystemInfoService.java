@@ -18,8 +18,10 @@
 package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudColocatePlacement;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
@@ -67,6 +69,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -97,7 +100,93 @@ public class CloudSystemInfoService extends SystemInfoService {
     // clusterId -> ComputeGroup
     protected Map<String, ComputeGroup> computeGroupIdToComputeGroup = new ConcurrentHashMap<>();
 
+    private final Map<ColocatePlacementKey, ColocatePlacementCache> colocatePlacementCache =
+            new ConcurrentHashMap<>();
+
     private InstanceInfoPB.Status instanceStatus;
+
+    public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds,
+            int bucketNum, long idx) {
+        long[] candidateBeIds = availableBeIds.stream().mapToLong(Long::longValue).toArray();
+        ColocatePlacementKey key = new ColocatePlacementKey(groupId, clusterId);
+        long fingerprint = fingerprintBackendIds(candidateBeIds);
+        ColocatePlacementCache cache = colocatePlacementCache.get(key);
+        if (cache != null && cache.same(fingerprint, bucketNum)) {
+            return cache.beIdByBucket[(int) idx];
+        }
+
+        cache = colocatePlacementCache.compute(key, (ignored, oldCache) -> {
+            if (oldCache != null && oldCache.same(fingerprint, bucketNum)) {
+                return oldCache;
+            }
+            return ColocatePlacementCache.build(fingerprint, candidateBeIds, groupId.grpId, bucketNum);
+        });
+        return cache.beIdByBucket[(int) idx];
+    }
+
+    private static long fingerprintBackendIds(long[] beIds) {
+        long sum = 0;
+        for (long beId : beIds) {
+            sum += mix64(beId);
+        }
+        return mix64(sum) ^ mix64(beIds.length);
+    }
+
+    private static long mix64(long value) {
+        value ^= value >>> 33;
+        value *= 0xff51afd7ed558ccdL;
+        value ^= value >>> 33;
+        value *= 0xc4ceb9fe1a85ec53L;
+        value ^= value >>> 33;
+        return value;
+    }
+
+    private static class ColocatePlacementKey {
+        private final GroupId groupId;
+        private final String clusterId;
+
+        private ColocatePlacementKey(GroupId groupId, String clusterId) {
+            this.groupId = groupId;
+            this.clusterId = clusterId;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof ColocatePlacementKey)) {
+                return false;
+            }
+            ColocatePlacementKey other = (ColocatePlacementKey) obj;
+            return groupId.equals(other.groupId) && clusterId.equals(other.clusterId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(groupId, clusterId);
+        }
+    }
+
+    private static class ColocatePlacementCache {
+        private final long fingerprint;
+        private final long[] beIdByBucket;
+
+        private ColocatePlacementCache(long fingerprint, long[] beIdByBucket) {
+            this.fingerprint = fingerprint;
+            this.beIdByBucket = beIdByBucket;
+        }
+
+        private static ColocatePlacementCache build(long fingerprint, long[] sortedBeIds, long grpId, int bucketNum) {
+            long[] beIdByBucket = new long[bucketNum];
+            for (int i = 0; i < bucketNum; i++) {
+                beIdByBucket[i] = CloudColocatePlacement.pickBackendId(grpId, i, sortedBeIds);
+            }
+            return new ColocatePlacementCache(fingerprint, beIdByBucket);
+        }
+
+        private boolean same(long otherFingerprint, int otherBucketNum) {
+            return fingerprint == otherFingerprint
+                    && beIdByBucket.length == otherBucketNum;
+        }
+    }
 
     public void addVirtualClusterInfoToMapsNoLock(String clusterId, String clusterName) {
         LOG.info("add virtual cluster info to maps, clusterId={}, clusterName={}", clusterId, clusterName);
