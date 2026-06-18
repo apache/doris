@@ -453,7 +453,9 @@ public class NestedColumnPruning implements CustomRewriter {
             return children;
         }
 
-
+        /**
+         * recursively search in the tree, if any node hasOffsetPath
+         */
         public boolean hasOffsetPath() {
             if (hasOffsetPath) {
                 return true;
@@ -466,6 +468,9 @@ public class NestedColumnPruning implements CustomRewriter {
             return false;
         }
 
+        /**
+         * recursively search in the tree, if any node hasNullPath
+         */
         public boolean hasNullPath() {
             if (hasNullPath) {
                 return true;
