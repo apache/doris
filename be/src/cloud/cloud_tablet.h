@@ -285,7 +285,8 @@ public:
         _last_active_time_ms = time_ms;
     }
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+    // MUST hold SHARED `_meta_lock`.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction_unlocked();
 
     inline Version max_version() const {
         std::shared_lock rdlock(_meta_lock);
@@ -294,7 +295,8 @@ public:
 
     int64_t base_size() const { return _base_size; }
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    // MUST hold SHARED `_meta_lock`.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction_unlocked();
     Result<RowsetSharedPtr> pick_a_rowset_for_index_change(int schema_version,
                                                            bool& is_base_rowset);
     Status check_rowset_schema_for_build_index(std::vector<TColumn>& columns, int schema_version);

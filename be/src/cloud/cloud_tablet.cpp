@@ -1156,30 +1156,24 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_v
     return ret_rowset;
 }
 
-std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first != 0 && version.first < _cumulative_point &&
-                (_alter_version == -1 || version.second <= _alter_version)) {
-                candidate_rowsets.push_back(rs);
-            }
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first != 0 && version.first < _cumulative_point &&
+            (_alter_version == -1 || version.second <= _alter_version)) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction() {
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
-            if (v.first != 0) {
-                candidate_rowsets.push_back(rs);
-            }
+    for (auto& [v, rs] : _rs_version_map) {
+        // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
+        if (v.first != 0) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
