@@ -206,7 +206,19 @@ SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
-target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+target_compile_options(orc PRIVATE -fno-omit-frame-pointer -Wno-implicit-fallthrough -w)
+foreach(orc_tool
+        orc-contents
+        orc-metadata
+        orc-statistics
+        orc-scan
+        orc-memory
+        timezone-dump
+        csv-import)
+    if (TARGET ${orc_tool})
+        target_compile_options(${orc_tool} PRIVATE -fno-omit-frame-pointer)
+    endif()
+endforeach()
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
@@ -222,7 +234,7 @@ set(USE_BTHREAD OFF)
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
 
-set(clucene_options -w -Wall)
+set(clucene_options -fno-omit-frame-pointer -w -Wall)
 if (COMPILER_CLANG)
     set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
