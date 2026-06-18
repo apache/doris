@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -126,8 +127,26 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
     public Optional<SchemaCacheValue> initSchema() {
         String remoteDbName = ((ExternalDatabase<?>) this.getDatabase()).getRemoteName();
+        if (DebugPointUtil.isEnable("JdbcExternalTable.initSchema.sleep")) {
+            long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                    "JdbcExternalTable.initSchema.sleep", "sleepMs", 0L);
+            if (sleepMs > 0) {
+                LOG.info("debug point JdbcExternalTable.initSchema.sleep hit for {}.{}, sleep {}ms",
+                        remoteDbName, getRemoteName(), sleepMs);
+                try {
+                    Thread.sleep(sleepMs);
+                } catch (InterruptedException ignore) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
 
         // 1. Retrieve remote column information
         List<Column> columns = ((JdbcExternalCatalog) catalog).listColumns(remoteDbName, remoteName);

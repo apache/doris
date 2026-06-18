@@ -91,6 +91,17 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         }
     }
 
+    // Sum a file_cache_statistics metric across ALL cache paths. file_cache_statistics reports one
+    // row per (cache_path, metric_name); a single data file routes to exactly one path, so reading
+    // a single arbitrary path's row with "limit 1" can miss a counter that moved on another path.
+    // Used for cluster-wide absolute counters (total_hit_counts / total_read_counts). METRIC_VALUE
+    // is a numeric string (std::to_string(double)), so CAST(... AS DOUBLE) is safe.
+    def cacheMetricSum = { String metricName ->
+        def r = sql """select sum(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
+                where METRIC_NAME = '${metricName}';"""
+        return (r.size() == 0 || r[0][0] == null) ? null : Double.valueOf(r[0][0].toString())
+    }
+
     sql """drop catalog if exists ${catalog_name} """
 
     sql """CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -306,18 +317,14 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
                 "elements: ${initialNormalQueueMaxElements}")
 
     // ===== Hit And Read Counts Metrics Check =====
-    // Get initial values for hit and read counts
-    def initialTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'total_hit_counts' limit 1;"""
-    logger.info("Initial total_hit_counts result: " + initialTotalHitCountsResult)
-
-    def initialTotalReadCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'total_read_counts' limit 1;"""
-    logger.info("Initial total_read_counts result: " + initialTotalReadCountsResult)
-
-    // Store initial values
-    double initialTotalHitCounts = Double.valueOf(initialTotalHitCountsResult[0][0])
-    double initialTotalReadCounts = Double.valueOf(initialTotalReadCountsResult[0][0])
+    // total_hit_counts / total_read_counts are cluster-wide LIVE counters reported per cache-path
+    // (one row per path). A data file routes to exactly one path, so a bare "limit 1" may inspect a
+    // path the query never touched and miss the increment (this is what made the sibling
+    // test_file_cache_statistics flaky). Sum across all paths so the totals always include whichever
+    // path(s) the query's files routed to.
+    double initialTotalHitCounts = cacheMetricSum('total_hit_counts')
+    double initialTotalReadCounts = cacheMetricSum('total_read_counts')
+    logger.info("Initial total_hit_counts (sum): ${initialTotalHitCounts}, total_read_counts (sum): ${initialTotalReadCounts}")
 
     // Set backend configuration parameters for file_cache_query_limit test 1
     setBeConfigTemporary([
@@ -376,18 +383,9 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         assertTrue((updatedNormalQueueCurrSize as Long) <= queryCacheCapacity,
                 NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_CAPACITY_MSG)
 
-        // Get updated values for hit and read counts after cache operations
-        def updatedTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_hit_counts' limit 1;"""
-        logger.info("Updated total_hit_counts result: " + updatedTotalHitCountsResult)
-
-        def updatedTotalReadCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_read_counts' limit 1;"""
-        logger.info("Updated total_read_counts result: " + updatedTotalReadCountsResult)
-
-        // Check if updated values are greater than initial values
-        double updatedTotalHitCounts = Double.valueOf(updatedTotalHitCountsResult[0][0])
-        double updatedTotalReadCounts = Double.valueOf(updatedTotalReadCountsResult[0][0])
+        // Get updated values for hit and read counts after cache operations (summed across paths)
+        double updatedTotalHitCounts = cacheMetricSum('total_hit_counts')
+        double updatedTotalReadCounts = cacheMetricSum('total_read_counts')
 
         logger.info("Total hit and read counts comparison - hit counts: ${initialTotalHitCounts} -> " +
                 "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts}")
