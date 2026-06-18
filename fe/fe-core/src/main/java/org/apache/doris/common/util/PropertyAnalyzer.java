@@ -1215,8 +1215,9 @@ public class PropertyAnalyzer {
             invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
             properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
         } else {
+            // Config-based default: remap V1 to V2 to block new V1 index creation
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
+                return TInvertedIndexFileStorageFormat.V2;
             } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
             } else {
@@ -1225,16 +1226,20 @@ public class PropertyAnalyzer {
         }
 
         if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
-            throw new AnalysisException(
-                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
-                            + " Please use inverted index V2.");
+            if (!Config.allow_inverted_index_v1_creation) {
+                throw new AnalysisException(
+                        "Inverted index V1 is deprecated and no longer allowed for new index creation."
+                                + " Please use inverted index V2.");
+            }
+            return TInvertedIndexFileStorageFormat.V1;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
             return TInvertedIndexFileStorageFormat.V3;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
+            // "default" keyword: remap V1 to V2 to block new V1 index creation
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexFileStorageFormat.V1;
+                return TInvertedIndexFileStorageFormat.V2;
             } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V2")) {
                 return TInvertedIndexFileStorageFormat.V2;
             } else {

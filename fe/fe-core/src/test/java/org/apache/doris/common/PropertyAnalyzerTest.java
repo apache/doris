@@ -297,16 +297,17 @@ public class PropertyAnalyzerTest {
             TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
+            // Config=V1 with no explicit property: remapped to V2 to block new V1 creation
             Config.inverted_index_storage_format = "V1";
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(new HashMap<>());
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
 
             Map<String, String> propertiesWithV1 = new HashMap<>();
             propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
-            Assertions.assertThrows(AnalysisException.class,
-                    () -> PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1),
-                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
-                            + " Please use inverted index V2.");
+            AnalysisException v1Ex = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV1));
+            Assertions.assertTrue(v1Ex.getMessage().contains(
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."));
 
             Map<String, String> propertiesWithV2 = new HashMap<>();
             propertiesWithV2.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v2");
@@ -318,11 +319,12 @@ public class PropertyAnalyzerTest {
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV3);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
+            // "default" + Config=V1: remapped to V2 to block new V1 creation
             Config.inverted_index_storage_format = "V1";
             Map<String, String> propertiesWithDefaultV1 = new HashMap<>();
             propertiesWithDefaultV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV1);
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V1, result);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
 
             Config.inverted_index_storage_format = "V2";
             Map<String, String> propertiesWithDefaultV2 = new HashMap<>();

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_inverted_index_v1_deprecated", "p0") {
-    // AC1: CREATE TABLE with explicit V1 must fail
+    // AC1: explicit v1 (lowercase) must be rejected
     test {
         sql """
             CREATE TABLE test_v1_rejected (
@@ -33,7 +33,7 @@ suite("test_inverted_index_v1_deprecated", "p0") {
         exception "Inverted index V1 is deprecated and no longer allowed for new index creation."
     }
 
-    // AC1 (case-insensitive): uppercase V1 must also fail
+    // AC1 (case-insensitive): uppercase V1 must also be rejected
     test {
         sql """
             CREATE TABLE test_v1_rejected_upper (
@@ -50,13 +50,12 @@ suite("test_inverted_index_v1_deprecated", "p0") {
         exception "Inverted index V1 is deprecated and no longer allowed for new index creation."
     }
 
-    // AC2: no version specified → default succeeds and is not V1
-    // AC3: ALTER TABLE ADD INDEX on default table succeeds (format inherited from table, not user input)
-    def testTable = "test_v1_deprecated_default"
+    // AC2: no format specified -> default succeeds and format is not V1
+    // AC3: ALTER TABLE ADD INDEX on default table succeeds
     try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql "DROP TABLE IF EXISTS test_v1_deprecated_default"
         sql """
-            CREATE TABLE ${testTable} (
+            CREATE TABLE test_v1_deprecated_default (
               k INT,
               v STRING
             ) ENGINE=OLAP DUPLICATE KEY(k)
@@ -65,43 +64,58 @@ suite("test_inverted_index_v1_deprecated", "p0") {
               "replication_allocation" = "tag.location.default: 1"
             )
         """
-        def showCreate = sql "SHOW CREATE TABLE ${testTable}"
+        def showCreate = sql "SHOW CREATE TABLE test_v1_deprecated_default"
+        assertTrue(showCreate.size() > 0)
         assertFalse(showCreate[0][1].contains("\"inverted_index_storage_format\" = \"V1\""))
 
-        // ALTER TABLE ADD INDEX: format comes from table schema, user cannot specify V1 here
-        sql "ALTER TABLE ${testTable} ADD INDEX idx_v (v) USING INVERTED"
-        def showCreate2 = sql "SHOW CREATE TABLE ${testTable}"
-        assertTrue(showCreate2[0][1].contains("USING INVERTED"))
-        assertFalse(showCreate2[0][1].contains("\"inverted_index_storage_format\" = \"V1\""))
+        sql "ALTER TABLE test_v1_deprecated_default ADD INDEX idx_v (v) USING INVERTED"
+        def showCreateAfter = sql "SHOW CREATE TABLE test_v1_deprecated_default"
+        assertTrue(showCreateAfter[0][1].contains("idx_v"))
+        assertFalse(showCreateAfter[0][1].contains("\"inverted_index_storage_format\" = \"V1\""))
     } finally {
-        sql "DROP TABLE IF EXISTS ${testTable} FORCE"
+        sql "DROP TABLE IF EXISTS test_v1_deprecated_default"
     }
 
-    // AC4: existing V1 table metadata load and read/write must not be affected
-    // Requires a pre-existing V1 table seeded before V1 was deprecated.
-    // Skips gracefully if no such table exists (e.g. fresh CI environment).
+    // AC4: existing V1 table metadata load and read/write must not be affected.
+    // Uses a deterministic fixture: temporarily unlock V1 creation via admin config,
+    // seed the legacy table, verify reads/writes/deletes, then clean up.
     try {
-        sql "CREATE DATABASE IF NOT EXISTS test_v1_compat"
-        def v1Tables = sql "SHOW TABLES FROM test_v1_compat LIKE 'v1_legacy_table'"
-        if (v1Tables.size() > 0) {
-            // metadata: V1 format is preserved in SHOW CREATE TABLE
-            def ddl = sql "SHOW CREATE TABLE test_v1_compat.v1_legacy_table"
-            assertTrue(ddl[0][1].contains("\"inverted_index_storage_format\" = \"V1\""))
+        sql "DROP TABLE IF EXISTS test_v1_legacy_compat"
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        sql """
+            CREATE TABLE test_v1_legacy_compat (
+              k INT,
+              v STRING,
+              INDEX idx_v (v) USING INVERTED
+            ) ENGINE=OLAP DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1",
+              "inverted_index_storage_format" = "v1"
+            )
+        """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
-            // read: inverted index query works
-            def readResult = sql "SELECT COUNT(*) FROM test_v1_compat.v1_legacy_table WHERE v MATCH 'hello'"
-            assertTrue(readResult[0][0] >= 1)
+        def showCreate = sql "SHOW CREATE TABLE test_v1_legacy_compat"
+        assertTrue(showCreate[0][1].contains("\"inverted_index_storage_format\" = \"V1\""))
 
-            // write: INSERT into V1 table works
-            sql "INSERT INTO test_v1_compat.v1_legacy_table VALUES (9999, 'v1 compat write test')"
-            def writeResult = sql "SELECT COUNT(*) FROM test_v1_compat.v1_legacy_table WHERE v MATCH 'compat'"
-            assertTrue(writeResult[0][0] >= 1)
+        // Verify basic DML works on a V1 table (tests metadata compat, not BE index reads)
+        sql "INSERT INTO test_v1_legacy_compat VALUES (1, 'hello world'), (2, 'foo bar')"
+        sql "sync"
+        def cnt = sql "SELECT COUNT(*) FROM test_v1_legacy_compat WHERE k = 1"
+        assertTrue(cnt[0][0] == 1)
 
-            sql "DELETE FROM test_v1_compat.v1_legacy_table WHERE k = 9999"
-        } else {
-            logger.info("AC4 skipped: no pre-existing V1 table found in test_v1_compat")
-        }
-    } catch (Exception e) {
-        logger.warn("AC4 skipped due to exception: ${e.message}")
+        sql "INSERT INTO test_v1_legacy_compat VALUES (3, 'compat write test')"
+        sql "sync"
+        def cntAfter = sql "SELECT COUNT(*) FROM test_v1_legacy_compat WHERE k = 3"
+        assertTrue(cntAfter[0][0] == 1)
+
+        sql "DELETE FROM test_v1_legacy_compat WHERE k = 3"
+        sql "sync"
+        def cntDel = sql "SELECT COUNT(*) FROM test_v1_legacy_compat WHERE k = 3"
+        assertTrue(cntDel[0][0] == 0)
+    } finally {
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
+        sql "DROP TABLE IF EXISTS test_v1_legacy_compat"
     }
 }
