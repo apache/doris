@@ -126,6 +126,14 @@
 
 ---
 
+## RV — 全连接器 clean-room 对抗 review（已提升到主线）
+
+### RV-T01 ➡️ paimon connector 全功能路径 clean-room 对抗 review — **已移到主线**
+- 用户 2026-06-18 澄清：本目录（`metastore-storage-refactor/`）是 **metastore-refactor 专属子线**；paimon connector 全功能路径 review（6 维度：读取/写入/DDL/元数据回放/元数据 cache/残留旧逻辑·fallback + **不注入开发历史先验**）审的是**整条 connector ＝ catalog-spi 主线**范围，spec 归主线 [`../HANDOFF.md`](../HANDOFF.md)「下一个 session 的任务」，**本目录不复述**（避免在 metastore 子目录里放全连接器 review 的 scope 错配）。
+- 与本子线关系：该 review **先于 B8 legacy 删除**（legacy ＝ 对照基线）；**本子线自身剩余 = P2-T04 → P2-T05**，排在主线 review 之后。
+
+---
+
 ## P3 — Kerberos 收口到 fe-kerberos 叶子模块（D-007；⚠️ 范围张力，见下）
 
 > **范围说明（用户 2026-06-17 确认）**：拆为 **P3a（paimon-local，✅ 纳入本次）** 与 **P3b（全量去重，follow-up，范围外）**。P3a 纯新增 + 只让 paimon 走新模块，不碰 fe-common/fe-filesystem-hdfs 既有路径 → 符合 D-005；P3b 会改 fe-common + fe-filesystem-hdfs，超出 D-005，与 hive/iceberg 迁移同批，本清单仅占位。
@@ -172,4 +180,5 @@
 - 2026-06-17：创建任务清单（P0×2 / P1×6 / P2×5），状态全 ⬜，待用户批准后开始 P1。
 - 2026-06-17：3 设计点定稿（D-006 provider 取代 MetaStoreType 枚举 / D-007 fe-kerberos 叶子 / D-008 vended 边界）；P2-T01/T02 改写（去枚举、加 MetaStoreProvider）；新增 P3a/P3b（Kerberos）。
 - 2026-06-17：用户确认 **P3a 纳入本次** + 模块名 **`fe-kerberos`**。核心任务计数 13 → **14**（+P3a-T01）；P3b 仍 follow-up（范围外占位）。
-- 2026-06-18：**P1-T07 ✅**（彻底删除 fe-property 孤儿模块，D-016）：删目录（27 文件）+ fe/pom.xml 两声明 + 清 5 处 stale 注释（一并清理，用户选）；全 FE reactor test-compile BUILD SUCCESS（fe-core 实编译，0 ERROR）+ paimon 278/0/1skip + hdfs 78/0/0 + grep fe-property 归零。任务计数 11→**12/15**。下一步 P2-T04（pom+gate，⚠️ MetaStoreProviders ServiceLoader 改 2-arg）。
+- 2026-06-18：**P1-T07 ✅**（彻底删除 fe-property 孤儿模块，D-016）：删目录（27 文件）+ fe/pom.xml 两声明 + 清 5 处 stale 注释（一并清理，用户选）；全 FE reactor test-compile BUILD SUCCESS（fe-core 实编译，0 ERROR）+ paimon 278/0/1skip + hdfs 78/0/0 + grep fe-property 归零。任务计数 11→**12/15**。commit `13d3876d25d`，已 push `catalog-spi-07-paimon`+`master-catalog-spi-07-paimon`，PR #64445 评论 `run buildall`。
+- 2026-06-18：**RV-T01（全连接器 clean-room review）提升到主线**：初排为本子线下一步，后经用户澄清（`metastore-storage-refactor/` 是 metastore-refactor 专属子线，全连接器 review 属 catalog-spi 主线）→ spec 移到主线 `../HANDOFF.md`（6 维度 + 不注入开发历史先验），先于 B8 legacy 删除（legacy=对照基线）。本目录仅留指针；本子线自身剩余 = P2-T04/T05（主线 review 后）。

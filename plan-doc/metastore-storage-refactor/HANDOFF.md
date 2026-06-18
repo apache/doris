@@ -7,11 +7,11 @@
 
 ---
 
-**更新时间**：2026-06-18（实现 session：**P1-T07 ✅ 彻底删除 fe-property 孤儿模块**[commit 待提交，D-016 授权超 D-005]；全 FE reactor `test-compile` BUILD SUCCESS（fe-core 实编译，0 ERROR）= 证 module+dependencyManagement 删除无隐藏 transitive 消费者。**下一步 = P2-T04**[pom+gate，⚠️ `MetaStoreProviders` ServiceLoader 改 2-arg] → P2-T05 docker 真闸）
+**更新时间**：2026-06-18（实现 session：**P1-T07 ✅ 彻底删除 fe-property 孤儿模块**[commit `13d3876d25d`，D-016 授权超 D-005]，已 push 到 `catalog-spi-07-paimon`(fast-forward) + `master-catalog-spi-07-paimon`(force-with-lease，PR #64445 head) + 在 PR #64445 评论 `run buildall`；全 FE reactor `test-compile` BUILD SUCCESS（fe-core 实编译，0 ERROR）= 证删除无隐藏 transitive 消费者。**下一步 = 主线全连接器 clean-room review**[已提升到主线，见 `../HANDOFF.md`；审整条 paimon connector]；**本子线自身剩余 = P2-T04 → P2-T05 docker 真闸**，排在主线 review 之后）
 **更新人**：Claude（Opus 4.8）
 
 > **本 session 进度补注（最新在最前）**：
-> - **P1-T07 ✅（commit 待提交，D-016）**：彻底删除 fe-property 孤儿模块（**覆盖 D-005「不删 fe-property」条款**；fe-core `datasource.property.{storage,metastore}` 两包仍禁碰、仍服务 hive/hudi/iceberg）。执行前按强制流程复核（读全套文档 + 对照真实代码 recon）+ 1 边界经 AskUserQuestion 定（5 处 stale 注释「一并清理」）。**改动**（白名单内）：`git rm -r fe/fe-property/`（27 文件 = 26 java + pom）+ `rm` stale `target/`（目录全消）；`fe/pom.xml` 删 `<module>fe-property</module>` + dependencyManagement 条目；5 处注释「fe-property」→「legacy」（paimon `PaimonCatalogFactory`×2/`PaimonConnector`×2/`PaimonCatalogFactoryTest`×1 + fe-filesystem-hdfs `HdfsConfigFileLoader`/`HdfsFileSystemProperties`——保历史语义非改逻辑）。**RED/GREEN = 构建闸**（无 UT 可写，同 P1-T05 模式）：whole-repo `grep fe-property`（排 plan-doc）=**0**、`grep org.apache.doris.property`=**0**；**全 FE reactor `test-compile` BUILD SUCCESS**（`-Dmaven.build.cache.enabled=false`，fe-core `compile`+`testCompile` 实跑，54 模块 **0 ERROR**，1:53min）；paimon 全模块 **278/0/1skip**、fe-filesystem-hdfs **78/0/0**、checkstyle 0、`tools/check-connector-imports.sh` exit 0、`git diff --name-only` 白名单干净。⚠️ **docker e2e 未跑**（D-012，留 P2-T05）。
+> - **P1-T07 ✅（commit `13d3876d25d`，已 push `catalog-spi-07-paimon`+`master-catalog-spi-07-paimon`，PR #64445 评论 `run buildall`，D-016）**：彻底删除 fe-property 孤儿模块（**覆盖 D-005「不删 fe-property」条款**；fe-core `datasource.property.{storage,metastore}` 两包仍禁碰、仍服务 hive/hudi/iceberg）。执行前按强制流程复核（读全套文档 + 对照真实代码 recon）+ 1 边界经 AskUserQuestion 定（5 处 stale 注释「一并清理」）。**改动**（白名单内）：`git rm -r fe/fe-property/`（27 文件 = 26 java + pom）+ `rm` stale `target/`（目录全消）；`fe/pom.xml` 删 `<module>fe-property</module>` + dependencyManagement 条目；5 处注释「fe-property」→「legacy」（paimon `PaimonCatalogFactory`×2/`PaimonConnector`×2/`PaimonCatalogFactoryTest`×1 + fe-filesystem-hdfs `HdfsConfigFileLoader`/`HdfsFileSystemProperties`——保历史语义非改逻辑）。**RED/GREEN = 构建闸**（无 UT 可写，同 P1-T05 模式）：whole-repo `grep fe-property`（排 plan-doc）=**0**、`grep org.apache.doris.property`=**0**；**全 FE reactor `test-compile` BUILD SUCCESS**（`-Dmaven.build.cache.enabled=false`，fe-core `compile`+`testCompile` 实跑，54 模块 **0 ERROR**，1:53min）；paimon 全模块 **278/0/1skip**、fe-filesystem-hdfs **78/0/0**、checkstyle 0、`tools/check-connector-imports.sh` exit 0、`git diff --name-only` 白名单干净。⚠️ **docker e2e 未跑**（D-012，留 P2-T05）。
 > - **决策**：无新决策（D-016 已预定本任务）；唯一边界 = AskUserQuestion「5 处注释一并清理」（保历史语义、白名单内）。
 >
 > **更早本 session（P2-T01..T03，已完成）**：
@@ -65,10 +65,14 @@
 - **新增 3 模块**：顶层叶子 `fe-kerberos`（facts 切片）+ `fe-connector-metastore-api`（5 子接口）+ `fe-connector-metastore-spi`（5 解析器 + Provider SPI，22 文件）。**paimon 连接器已 cutover 到共享 spi**（P2-T03）。**fe-property 已物理删除**（P1-T07 ✅，0 消费者孤儿移除；fe-core `datasource.property.{storage,metastore}` 两包仍在、仍服务 hive/hudi/iceberg）。**R-006/R-007/R-008 已闭环**（UT/mutation 层）。
 - ⚠️ **e2e/docker 全程未跑**（P1 storage 等价 T1 + P2 metastore T2/5-flavor 闸 一并留 P2-T05 docker 跑；D-012）。
 
-## 下一步（明确）：**P2-T04 paimon pom + gate 核对**（含 ⚠️ MetaStoreProviders ServiceLoader 2-arg 修），然后 P2-T05 docker 真闸
-> **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手；实施前 WORKFLOW §2 单任务 + 一句话复述。**
+## 下一步（明确）：**主线全连接器 clean-room review（已提升到主线，见 [`../HANDOFF.md`](../HANDOFF.md)）**；本子线自身剩余 = P2-T04 → P2-T05（主线 review 之后）
+> **务必先按顶部流程读全套文档做流程定向；本子线实施前 WORKFLOW §2 单任务 + 一句话复述。**
 
-**P2-T04（paimon pom + gate 核对）— 下一步**：
+**RV-T01（paimon connector 全功能路径 clean-room 对抗 review）— 已提升到主线**：
+- 用户 2026-06-18 定的「paimon connector 全功能路径 6 维度（读取 / 写入 / DDL / 元数据回放 / 元数据 cache / 残留旧逻辑·fallback）clean-room 对抗 review，**⚠️ 不注入开发历史先验**」审的是**整条 paimon connector**（＝ catalog-spi **主线**范围，非 metastore/storage 子线），故归 **主线** [`../HANDOFF.md`](../HANDOFF.md)「下一个 session 的任务」，**本子目录不再复述其 spec**（避免在 metastore 子目录里放全连接器 review 的 scope 错配）。
+- 与本子线的关系：该 review **先于** B8 legacy 删除（legacy ＝ 对照基线）；**本子线自身的剩余工作 = P2-T04 → P2-T05**，排在主线 review 之后。
+
+**P2-T04（paimon pom + gate 核对）— 主线 review 之后**：
 - **做什么**：核 `fe-connector-paimon/pom.xml` 依赖集 = `fe-connector-{api,spi}` + `fe-connector-metastore-spi`（transitively 带 metastore-api + fe-kerberos）+ `fe-filesystem-api` + `fe-thrift(provided)` + paimon SDK + hadoop/aws/…；`tools/check-connector-imports.sh` PASS（P2-T03 已验 exit 0，复核即可）。
 - **⚠️ P2-T03 recon 揪出的真正 substance（不只是 packaging 复核——可能要 1 行改 metastore-spi，白名单内）**：`MetaStoreProviders.load()` 用 **1-arg `ServiceLoader.load(MetaStoreProvider.class)`（TCCL-based）**；static `PROVIDERS` 在首次 `bind()`（= `validateProperties` 在 CREATE CATALOG）初始化，而该路径**不 pin TCCL 到插件 loader**（仅 `createCatalogFromContext` pin）。metastore-spi 在插件 zip **child-first lib/**（assembly 已确认 bundle、不在 excludes），**不在 fe-core classpath**。若 class-init 时 TCCL≠插件 loader → ServiceLoader 找不到 child-first 的 `META-INF/services` → **0 provider → `bind` 抛「No MetaStoreProvider supports」→ 所有 paimon CREATE/读 挂**。UT（单 flat loader）结构上抓不到。**建议 fix**：改 **2-arg `ServiceLoader.load(MetaStoreProvider.class, MetaStoreProviders.class.getClassLoader())`**（用模块自身 loader 发现，与 TCCL 无关；对标 `FileSystemPluginManager:99` 对插件 provider 用显式 loader）。执行前先读 fe-core 插件调用路确认 TCCL 是否被 pin，但 2-arg 形式无论如何更稳。
 - **依赖**：P1-T07, P2-T03 ✅。设计 §4 P2-4。
