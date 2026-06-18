@@ -17,11 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
 
 public class ExpressionDefaultPartialUpdateGuardTest extends TestWithFeService {
 
@@ -41,16 +48,45 @@ public class ExpressionDefaultPartialUpdateGuardTest extends TestWithFeService {
         createTable(tableSql);
     }
 
+    private static boolean anyCauseMessageContains(Throwable t, String substring) {
+        while (t != null) {
+            String message = t.getMessage();
+            if (message != null && message.contains(substring)) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
+    }
+
+    private void analyzeInsertWithoutTxn(String sql) throws Exception {
+        connectContext.setThreadLocalInfo();
+
+        StatementContext statementContext = createStatementCtx(sql);
+        LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
+
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+        InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parsedPlan;
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(parsedPlan, statementContext);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
+
+        insertIntoTableCommand.initPlan(connectContext, stmtExecutor, false);
+    }
+
     @Test
     public void testInsertPartialUpdateRejectedWhenExpressionDefaultAndSessionVarDisabled() {
         connectContext.getSessionVariable().setEnableUniqueKeyPartialUpdate(true);
         connectContext.getSessionVariable().setAllowPartialUpdateWithExpressionDefault(false);
 
         Throwable t = Assertions.assertThrows(Throwable.class,
-                () -> PlanChecker.from(connectContext)
-                        .analyze("insert into tbl_expr_default_mow(k1) values (1)"));
-        Assertions.assertTrue(t.getMessage().contains(
-                "Partial update is not supported for table with expression default value"));
+                () -> analyzeInsertWithoutTxn("insert into tbl_expr_default_mow(k1) values (1)"));
+
+        Assertions.assertTrue(
+                anyCauseMessageContains(t, "Partial update is not supported for table with expression default value"),
+                () -> "Unexpected exception: " + t
+        );
     }
 
     @Test
@@ -58,7 +94,7 @@ public class ExpressionDefaultPartialUpdateGuardTest extends TestWithFeService {
         connectContext.getSessionVariable().setEnableUniqueKeyPartialUpdate(true);
         connectContext.getSessionVariable().setAllowPartialUpdateWithExpressionDefault(true);
 
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
-                .analyze("insert into tbl_expr_default_mow(k1) values (1)"));
+        Assertions.assertDoesNotThrow(
+                () -> analyzeInsertWithoutTxn("insert into tbl_expr_default_mow(k1) values (1)"));
     }
 }
