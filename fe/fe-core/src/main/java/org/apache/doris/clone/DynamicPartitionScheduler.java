@@ -309,10 +309,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             try {
                 prevBorder = DynamicPartitionUtil.getPartitionRangeString(
                         dynamicPartitionProperty, now, idx, partitionFormat);
-                prevBorder = PartitionExprUtil.normalizePartitionValueString(prevBorder, partitionColumn.getType());
+                prevBorder = PartitionExprUtil.normalizePartitionValueString(prevBorder, partitionColumn.getType(),
+                        dynamicPartitionProperty.getTimeZone().getID());
                 nextBorder = DynamicPartitionUtil.getPartitionRangeString(
                         dynamicPartitionProperty, now, idx + 1, partitionFormat);
-                nextBorder = PartitionExprUtil.normalizePartitionValueString(nextBorder, partitionColumn.getType());
+                nextBorder = PartitionExprUtil.normalizePartitionValueString(nextBorder, partitionColumn.getType(),
+                        dynamicPartitionProperty.getTimeZone().getID());
                 lowerValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(prevBorder, partitionColumn.getType()));
                 upperValue = new PartitionValue(
@@ -506,15 +508,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
-            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
+            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory,
+            String timeZone) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
         try {
             lowerBorderOfReservedHistory = PartitionExprUtil.normalizePartitionValueString(
                     lowerBorderOfReservedHistory,
-                    partitionColumn.getType());
+                    partitionColumn.getType(), timeZone);
             upperBorderOfReservedHistory = PartitionExprUtil.normalizePartitionValueString(
                     upperBorderOfReservedHistory,
-                    partitionColumn.getType());
+                    partitionColumn.getType(), timeZone);
             PartitionValue lowerBorderPartitionValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(lowerBorderOfReservedHistory, partitionColumn.getType()));
             PartitionValue upperBorderPartitionValue = new PartitionValue(
@@ -560,9 +563,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         Range<PartitionKey> reservePartitionKeyRange;
         try {
             lowerBorder = PartitionExprUtil.normalizePartitionValueString(lowerBorder,
-                    partitionColumn.getType());
+                    partitionColumn.getType(), dynamicPartitionProperty.getTimeZone().getID());
             limitBorder = PartitionExprUtil.normalizePartitionValueString(limitBorder,
-                    partitionColumn.getType());
+                    partitionColumn.getType(), dynamicPartitionProperty.getTimeZone().getID());
             PartitionValue lowerPartitionValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(lowerBorder, partitionColumn.getType()));
             PartitionValue limitPartitionValue = new PartitionValue(
@@ -602,7 +605,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
                     Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable,
                             partitionColumn, partitionFormat,
-                            lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
+                            lowerBorderOfReservedHistory, upperBorderOfReservedHistory,
+                            dynamicPartitionProperty.getTimeZone().getID());
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
                     return dropPartitionOps;
@@ -664,7 +668,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         PartitionKey currentTimeKey;
         try {
             currentTimeStr = PartitionExprUtil.normalizePartitionValueString(currentTimeStr,
-                    partitionColumn.getType());
+                    partitionColumn.getType(), DateUtils.getTimeZone().getId());
             PartitionValue currentTimeValue = new PartitionValue(
                     LiteralExprUtils.createLiteral(currentTimeStr, partitionColumn.getType()));
             currentTimeKey = PartitionKey.createPartitionKey(

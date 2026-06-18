@@ -31,6 +31,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeStampTzType;
@@ -314,6 +315,27 @@ public class PartitionExprUtil {
             }
         }
         return value;
+    }
+
+    /**
+     * Normalize a partition value string with an explicit time zone for TIMESTAMPTZ types.
+     * <p>
+     * When the caller generates a timezone-less local-datetime string in a known time zone
+     * (e.g., the dynamic-partition scheduler produces bounds in the configured
+     * {@code dynamic_partition.time_zone}), this overload ensures the TIMESTAMPTZ literal is
+     * interpreted in that zone rather than falling back to the session or UTC default.
+     * For all other types this delegates to {@link #normalizePartitionValueString(String, Type)}.
+     */
+    public static String normalizePartitionValueString(String value, Type type, String timeZone)
+            throws AnalysisException {
+        DataType dataType = DataType.fromCatalogType(type);
+        if (dataType.isTimeStampTzType() && timeZone != null && !timeZone.isEmpty()
+                && !DateTimeChecker.hasTimeZone(value)) {
+            // Append the explicit time zone so that TimestampTzLiteral parses the
+            // timezone-less local datetime in the intended zone (see fromSessionTimeZone).
+            return normalizePartitionValueString(value + " " + timeZone, type);
+        }
+        return normalizePartitionValueString(value, type);
     }
 
     public class FunctionIntervalInfo {
