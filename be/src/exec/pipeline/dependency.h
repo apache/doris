@@ -770,17 +770,57 @@ struct PartitionedHashJoinSharedState
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
+    class BuildBlocks {
+        using BuildBlockPtr = std::shared_ptr<const Block>;
+
+    public:
+        void emplace_back(Block&& block) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _blocks.emplace_back(std::make_shared<Block>(std::move(block)));
+        }
+
+        size_t size() const {
+            std::lock_guard<std::mutex> lock(_mutex);
+            return _blocks.size();
+        }
+
+        bool empty() const { return size() == 0; }
+
+        // Blocks are append-only and heap-owned, so references stay valid while the vector grows.
+        const Block& operator[](size_t index) const {
+            std::lock_guard<std::mutex> lock(_mutex);
+            DCHECK_LT(index, _blocks.size());
+            return *_blocks[index];
+        }
+
+        Blocks copy() const {
+            std::vector<BuildBlockPtr> build_block_ptrs;
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                build_block_ptrs = _blocks;
+            }
+            Blocks blocks;
+            blocks.reserve(build_block_ptrs.size());
+            for (const auto& block : build_block_ptrs) {
+                blocks.emplace_back(*block);
+            }
+            return blocks;
+        }
+
+    private:
+        mutable std::mutex _mutex;
+        std::vector<BuildBlockPtr> _blocks;
+    };
+
     static bool can_output_from_partial_build(TJoinOp::type join_op, bool is_mark_join) {
         return !is_mark_join && (join_op == TJoinOp::INNER_JOIN || join_op == TJoinOp::CROSS_JOIN);
     }
 
     bool should_stop_build() const { return build_side_no_more_required; }
-    // build_blocks is a vector, so probe may read it only after build is paused or finished.
-    bool build_side_stable_for_probe() const {
-        DCHECK_EQ(sink_deps.size(), 1);
-        return !sink_deps.front()->ready();
-    }
-    // Partial-build NLJ uses the probe source dependency as the build-data request token.
+
+    // Partial-build NLJ uses the probe source dependency as the build-data request token. It starts
+    // blocked for the first publication and is blocked again when probe reaches the current
+    // published build prefix.
     bool probe_side_has_build_request() const {
         DCHECK_EQ(source_deps.size(), 1);
         return !source_deps.front()->ready();
@@ -788,12 +828,12 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 
     // if true, probe child has no more rows to process
     bool probe_side_eos = false;
-    bool build_side_eos = false;
-    bool build_side_no_more_required = false;
+    std::atomic_bool build_side_eos = false;
+    std::atomic_bool build_side_no_more_required = false;
     // Visited flags for each row in build side.
     MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()
-    Blocks build_blocks;
+    BuildBlocks build_blocks;
 };
 
 struct PartitionSortNodeSharedState : public BasicSharedState {

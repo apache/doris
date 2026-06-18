@@ -205,16 +205,18 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
 }
 
 void NestedLoopJoinProbeLocalState::_request_more_build_data() {
-    if (_matched_rows_done || _shared_state->build_side_eos) {
+    if (_matched_rows_done || _shared_state->build_side_eos ||
+        _current_build_pos < _shared_state->build_blocks.size()) {
         return;
     }
     _dependency->block();
-    _dependency->set_ready_to_write();
+    if (_current_build_pos < _shared_state->build_blocks.size() || _shared_state->build_side_eos) {
+        _dependency->set_ready();
+    }
 }
 
 void NestedLoopJoinProbeLocalState::_finish_probe_side_for_incremental_build() {
     _shared_state->build_side_no_more_required = true;
-    _dependency->set_ready_to_write();
 }
 
 bool NestedLoopJoinProbeLocalState::_can_output_from_partial_build() const {
@@ -944,9 +946,6 @@ Status NestedLoopJoinProbeLocalState::generate_inner_join_block_data(RuntimeStat
             _need_more_build_data = true;
             return Status::OK();
         }
-    } else if (!_shared_state->build_side_stable_for_probe()) {
-        _need_more_build_data = true;
-        return Status::OK();
     }
 
     if (p._enable_lazy_materialize) {

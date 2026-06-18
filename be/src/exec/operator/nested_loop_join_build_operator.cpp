@@ -130,15 +130,14 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
 
     if (eos) {
         if (!state->is_cancelled()) {
-            RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->process(
-                    state, local_state._shared_state->build_blocks));
+            auto build_blocks = local_state._shared_state->build_blocks.copy();
+            RETURN_IF_ERROR(
+                    local_state._runtime_filter_producer_helper->process(state, build_blocks));
         }
-        local_state._dependency->block();
         local_state._shared_state->build_side_eos = true;
         local_state._dependency->set_ready_to_read();
     } else if (rows != 0 && _enable_partial_build_output &&
                local_state._shared_state->probe_side_has_build_request()) {
-        local_state._dependency->block();
         local_state._dependency->set_ready_to_read();
     }
 

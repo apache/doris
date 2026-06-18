@@ -42,8 +42,6 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     bool is_finished() const override;
 
-    Blocks& build_blocks() { return _shared_state->build_blocks; }
-
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
