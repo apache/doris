@@ -6,40 +6,58 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **paimon connector 全功能路径 clean-room 对抗 review**（先于 B8 legacy 删除）
+# 🎯 下一个 session 的任务 — **P6 review 已完成 → 进入「修复发现项」+「分阶段 B8 删除」**
 
-整个 paimon connector cutover（P0–P5 + round-3 fixes + 元存储子线）已落地。**删除任何 legacy 之前**，先对**整条连接器**做一次完整的、不带历史先验的回归式复审：从**设计**与**实现交付**两层判断对错，并**逐一对照 legacy 找差异**（区分有意偏离 vs 漏移植/回归）。这是整体复审，不是某个增量 task 的局部 review。
+paimon connector 全功能路径 clean-room 对抗 review（6 维度 + 7 缺口线，2 波，零历史先验）**已完成**。
+报告：[`reviews/P6-paimon-fullpath-cleanroom-2026-06-18.md`](./reviews/P6-paimon-fullpath-cleanroom-2026-06-18.md)（未跟踪，待 vet+commit）。
+统计：**2 BLOCKER · 2 MAJOR · 16 MINOR · 10 NIT**（27 confirmed / 3 partial / 3 refuted）。方法：wave1 = 9 finder 线归 6 维度
+（read×2/write/ddl×2+config/replay/cache/residual），wave2 = 补 7 缺口线（show-partitions / partitions-TVF / 统计-ANALYZE /
+@branch / MTMV / auth-UGI / config→BE），每线 finder→对抗 verifier；fresh subagent 仅喂代码+维度问题（成功挡住历史先验）。
 
-**6 个 review 维度**（用户指定；每维度独立成一条对抗 review 线）：
-1. **读取**（scan / split planning → BE 下发的整条读路）
-2. **写入**（INSERT / sink，若存在则审，无则明确记录"无写路径"）
-3. **DDL**（CREATE/DROP CATALOG·DB·TABLE、CTAS、属性校验）
-4. **元数据回放（metadata replay）**（catalog/db/table 持久化 + FE 重启 / edit-log replay 重建 + GSON 序列化/反序列化注册）
-5. **元数据 cache**（schema / partition / sys-table / MVCC snapshot 等的填充·命中·失效·刷新）
-6. **残留旧逻辑 / fallback**：还有哪些路径**仍走旧逻辑**或在某条件下 **fallback 回旧逻辑**（仍引用 fe-core legacy 类 / legacy/compat/instanceof/兜底分支）
+**核心结论（详见报告）**：
+- **2 BLOCKER 都是 B8 删除护栏、非运行时 bug**：R1 = legacy `property/metastore/Paimon*MetaStoreProperties` + `PaimonExternalCatalog`
+  **常量**仍 LIVE（cutover 的 `initPreExecutionAuthenticator`→Kerberos 装配经它）；R2 = `property/storage/{S3,OSS,COS,OBS,Minio}Properties`
+  是**跨连接器共享**（~26 消费者 iceberg/hive/glue/dlf/storage-vault/load/cloud/policy）。→ **B8 不能整包删，必须分阶段**。
+- **2 MAJOR 是真活读路回归**（不挡 B8，应随 cutover 修）：**C1** = `minio.*`-keyed catalog 整条不可用（FE 建表 + BE 读，两波独立证实；
+  fe-filesystem 无 MinIO provider，S3 provider 不认 `minio.*`；2026-06-14 的 applyCanonicalMinioConfig 未进本分支）；**C2** = HDFS
+  `hadoop.config.resources` XML 未注入 FE 建表 Configuration（filesystem/jdbc flavor）→ XML-only HA 拓扑解析不到 nameservice。
+  **C2 的 kerberos-by-alias 子项被 wave2 证伪**（per-FS Configuration 的 auth marker 非负载性：JVM-global `UGI.setConfiguration` 主导 SASL）→ 只修 XML。
+- **其余全 parity**：replay/GSON 干净（0 缺陷）、scan→BE 契约（历史 double-fill / `file_format=jni` / schema-evo `-1` bug 均已修）、
+  write（无写路、两侧都 loud-reject）、cache pin 模型、SHOW PARTITIONS（critic 的 `VARCHAR(60→300)` 担忧被证伪：master 早已 300）、
+  partitions-TVF、统计/ANALYZE（row-count 一致、column-stat 两侧空、ANALYZE 走 generic）、@branch、MTMV 新鲜度、auth/UGI（split-plan
+  等不裹 `executeAuthenticated` 与 legacy 完全一致 → 非回归，了结 HANDOFF 旧 open item）。MINOR/NIT 多为 EXPLAIN/profile/错误码
+  parity 或刻意更安全的偏离。
 
-**方法**：clean-room 多 agent 对抗 review（参 memory `clean-room-adversarial-review-pref`）。每维度：finder（独立读**当前** paimon 实现 + **legacy 参照**实现，自行下判断）→ adversarial verifier（逐条试图**证伪**）→ synth。建议 workflow 编排（find→verify pipeline，每维度一条线）。
-
-**⚠️⚠️ 关键约束（用户 2026-06-18 明确，最高优先级）：本轮不得注入开发过程已有的先验知识。**
-不把 `decisions-log` / `deviations-log` / `risks` / 既往 review 报告（含 `reviews/P5-*`）/ 过往 CI-RCA / `~/.claude/.../memory/*`（`catalog-spi-*`）/ tasks-doc rationale 当作 review 的前提或预设答案喂给 review agents——这些会用「早已查过 / 已判定 OK / 已知非 bug」制造盲区、限制 review 的公正性与开放性。review agents 的输入**只有代码**（当前 paimon connector 实现 + legacy 参照实现 + 6 维度问题）。clean-room 靠 **fresh subagent + 编排者精选 prompt** 实现（reviewer 不继承主 session 上下文；尤其要挡住主 session **自动注入**的 `catalog-spi-*` auto-memory 正文——对 clean-room 也是「待验证历史声明」非事实）。orchestrator 读本 HANDOFF **仅为流程定向**，不把任何历史结论作为 review 输入。**当作第一次看这套代码，从零独立判断对错与 parity。与既往「Phase C 交叉核对历史结论」相反，本轮刻意不做。**
-
-**对照基线（legacy / 原先逻辑）＝ 同时也是 B8 的删除目标**：fe-core `.../datasource/paimon/*` +
-`.../datasource/property/storage/{OSS,COS,OBS,S3,Minio}Properties` + `.../property/metastore/HMSBaseProperties` 等
-（+ 必要时 git 历史里 paimon 迁移前实现）。**故 review 必须先于 B8**（删了就没了对照基线）。仅读其**代码**、不读其历史结论 / commit message 里的判断。
-
-**产物**：review 报告落 `plan-doc/reviews/`（每维度 finding 分级 BLOCKER/MAJOR/MINOR/NIT + 与 legacy 差异清单[有意偏离 vs 回归] + 处置建议）。**先 review、不改代码**；发现的修复各自另起 task（AGENT-PLAYBOOK 单任务循环）。
+**下一步**：本轮是 review、**未改任何代码**（除报告本身 + 我修正了 writer 的计数）。发现项各自另起 fix task（见下方 backlog 0 + 报告
+§Coverage gaps & follow-ups 的 prioritized fix-task list）。**AGENT-PLAYBOOK 单任务循环：先 review 方案后实现**。
 
 ---
 
-# 🔭 review 之后的主线 backlog（review 出报告后再排）
+# 🔭 主线 backlog（P6 review 已出报告，按此排）
 
-1. **B8 legacy 删除**（[`task-list-P5-rereview3-fixes.md`](./task-list-P5-rereview3-fixes.md) Follow-ups + 第三轮报告 R-1…R-8）：删 fe-core
-   `datasource/paimon/*` + legacy `{OSS,COS,OBS,S3,Minio}Properties` / `HMSBaseProperties` 等 dead residue。
-   **删除前提**：①上面的 review 完成（对照基线用完）②FIX-4 已 commit（literal 复刻对照完成）。**须保 load-bearing
-   dispatch ordering**（`ShowPartitionsCommand:478-480`，R-4）。逐子树删 + 每批跑 fe-core 编译 + 连接器测 + regression-gated。
-   **⚠️ 跨线 tension**：元存储子线 D-016 记「fe-core `datasource.property.{storage,metastore}` 两包仍服务
-   hive/hudi/iceberg、不碰」；B8 想删其中 paimon-only 部分——**B8 scope 须先经 review dim-6（残留旧逻辑/fallback）确认
-   哪些真 dead、哪些仍被 hive/hudi/iceberg 消费**，别误删在用类。
+0. **修复 P6 发现项**（报告 §Coverage gaps & follow-ups → prioritized fix-task list；每个独立 fix task）：
+   - **C1 MinIO**（MAJOR / 若部署用 `minio.*` 键则 BLOCKER）：`S3FileSystemProvider.supports()` + `S3FileSystemProperties`
+     @ConnectorProperty 加 `minio.*` 别名（endpoint/access_key/secret_key/session_token/region/use_path_style/connection.*），
+     保 MinIO 默认（region `us-east-1`、tuning 100/10000/10000）；UT 钉 FE `fs.s3.impl`/`fs.s3a.*` + BE `location.AWS_*`。
+   - **C2 HDFS XML**（MAJOR）：filesystem/jdbc flavor 把 `hadoop.config.resources` XML 载入 FE 建表 Configuration（推荐让
+     `HdfsFileSystemProperties` 实现 `HadoopStorageProperties` 暴露已载入的 backend map，复用 BE 路那张图）。**仅 XML 子项**
+     （kerberos-alias 已证非负载性）。
+   - **R3 residual**（MINOR）：去 `PluginDrivenScanNode` 的 `"paimon".equals(catalog.getType())` gate，VERBOSE 下无条件
+     emit `appendBackendScanRangeDetail()`（同时修 MaxCompute VERBOSE 回归 + 违反「generic node 不按 source name 分支」规则 + 假注释）。
+   - **R1 table**（MINOR）：bridge `createTable` 补 `remoteExists && !ifNotExists` 臂报 `ERR_TABLE_EXISTS_ERROR`(1050)。
+   - **C4 / R2-catalog / R3-catalog**（MINOR，可合一）：HMS socket timeout 透传 `hive_metastore_client_timeout_second` /
+     `meta.cache.paimon.table.*` warn-and-strip（键已 dead）/ `listDatabaseNames` `LOG.warn` 带 catalog 名（择一）。
+   - 其余 MINOR/NIT + wave2 新增（全 intentional-deviation）：报告已标「文档化为接受偏离」，逐条 accept-as-deviation（含用户签字）。
+1. **B8 legacy 删除（review 已解锁；须分阶段，按报告 §B8 deletion readiness 的 DEAD vs STILL-CONSUMED ledger）**：
+   - **可删（DEAD，成单元同删）**：`datasource/paimon/*`（PaimonExternalCatalog/Factory、ExternalDatabase/Table、HMS/DLF/File/Rest 子类、
+     SysExternalTable、MetaCache 等）、`systable/PaimonSysTable`、`metacache/paimon/*` + `ExternalMetaCacheMgr.paimon()/ENGINE_PAIMON`、
+     `ShowPartitionsCommand`/`Env`/`ExternalCatalog.buildDbForInit`/`UserAuthentication`/`ExternalMetaCacheRouteResolver` 的死 legacy 分支+import。
+   - **删除前置（硬）**：① 先把 `PaimonExternalCatalog` 的常量（`PAIMON_FILESYSTEM`/`PAIMON_HMS`）迁出到 metastore-props 模块（5 个 live 类 import 它）；
+     ② scrub 悬空 javadoc `{@link PaimonSysTable}`（`PluginDrivenSysTable:27`、`NativeSysTable:36`）否则 strict checkstyle/javadoc 挂；
+     ③ 保 load-bearing dispatch ordering（`ShowPartitionsCommand` PluginDriven 分支先于 legacy）。
+   - **不可删（STILL-CONSUMED）**：`property/metastore/Paimon*MetaStoreProperties`+`PaimonPropertiesFactory`+`AbstractPaimonProperties`（cutover
+     Kerberos 装配 LIVE，R1）、`property/storage/{S3,OSS,COS,OBS,Minio}Properties`（跨连接器共享，R2）。**B8 scope 不含这两树。**
+   - 逐子树删 + 每批跑 fe-core 编译 + 连接器测 + regression-gated。与元存储子线 D-016 一致（那两包不碰）。
 2. **元存储子线收尾**（[`metastore-storage-refactor/`](./metastore-storage-refactor/)）：P2-T04（paimon pom + gate，
    ⚠️ `MetaStoreProviders` ServiceLoader 改 2-arg 显式 loader 防子优先 loader 下发现不到 provider）→ P2-T05（docker
    5-flavor 真闸 + vended(REST/DLF) + Kerberos HMS + storage 等价，合并原 P1-T06；`enablePaimonTest=true`）。
@@ -65,7 +83,8 @@
 - ⚠️ `regression-test/conf/regression-conf.groovy` 仍 modified 未 commit 且含**明文 Aliyun key** → commit 前继续
   path-whitelist，**严禁 `git add -A`**；`regression-conf.groovy.bak` 同理排除。
 - 未 commit/未跟踪：scratch（`.audit-scratch/` `conf.cmy/` `META-INF/`）；`reviews/P5-paimon-rereview3-2026-06-12.md`
-  （第三轮 review 报告，未跟踪——大文件，下次方便时 vet+commit 或保留本地）。
+  （第三轮 review 报告）；**`reviews/P6-paimon-fullpath-cleanroom-2026-06-18.md`（本轮全路径 clean-room review 报告，502 行，本 session 产物）**。
+  HANDOFF.md 本身已更新（review 完成态）。三者未跟踪——下次方便时 vet + path-whitelist commit 或保留本地。
 
 ## 🗺️ 代码脚手架
 - **Plugin connector**：`fe/fe-connector/fe-connector-paimon/src/main/java/org/apache/doris/connector/paimon/`
