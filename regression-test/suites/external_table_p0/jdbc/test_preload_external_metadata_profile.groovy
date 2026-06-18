@@ -40,8 +40,10 @@ suite("test_preload_external_metadata_profile", "p0,external,doris,external_dock
             return 0
         }
         int totalMs = 0
+        boolean matched = false
         def matcher = Pattern.compile("(\\d+)(hour|min|sec|ms)").matcher(timeText)
         while (matcher.find()) {
+            matched = true
             int value = Integer.parseInt(matcher.group(1))
             String unit = matcher.group(2)
             if (unit == "hour") {
@@ -54,9 +56,7 @@ suite("test_preload_external_metadata_profile", "p0,external,doris,external_dock
                 totalMs += value
             }
         }
-        if (totalMs == 0) {
-            fail("Could not parse time counter: ${timeText}")
-        }
+        assertTrue(matched, "Could not parse time counter: ${timeText}")
         return totalMs
     }
 
@@ -65,7 +65,7 @@ suite("test_preload_external_metadata_profile", "p0,external,doris,external_dock
         Pattern pattern = Pattern.compile(flexibleCounterName + "\\s*:\\s*([0-9]+(?:hour|min|sec|ms)?(?:[0-9]+(?:min|sec|ms))*)")
         def matcher = pattern.matcher(profileString)
         if (!matcher.find()) {
-            fail("Could not find profile counter: ${counterName}\n${profileString}")
+            assertTrue(false, "Could not find profile counter: ${counterName}\n${profileString}")
         }
         return parseTimeMs(matcher.group(1))
     }
