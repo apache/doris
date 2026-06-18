@@ -5,6 +5,14 @@
 
 ---
 
+## D-016 — 授权彻底删除 fe-property 模块（超 D-005，定为下一阶段 P1-T07）
+- **日期**：2026-06-18 ｜ **决策者**：用户（「下一阶段，彻底删除 fe-property 模块」）
+- **背景**：P1-T05 断开 paimon→fe-property 依赖边后，fe-property 成 **0 消费者孤儿**（whole-repo 核实：除 `fe/pom.xml` 的 `<module>`+dependencyManagement 外，无任何 pom `<dependency>` 它、无任何源 `import org.apache.doris.property.*`、无 BE/docker/脚本/regression 引用；仅 5 处 stale **注释**在 paimon+fe-filesystem-hdfs 提到「移植源/replaces fe-property…」）。D-005/设计 P1-5 当初把物理删除「留待后续任务」，WORKFLOW §4.1 把 `fe/fe-property/**` 的删除列为**禁止**。
+- **内容**：用户**授权现在物理删除 fe-property**，并定为**下一阶段（新任务 P1-T07）**，**先于** P2-T04/T05。**本决策就 fe-property 这一项覆盖 D-005「不物理删 fe-property」条款**（D-005 的其余条款——不删 fe-core `datasource.property.{storage,metastore}` 两包、不动其它连接器——**不变**：那两包仍服务 hive/hudi/iceberg，本次不碰）。
+- **白名单扩**：WORKFLOW §4.1 把 `fe/fe-property/**` 从「禁止删除」移到「**允许删除**」；`fe/pom.xml` 允许**删除** `<module>fe-property</module>` + 其 dependencyManagement 条目（原白名单只允许「新增模块声明」，此处扩为「删除 fe-property 的模块/版本声明」）。
+- **范围/做法（P1-T07，执行在下一 session）**：删 `fe/fe-property/` 目录 + `fe/pom.xml` 两处声明；whole-repo 复核 0 引用后**全 FE 构建验证**（`-am package`）；**可选**清理 5 处 stale 注释（fe-filesystem-hdfs `HdfsFileSystemProperties`/`HdfsConfigFileLoader` + paimon `PaimonCatalogFactory`/`PaimonConnector`/`PaimonCatalogFactoryTest` 里提到 fe-property 的注释，删模块后变悬空引用——均白名单内文件）。**RED/GREEN=构建闸**（无 UT 可写：删孤儿模块后全构建+全 UT 仍绿=证无隐藏 transitive 断裂，同 P1-T05 模式）。
+- **理由**：fe-property 已 0 消费者（被 fe-filesystem typed 模型取代），保留=死代码；用户优先清理。**被否**：继续延后到「全部连接器迁完一起清」（fe-property 与 fe-core 两包不同——fe-property 唯一消费者 paimon 已断，可独立删；fe-core 两包仍有 hive/hudi/iceberg 消费者，须留）。
+
 ## D-015 — P2-T03 JDBC driver 注册副作用留连接器，仅纯 `resolveDriverUrl` 共享（不下移注册）
 - **日期**：2026-06-18 ｜ **决策者**：用户（AskUserQuestion 选「方案 A：注册留连接器（推荐）」）
 - **背景**：P2-T02 只上移了纯 `JdbcDriverSupport.resolveDriverUrl`（其 javadoc 明记 live 注册「无调用方、P2-T03 前不搬，Rule 2」）。HANDOFF 把「driver 注册下移与否」列为 P2-T03 决策点。driver 逻辑两消费方：①`PaimonConnector`（FE 侧）真执行注册（`DriverManager.registerDriver`+`DriverShim`+静态 `DRIVER_CLASS_LOADER_CACHE`/`REGISTERED_DRIVER_KEYS`）；②`PaimonScanPlanProvider.getBackendPaimonOptions`（BE 选项）只解析 URL 不注册。唯一共享=`resolveDriverUrl`。

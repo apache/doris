@@ -75,7 +75,14 @@
 ### P1-T06 ⬜ P1 验证
 - **做什么**：paimon UT 全绿；docker `enablePaimonTest=true` 5 flavor；T1 等价性测试。
 - **验收**：见 WORKFLOW §5；若不跑 docker 明确标注"未跑 e2e"。
-- **依赖**：P1-T02..T05。设计 §4 P1-6 / §5 T1,T4。
+- **依赖**：P1-T02..T05。设计 §4 P1-6 / §5 T1,T4。**（推迟，docker 折入 P2-T05；D-012）**
+
+### P1-T07 ⬜ 彻底删除 fe-property 孤儿模块（**下一阶段**；D-016 授权，超 D-005）
+> **用户 2026-06-18 定为下一阶段，先于 P2-T04/T05。** P1-T05 断边后 fe-property 已 0 消费者；本任务物理删除它。
+- **做什么**：① 删 `fe/fe-property/` 整个目录（26 java，package `org.apache.doris.property`）；② 删 `fe/pom.xml` 的 `<module>fe-property</module>`（:222）+ dependencyManagement 里 fe-property 条目（:831）；③ **可选** 清理 5 处 stale 注释（删模块后悬空）：`fe-filesystem-hdfs` 的 `HdfsFileSystemProperties`/`HdfsConfigFileLoader`（「移植源 = fe-property…」）+ paimon 的 `PaimonCatalogFactory`/`PaimonConnector`/`PaimonCatalogFactoryTest`（「replaces/ported from legacy fe-property…」）——均白名单内文件，注释订正非改逻辑。
+- **现场 recon（2026-06-18 已做，执行 session 须复核）**：whole-repo `grep -rln fe-property`（排除 .git/fe-property/plan-doc/target）= 仅 `fe/pom.xml`（真）+ 上述 5 文件（注释）；`grep org.apache.doris.property`（排除 fe-property dir）= **0 import**；**无 BE/docker/脚本/regression-conf 引用**。删除内容**限于 fe/**。**fe-core `datasource.property.{storage,metastore}` 两包不碰**（仍服务 hive/hudi/iceberg，D-016 明确只删 fe-property）。
+- **TDD/验收**：**RED/GREEN = 构建闸**（无 UT 可写，同 P1-T05 模式）：删后**全 FE 构建**（`mvn -f fe/pom.xml … package`，至少 `-pl fe-connector/fe-connector-paimon -am` + 一次全 reactor 编译）+ **paimon 全模块 UT 仍绿（278/0/1skip）= 证无隐藏 transitive 断裂**；`grep -rn fe-property fe/`（排除 plan-doc）只剩（若保留注释则）注释或全清；checkstyle 0；import-gate PASS；`git status` 确认 `fe/fe-property/` 已删 + `fe/pom.xml` 两处声明已删。
+- **依赖**：P1-T05（断边）。D-016。**⚠️ 超 D-005 原范围，已获用户专门授权。**
 
 ---
 

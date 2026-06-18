@@ -7,7 +7,7 @@
 
 ---
 
-**更新时间**：2026-06-18（实现 session：**P2-T03 ✅ paimon adapter cutover 到共享 metastore-spi**[commit `3c1e118dcfa`]；下一步 = **P2-T04**[paimon pom + gate 核对]，然后 **P2-T05** docker 真闸）
+**更新时间**：2026-06-18（实现 session：**P2-T03 ✅ paimon adapter cutover 到共享 metastore-spi**[commit `3c1e118dcfa`]；**用户改下一阶段 = P1-T07 彻底删除 fe-property 孤儿模块**[D-016 授权]，然后 P2-T04 → P2-T05 docker 真闸）
 **更新人**：Claude（Opus 4.8）
 
 > **本 session P2 进度补注（最新在最前）**：
@@ -56,20 +56,27 @@
 </details>
 
 ## 当前状态
-- 阶段：Research ✅ / Design ✅（**15 决策 D-001..D-015**）/ **Implement 🚧（P1 storage 5/6 P1-T06 docker 推迟[D-012]；P2: 3/5 = P2-T01 + P2-T02 + P2-T03 ✅；P3a facts-carrier ✅）**。
-- 任务计数 **11/14**（P0: 2/2 ✅ ｜ P1: 5/6，**P1-T06 推迟** ｜ **P2: 3/5（P2-T01 + P2-T02 + P2-T03 ✅）** ｜ P3a: 0/1，facts-carrier 切片 ✅ 机制待续[DV-006 推迟到 P3b]）｜ follow-up FU-T01/02/03 ✅｜ P3b 占位。
-- **新增 3 模块**：顶层叶子 `fe-kerberos`（facts 切片）+ `fe-connector-metastore-api`（5 子接口）+ `fe-connector-metastore-spi`（5 解析器 + Provider SPI，22 文件）。**paimon 连接器已 cutover 到共享 spi**（P2-T03：连接逻辑走 `MetaStoreProviders.bind`，手抄 `build*HiveConf`/`validate`/`resolveDriverUrl`/别名数组已删）。**R-006/R-007/R-008 已闭环**（UT/mutation 层）。
+- 阶段：Research ✅ / Design ✅（**16 决策 D-001..D-016**）/ **Implement 🚧（P1 storage 5/6 P1-T06 docker 推迟[D-012]；P2: 3/5 = P2-T01 + P2-T02 + P2-T03 ✅；P3a facts-carrier ✅）**。
+- 任务计数 **11/15**（P0: 2/2 ✅ ｜ P1: 5/7，**P1-T06 推迟** + **P1-T07 新增=下一步** ｜ **P2: 3/5** ｜ P3a: 0/1，facts 切片 ✅ 机制待续[DV-006→P3b]）｜ follow-up FU-T01/02/03 ✅｜ P3b 占位。
+- **新增 3 模块**：顶层叶子 `fe-kerberos`（facts 切片）+ `fe-connector-metastore-api`（5 子接口）+ `fe-connector-metastore-spi`（5 解析器 + Provider SPI，22 文件）。**paimon 连接器已 cutover 到共享 spi**（P2-T03）。**fe-property 已 0 消费者孤儿**（P1-T05 断边），**用户授权下一步彻底删除**（D-016）。**R-006/R-007/R-008 已闭环**（UT/mutation 层）。
 - ⚠️ **e2e/docker 全程未跑**（P1 storage 等价 T1 + P2 metastore T2/5-flavor 闸 一并留 P2-T05 docker 跑；D-012）。
 
-## 下一步（明确）：P2-T04（paimon pom + gate 核对），然后 P2-T05（docker 真闸）
-> **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手；实施前 WORKFLOW §2 单任务 TDD + 一句话复述。**
+## 下一步（明确）：**P1-T07 彻底删除 fe-property 模块**（用户 2026-06-18 定为下一阶段，D-016），然后 P2-T04 → P2-T05
+> **务必先按顶部流程：读文档 + 对照真实代码 review 方案再动手；实施前 WORKFLOW §2 单任务 + 一句话复述。**
 
-**P2-T04（paimon pom + gate 核对）**：
-- **做什么**：核 `fe-connector-paimon/pom.xml` 依赖集 = `fe-connector-{api,spi}` + **`fe-connector-metastore-spi`（P2-T03 已加，transitively 带 metastore-api + fe-kerberos）** + `fe-filesystem-api` + `fe-thrift(provided)` + paimon SDK + hadoop/aws/…；`grep` 确认 paimon 无 fe-core import（`org.apache.doris.{catalog,common,datasource,qe,analysis,nereids,planner}`）；`tools/check-connector-imports.sh` PASS（P2-T03 已验 exit 0，复核即可）。
-- **⚠️ P2-T03 recon 揪出、P2-T04/T05 必核（packaging）**：**插件 zip 必须含 metastore-spi 的 `META-INF/services/org.apache.doris.connector.metastore.spi.MetaStoreProvider`（5 行）**，否则运行时 `MetaStoreProviders.load()` 经 ServiceLoader 在**子优先插件 loader** 下发现不到 5 provider → `bind` 抛「No MetaStoreProvider supports」→ 所有 paimon CREATE/读 挂。UT（单 flat loader）已证 services 可发现（278/0），但 **plugin-zip 子优先 loader 是 docker-gated**。核 paimon 的 assembly/copy-plugin-deps 是否把 metastore-spi（含 services 文件 + 其 transitive metastore-api/fe-kerberos）打进 zip。
-- **依赖**：P2-T03 ✅。设计 §4 P2-4。
+**P1-T07（彻底删除 fe-property 孤儿模块）— 下一步**：
+- **背景**：P1-T05 断开 paimon→fe-property 依赖边后，fe-property = **0 消费者孤儿**。D-016 用户授权物理删除（**覆盖 D-005「不删 fe-property」条款**；fe-core `datasource.property.{storage,metastore}` 两包**仍禁碰**，仍服务 hive/hudi/iceberg）。WORKFLOW §4.1 白名单已把 `fe/fe-property/**` 移入允许删除区。
+- **做什么**：① 删 `fe/fe-property/` 整目录（26 java，pkg `org.apache.doris.property`）；② 删 `fe/pom.xml` 的 `<module>fe-property</module>`（约 :222）+ dependencyManagement 里 fe-property 条目（约 :831）；③ **可选** 清 5 处 stale 注释（删后悬空）：`fe-filesystem-hdfs` 的 `HdfsFileSystemProperties`/`HdfsConfigFileLoader` + paimon 的 `PaimonCatalogFactory`/`PaimonConnector`/`PaimonCatalogFactoryTest`（均提到「移植源/replaces fe-property」，白名单内）。
+- **现场 recon（2026-06-18 已做，执行 session 须复核 + 再跑一遍 whole-repo grep）**：`grep -rln fe-property`（排除 .git/fe-property/plan-doc/target）= 仅 `fe/pom.xml`（真）+ 上述 5 文件（注释）；`grep org.apache.doris.property`（排除 fe-property dir）= **0 import**；**无 BE/docker/脚本/regression 引用** → 删除限于 `fe/`。
+- **TDD/验收**：**RED/GREEN = 构建闸**（无 UT 可写，同 P1-T05）：删后**全 FE 构建 + paimon 全模块 UT 仍绿（278/0/1skip）= 证无隐藏 transitive 断裂**；`git status` 确认 `fe/fe-property/` 删除 + `fe/pom.xml` 两声明删除；checkstyle 0；import-gate PASS；白名单干净。**注意 maven**：删 module 后用 `-am package -Dassembly.skipAssembly=true -Dmaven.build.cache.enabled=false`（绝对 `-f`），并跑一次更大范围 reactor 编译确认无别处 transitive 依赖 fe-property（dependencyManagement 删除后若有隐藏消费者会编译失败=正好暴露）。
+- **依赖**：P1-T05。设计 §4 P1-5（物理删除的「后续任务」即此）。**⚠️ 超 D-005 原范围，已获用户专门授权（D-016）。**
 
-**P2-T05（docker 真闸，合并 P1-T06 的 T1 + P2 的 T2）**：paimon 5 flavor（filesystem/hms/rest/jdbc/dlf）+ vended(REST/DLF) + Kerberos HMS，`enablePaimonTest=true`。**P2-T03 未离线验的**：①HMS/DLF live `metastore=hive`（IMetaStoreClient 从 host hive-catalog-shade 解析 + 子优先 Configuration/HiveConf 跨 loader identity 危害，见 `PaimonConnector` HMS/DLF 分支 NOTE）；②上面 P2-T04 的 plugin-zip ServiceLoader 发现；③T1 storage 等价（S3/OSS/COS/OBS/HDFS + 无凭据对象存储 + 调优默认）。**D-014 行为变更**（CREATE 更严）也在此真验。
+**P2-T04（paimon pom + gate 核对）— P1-T07 之后**：
+- **做什么**：核 `fe-connector-paimon/pom.xml` 依赖集 = `fe-connector-{api,spi}` + `fe-connector-metastore-spi`（transitively 带 metastore-api + fe-kerberos）+ `fe-filesystem-api` + `fe-thrift(provided)` + paimon SDK + hadoop/aws/…；`tools/check-connector-imports.sh` PASS（P2-T03 已验 exit 0，复核即可）。
+- **⚠️ P2-T03 recon 揪出的真正 substance（不只是 packaging 复核——可能要 1 行改 metastore-spi，白名单内）**：`MetaStoreProviders.load()` 用 **1-arg `ServiceLoader.load(MetaStoreProvider.class)`（TCCL-based）**；static `PROVIDERS` 在首次 `bind()`（= `validateProperties` 在 CREATE CATALOG）初始化，而该路径**不 pin TCCL 到插件 loader**（仅 `createCatalogFromContext` pin）。metastore-spi 在插件 zip **child-first lib/**（assembly 已确认 bundle、不在 excludes），**不在 fe-core classpath**。若 class-init 时 TCCL≠插件 loader → ServiceLoader 找不到 child-first 的 `META-INF/services` → **0 provider → `bind` 抛「No MetaStoreProvider supports」→ 所有 paimon CREATE/读 挂**。UT（单 flat loader）结构上抓不到。**建议 fix**：改 **2-arg `ServiceLoader.load(MetaStoreProvider.class, MetaStoreProviders.class.getClassLoader())`**（用模块自身 loader 发现，与 TCCL 无关；对标 `FileSystemPluginManager:99` 对插件 provider 用显式 loader）。执行前先读 fe-core 插件调用路确认 TCCL 是否被 pin，但 2-arg 形式无论如何更稳。
+- **依赖**：P1-T07, P2-T03 ✅。设计 §4 P2-4。
+
+**P2-T05（docker 真闸，合并 P1-T06 的 T1 + P2 的 T2）**：paimon 5 flavor + vended(REST/DLF) + Kerberos HMS，`enablePaimonTest=true`。真验 UT 抓不到的：①上面 P2-T04 的 plugin-zip ServiceLoader 发现（child-first loader）；②HMS/DLF live `metastore=hive`（IMetaStoreClient 从 host hive-catalog-shade + 跨 loader Configuration/HiveConf identity，见 `PaimonConnector` HMS/DLF NOTE）；③T1 storage 等价（S3/OSS/COS/OBS/HDFS + 无凭据对象存储 + 调优默认）；④D-014 CREATE 更严行为。
 - **依赖**：P2-T03 ✅, P2-T04。设计 §4 P2-5 / §5 T2,T4。
 
 ## 未决 / 需注意

@@ -60,14 +60,16 @@ fe/fe-core/src/main/java/.../fs/FileSystemFactory.java                (仅新增
 fe/fe-filesystem/fe-filesystem-hdfs/**                 (FU-T01：HDFS typed BE model；D-010 授权局部解禁)
 fe/fe-filesystem/fe-filesystem-{s3,oss,cos,obs}/**     (FU-T02 R-008 / FU-T03 R-006；D-011 授权；main+test；其它 fe-filesystem 模块[api,spi,azure,broker,local]仍禁碰)
 fe/fe-kerberos/**                                       (新建；P3a-T01 fe-kerberos 叶子；D-007/D-013)
-fe/fe-connector/pom.xml ; fe/pom.xml                   (仅新增模块声明)
+fe/fe-property/**                                       (P1-T07：彻底删除该孤儿模块；D-016 授权，覆盖 D-005 不删条款)
+fe/fe-connector/pom.xml                                (仅新增模块声明)
+fe/pom.xml                                             (新增模块声明；P1-T07 额外允许删除 fe-property 的 <module>+dependencyManagement 条目，D-016)
 plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 ```
 **禁止**出现的路径（出现即停、回滚或记偏差）：
 - `fe/fe-core/src/main/java/.../datasource/property/storage/**`（fe-core 旧 storage 包，保持不动）
 - `fe/fe-core/src/main/java/.../datasource/property/metastore/**`（fe-core 旧 metastore 包，保持不动）
 - `fe/fe-connector/fe-connector-{hive,hudi,iceberg,es,jdbc,maxcompute,trino}/**`（其它连接器，不动）
-- `fe/fe-property/**` 的删除（本次只断 paimon 依赖边，不删模块）
+- ~~`fe/fe-property/**` 的删除~~ → **P1-T07 已授权删除（D-016）**，移入上方允许区（fe-core 两包仍禁碰）
 
 ### 4.2 依赖方向（CI gate + 人工核对）
 - `fe-connector-*` 不得 import `org.apache.doris.{catalog,common,datasource,qe,analysis,nereids,planner}`（`tools/check-connector-imports.sh`）。
