@@ -18,13 +18,19 @@
 #include "storage/index/inverted/inverted_index_term_bloom_filter.h"
 
 #include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/config/repl_wchar.h>
+#include <CLucene/index/IndexReader.h>
+#include <CLucene/index/Terms.h>
+#include <CLucene/store/Directory.h>
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/store/IndexOutput.h>
 
 #include <cstring>
 #include <map>
 
+#include "common/logging.h"
 #include "storage/index/bloom_filter/block_split_bloom_filter.h"
+#include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_term_bf_query.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -159,6 +165,97 @@ uint64_t compute_analyzer_sig(const InvertedIndexAnalyzerConfig& cfg) {
     }
     return HashUtil::murmur_hash64A(buf.data(), static_cast<int>(buf.size()),
                                     /*seed=*/0x9747b28c);
+}
+
+uint64_t compute_analyzer_sig(const std::map<std::string, std::string>& properties) {
+    InvertedIndexAnalyzerConfig cfg;
+    cfg.analyzer_name = get_analyzer_name_from_properties(properties);
+    cfg.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    cfg.parser_mode = get_parser_mode_string_from_properties(properties);
+    cfg.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+    cfg.lower_case = get_parser_lowercase_from_properties<true>(properties);
+    cfg.stop_words = get_parser_stopwords_from_properties(properties);
+    return compute_analyzer_sig(cfg);
+}
+
+void emit_term_bloom_filter_into_dir(lucene::store::Directory* dir,
+                                     const std::wstring& field_name, uint64_t analyzer_sig) {
+    DCHECK(dir != nullptr);
+    lucene::index::IndexReader* reader = nullptr;
+    lucene::index::TermEnum* term_enum = nullptr;
+    std::unique_ptr<lucene::store::IndexOutput> term_bf_out = nullptr;
+    try {
+        // closeDirectoryOnCleanup=false: the caller (writer's finish() or compact_column) keeps
+        // `dir` alive past this helper; the InvertedIndexFileWriter / compact_column scope owns
+        // the lifecycle. If reader->close() ever propagated to the directory we'd lose the
+        // ability to subsequently createOutput("tbf"), so keep ownership out.
+        reader = lucene::index::IndexReader::open(dir, /*closeDirectoryOnCleanup=*/false);
+
+        // First pass: count distinct terms in this field to size the Bloom Filter.
+        uint64_t distinct_terms = 0;
+        term_enum = reader->terms();
+        while (term_enum->next()) {
+            const auto* term = term_enum->term(false);
+            if (term->field() == field_name) {
+                ++distinct_terms;
+            }
+        }
+        term_enum->close();
+        _CLDELETE(term_enum);
+        term_enum = nullptr;
+
+        auto bf_res = InvertedIndexTermBloomFilter::create_for_write(distinct_terms, analyzer_sig);
+        if (!bf_res.has_value()) {
+            LOG(WARNING) << "Inverted index term bloom filter create error: "
+                         << bf_res.error().to_string();
+            reader->close();
+            _CLDELETE(reader);
+            return;
+        }
+        auto bf = std::move(bf_res.value());
+
+        // Second pass: feed every analyzed token from the term dictionary. These are exactly
+        // the tokens the query path looks up (same analyzed form, no re-tokenization), and the
+        // dictionary includes the zero-length keyword token where applicable (A5).
+        term_enum = reader->terms();
+        while (term_enum->next()) {
+            const auto* term = term_enum->term(false);
+            if (term->field() != field_name) {
+                continue;
+            }
+            std::string token = lucene_wcstoutf8string(term->text(), term->textLength());
+            bf->add_token(token.data(), token.size());
+        }
+        term_enum->close();
+        _CLDELETE(term_enum);
+        term_enum = nullptr;
+
+        term_bf_out = std::unique_ptr<lucene::store::IndexOutput>(
+                dir->createOutput(InvertedIndexDescriptor::get_temporary_term_bf_file_name()));
+        bf->serialize(term_bf_out.get());
+        term_bf_out->close();
+        term_bf_out.reset();
+
+        reader->close();
+        _CLDELETE(reader);
+    } catch (CLuceneError& e) {
+        // A failure to build the optional BF must not fail index writing or compaction: the
+        // read path treats a missing/invalid "tbf" as "unknown" and falls back to the normal
+        // lookup. Best-effort cleanup on the partial state.
+        LOG(WARNING) << "Inverted index term bloom filter write error: " << e.what();
+        if (term_enum != nullptr) {
+            term_enum->close();
+            _CLDELETE(term_enum);
+        }
+        if (term_bf_out != nullptr) {
+            term_bf_out->close();
+        }
+        if (reader != nullptr) {
+            reader->close();
+            _CLDELETE(reader);
+        }
+    }
 }
 
 bool bf_query_proven_empty(InvertedIndexQueryType query_type,

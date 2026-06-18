@@ -1061,8 +1061,25 @@ Status Compaction::do_inverted_index_compaction() {
                     // but their lifecycle must be managed by inverted_index_file_writers.
                     dest_index_dirs[dest_segment_id] = res.value().get();
                 }
+                // Derive the CLucene `field_name` the same way the writer did when these
+                // segments were originally created (see `InvertedIndexColumnWriter::create`
+                // in be/src/storage/index/index_writer.cpp): V1 uses the column name, V2 uses
+                // the unique_id string (or `parent_uid.subcol` for variant sub-columns).
+                // `compact_column` uses this to enumerate the merged term dictionary and emit
+                // a "tbf" sub-file when the BE config gates it on.
+                std::string field_name;
+                const auto storage_format =
+                        _cur_tablet_schema->get_inverted_index_storage_format();
+                if (storage_format == InvertedIndexStorageFormatPB::V1) {
+                    field_name = col.name();
+                } else if (col.is_extracted_column()) {
+                    field_name = std::to_string(col.parent_unique_id()) + "." + col.name();
+                } else {
+                    field_name = std::to_string(col.unique_id());
+                }
                 auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
-                                         index_tmp_path.native(), trans_vec, dest_segment_num_rows);
+                                         index_tmp_path.native(), trans_vec, dest_segment_num_rows,
+                                         index_meta, field_name);
                 if (!st.ok()) {
                     error_handler(index_meta->index_id(), column_uniq_id);
                     status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());

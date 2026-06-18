@@ -600,87 +600,14 @@ void InvertedIndexColumnWriter<field_type>::write_null_bitmap(
 template <FieldType field_type>
 void InvertedIndexColumnWriter<field_type>::write_term_bloom_filter() {
     // Preconditions (assert correctness): only the analyzed slice path reaches here, the
-    // writer must already be closed/flushed, and the directory must still be open.
+    // writer must already be closed/flushed, and the directory must still be open. _dir stays
+    // usable here only because DorisFSDirectory::close() is a no-op and the writer never owned
+    // _dir (bOwnsDirectory=false), so the _dir unique_ptr keeps sole ownership; finish()'s
+    // FINALLY does NOT touch _dir on this (slice) path.
     DCHECK(_enable_term_bf);
     DCHECK(_index_writer == nullptr);
     DCHECK(_dir != nullptr);
-
-    // Open a reader over the just-flushed segment without taking ownership of _dir
-    // (closeDirectoryOnCleanup=false). _dir's logical close already ran inside the earlier
-    // _index_writer->close() cascade; it stays usable here only because DorisFSDirectory::close()
-    // is a no-op and the writer never owned _dir (bOwnsDirectory=false), so the _dir unique_ptr
-    // keeps sole ownership. finish()'s FINALLY does NOT touch _dir on this (slice) path. If
-    // DorisFSDirectory::close() ever frees resources, this reuse must be revisited.
-    lucene::index::IndexReader* reader = nullptr;
-    lucene::index::TermEnum* term_enum = nullptr;
-    std::unique_ptr<lucene::store::IndexOutput> term_bf_out = nullptr;
-    try {
-        reader = lucene::index::IndexReader::open(_dir.get(), /*closeDirectoryOnCleanup=*/false);
-
-        // First pass: count distinct terms in this field to size the Bloom Filter.
-        uint64_t distinct_terms = 0;
-        term_enum = reader->terms();
-        while (term_enum->next()) {
-            const auto* term = term_enum->term(false);
-            if (term->field() == _field_name) {
-                ++distinct_terms;
-            }
-        }
-        term_enum->close();
-        _CLDELETE(term_enum);
-        term_enum = nullptr;
-
-        auto bf_res = InvertedIndexTermBloomFilter::create_for_write(
-                distinct_terms, compute_analyzer_sig(_analyzer_config));
-        if (!bf_res.has_value()) {
-            LOG(WARNING) << "Inverted index term bloom filter create error: "
-                         << bf_res.error().to_string();
-            reader->close();
-            _CLDELETE(reader);
-            return;
-        }
-        auto bf = std::move(bf_res.value());
-
-        // Second pass: feed every analyzed token from the term dictionary. These are exactly
-        // the tokens the query path looks up (same analyzed form, no re-tokenization), and the
-        // dictionary includes the zero-length keyword token where applicable (A5).
-        term_enum = reader->terms();
-        while (term_enum->next()) {
-            const auto* term = term_enum->term(false);
-            if (term->field() != _field_name) {
-                continue;
-            }
-            std::string token = lucene_wcstoutf8string(term->text(), term->textLength());
-            bf->add_token(token.data(), token.size());
-        }
-        term_enum->close();
-        _CLDELETE(term_enum);
-        term_enum = nullptr;
-
-        term_bf_out = std::unique_ptr<lucene::store::IndexOutput>(
-                _dir->createOutput(InvertedIndexDescriptor::get_temporary_term_bf_file_name()));
-        bf->serialize(term_bf_out.get());
-        term_bf_out->close();
-        term_bf_out.reset();
-
-        reader->close();
-        _CLDELETE(reader);
-    } catch (CLuceneError& e) {
-        // A failure to build the optional BF must not fail index writing: the read path
-        // treats a missing/invalid "tbf" as "unknown" and falls back to a normal lookup.
-        LOG(WARNING) << "Inverted index term bloom filter write error: " << e.what();
-        if (term_enum != nullptr) {
-            term_enum->close();
-            _CLDELETE(term_enum);
-        }
-        if (term_bf_out != nullptr) {
-            term_bf_out->close();
-        }
-        if (reader != nullptr) {
-            reader->close();
-            _CLDELETE(reader);
-        }
-    }
+    emit_term_bloom_filter_into_dir(_dir.get(), _field_name, compute_analyzer_sig(_analyzer_config));
 }
 
 template <FieldType field_type>

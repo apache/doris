@@ -192,6 +192,95 @@ suite('test_inverted_index_term_bf_be_config_gate', 'p0') {
                         + '. profile head=' + profileString.take(4000))
             }
         }
+        // Step 3: prove that the index-compaction shortcut also emits tbf. The default
+        // compaction path on DUP_KEYS + fulltext index goes through
+        // `do_inverted_index_compaction`'s `compact_column`, which used to bypass
+        // `InvertedIndexColumnWriter::finish()` and drop the tbf entirely from the merged
+        // output. Trigger a cumulative compaction explicitly after multiple INSERTs, then
+        // re-query: SkippedLookups must be > 0 (tbf carried through compaction).
+        setBeConfig('enable_inverted_index_term_bf', 'true')
+
+        sql 'DROP TABLE IF EXISTS test_term_bf_be_gate_compact'
+        sql '''
+            CREATE TABLE test_term_bf_be_gate_compact (
+                id INT,
+                msg STRING,
+                INDEX idx_msg (msg) USING INVERTED
+                    PROPERTIES ("parser" = "english", "support_phrase" = "true")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1",
+                        "disable_auto_compaction" = "true");
+        '''
+        // Multiple INSERTs produce multiple rowsets so cumulative compaction has something to
+        // merge. Each INSERT runs with the config ON so source rowsets already carry tbf.
+        sql '''INSERT INTO test_term_bf_be_gate_compact VALUES (1, 'apple banana'),
+                  (2, 'cherry date'), (3, 'apple cherry')'''
+        sql '''INSERT INTO test_term_bf_be_gate_compact VALUES (4, 'fig grape'),
+                  (5, 'honeydew kiwi'), (6, 'lemon mango')'''
+        sql '''INSERT INTO test_term_bf_be_gate_compact VALUES (7, 'nectarine orange'),
+                  (8, 'papaya quince'), (9, 'raspberry strawberry')'''
+        sql 'sync'
+
+        // Trigger cumulative compaction so the rowsets above are merged via the
+        // index-compaction shortcut (DUP_KEYS + inverted_index_compaction_enable=true). On a
+        // single-BE setup the standard pattern is to ask each BE for compaction on this tablet.
+        def tabletId = (sql_return_maparray """SHOW TABLETS FROM test_term_bf_be_gate_compact""")
+                .collect { it.TabletId.toString() }.first()
+        log.info('triggering cumulative compaction on tablet=' + tabletId)
+        backends.each { be ->
+            try {
+                def url = "http://${be.ip}:${be.httpPort}/api/compaction/run?tablet_id=${tabletId}&compact_type=cumulative"
+                def (code, out, err) = http_client('POST', url)
+                log.info('compaction trigger code=' + code + ' out=' + out + ' err=' + err)
+            } catch (Throwable t) {
+                log.warn('compaction trigger failed: ' + t.message)
+            }
+        }
+        // Wait for compaction to finish (poll the API). We give it up to 60s.
+        for (int i = 0; i < 30; ++i) {
+            sleep(2000)
+            boolean any_running = false
+            backends.each { be ->
+                try {
+                    def (code, out, err) = http_client('GET',
+                            "http://${be.ip}:${be.httpPort}/api/compaction/run_status?tablet_id=${tabletId}")
+                    if (out?.contains('"compaction_count":0') == false && out?.contains('running')) {
+                        any_running = true
+                    }
+                } catch (Throwable t) { /* tolerate */ }
+            }
+            if (!any_running) break
+        }
+        sql 'sync'
+
+        def qidCompact = 'test_term_bf_be_gate_compact_' + System.currentTimeMillis()
+        profile("${qidCompact}") {
+            run {
+                sql "/* ${qidCompact} */ SELECT id FROM test_term_bf_be_gate_compact " +
+                        "WHERE msg MATCH 'durianzzz'"
+            }
+            check { profileString, exception ->
+                if (exception) { throw exception }
+                def skipped = extractCounter(profileString, 'InvertedIndexTermBfSkippedLookups')
+                def probe = extractCounter(profileString, 'InvertedIndexTermBfProbe')
+                def unavailable = extractCounter(profileString, 'InvertedIndexTermBfUnavailable')
+                def loadCount = extractCounter(profileString, 'InvertedIndexTermBfLoadCount')
+                log.info('post-compaction: skipped=' + skipped + ' probe=' + probe
+                        + ' unavailable=' + unavailable + ' load_count=' + loadCount)
+                // Pre-fix bug: after compact_column, tbf was missing from merged segments, so
+                // unavailable > 0 and probe == 0. Post-fix: tbf is preserved, so probe >= 1
+                // and skipped >= 1 (absent term).
+                assertTrue(probe >= 1,
+                        'index-compaction shortcut must preserve tbf; expected Probe >= 1 '
+                        + 'but got probe=' + probe + ' unavailable=' + unavailable
+                        + '. profile head=' + profileString.take(6000))
+                assertTrue(skipped >= 1,
+                        'absent term on a compacted segment should short-circuit; '
+                        + 'expected SkippedLookups >= 1 but got ' + skipped
+                        + '. profile head=' + profileString.take(6000))
+            }
+        }
     } finally {
         // Restore the BE config so we do not leak state to other suites.
         if (savedConfig != null) {

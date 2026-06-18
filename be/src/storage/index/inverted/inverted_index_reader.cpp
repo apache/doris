@@ -514,23 +514,6 @@ InvertedIndexReaderType FullTextIndexReader::type() {
 
 namespace {
 
-// Reconstruct the build-time analyzer configuration from the index properties. This must
-// mirror InvertedIndexColumnWriter::init_fulltext_index() exactly (including the
-// lower_case ReturnTrue=true default) so that the signature computed here equals the one
-// stored in the "tbf" sub-file when the same analyzer is in play.
-InvertedIndexAnalyzerConfig build_index_analyzer_config(
-        const std::map<std::string, std::string>& properties) {
-    InvertedIndexAnalyzerConfig cfg;
-    cfg.analyzer_name = get_analyzer_name_from_properties(properties);
-    cfg.parser_type = get_inverted_index_parser_type_from_string(
-            get_parser_string_from_properties(properties));
-    cfg.parser_mode = get_parser_mode_string_from_properties(properties);
-    cfg.char_filter_map = get_parser_char_filter_map_from_properties(properties);
-    cfg.lower_case = get_parser_lowercase_from_properties<true>(properties);
-    cfg.stop_words = get_parser_stopwords_from_properties(properties);
-    return cfg;
-}
-
 } // namespace
 
 // Load + validate the token BF from the "tbf" sub-file. Returns nullptr (treated as "unknown" ->
@@ -600,8 +583,7 @@ Status FullTextIndexReader::try_term_bf_fast_path(
     // not encode the analyzer, so a reader whose _index_meta was altered to a different analyzer
     // maps to the same key; the signature is what tells a usable BF from one built for a different
     // tokenization.
-    const uint64_t index_sig =
-            compute_analyzer_sig(build_index_analyzer_config(_index_meta.properties()));
+    const uint64_t index_sig = compute_analyzer_sig(_index_meta.properties());
 
     // Reuse the parsed BF for this (segment, index) so a warm absent query does zero IO. The BF
     // lives in the searcher cache (same LRU + memory budget, no separate cache); the cache owns the

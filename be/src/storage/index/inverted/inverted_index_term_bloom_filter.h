@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -91,5 +92,22 @@ private:
 // produce different signatures, so the read side can reject a BF built by a different
 // analyzer (A3) and fall back to a normal lookup.
 uint64_t compute_analyzer_sig(const InvertedIndexAnalyzerConfig& cfg);
+
+// Reconstruct the build-time `InvertedIndexAnalyzerConfig` from index `properties` (matching
+// `InvertedIndexColumnWriter::init_fulltext_index()` exactly, including the lower_case
+// ReturnTrue=true default) and hash it. The reader's A3 staleness check, the writer's
+// build-time sig, and the compaction path all flow through this overload so they cannot drift.
+uint64_t compute_analyzer_sig(const std::map<std::string, std::string>& properties);
+
+// Enumerate the just-flushed term dictionary inside `dir` for `field_name`, build a BF sized
+// to the distinct-token count, tag it with `analyzer_sig`, and serialize it as the "tbf"
+// sub-file. Reused by both the writer (after the segment's IndexWriter is closed) and the
+// compaction shortcut (after `IndexWriter::indexCompaction()` writes the merged dest dir),
+// so the on-disk "tbf" carries the same invariants regardless of which path produced the
+// segment. Never throws -- a failure here is logged and treated as "no tbf for this
+// (segment, index)"; the read path then falls through to the normal lookup. `dir` must be
+// alive across the call but is NOT closed by this helper.
+void emit_term_bloom_filter_into_dir(lucene::store::Directory* dir,
+                                     const std::wstring& field_name, uint64_t analyzer_sig);
 
 } // namespace doris::segment_v2
