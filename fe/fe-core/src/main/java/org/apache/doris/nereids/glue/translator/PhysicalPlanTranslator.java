@@ -2608,7 +2608,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
                 OlapScanNode scanNode = ((OlapScanNode) sortNode.getChild(0));
-                if (checkPushSort(sortNode, scanNode.getOlapTable())) {
+                // When the offset is set, the pushed scan limit is limit + offset. If that overflows the
+                // long range it would wrap to a negative limit, so skip the whole push-sort-to-scan
+                // optimization (do not push the sort info either); the sort node still applies the real
+                // limit/offset. Sort info and sort limit are always pushed together.
+                boolean limitOverflows = sortNode.getOffset() > 0
+                        && Utils.addOverflows(sortNode.getLimit(), sortNode.getOffset());
+                if (checkPushSort(sortNode, scanNode.getOlapTable()) && !limitOverflows) {
                     SortInfo sortInfo = sortNode.getSortInfo();
                     scanNode.setSortInfo(sortInfo);
                     if (sortNode.getOffset() > 0) {
