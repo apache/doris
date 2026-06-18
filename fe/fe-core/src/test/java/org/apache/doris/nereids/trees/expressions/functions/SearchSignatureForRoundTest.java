@@ -31,13 +31,28 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.function.Supplier;
 
 public class SearchSignatureForRoundTest {
 
     private static final DoubleLiteral DOUBLE_VAL = new DoubleLiteral(81.56996587030717);
+
+    /** Run {@code body} with a fresh ConnectContext whose new opt-in var is set to {@code optIn}. */
+    private static <T> T withOptIn(boolean optIn, Supplier<T> body) {
+        try (MockedStatic<ConnectContext> mockedContext = Mockito.mockStatic(ConnectContext.class)) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.getSessionVariable().roundDoubleReturnsDecimalForConstScale = optIn;
+            mockedContext.when(ConnectContext::get).thenReturn(ctx);
+            return body.get();
+        }
+    }
 
     private static void assertDecimalReturn(int expectedScale, Expression expr) {
         Assertions.assertTrue(expr.getDataType() instanceof DecimalV3Type,
@@ -52,83 +67,132 @@ public class SearchSignatureForRoundTest {
                 () -> "expected DoubleType, got " + expr.getDataType());
     }
 
+    // ---- opt-in ON: (DOUBLE, non-negative int literal <= 15) routes to DECIMAL ----
+
     @Test
     void roundDoubleWithConstScaleReturnsDecimal() {
-        assertDecimalReturn(2, new Round(DOUBLE_VAL, new IntegerLiteral(2)));
+        withOptIn(true, () -> { assertDecimalReturn(2, new Round(DOUBLE_VAL, new IntegerLiteral(2))); return null; });
     }
 
     @Test
     void roundBankersDoubleWithConstScaleReturnsDecimal() {
-        assertDecimalReturn(2, new RoundBankers(DOUBLE_VAL, new IntegerLiteral(2)));
+        withOptIn(true, () -> {
+            assertDecimalReturn(2, new RoundBankers(DOUBLE_VAL, new IntegerLiteral(2)));
+            return null;
+        });
     }
 
     @Test
     void ceilDoubleWithConstScaleReturnsDecimal() {
-        assertDecimalReturn(2, new Ceil(DOUBLE_VAL, new IntegerLiteral(2)));
+        withOptIn(true, () -> { assertDecimalReturn(2, new Ceil(DOUBLE_VAL, new IntegerLiteral(2))); return null; });
     }
 
     @Test
     void floorDoubleWithConstScaleReturnsDecimal() {
-        assertDecimalReturn(2, new Floor(DOUBLE_VAL, new IntegerLiteral(2)));
+        withOptIn(true, () -> { assertDecimalReturn(2, new Floor(DOUBLE_VAL, new IntegerLiteral(2))); return null; });
     }
 
     @Test
     void truncateDoubleWithConstScaleReturnsDecimal() {
-        assertDecimalReturn(2, new Truncate(DOUBLE_VAL, new IntegerLiteral(2)));
+        withOptIn(true, () -> {
+            assertDecimalReturn(2, new Truncate(DOUBLE_VAL, new IntegerLiteral(2)));
+            return null;
+        });
     }
 
     @Test
     void zeroScaleAlsoReturnsDecimal() {
-        assertDecimalReturn(0, new Round(DOUBLE_VAL, new IntegerLiteral(0)));
+        withOptIn(true, () -> { assertDecimalReturn(0, new Round(DOUBLE_VAL, new IntegerLiteral(0))); return null; });
     }
 
     @Test
+    void roundDoubleAtMaxPreservableScaleReturnsDecimal() {
+        // scale 15 == DOUBLE_DECIMAL.scale.
+        withOptIn(true, () -> {
+            assertDecimalReturn(15, new Round(DOUBLE_VAL, new IntegerLiteral(15)));
+            return null;
+        });
+    }
+
+    @Test
+    void roundDoubleWithCastIntLiteralReturnsDecimal() {
+        withOptIn(true, () -> {
+            Cast wrapped = new Cast(new IntegerLiteral(3), IntegerType.INSTANCE);
+            assertDecimalReturn(3, new Round(DOUBLE_VAL, wrapped));
+            return null;
+        });
+    }
+
+    // ---- opt-in ON but shape doesn't match: stays DOUBLE ----
+
+    @Test
     void roundDoubleSingleArgStaysDouble() {
-        assertDoubleReturn(new Round(DOUBLE_VAL));
+        withOptIn(true, () -> { assertDoubleReturn(new Round(DOUBLE_VAL)); return null; });
     }
 
     @Test
     void roundDoubleNegativeScaleStaysDouble() {
-        assertDoubleReturn(new Round(DOUBLE_VAL, new IntegerLiteral(-1)));
+        withOptIn(true, () -> { assertDoubleReturn(new Round(DOUBLE_VAL, new IntegerLiteral(-1))); return null; });
     }
 
     @Test
     void roundDoubleScaleFromColumnStaysDouble() {
         // When the scale comes from a column (non-literal), we cannot pick a
         // fixed decimal scale at plan time, so we keep the original behavior.
-        SlotReference scaleCol = new SlotReference("n", IntegerType.INSTANCE);
-        assertDoubleReturn(new Round(DOUBLE_VAL, scaleCol));
-    }
-
-    @Test
-    void roundDecimalKeepsExistingDecimalSignature() {
-        DecimalV3Type t = DecimalV3Type.createDecimalV3Type(10, 5);
-        SlotReference dec = new SlotReference("d", t);
-        assertDecimalReturn(2, new Round(dec, new IntegerLiteral(2)));
-    }
-
-    @Test
-    void roundDoubleWithCastIntLiteralReturnsDecimal() {
-        Cast wrapped = new Cast(new IntegerLiteral(3), IntegerType.INSTANCE);
-        assertDecimalReturn(3, new Round(DOUBLE_VAL, wrapped));
+        withOptIn(true, () -> {
+            SlotReference scaleCol = new SlotReference("n", IntegerType.INSTANCE);
+            assertDoubleReturn(new Round(DOUBLE_VAL, scaleCol));
+            return null;
+        });
     }
 
     @Test
     void roundFloatWithConstScaleStaysDouble() {
         // FLOAT input keeps the original DOUBLE return path.
-        SlotReference floatCol = new SlotReference("f", FloatType.INSTANCE);
-        assertDoubleReturn(new Round(floatCol, new IntegerLiteral(2)));
-    }
-
-    @Test
-    void roundDoubleAtMaxPreservableScaleReturnsDecimal() {
-        // scale 15 == DOUBLE_DECIMAL.scale.
-        assertDecimalReturn(15, new Round(DOUBLE_VAL, new IntegerLiteral(15)));
+        withOptIn(true, () -> {
+            SlotReference floatCol = new SlotReference("f", FloatType.INSTANCE);
+            assertDoubleReturn(new Round(floatCol, new IntegerLiteral(2)));
+            return null;
+        });
     }
 
     @Test
     void roundDoubleScaleAboveMaxPreservableStaysDouble() {
         // scale 17 exceeds DOUBLE_DECIMAL.scale (15).
-        assertDoubleReturn(new Round(DOUBLE_VAL, new IntegerLiteral(17)));
+        withOptIn(true, () -> { assertDoubleReturn(new Round(DOUBLE_VAL, new IntegerLiteral(17))); return null; });
+    }
+
+    @Test
+    void roundDecimalKeepsExistingDecimalSignature() {
+        // The decimal-input path is independent of the new var.
+        withOptIn(true, () -> {
+            DecimalV3Type t = DecimalV3Type.createDecimalV3Type(10, 5);
+            SlotReference dec = new SlotReference("d", t);
+            assertDecimalReturn(2, new Round(dec, new IntegerLiteral(2)));
+            return null;
+        });
+    }
+
+    // ---- opt-in OFF: DOUBLE shape that would otherwise reroute stays DOUBLE ----
+
+    @Test
+    void roundDoubleStaysDoubleWhenOptInIsOff() {
+        withOptIn(false, () -> { assertDoubleReturn(new Round(DOUBLE_VAL, new IntegerLiteral(2))); return null; });
+    }
+
+    @Test
+    void truncateDoubleStaysDoubleWhenOptInIsOff() {
+        withOptIn(false, () -> { assertDoubleReturn(new Truncate(DOUBLE_VAL, new IntegerLiteral(2))); return null; });
+    }
+
+    @Test
+    void roundDecimalIsUnaffectedByOptInOff() {
+        // Decimal input is independent of the new var.
+        withOptIn(false, () -> {
+            DecimalV3Type t = DecimalV3Type.createDecimalV3Type(10, 5);
+            SlotReference dec = new SlotReference("d", t);
+            assertDecimalReturn(2, new Round(dec, new IntegerLiteral(2)));
+            return null;
+        });
     }
 }

@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_round_double_tail") {
+    sql "set round_double_returns_decimal_for_const_scale = true"
+
     qt_round_const           """ select round(23900/293, 2); """
     qt_round_bankers_const   """ select round_bankers(23900/293, 2); """
     qt_ceil_const            """ select ceil(23900/293, 2); """

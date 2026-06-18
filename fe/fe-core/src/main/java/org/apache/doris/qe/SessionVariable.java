@@ -391,6 +391,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DECIMAL_OVERFLOW_SCALE = "decimal_overflow_scale";
 
+    public static final String ROUND_DOUBLE_RETURNS_DECIMAL_FOR_CONST_SCALE
+            = "round_double_returns_decimal_for_const_scale";
+
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
@@ -1914,6 +1917,23 @@ public class SessionVariable implements Serializable, Writable {
                     + "the maximum number of decimal scale that the result can be retained"}
     )
     public int decimalOverflowScale = 6;
+
+    @VarAttrDef.VarAttr(name = ROUND_DOUBLE_RETURNS_DECIMAL_FOR_CONST_SCALE,
+            needForward = true, affectQueryResultInPlan = true,
+            description = {
+                    "当为 true 时，round/round_bankers/ceil/floor/truncate 在第一个参数为 DOUBLE 且第二个参数"
+                    + "为非负整数字面量（且不超过 15）时，返回类型从 DOUBLE 改为 DECIMAL，避免出现"
+                    + " round(23900/293, 2) 显示为 81.56999999999999 这类 IEEE-754 残尾。注意启用后，"
+                    + " |x| >= 1e15 的 DOUBLE 输入以及 Inf/NaN 在隐式 cast 至 decimal(30, 15) 时会变 NULL"
+                    + "（非严格模式）或抛 ARITHMETIC_OVERFLOW（严格模式），故默认关闭。",
+                    "When true, round/round_bankers/ceil/floor/truncate return DECIMAL instead of DOUBLE"
+                    + " when the first argument is a DOUBLE and the second is a non-negative integer literal"
+                    + " no greater than 15. This avoids IEEE-754 residual tails such as round(23900/293, 2)"
+                    + " rendering as 81.56999999999999. Enabling it makes DOUBLE inputs with |x| >= 1e15,"
+                    + " Inf, or NaN turn into NULL (non-strict mode) or raise ARITHMETIC_OVERFLOW"
+                    + " (strict mode) due to the implicit cast to decimal(30, 15); off by default."}
+    )
+    public boolean roundDoubleReturnsDecimalForConstScale = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     public boolean enableDPHypOptimizer = false;

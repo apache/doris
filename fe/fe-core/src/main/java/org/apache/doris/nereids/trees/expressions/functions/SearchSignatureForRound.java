@@ -27,22 +27,13 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Signature search for round-like functions (round, round_bankers, ceil, floor, truncate).
- *
- * For float/double inputs the result type defaults to double, which is correct except
- * when a non-negative integer-literal scale is given: the rounded double cannot land on a
- * clean N-decimal value (e.g. round(23900/293, 2) stores 81.56999999999999488…
- * in IEEE-754 and renders as "81.56999999999999").
- * In that case, for DOUBLE input we route the call through the existing decimal
- * signature, which both gives the user the value they asked for and matches MySQL's
- * behavior. FLOAT input is left on the original DOUBLE path: float promotes to
- * decimal(14, 7) which can only hold 7 integer digits —- values |f| >= 1e7 would
- * overflow during the cast.
  */
 public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
 
@@ -56,6 +47,7 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
                 return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
             } else if (arguments.size() == 2) {
                 if (arguments.get(0).getDataType().isDoubleType()
+                        && isOptedIntoDecimalReroute()
                         && isNonNegativeIntegerLiteralAtMost(arguments.get(1),
                                 DOUBLE_DECIMAL_RESULT_MAX_SCALE)) {
                     return ExplicitlyCastableSignature.super.searchSignature(
@@ -65,6 +57,11 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
             }
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
+    }
+
+    static boolean isOptedIntoDecimalReroute() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.getSessionVariable().roundDoubleReturnsDecimalForConstScale;
     }
 
     /**
