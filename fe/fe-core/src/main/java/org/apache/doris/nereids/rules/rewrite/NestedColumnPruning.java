@@ -260,14 +260,27 @@ public class NestedColumnPruning implements CustomRewriter {
             }
         }
 
+        // phase 1.5: for slots with meta paths, expand map-star paths and strip
+        // redundant meta paths. Strip predicate first using the COMPLETE
+        // allAccessPaths as covering, then strip allAccessPaths self-covering.
+        for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
+            Slot slot = kv.getKey();
+            DataTypeAccessTree accessTree = kv.getValue();
+            if (!accessTree.hasOffsetPath() && !accessTree.hasNullPath()) {
+                continue;
+            }
+            int slotId = slot.getExprId().asInt();
+            // Expand both sets before stripping so covering is complete.
+            expandMapStarPaths(slot, allAccessPaths);
+            expandMapStarPaths(slot, predicateAccessPaths);
+            MetaPathStriper.strip(slotId, predicateAccessPaths, allAccessPaths);
+            MetaPathStriper.strip(slotId, allAccessPaths, allAccessPaths);
+        }
+
         // second: build non-predicate access paths
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
-            if (accessTree.hasOffsetPath() || accessTree.hasNullPath()) {
-                expandMapStarPaths(slot, allAccessPaths);
-                MetaPathStriper.strip(slot.getExprId().asInt(), allAccessPaths, allAccessPaths);
-            }
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             if (shouldSkipAccessInfo(slot, prunedDataType, allPaths)) {
@@ -284,11 +297,9 @@ public class NestedColumnPruning implements CustomRewriter {
                     new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
         }
 
-        // third: build predicate access path
+        // third: build predicate access path (strip already done in phase 1.5)
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
-            expandMapStarPaths(slot, predicateAccessPaths);
-            MetaPathStriper.strip(slot.getExprId().asInt(), predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
