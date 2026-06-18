@@ -93,6 +93,7 @@ public class MTMVPartitionUtil {
             Set<TableName> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
         Map<MTMVRelatedTableIf, Set<String>> partitionMappings = refreshContext.getByPartitionName(partitionName);
+        Set<TableName> excludedTriggerTablesToCheck = Sets.newHashSet(excludedTriggerTables);
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             if (MapUtils.isEmpty(partitionMappings)) {
                 LOG.warn("can not found pct partition, partitionName: {}, mtmvName: {}",
@@ -103,7 +104,7 @@ public class MTMVPartitionUtil {
             for (MTMVRelatedTableIf pctTable : pctTables) {
                 Set<String> relatedPartitionNames = partitionMappings.getOrDefault(pctTable, Sets.newHashSet());
                 // if follow base table, not need compare with related table, only should compare with related partition
-                excludedTriggerTables.add(new TableName(pctTable));
+                excludedTriggerTablesToCheck.add(new TableName(pctTable));
                 if (!isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames, pctTable)) {
                     return false;
                 }
@@ -111,7 +112,7 @@ public class MTMVPartitionUtil {
 
         }
         return isSyncWithAllBaseTables(refreshContext, partitionName, tables,
-                excludedTriggerTables);
+                excludedTriggerTablesToCheck);
 
     }
 
