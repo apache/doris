@@ -84,7 +84,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                 return Optional.empty();
             }
             if (filter.getInputSlots().contains(context.slot)) {
-                return Optional.of(new MaterializeSource((Relation) filter.child(), context.slot));
+                Relation relation = (Relation) filter.child();
+                return Optional.of(new MaterializeSource(
+                        relation, findRelationOutputSlot(relation, context.slot).orElse(context.slot)));
             } else {
                 return filter.child().accept(this, context);
             }
@@ -152,7 +154,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         if (scan.getOperativeSlots().contains(context.slot)) {
             return Optional.empty();
         }
-        return Optional.of(new MaterializeSource(scan, context.slot));
+        return Optional.of(
+                new MaterializeSource(scan, findRelationOutputSlot(scan, context.slot).orElse(context.slot)));
     }
 
     @Override
@@ -163,7 +166,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                     && !relation.getOperativeSlots().contains(context.slot)) {
             // lazy materialize slot must be a passive slot
             if (context.slot.getOriginalColumn().isPresent()) {
-                return Optional.of(new MaterializeSource(relation, context.slot));
+                return Optional.of(new MaterializeSource(
+                        relation, findRelationOutputSlot(relation, context.slot).orElse(context.slot)));
             } else {
                 LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
             }
@@ -178,7 +182,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                 && !tvfRelation.getOperativeSlots().contains(context.slot)) {
             // lazy materialize slot must be a passive slot
             if (context.slot.getOriginalColumn().isPresent()) {
-                return Optional.of(new MaterializeSource(tvfRelation, context.slot));
+                return Optional.of(new MaterializeSource(
+                        tvfRelation, findRelationOutputSlot(tvfRelation, context.slot).orElse(context.slot)));
             } else {
                 LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
             }
@@ -223,6 +228,13 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                 return Optional.empty();
             }
         }
+    }
+
+    private Optional<SlotReference> findRelationOutputSlot(Relation relation, SlotReference contextSlot) {
+        return relation.getOutput().stream()
+                .filter(slot -> slot instanceof SlotReference && slot.equals(contextSlot))
+                .map(slot -> (SlotReference) slot)
+                .findFirst();
     }
 
 }
