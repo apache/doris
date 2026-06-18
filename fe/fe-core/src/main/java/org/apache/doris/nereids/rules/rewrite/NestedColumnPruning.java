@@ -52,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -263,8 +264,10 @@ public class NestedColumnPruning implements CustomRewriter {
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
-            MetaPathNormalizer.normalizeAndStrip(slot, accessTree, allAccessPaths, allAccessPaths);
-
+            if (accessTree.hasOffsetPath() || accessTree.hasNullPath()) {
+                expandMapStarPaths(slot, allAccessPaths);
+                MetaPathStriper.strip(slot.getExprId().asInt(), allAccessPaths, allAccessPaths);
+            }
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             if (shouldSkipAccessInfo(slot, prunedDataType, allPaths)) {
@@ -284,7 +287,8 @@ public class NestedColumnPruning implements CustomRewriter {
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
-            MetaPathNormalizer.normalizeAndStrip(slot, kv.getValue(), predicateAccessPaths, allAccessPaths);
+            expandMapStarPaths(slot, predicateAccessPaths);
+            MetaPathStriper.strip(slot.getExprId().asInt(), predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
@@ -449,106 +453,29 @@ public class NestedColumnPruning implements CustomRewriter {
             return children;
         }
 
-        /**
-         * Collect MAP nodes where keys are fully accessed for element lookup while values
-         * only need metadata (OFFSET or NULL). Expected access paths for each returned prefix:
-         * [prefix, KEYS] and [prefix, VALUES, metaSuffix].
-         *
-         * @param metaSuffix {@link AccessPathInfo#ACCESS_OFFSET} or
-         *                   {@link AccessPathInfo#ACCESS_NULL}
-         */
-        public List<List<String>> collectMapValueMetaOnlyAccessPaths(String metaSuffix) {
-            List<List<String>> mapPrefixes = new ArrayList<>();
-            if (!isRoot) {
-                collectMapValueMetaOnlyAccessPaths(new ArrayList<>(), mapPrefixes, metaSuffix);
-                return mapPrefixes;
-            }
-            for (Entry<String, DataTypeAccessTree> child : children.entrySet()) {
-                List<String> path = new ArrayList<>();
-                path.add(child.getKey());
-                child.getValue().collectMapValueMetaOnlyAccessPaths(path, mapPrefixes, metaSuffix);
-            }
-            return mapPrefixes;
-        }
 
-        private void collectMapValueMetaOnlyAccessPaths(
-                List<String> currentPath, List<List<String>> mapPrefixes, String metaSuffix) {
-            if (isMapValueMetaOnlyAccess(metaSuffix)) {
-                mapPrefixes.add(new ArrayList<>(currentPath));
-            }
-            for (Entry<String, DataTypeAccessTree> child : children.entrySet()) {
-                List<String> childPath = new ArrayList<>(currentPath);
-                childPath.add(child.getKey());
-                child.getValue().collectMapValueMetaOnlyAccessPaths(childPath, mapPrefixes, metaSuffix);
-            }
-        }
-
-        private boolean isMapValueMetaOnlyAccess(String metaSuffix) {
-            if (!type.isMapType() || accessAll) {
-                return false;
-            }
-            DataTypeAccessTree keysChild = children.get(AccessPathInfo.ACCESS_MAP_KEYS);
-            DataTypeAccessTree valsChild = children.get(AccessPathInfo.ACCESS_MAP_VALUES);
-            // Keys must be fully accessed (element-at lookup).
-            if (!keysChild.accessAll) {
-                return false;
-            }
-            boolean hasMeta = AccessPathInfo.ACCESS_OFFSET.equals(metaSuffix)
-                    ? valsChild.hasOffsetPath
-                    : valsChild.hasNullPath;
-            if (!hasMeta || valsChild.accessAll) {
-                return false;
-            }
-            if (valsChild.type.isStringLikeType()) {
+        public boolean hasOffsetPath() {
+            if (hasOffsetPath) {
                 return true;
             }
-            if (valsChild.type.isArrayType()) {
-                // Array value: verify no element was read directly
-                // (e.g. map_col['k'][0] would set allChild.accessAll=true).
-                DataTypeAccessTree allChild = valsChild.children.get(AccessPathInfo.ACCESS_ALL);
-                return !allChild.accessAll && !allChild.accessPartialChild;
-            }
-            return true;
-        }
-
-        /** True when the column is accessed ONLY via the offset array (e.g. length(str_col),
-         *  length(arr_col), length(map_col)), meaning the type must not change but an access
-         *  path still needs to be sent to BE so it can skip the char/element data. */
-        public boolean hasOffsetOnlyAccess() {
-            DataTypeAccessTree selfOrRootChild = this;
-            if (isRoot) {
-                selfOrRootChild = children.values().iterator().next();
-            }
-            if (!selfOrRootChild.hasOffsetPath || selfOrRootChild.accessAll) {
-                return false;
-            }
-            if (selfOrRootChild.type.isStringLikeType()) {
-                return true;
-            }
-            if (selfOrRootChild.type.isArrayType()) {
-                // True only if no element was accessed (element_at / explode etc.)
-                DataTypeAccessTree allChild = selfOrRootChild.children.get(AccessPathInfo.ACCESS_ALL);
-                return !allChild.accessAll && !allChild.accessPartialChild;
-            }
-            if (selfOrRootChild.type.isMapType()) {
-                // True only if neither keys nor values were accessed directly
-                DataTypeAccessTree keysChild = selfOrRootChild.children.get(AccessPathInfo.ACCESS_MAP_KEYS);
-                DataTypeAccessTree valsChild = selfOrRootChild.children.get(AccessPathInfo.ACCESS_MAP_VALUES);
-                return !keysChild.accessAll && !keysChild.accessPartialChild
-                        && !valsChild.accessAll && !valsChild.accessPartialChild;
+            for (DataTypeAccessTree child : children.values()) {
+                if (child.hasOffsetPath()) {
+                    return true;
+                }
             }
             return false;
         }
 
-        /** True when the column is accessed ONLY via IS NULL / IS NOT NULL,
-         *  meaning the BE only needs to read the null flag, not the actual data. */
-        public boolean hasNullOnlyAccess() {
-            if (isRoot) {
-                DataTypeAccessTree child = children.values().iterator().next();
-                return child.hasNullPath && !child.accessAll
-                        && !child.hasOffsetPath && !child.accessPartialChild;
+        public boolean hasNullPath() {
+            if (hasNullPath) {
+                return true;
             }
-            return hasNullPath && !accessAll && !hasOffsetPath && !accessPartialChild;
+            for (DataTypeAccessTree child : children.values()) {
+                if (child.hasNullPath()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /** pruneCastType */
@@ -817,5 +744,105 @@ public class NestedColumnPruning implements CustomRewriter {
                 throw new AnalysisException("unsupported data type: " + dataType);
             }
         }
+    }
+
+    /**
+     * Expand map-level {@code *} wildcards into {@code KEYS} + {@code VALUES}
+     * variants.  For n map-level stars in a single path, n+1 paths are
+     * emitted: one all-VALUES path plus one KEYS-terminating path per star
+     * position.  Array-level stars are left unchanged.
+     *
+     * <p>Paths with no map-level star are kept as-is.
+     */
+    private static void expandMapStarPaths(
+            Slot slot,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> accessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> slotPaths = accessPaths.get(slotId);
+        if (slotPaths.isEmpty()) {
+            return;
+        }
+        DataType slotType = slot.getDataType();
+
+        List<Pair<ColumnAccessPathType, List<String>>> toAdd = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+
+        for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
+            List<String> path = p.second;
+            List<Integer> positions = new ArrayList<>();
+            findMapStarPositions(path, slotType, positions);
+            if (positions.isEmpty()) {
+                continue;
+            }
+            toRemove.add(p);
+            toAdd.addAll(expandOnePath(p.first, path, positions));
+        }
+
+        slotPaths.removeAll(toRemove);
+        slotPaths.addAll(toAdd);
+    }
+
+    private static void findMapStarPositions(
+            List<String> path, DataType slotType, List<Integer> positions) {
+        DataType current = slotType;
+        for (int i = 1; i < path.size(); i++) {
+            String component = path.get(i);
+            if (current.isStructType()) {
+                StructField field = ((StructType) current).getField(component);
+                if (field == null) {
+                    break;
+                }
+                current = field.getDataType();
+            } else if (current.isArrayType()) {
+                if (!AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    break;
+                }
+                current = ((ArrayType) current).getItemType();
+            } else if (current.isMapType()) {
+                MapType mapType = (MapType) current;
+                if (AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    positions.add(i);
+                    current = mapType.getValueType();
+                } else if (AccessPathInfo.ACCESS_MAP_KEYS.equals(component)) {
+                    current = mapType.getKeyType();
+                } else if (AccessPathInfo.ACCESS_MAP_VALUES.equals(component)) {
+                    current = mapType.getValueType();
+                } else {
+                    current = mapType.getValueType();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    private static List<Pair<ColumnAccessPathType, List<String>>> expandOnePath(
+            ColumnAccessPathType type, List<String> path, List<Integer> positions) {
+        int n = positions.size();
+        List<Pair<ColumnAccessPathType, List<String>>> result = new ArrayList<>(n + 1);
+
+        // All-VALUES path: replace every map * with VALUES
+        List<String> allValues = new ArrayList<>(path);
+        for (int pos : positions) {
+            allValues.set(pos, AccessPathInfo.ACCESS_MAP_VALUES);
+        }
+        result.add(Pair.of(type, allValues));
+
+        // KEYS-terminating path for each position
+        for (int i = 0; i < n; i++) {
+            int keysPos = positions.get(i);
+            List<String> keysPath = new ArrayList<>();
+            for (int j = 0; j < keysPos; j++) {
+                String component = path.get(j);
+                if (positions.contains(j)) {
+                    component = AccessPathInfo.ACCESS_MAP_VALUES;
+                }
+                keysPath.add(component);
+            }
+            keysPath.add(AccessPathInfo.ACCESS_MAP_KEYS);
+            result.add(Pair.of(type, keysPath));
+        }
+
+        return result;
     }
 }
