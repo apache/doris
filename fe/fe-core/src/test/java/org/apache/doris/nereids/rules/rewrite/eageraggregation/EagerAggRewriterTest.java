@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -451,6 +452,26 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testVolatileJoinConjunctBlocksPushDown() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            assertNoAggregateUnderJoin("select count(t1.name), t2.id2"
+                    + " from t1 join t2 on t1.id1 = t2.id2 and random() < 0.5"
+                    + " group by t2.id2");
+            assertNoAggregateUnderJoin("select min(t1.name), max(t2.name)"
+                    + " from t1 join t2 on t1.id1 = t2.id2 and random() < 0.5"
+                    + " group by t1.id1");
+            assertNoAggregateUnderJoin("select t1.id1"
+                    + " from t1 join t2 on t1.id1 = t2.id2 and random() < 0.5"
+                    + " group by t1.id1");
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testUniqueFunctionFilterBlocksPushDownThroughFilter() {
         connectContext.getSessionVariable().setEagerAggregationMode(1);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
@@ -504,6 +525,17 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
 
     private boolean containsPlan(Plan plan, Class<? extends Plan> clazz) {
         return countPlans(plan, clazz) > 0;
+    }
+
+    private void assertNoAggregateUnderJoin(String sql) {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+        LogicalJoin<?, ?> join = findFirstPlan(plan, LogicalJoin.class);
+        Assertions.assertNotNull(join, plan.treeString());
+        Assertions.assertFalse(containsPlan(join.left(), LogicalAggregate.class), plan.treeString());
+        Assertions.assertFalse(containsPlan(join.right(), LogicalAggregate.class), plan.treeString());
     }
 
     private <T extends Plan> T findFirstPlan(Plan plan, Class<T> clazz) {

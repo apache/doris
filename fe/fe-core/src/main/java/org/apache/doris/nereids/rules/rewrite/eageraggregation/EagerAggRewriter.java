@@ -184,6 +184,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             // do nothing for asof join and mark join
             return Pair.of(false, false);
         }
+        if (Stream.concat(join.getHashJoinConjuncts().stream(), join.getOtherJoinConjuncts().stream())
+                .anyMatch(Expression::containsVolatileExpression)) {
+            return Pair.of(false, false);
+        }
 
         boolean deduplicateOnly = context.getAggFunctions().isEmpty();
         boolean toLeft = false;
@@ -1021,6 +1025,20 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 return rightCountSlot;
             }
             return Optional.empty();
+        }
+        if (joinType.isFullOuterJoin()) {
+            if (leftChildContext.isPresent() && leftCountSlot.isPresent()) {
+                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
+                        new Nvl(leftCountSlot.get(), BigIntLiteral.of(1)));
+                return Optional.of(new Alias(joinCnt,
+                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+            }
+            if (rightChildContext.isPresent() && rightCountSlot.isPresent()) {
+                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
+                        new Nvl(rightCountSlot.get(), BigIntLiteral.of(1)));
+                return Optional.of(new Alias(joinCnt,
+                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+            }
         }
         if (joinType.isLeftSemiOrAntiJoin()) {
             return leftCountSlot;

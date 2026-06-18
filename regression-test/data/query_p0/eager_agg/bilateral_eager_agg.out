@@ -317,5 +317,17 @@
 1
 2
 
--- !semi_join_distinct_push --
+-- !anti_join_distinct_push --
+
+-- !full_outer_output_cnt --
+1	180	2400
+2	90	600
+
+-- !left_outer_output_cnt --
+1	180	2400
+2	90	600
+
+-- !left_outer_output_cnt_null_side --
+1	1800	2400
+2	900	600
 

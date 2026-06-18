@@ -55,7 +55,7 @@ suite("bilateral_eager_agg") {
         duplicate key(id1)
         distributed by hash(id1) buckets 1
         properties ("replication_num" = "1");
-        
+
         create table pdagg_proj_t2 (
             id2 int not null,
             k   int,
@@ -64,13 +64,13 @@ suite("bilateral_eager_agg") {
         duplicate key(id2)
         distributed by hash(id2) buckets 1
         properties ("replication_num" = "1");
-        
+
         insert into pdagg_proj_t1 values
             (1, 10, 1, 100, 7, 3, 1),
             (2, 20, 2, 100, 7, 4, 0),
             (3, 30, 3, 200, 8, 5, 1),
             (4, 40, 4, 200, 8, 6, 0);
-        
+
         insert into pdagg_proj_t2 values
             (1, 10, 1000),
             (2, 10, 2000),
@@ -120,15 +120,15 @@ suite("bilateral_eager_agg") {
     order_qt_sum_to_2_side """
         select t2.k, sum(if(t1.x==0,t1.y,t2.v)),sum(t1.y)
         from pdagg_proj_t1 t1
-        inner join pdagg_proj_t2 t2 
+        inner join pdagg_proj_t2 t2
         group by t2.k;
    """
 
     order_qt_sum_to_2_side_gby_agg_func_input_slot"""
         select t1.y,t2.v, sum(if(t1.x==0,t1.y,t2.v)),sum(t1.y)
         from pdagg_proj_t1 t1
-        inner join pdagg_proj_t2 t2 
-        group by t1.y,t2.v 
+        inner join pdagg_proj_t2 t2
+        group by t1.y,t2.v
     """
 
     order_qt_gby_agg_func_input_slot """
@@ -778,7 +778,7 @@ suite("bilateral_eager_agg") {
     // ================================================================
 
     def union_all_sql = """
-        SELECT 
+        SELECT
                t4.k, sum(u.a1), sum(u.a2), sum(t4.a)
         FROM (
             SELECT t1.k AS k, t1.a AS a1, t2.a AS a2
@@ -803,7 +803,7 @@ suite("bilateral_eager_agg") {
     order_qt_union_all_partial_push union_all_sql
 
     def union_all_count_star_sql = """
-        SELECT 
+        SELECT
                t4.k, sum(u.a1), sum(u.a2),count(*), sum(t4.a)
         FROM (
             SELECT t1.k AS k, t1.a AS a1, t2.a AS a2
@@ -861,11 +861,36 @@ suite("bilateral_eager_agg") {
          GROUP BY t1.k;
      """
 
-     order_qt_semi_join_distinct_push """
+     order_qt_anti_join_distinct_push """
          SELECT distinct t1.k
          FROM t_pdajos_1 t1
          left anti JOIN t_pdajos_2 t2 on t1.k=t2.k
          left anti JOIN t_pdajos_2 t3  on t1.k=t3.k
+         GROUP BY t1.k;
+     """
+
+     sql "SET force_eager_agg_hint = 'sum:t1.v=push;sum:t3.v=push';"
+     order_qt_full_outer_output_cnt """
+         SELECT t1.k, sum(t1.v) AS lsum, sum(t3.v) as 3sum
+         FROM t_pdajos_1 t1
+         full outer JOIN t_pdajos_2 t2 on t1.k=t2.k
+         cross JOIN t_pdajos_2 t3
+         GROUP BY t1.k;
+     """
+     order_qt_left_outer_output_cnt """
+         SELECT t1.k, sum(t1.v) AS lsum, sum(t3.v) as 3sum
+         FROM t_pdajos_1 t1
+         left outer JOIN t_pdajos_2 t2 on t1.k=t2.k
+         cross JOIN t_pdajos_2 t3
+         GROUP BY t1.k;
+     """
+
+     sql "SET force_eager_agg_hint = 'sum:t2.v=push;sum:t3.v=push';"
+     order_qt_left_outer_output_cnt_null_side """
+         SELECT t1.k, sum(t2.v) AS lsum, sum(t3.v) as 3sum
+         FROM t_pdajos_1 t1
+         left outer JOIN t_pdajos_2 t2 on t1.k=t2.k
+         cross JOIN t_pdajos_2 t3
          GROUP BY t1.k;
      """
 
