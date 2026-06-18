@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -61,6 +62,23 @@ import java.util.HashMap;
 import java.util.Map;
 
 class FilterEstimationTest {
+    @Test
+    public void testBooleanLiteral() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        Statistics stats = new StatisticsBuilder()
+                .setRowCount(100)
+                .putColumnStatistics(a, new ColumnStatisticBuilder(100).setNdv(10).build())
+                .build();
+        FilterEstimation filterEstimation = new FilterEstimation();
+
+        Statistics trueStats = filterEstimation.estimate(BooleanLiteral.TRUE, stats);
+        Assertions.assertEquals(100, trueStats.getRowCount(), 0.001);
+        Assertions.assertEquals(10, trueStats.findColumnStatistics(a).ndv, 0.001);
+
+        Statistics falseStats = filterEstimation.estimate(BooleanLiteral.FALSE, stats);
+        Assertions.assertEquals(0, falseStats.getRowCount(), 0.001);
+    }
+
     // a > 500 or b < 100
     // b isNaN
     @Test

@@ -348,8 +348,8 @@ public class HudiScanNode extends HiveScanNode {
         NameMapping nameMapping = hmsTable.getOrBuildNameMapping();
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
         if (!partitionColumnTypes.isEmpty()) {
-            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-            Map<String, PartitionItem> prunedPartitions = selectedPartitions.selectedPartitions;
+            this.totalPartitionNum = partitionSelection.totalPartitionNum;
+            Map<String, PartitionItem> prunedPartitions = partitionSelection.selectedPartitionItems;
             this.selectedPartitionNum = prunedPartitions.size();
 
             String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();

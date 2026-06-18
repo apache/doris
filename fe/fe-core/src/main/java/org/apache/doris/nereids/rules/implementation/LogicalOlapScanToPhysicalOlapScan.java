@@ -53,8 +53,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getQualifier(),
                         olapScan.getSelectedIndexId(),
                         olapScan.getSelectedTabletIds(),
-                        olapScan.getSelectedPartitionIds(),
-                        olapScan.hasPartitionPredicate(),
+                        olapScan.getPartitionSelection(),
                         convertDistribution(olapScan),
                         olapScan.getPreAggStatus(),
                         olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
@@ -71,7 +70,6 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getAnnOrderKeys(),
                         olapScan.getAnnLimit(),
                         olapScan.getTableAlias(),
-                        olapScan.getPartitionPrunablePredicates(),
                         olapScan.isIncrementalScan(),
                         olapScan.getScanParams())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
@@ -85,7 +83,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
         // the same stable colocateGroup(CG)
         boolean isBelongStableCG = Utils.isBelongStableCG(olapTable);
-        boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, olapScan.getSelectedPartitionIds());
+        List<Long> selectedPartitionIds = olapScan.getPartitionSelection().getSelectedPartitionIds();
+        boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, selectedPartitionIds);
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
         if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
             if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
@@ -116,7 +115,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(selectedPartitionIds));
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -134,7 +133,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(selectedPartitionIds));
             }
         } else {
             // RandomDistributionInfo

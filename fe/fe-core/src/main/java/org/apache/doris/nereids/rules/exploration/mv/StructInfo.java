@@ -945,13 +945,15 @@ public class StructInfo {
                 return olapScan;
             }
             Set<String> targetPartitionNameSet = context.get(tableInfo);
-            List<Long> selectedPartitionIds = new ArrayList<>(olapScan.getSelectedPartitionIds());
+            List<Long> selectedPartitionIds = new ArrayList<>(
+                    olapScan.getPartitionSelection().getSelectedPartitionIds());
             // need remove partition
             selectedPartitionIds = selectedPartitionIds.stream()
                     .filter(partitionId -> !targetPartitionNameSet.contains(
                             olapScan.getTable().getPartition(partitionId).getName()))
                     .collect(Collectors.toList());
-            return olapScan.withSelectedPartitionIds(selectedPartitionIds);
+            return olapScan.withPartitionSelection(olapScan.getPartitionSelection()
+                    .withNarrowedSelectedPartitionIds(selectedPartitionIds));
         }
     }
 

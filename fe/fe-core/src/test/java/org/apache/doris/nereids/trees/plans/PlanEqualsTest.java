@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -333,6 +334,7 @@ class PlanEqualsTest {
         OlapTable olapTable = Mockito.mock(OlapTable.class);
         DistributionSpecHash distributionSpecHash = Mockito.mock(DistributionSpecHash.class);
         Mockito.when(olapTable.getAllPartitions()).thenReturn(ImmutableList.of());
+        Mockito.when(olapTable.getPartitionIds()).thenReturn(ImmutableList.of());
 
         List<Long> selectedTabletId = Lists.newArrayList();
         for (Partition partition : olapTable.getAllPartitions()) {
@@ -341,27 +343,15 @@ class PlanEqualsTest {
 
         RelationId id = StatementScopeIdGenerator.newRelationId();
 
-        PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
-                1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
-                Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan actual = PlanConstructor.newPhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
+                1L, selectedTabletId, logicalProperties, distributionSpecHash, ImmutableList.of());
 
-        PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
-                1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
-                Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan expected = PlanConstructor.newPhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
+                1L, selectedTabletId, logicalProperties, distributionSpecHash, ImmutableList.of());
         Assertions.assertEquals(expected, actual);
 
-        PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
-                12345L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
-                Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan unexpected = PlanConstructor.newPhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
+                12345L, selectedTabletId, logicalProperties, distributionSpecHash, ImmutableList.of());
         Assertions.assertNotEquals(unexpected, actual);
     }
 

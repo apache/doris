@@ -97,7 +97,7 @@ public class PartitionCompensator {
                 node instanceof LogicalOlapScan
                         && Objects.equals(((CatalogRelation) node).getTable().getName(), mtmv.getName()));
         for (LogicalOlapScan olapScan : mvOlapScanList) {
-            olapScan.getSelectedPartitionIds().forEach(id ->
+            olapScan.getPartitionSelection().getSelectedPartitionIds().forEach(id ->
                     rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
         }
         Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap

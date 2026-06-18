@@ -27,24 +27,19 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 public class MergeProjectPostProcessTest {
     /**
@@ -78,11 +73,7 @@ public class MergeProjectPostProcessTest {
         t1Output.add(b);
         t1Output.add(c);
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> DataTrait.EMPTY_TRAIT);
-        PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1, qualifier, 0L,
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), ImmutableList.of(),
-                Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan scan = PlanConstructor.newPhysicalOlapScan(t1, qualifier, t1Properties, null);
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

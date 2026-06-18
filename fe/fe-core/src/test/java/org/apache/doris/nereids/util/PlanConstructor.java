@@ -27,12 +27,20 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.OlapPartitionSelection;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -159,6 +167,23 @@ public class PlanConstructor {
         return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
                 newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"),
                 selectedPartitions, ImmutableList.of(), Optional.empty(), ImmutableList.of());
+    }
+
+    public static PhysicalOlapScan newPhysicalOlapScan(OlapTable table, List<String> qualifier,
+            LogicalProperties logicalProperties, DistributionSpec distributionSpec) {
+        return newPhysicalOlapScan(RELATION_ID_GENERATOR.getNextId(), table, qualifier, table.getBaseIndexId(),
+                ImmutableList.of(), logicalProperties, distributionSpec, ImmutableList.of());
+    }
+
+    public static PhysicalOlapScan newPhysicalOlapScan(RelationId relationId, OlapTable table, List<String> qualifier,
+            long selectedIndexId, List<Long> selectedTabletIds, LogicalProperties logicalProperties,
+            DistributionSpec distributionSpec, Collection<Slot> operativeSlots) {
+        return new PhysicalOlapScan(relationId, table, qualifier, selectedIndexId, selectedTabletIds,
+                new OlapPartitionSelection(table.getPartitionIds(), false, false, ImmutableList.of()),
+                distributionSpec, PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
+                null, null, Optional.empty(), operativeSlots, ImmutableList.<NamedExpression>of(),
+                ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty(), "",
+                false, Optional.empty());
     }
 
     public static RelationId getNextRelationId() {

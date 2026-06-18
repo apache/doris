@@ -708,7 +708,7 @@ public class StmtExecutor {
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
                         scanNode.isPartitionedTable(),
-                        scanNode.hasPartitionPredicate(),
+                        scanNode.hasPartitionConstraint(),
                         context.getQualifiedUser());
 
             }

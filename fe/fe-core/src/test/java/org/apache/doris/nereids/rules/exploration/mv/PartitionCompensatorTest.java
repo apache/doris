@@ -35,6 +35,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.OlapPartitionSelection;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -550,9 +551,11 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         LogicalOlapScan selectedMvScan = Mockito.mock(LogicalOlapScan.class);
         Mockito.when(selectedMvScan.getTable()).thenReturn(mtmv);
-        Mockito.when(selectedMvScan.getSelectedPartitionIds())
-                .thenReturn(ImmutableList.of(mvP20260301Id, mvP20260401Id, mvP20260402Id,
-                        mvP20260403Id, mvP20260428Id));
+        Mockito.when(selectedMvScan.getPartitionSelection())
+                .thenReturn(new OlapPartitionSelection(
+                        ImmutableList.of(mvP20260301Id, mvP20260401Id, mvP20260402Id,
+                                mvP20260403Id, mvP20260428Id),
+                        true, false, ImmutableList.of()));
         Plan rewrittenPlan = Mockito.mock(Plan.class);
         Mockito.when(rewrittenPlan.collectToList(ArgumentMatchers.any()))
                 .thenReturn(ImmutableList.of(selectedMvScan));

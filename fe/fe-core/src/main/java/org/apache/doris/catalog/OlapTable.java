@@ -1909,6 +1909,33 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return index.getRowCount() == -1 ? 0 : index.getRowCount();
     }
 
+    /**
+     * Returns row count for selected partitions on the given index. If some partition row counts
+     * are not reported, estimate them from the base row count.
+     */
+    public double getRowCountForSelectedPartitions(Collection<Long> selectedPartitionIds,
+            long indexId, double baseRowCount) {
+        double unknownPartitionCount = 0;
+        double selectedPartitionRowCount = 0;
+        for (long partitionId : selectedPartitionIds) {
+            long partitionRowCount = getRowCountForPartitionIndex(partitionId, indexId, true);
+            if (partitionRowCount == UNKNOWN_ROW_COUNT) {
+                unknownPartitionCount++;
+            } else {
+                selectedPartitionRowCount += partitionRowCount;
+            }
+        }
+        if (unknownPartitionCount > 0) {
+            double knownSelectedPartitionCount = selectedPartitionIds.size() - unknownPartitionCount;
+            double remainingPartitionCount = getPartitionNum() - knownSelectedPartitionCount;
+            Preconditions.checkArgument(remainingPartitionCount > 0,
+                    "selected partitions with unknown row count should not cover all table partitions");
+            double remainingRowCount = Math.max(0, baseRowCount - selectedPartitionRowCount);
+            selectedPartitionRowCount += remainingRowCount * unknownPartitionCount / remainingPartitionCount;
+        }
+        return selectedPartitionRowCount;
+    }
+
     @Override
     public long getAvgRowLength() {
         long rowCount = 0;

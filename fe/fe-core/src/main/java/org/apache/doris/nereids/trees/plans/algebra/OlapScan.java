@@ -28,9 +28,9 @@ public interface OlapScan {
 
     long getSelectedIndexId();
 
-    List<Long> getSelectedPartitionIds();
-
     List<Long> getSelectedTabletIds();
+
+    OlapPartitionSelection getPartitionSelection();
 
     /** getScanTabletNum */
     default int getScanTabletNum() {
@@ -40,7 +40,7 @@ public interface OlapScan {
         }
 
         OlapTable olapTable = getTable();
-        int selectTabletNumInPartitions = getSelectedPartitionIds().stream()
+        int selectTabletNumInPartitions = getPartitionSelection().getSelectedPartitionIds().stream()
                 .map(olapTable::getPartition)
                 .map(partition -> partition.getDistributionInfo().getBucketNum())
                 .reduce(Integer::sum)

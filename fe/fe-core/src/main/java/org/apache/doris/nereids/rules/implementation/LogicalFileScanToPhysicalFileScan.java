@@ -39,7 +39,7 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     DistributionSpecAny.INSTANCE,
                     Optional.empty(),
                     fileScan.getLogicalProperties(),
-                    fileScan.getSelectedPartitions(),
+                    fileScan.getPartitionSelection(),
                     fileScan.getTableSample(),
                     fileScan.getTableSnapshot(),
                     fileScan.getOperativeSlots(),

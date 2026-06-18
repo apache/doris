@@ -89,7 +89,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
     }
 
     private Plan normalize(LogicalOlapTableStreamScan scan) {
-        List<Long> selectedPartitionIds = scan.getSelectedPartitionIds();
+        List<Long> selectedPartitionIds = scan.getPartitionSelection().getSelectedPartitionIds();
         if (selectedPartitionIds.isEmpty()) {
             return scan;
         }

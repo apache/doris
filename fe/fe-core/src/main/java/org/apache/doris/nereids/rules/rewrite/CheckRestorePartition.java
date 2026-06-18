@@ -33,13 +33,11 @@ public class CheckRestorePartition extends OneRewriteRuleFactory {
     }
 
     private LogicalOlapScan checkRestorePartition(LogicalOlapScan scan) {
-        if (scan.getSelectedPartitionIds() != null) {
-            for (long id : scan.getSelectedPartitionIds()) {
-                Partition partition = scan.getTable().getPartition(id);
-                if (partition.getState() == Partition.PartitionState.RESTORE) {
-                    throw new AnalysisException("Partition state is not NORMAL: "
-                            + partition.getName() + ":" + "RESTORING");
-                }
+        for (long id : scan.getPartitionSelection().getSelectedPartitionIds()) {
+            Partition partition = scan.getTable().getPartition(id);
+            if (partition.getState() == Partition.PartitionState.RESTORE) {
+                throw new AnalysisException("Partition state is not NORMAL: "
+                        + partition.getName() + ":" + "RESTORING");
             }
         }
         return scan;

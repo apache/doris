@@ -117,7 +117,8 @@ public class SyncMaterializationContext extends MaterializationContext {
         List<CatalogRelation> queryStructInfoRelations = queryStructInfo.getRelations();
         if (queryStructInfoRelations.size() == 1
                 && queryStructInfoRelations.get(0) instanceof LogicalOlapScan
-                && !((LogicalOlapScan) queryStructInfoRelations.get(0)).getSelectedPartitionIds().isEmpty()) {
+                && !((LogicalOlapScan) queryStructInfoRelations.get(0)).getPartitionSelection()
+                        .getSelectedPartitionIds().isEmpty()) {
             // Partition prune if sync materialized view
             return scanPlan.accept(new DefaultPlanRewriter<Void>() {
                 @Override
@@ -131,9 +132,7 @@ public class SyncMaterializationContext extends MaterializationContext {
                     // Carry partition-prunable predicates from the original query scan onto
                     // the rewritten MV scan so the post-processor can still drop the
                     // predicates that have already been enforced by partition pruning.
-                    return olapScan
-                            .withSelectedPartitionIds(queryScan.getSelectedPartitionIds())
-                            .withPartitionPrunablePredicates(queryScan.getPartitionPrunablePredicates());
+                    return olapScan.withPartitionSelection(queryScan.getPartitionSelection());
                 }
             }, null);
         }

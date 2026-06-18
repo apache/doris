@@ -641,7 +641,7 @@ public class MaterializedViewUtils {
                     // Contain tablets, select * from orders TABLET(10098) because TABLET(10098)
                     return true;
                 }
-                if (!logicalOlapScan.getManuallySpecifiedPartitions().isEmpty()) {
+                if (!logicalOlapScan.getPartitionSelection().getManuallySpecifiedPartitions().isEmpty()) {
                     // Contain specified partitions, select * from orders_partition PARTITION (day_2)
                     return true;
                 }

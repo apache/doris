@@ -19,10 +19,11 @@ package org.apache.doris.datasource.hive.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -90,16 +91,18 @@ public class HiveScanNodeTest {
     }
 
     @Test
-    public void testSelectedPartitionsCarryPartitionPredicateFlag() {
-        SelectedPartitions selectedPartitions = new SelectedPartitions(3, ImmutableMap.of(), true, true);
-        Assert.assertTrue(selectedPartitions.hasPartitionPredicate);
+    public void testPartitionSelectionKnowsPrunedState() {
+        ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                3, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, false);
+        Assert.assertTrue(partitionSelection.isPruned());
     }
 
     @Test
-    public void testHiveScanNodeExposePartitionPredicateFlag() {
+    public void testHiveScanNodeExposePartitionConstraintFlag() {
         HiveScanNode node = createHiveScanNode();
-        node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, true));
-        Assert.assertTrue(node.hasPartitionPredicate());
+        node.setPartitionSelection(new ExternalPartitionSelection(
+                3, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true));
+        Assert.assertTrue(node.hasPartitionConstraint());
     }
 
     @Test
@@ -109,10 +112,15 @@ public class HiveScanNodeTest {
     }
 
     @Test
-    public void testHiveScanNodeExposeMissingPartitionPredicateFlag() {
+    public void testHiveScanNodeExposeMissingPartitionConstraintFlag() {
         HiveScanNode node = createHiveScanNode();
-        node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, false));
-        Assert.assertFalse(node.hasPartitionPredicate());
+        node.setPartitionSelection(new ExternalPartitionSelection(
+                3,
+                ImmutableMap.of("p1", Mockito.mock(PartitionItem.class),
+                        "p2", Mockito.mock(PartitionItem.class),
+                        "p3", Mockito.mock(PartitionItem.class)),
+                true, false));
+        Assert.assertFalse(node.hasPartitionConstraint());
     }
 
     private HiveScanNode createHiveScanNode() {

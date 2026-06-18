@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -70,7 +69,6 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -119,11 +117,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 return DataTrait.EMPTY_TRAIT;
             }
         });
-        PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan scan = PlanConstructor.newPhysicalOlapScan(t1, qualifier, t1Properties, null);
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
@@ -173,22 +167,22 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testNereidsOlapScanCarryPartitionPredicateSignal() throws Exception {
+    public void testNereidsOlapScanCarryPartitionConstraintSignal() throws Exception {
         OlapScanNode filteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where p1 = 1");
-        Assertions.assertTrue(filteredScanNode.hasPartitionPredicate());
+        Assertions.assertTrue(filteredScanNode.hasPartitionConstraint());
 
         OlapScanNode manuallyPartitionedScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t partition(p1)");
-        Assertions.assertTrue(manuallyPartitionedScanNode.hasPartitionPredicate());
+        Assertions.assertTrue(manuallyPartitionedScanNode.hasPartitionConstraint());
 
         OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where k1 = 1");
-        Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPredicate());
+        Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionConstraint());
     }
 
     @Test
-    public void testNereidsFileScanCarryPartitionPredicateSignal() throws Exception {
+    public void testNereidsFileScanCarryPartitionConstraintSignal() throws Exception {
         PhysicalFileScan fileScan = Mockito.mock(PhysicalFileScan.class);
         PlanTranslatorContext context = new PlanTranslatorContext();
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
@@ -196,7 +190,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
         Mockito.when(fileScan.getId()).thenReturn(1);
         Mockito.when(fileScan.getRelationId()).thenReturn(RelationId.createGenerator().getNextId());
-        Mockito.when(fileScan.hasPartitionPredicate()).thenReturn(true);
+        Mockito.when(fileScan.hasPartitionConstraint()).thenReturn(true);
         Mockito.when(fileScan.getStats()).thenReturn(null);
 
         Method method = PhysicalPlanTranslator.class.getDeclaredMethod("getPlanFragmentForPhysicalFileScan",
@@ -204,7 +198,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         method.setAccessible(true);
         method.invoke(translator, fileScan, context, scanNode);
 
-        Assertions.assertTrue(scanNode.hasPartitionPredicate());
+        Assertions.assertTrue(scanNode.hasPartitionConstraint());
     }
 
     @Test

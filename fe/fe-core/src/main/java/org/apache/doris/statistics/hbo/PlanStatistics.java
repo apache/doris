@@ -73,7 +73,8 @@ public class PlanStatistics {
         if (planNode instanceof PhysicalOlapScan) {
             boolean isPartitionedTable = ((PhysicalOlapScan) planNode).getTable().isPartitionedTable();
             PartitionInfo partitionInfo = ((PhysicalOlapScan) planNode).getTable().getPartitionInfo();
-            List<Long> selectedPartitionIds = ((PhysicalOlapScan) planNode).getSelectedPartitionIds();
+            List<Long> selectedPartitionIds = ((PhysicalOlapScan) planNode)
+                    .getPartitionSelection().getSelectedPartitionIds();
             RelationId relationId = ((PhysicalOlapScan) planNode).getRelationId();
             Set<Expression> scanToFilterSet = scanToFilterMap.getOrDefault(relationId, new HashSet<>());
 

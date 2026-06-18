@@ -76,7 +76,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             }
 
             if (olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
-                for (Long id : olapScan.getSelectedPartitionIds()) {
+                for (Long id : olapScan.getPartitionSelection().getSelectedPartitionIds()) {
                     Partition partition = table.getPartition(id);
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
                     if (index == null && table.needRowBinlog()

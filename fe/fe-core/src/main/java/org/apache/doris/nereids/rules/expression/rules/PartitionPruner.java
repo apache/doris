@@ -70,14 +70,16 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     /** Result of partition prune. */
     public static final class PartitionPruneResult<K extends Comparable<K>> {
         public final List<K> partitions;
-        public final Optional<Expression> prunedPartitionPredicate;
-        public final boolean hasPartitionPredicate;
+        // Predicate that has been fully applied by partition pruning.
+        public final Optional<Expression> appliedPartitionPredicate;
+        // True when the partition predicate reduced the selected partition set.
+        public final boolean partitionPredicatePruned;
 
-        public PartitionPruneResult(List<K> partitions, Optional<Expression> prunedPartitionPredicate,
-                boolean hasPartitionPredicate) {
+        public PartitionPruneResult(List<K> partitions, Optional<Expression> appliedPartitionPredicate,
+                boolean partitionPredicatePruned) {
             this.partitions = partitions;
-            this.prunedPartitionPredicate = prunedPartitionPredicate;
-            this.hasPartitionPredicate = hasPartitionPredicate;
+            this.appliedPartitionPredicate = appliedPartitionPredicate;
+            this.partitionPredicatePruned = partitionPredicatePruned;
         }
     }
 
@@ -144,7 +146,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType) {
         PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
                 cascadesContext, partitionTableType, Optional.empty());
-        return Pair.of(result.partitions, result.prunedPartitionPredicate);
+        return Pair.of(result.partitions, result.appliedPartitionPredicate);
     }
 
     /**
@@ -156,7 +158,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         PartitionPruneResult<K> result = pruneWithResult(partitionSlots, partitionPredicate, idToPartitions,
                 cascadesContext, partitionTableType, sortedPartitionRanges);
-        return Pair.of(result.partitions, result.prunedPartitionPredicate);
+        return Pair.of(result.partitions, result.appliedPartitionPredicate);
     }
 
     /** prune partition and return partition predicate info. */
@@ -209,12 +211,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
-                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
+                boolean partitionPredicatePruned = isPartitionPredicatePruned(res.first, idToPartitions.size());
                 if (res.second) {
                     return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
-                            hasPartitionPredicate);
+                            partitionPredicatePruned);
                 } else {
-                    return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
+                    return new PartitionPruneResult<>(res.first, Optional.empty(), partitionPredicatePruned);
                 }
             }
         }
@@ -222,16 +224,16 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         Pair<List<K>, Boolean> res = sequentialFiltering(
                 idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
         );
-        boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
+        boolean partitionPredicatePruned = isPartitionPredicatePruned(res.first, idToPartitions.size());
         if (res.second) {
             return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
-                    hasPartitionPredicate);
+                    partitionPredicatePruned);
         } else {
-            return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
+            return new PartitionPruneResult<>(res.first, Optional.empty(), partitionPredicatePruned);
         }
     }
 
-    private static <K extends Comparable<K>> boolean hasEffectivePartitionPredicate(
+    private static <K extends Comparable<K>> boolean isPartitionPredicatePruned(
             List<K> selectedPartitions, int totalPartitions) {
         return selectedPartitions.size() != totalPartitions;
     }
