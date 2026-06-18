@@ -387,14 +387,14 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         //
         // Shape A (parent is IS NULL):
         //   SQL: SELECT ... WHERE map_contains_key(m, k) IS NULL
-        //   map_contains_key(m, k) returns NULL only when m itself is NULL — so the path 
+        //   map_contains_key(m, k) returns NULL only when m itself is NULL — so the path
         //   should be m.NULL, not m.KEYS.NULL
         //
         // Shape B (regular predicate):
         //   SQL: SELECT ... WHERE map_contains_key(m, element_at(s, 'city'))
         //                     AND element_at(s, 'city') IS NULL
         //   We add the KEYS prefix for the map column and visit key arg: `element_at(s, 'city')` with a
-        //   fresh context. 
+        //   fresh context.
         //   s collects two paths:
         //     [s, city]        ← from key arg (fresh context → DATA path)
         //     [s, city, NULL]  ← from IS NULL
