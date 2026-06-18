@@ -2826,6 +2826,10 @@ public class Config extends ConfigBase {
             + "default value is V3.")
     public static String inverted_index_storage_format = "V3";
 
+    @ConfField(mutable = true, masterOnly = true, description = "Allow creating inverted index with V1 format. "
+            + "Intended only for testing V1 backward compatibility. Must NOT be enabled in production.")
+    public static boolean allow_inverted_index_v1_creation = false;
+
     @ConfField(mutable = true, masterOnly = true, description = "Enable the 'delete predicate' for DELETE statements. "
             + "If enabled, it will enhance the performance of " + "DELETE statements, but partial column updates after "
             + "a DELETE may result in erroneous data. If disabled, "
