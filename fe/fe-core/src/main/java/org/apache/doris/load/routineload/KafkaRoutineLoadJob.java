@@ -31,6 +31,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -89,6 +90,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
     public static final String PROP_GROUP_ID = "group.id";
+    private static final String KAFKA_ISOLATION_LEVEL = "isolation.level";
+    private static final String KAFKA_READ_COMMITTED = "read_committed";
+    private static final String HAS_POSITIVE_LAG_DEBUG_POINT = "KafkaRoutineLoadJob.hasPositiveLagForTask";
+    private static final String READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE = "Kafka routine load consumed 0 rows "
+            + "while lag is still positive under isolation.level=read_committed. If the upstream producer uses "
+            + "Kafka transactions, some records may be in uncommitted transactions and are not visible yet.";
 
     @SerializedName("bl")
     private String brokerList;
@@ -357,6 +364,33 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateProgressAndOffsetsCache(attachment);
         super.updateProgress(attachment);
+        updateReadCommittedLagHint(attachment);
+    }
+
+    private void updateReadCommittedLagHint(RLTaskTxnCommitAttachment attachment) {
+        if (shouldDelayScheduleForReadCommittedZeroRowsWithLag(attachment)) {
+            setOtherMsg(READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE);
+        }
+    }
+
+    boolean shouldDelayScheduleForReadCommittedZeroRowsWithLag(RLTaskTxnCommitAttachment attachment) {
+        return DebugPointUtil.isEnable(HAS_POSITIVE_LAG_DEBUG_POINT)
+                || (attachment.getTotalRows() == 0 && isReadCommitted() && hasPositiveLagForTask(attachment));
+    }
+
+    private boolean isReadCommitted() {
+        return KAFKA_READ_COMMITTED.equalsIgnoreCase(customProperties.get(KAFKA_ISOLATION_LEVEL));
+    }
+
+    private boolean hasPositiveLagForTask(RLTaskTxnCommitAttachment attachment) {
+        Map<Integer, Long> partitionIdToOffset = ((KafkaProgress) attachment.getProgress()).getOffsetByPartition();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            Long latestOffset = cachedPartitionWithLatestOffsets.get(entry.getKey());
+            if (latestOffset != null && latestOffset > entry.getValue() + 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -377,7 +411,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
                 ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()), isMultiTable());
-        kafkaTaskInfo.setDelaySchedule(delaySchedule);
+        kafkaTaskInfo.setDelaySchedule(delaySchedule || oldKafkaTaskInfo.isDelaySchedule());
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
