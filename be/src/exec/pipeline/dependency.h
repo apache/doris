@@ -775,7 +775,13 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
     }
 
     bool should_stop_build() const { return build_side_no_more_required; }
-    bool probe_side_is_waiting_for_build() const {
+    // build_blocks is a vector, so probe may read it only after build is paused or finished.
+    bool build_side_stable_for_probe() const {
+        DCHECK_EQ(sink_deps.size(), 1);
+        return !sink_deps.front()->ready();
+    }
+    // Partial-build NLJ uses the probe source dependency as the build-data request token.
+    bool probe_side_has_build_request() const {
         DCHECK_EQ(source_deps.size(), 1);
         return !source_deps.front()->ready();
     }

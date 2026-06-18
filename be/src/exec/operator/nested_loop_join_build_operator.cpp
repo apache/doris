@@ -64,12 +64,6 @@ Status NestedLoopJoinBuildSinkLocalState::terminate(RuntimeState* state) {
 }
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
-    // A filter built from only the incrementally published prefix is not a valid build-side
-    // runtime filter. Publish it only when the build side really reached eos.
-    if (!state->is_cancelled() && _shared_state->build_side_eos && !_terminated) {
-        RETURN_IF_ERROR(
-                _runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
-    }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
@@ -135,10 +129,15 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
     }
 
     if (eos) {
+        if (!state->is_cancelled()) {
+            RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->process(
+                    state, local_state._shared_state->build_blocks));
+        }
+        local_state._dependency->block();
         local_state._shared_state->build_side_eos = true;
         local_state._dependency->set_ready_to_read();
     } else if (rows != 0 && _enable_partial_build_output &&
-               local_state._shared_state->probe_side_is_waiting_for_build()) {
+               local_state._shared_state->probe_side_has_build_request()) {
         local_state._dependency->block();
         local_state._dependency->set_ready_to_read();
     }
