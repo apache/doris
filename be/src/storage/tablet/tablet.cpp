@@ -1222,13 +1222,6 @@ bool Tablet::suitable_for_compaction(
 
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     std::shared_lock rdlock(_meta_lock);
-#ifndef BE_TEST
-    if (cumulative_compaction_policy != nullptr &&
-        (_cumulative_compaction_policy == nullptr ||
-         _cumulative_compaction_policy->name() != cumulative_compaction_policy->name())) {
-        _cumulative_compaction_policy = cumulative_compaction_policy;
-    }
-#endif
     int32_t score = -1;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
         score = _calc_cumulative_compaction_score(cumulative_compaction_policy);

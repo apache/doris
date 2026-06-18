@@ -219,7 +219,8 @@ protected:
         return Status::OK();
     }
 
-    void prepare_group_flush_test_context(int64_t tablet_id, int32_t schema_hash, int64_t start_lsn,
+    void prepare_group_flush_test_context(int64_t tablet_id, int32_t schema_hash,
+                                          const std::vector<int64_t>& lsns,
                                           GroupFlushTestContext* ctx) {
         ctx->request = testutil::create_tablet_request(tablet_id, schema_hash, 30002, 3,
                                                        TKeysType::UNIQUE_KEYS,
@@ -252,16 +253,20 @@ protected:
         {
             auto cols_guard = block.mutate_columns_scoped();
             auto& cols = cols_guard.mutable_columns();
-            int8_t k1 = -127;
-            int16_t k2 = -32767;
-            int32_t k3 = -2147483647;
-            cols[0]->insert_data((const char*)&k1, sizeof(k1));
-            cols[1]->insert_data((const char*)&k2, sizeof(k2));
-            cols[2]->insert_data((const char*)&k3, sizeof(k3));
+            for (size_t i = 0; i < lsns.size(); ++i) {
+                int8_t k1 = static_cast<int8_t>(-127 + i);
+                int16_t k2 = static_cast<int16_t>(-32767 + i);
+                int32_t k3 = static_cast<int32_t>(-2147483647 + i);
+                cols[0]->insert_data((const char*)&k1, sizeof(k1));
+                cols[1]->insert_data((const char*)&k2, sizeof(k2));
+                cols[2]->insert_data((const char*)&k3, sizeof(k3));
+            }
         }
         TabletAddRowsPayload rows;
-        rows.row_idxs.emplace_back(0);
-        rows.row_binlog_lsns.emplace_back(start_lsn);
+        for (size_t i = 0; i < lsns.size(); ++i) {
+            rows.row_idxs.emplace_back(i);
+            rows.row_binlog_lsns.emplace_back(lsns[i]);
+        }
         ASSERT_TRUE(ctx->memtable->insert(&block, rows).ok());
     }
 
@@ -445,7 +450,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
 
     {
         GroupFlushTestContext ctx;
-        prepare_group_flush_test_context(10001, 270068373, 1000, &ctx);
+        prepare_group_flush_test_context(10001, 270068373, {1000, 1001}, &ctx);
 
         std::atomic<int> data_flush_cnt = 0;
         std::atomic<int> binlog_flush_cnt = 0;
@@ -468,6 +473,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         ASSERT_NE(seg_lsn, nullptr);
         ASSERT_EQ(ctx.memtable->raw_rows(), seg_lsn->size());
         EXPECT_EQ(1000, (*seg_lsn)[0]);
+        EXPECT_EQ(1001, (*seg_lsn)[1]);
         EXPECT_EQ(2, flush_token->get_stats().flush_finish_count.load());
         EXPECT_EQ(0, flush_token->get_stats().flush_submit_count.load());
 
@@ -476,7 +482,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
 
     {
         GroupFlushTestContext ctx;
-        prepare_group_flush_test_context(10002, 270068374, 2000, &ctx);
+        prepare_group_flush_test_context(10002, 270068374, {2000, 2001}, &ctx);
 
         std::atomic<int> data_flush_cnt = 0;
         std::atomic<int> binlog_flush_cnt = 0;
@@ -508,7 +514,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
     SCOPED_INIT_THREAD_CONTEXT();
 
     GroupFlushTestContext ctx;
-    prepare_group_flush_test_context(10003, 270068375, 3000, &ctx);
+    prepare_group_flush_test_context(10003, 270068375, {3000, 3001}, &ctx);
 
     std::atomic<int> data_flush_cnt = 0;
     std::atomic<int> binlog_flush_cnt = 0;

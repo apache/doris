@@ -225,6 +225,8 @@ private:
     // merge-on-read tables, do not support row-binlog LSN now and are rejected in insert().
     void _merge_row_binlog_lsn(RowInBlock* src_row, RowInBlock* dst_row);
 
+    void _append_output_row_binlog_lsn(RowInBlock* row);
+
     void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
                                               RowInBlock* row_in_skiplist);
 

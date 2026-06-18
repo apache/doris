@@ -884,13 +884,13 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
         std::vector<uint32_t> sort_perm;
         RETURN_IF_ERROR(sort_block(block, ordered_block, &sort_perm));
+        auto segment_id = rowset_writer->allocate_segment_id();
 
         // Publish-phase partial update may flush transient segments to a GroupRowsetWriter.
         // For row-binlog writing, RowBinlogSegmentWriter requires `seg_id -> lsn_ids` to be
         // registered before the segment writer is constructed.
         if (auto* group_writer = typeid_cast<GroupRowsetWriter*>(rowset_writer);
             group_writer != nullptr) {
-            auto seg_id = group_writer->get_allocated_segment_id();
             auto binlog_writer = group_writer->row_binlog_writer();
             auto& binlog_ctx = const_cast<RowsetWriterContext&>(binlog_writer->context());
             if (binlog_ctx.write_binlog_opt().enable) {
@@ -902,10 +902,10 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     lsn_ids->emplace_back(src.get_data()[p]);
                 }
                 binlog_ctx.write_binlog_opt().write_binlog_config().insert_seg_lsn(
-                        seg_id, std::move(lsn_ids));
+                        segment_id, std::move(lsn_ids));
             }
         }
-        RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
+        RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block, segment_id));
         auto cost_us = watch.get_elapse_time_us();
         if (config::enable_mow_verbose_log || cost_us > 10 * 1000 || queue_time_us > 10 * 1000) {
             LOG(INFO) << "calc segment delete bitmap for "

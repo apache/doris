@@ -69,7 +69,7 @@ public:
             if (columns[i]->name() == std::string(kRowBinlogLsnColName)) {
                 _lsn_col_idx = i;
             }
-            if (columns[i]->name() == std::string(kRowBinlogTimestampColName)) {
+            if (columns[i]->name() == std::string(kRowBinlogTsoColName)) {
                 _tso_col_idx = i;
             }
             if (columns[i]->name() == COMMIT_TSO_COL) {

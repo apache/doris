@@ -101,7 +101,7 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
             _binlog_op_pos = static_cast<int>(i);
         } else if (name == kRowBinlogLsnColName) {
             _binlog_lsn_pos = static_cast<int>(i);
-        } else if (name == kRowBinlogTimestampColName) {
+        } else if (name == kRowBinlogTsoColName) {
             _binlog_timestamp_pos = static_cast<int>(i);
         } else {
             std::string before_name = binlog::build_before_column_name(name);
