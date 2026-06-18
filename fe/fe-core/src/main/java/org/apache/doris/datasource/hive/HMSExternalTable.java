@@ -838,7 +838,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (!dlaType.equals(DLAType.HIVE) || !partitionSelection.isPruned()) {
             return UNKNOWN_ROW_COUNT;
         }
-        LOG.info("Will estimate row count for table {} from selected partition file list.", name);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Will estimate row count for table {} from selected partition file list.", name);
+        }
         // This is query planning path, so metadata fetched here can be reused by scan planning.
         return getRowCountFromFileList(partitionSelection.selectedPartitionItems.values(), true);
     }
