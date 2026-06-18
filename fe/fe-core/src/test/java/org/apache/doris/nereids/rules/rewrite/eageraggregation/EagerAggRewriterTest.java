@@ -17,16 +17,29 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.Optional;
 
 class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -472,6 +485,13 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testOuterJoinCountUsesBothSideCounts() throws Exception {
+        assertJoinCountExpression(JoinType.LEFT_OUTER_JOIN, "leftCnt", "ifnull(rightCnt, 1)");
+        assertJoinCountExpression(JoinType.RIGHT_OUTER_JOIN, "ifnull(leftCnt, 1)", "rightCnt");
+        assertJoinCountExpression(JoinType.FULL_OUTER_JOIN, "ifnull(leftCnt, 1)", "ifnull(rightCnt, 1)");
+    }
+
+    @Test
     void testUniqueFunctionFilterBlocksPushDownThroughFilter() {
         connectContext.getSessionVariable().setEagerAggregationMode(1);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
@@ -536,6 +556,31 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         Assertions.assertNotNull(join, plan.treeString());
         Assertions.assertFalse(containsPlan(join.left(), LogicalAggregate.class), plan.treeString());
         Assertions.assertFalse(containsPlan(join.right(), LogicalAggregate.class), plan.treeString());
+    }
+
+    private void assertJoinCountExpression(JoinType joinType, String expectedLeft, String expectedRight)
+            throws Exception {
+        LogicalJoin<?, ?> join = new LogicalJoin<>(joinType,
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Collections.singletonList("left")),
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Collections.singletonList("right")),
+                new JoinReorderContext());
+        CascadesContext cascadesContext = PlanChecker.from(connectContext).analyze("select * from t1")
+                .getCascadesContext();
+        PushDownAggContext context = new PushDownAggContext(Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true);
+        SlotReference leftCountSlot = new SlotReference("leftCnt", BigIntType.INSTANCE, false);
+        SlotReference rightCountSlot = new SlotReference("rightCnt", BigIntType.INSTANCE, false);
+
+        Method method = EagerAggRewriter.class.getDeclaredMethod("computeJoinCount", LogicalJoin.class,
+                Optional.class, Optional.class, PushDownAggContext.class);
+        method.setAccessible(true);
+        Optional<?> result = (Optional<?>) method.invoke(new EagerAggRewriter(), join,
+                Optional.of(leftCountSlot), Optional.of(rightCountSlot), context);
+        Assertions.assertTrue(result.isPresent(), joinType.toString());
+        Expression expression = ((Alias) result.get()).child(0);
+        String actual = expression.toSql();
+        Assertions.assertTrue(actual.contains(expectedLeft), actual);
+        Assertions.assertTrue(actual.contains(expectedRight), actual);
     }
 
     private <T extends Plan> T findFirstPlan(Plan plan, Class<T> clazz) {

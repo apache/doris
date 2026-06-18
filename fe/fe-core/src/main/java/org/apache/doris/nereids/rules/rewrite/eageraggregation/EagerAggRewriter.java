@@ -885,8 +885,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     //
     // Outer join:
     //   Aggregate outputs are not multiplied by the opposite-side count either; only `cnt` changes:
-    //     left outer join with left push  -> project(s1, t2.k, cnt1 as cnt)
-    //     right outer join with left push -> project(s1, t2.k, nvl(cnt1, 1) as cnt)
+    //     left outer join with left/right push -> project(s1, s2, k, cnt1 * nvl(cnt2, 1) as cnt)
+    //     right outer join with left/right push -> project(s1, s2, k, nvl(cnt1, 1) * cnt2 as cnt)
+    //     full outer join with left/right push -> project(s1, s2, k, nvl(cnt1, 1) * nvl(cnt2, 1) as cnt)
     private Plan buildCanonicalJoinProject(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context,
             Optional<PushDownAggContext> leftChildContext, Optional<PushDownAggContext> rightChildContext,
             Optional<Slot> leftCountSlot, Optional<Slot> rightCountSlot) {
@@ -910,8 +911,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (context.needOutputCount()) {
             joinCount = findProjectedCountStarOutput(context, outputIds);
             if (!joinCount.isPresent()) {
-                joinCount = computeJoinCount(join, leftChildContext, rightChildContext,
-                        leftCountSlot, rightCountSlot, context);
+                joinCount = computeJoinCount(join, leftCountSlot, rightCountSlot, context);
             }
         }
         Optional<Slot> projectedCountSlot = Optional.empty();
@@ -986,15 +986,12 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private Optional<? extends NamedExpression> computeJoinCount(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Optional<PushDownAggContext> leftChildContext, Optional<PushDownAggContext> rightChildContext,
             Optional<Slot> leftCountSlot, Optional<Slot> rightCountSlot, PushDownAggContext context) {
         JoinType joinType = join.getJoinType();
         if (joinType.isInnerOrCrossJoin()) {
             if (leftCountSlot.isPresent() && rightCountSlot.isPresent()) {
-                Expression joinCnt = TypeCoercionUtils.processBinaryArithmetic(
-                        new Multiply(leftCountSlot.get(), rightCountSlot.get()));
-                return Optional.of(new Alias(joinCnt,
-                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+                Expression joinCnt = multiplyCount(leftCountSlot.get(), rightCountSlot.get());
+                return buildJoinCountAlias(joinCnt, context);
             } else if (leftCountSlot.isPresent()) {
                 return leftCountSlot;
             } else if (rightCountSlot.isPresent()) {
@@ -1003,41 +1000,41 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return Optional.empty();
         }
         if (joinType.isLeftOuterJoin()) {
-            if (leftChildContext.isPresent()) {
+            if (leftCountSlot.isPresent() && rightCountSlot.isPresent()) {
+                Expression joinCnt = multiplyCount(leftCountSlot.get(), nvlCount(rightCountSlot.get()));
+                return buildJoinCountAlias(joinCnt, context);
+            }
+            if (leftCountSlot.isPresent()) {
                 return leftCountSlot;
             }
-            if (rightChildContext.isPresent() && rightCountSlot.isPresent()) {
-                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
-                        new Nvl(rightCountSlot.get(), BigIntLiteral.of(1)));
-                return Optional.of(new Alias(joinCnt,
-                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+            if (rightCountSlot.isPresent()) {
+                return buildJoinCountAlias(nvlCount(rightCountSlot.get()), context);
             }
             return Optional.empty();
         }
         if (joinType.isRightOuterJoin()) {
-            if (leftChildContext.isPresent() && leftCountSlot.isPresent()) {
-                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
-                        new Nvl(leftCountSlot.get(), BigIntLiteral.of(1)));
-                return Optional.of(new Alias(joinCnt,
-                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+            if (leftCountSlot.isPresent() && rightCountSlot.isPresent()) {
+                Expression joinCnt = multiplyCount(nvlCount(leftCountSlot.get()), rightCountSlot.get());
+                return buildJoinCountAlias(joinCnt, context);
             }
-            if (rightChildContext.isPresent()) {
+            if (leftCountSlot.isPresent()) {
+                return buildJoinCountAlias(nvlCount(leftCountSlot.get()), context);
+            }
+            if (rightCountSlot.isPresent()) {
                 return rightCountSlot;
             }
             return Optional.empty();
         }
         if (joinType.isFullOuterJoin()) {
-            if (leftChildContext.isPresent() && leftCountSlot.isPresent()) {
-                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
-                        new Nvl(leftCountSlot.get(), BigIntLiteral.of(1)));
-                return Optional.of(new Alias(joinCnt,
-                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+            if (leftCountSlot.isPresent() && rightCountSlot.isPresent()) {
+                Expression joinCnt = multiplyCount(nvlCount(leftCountSlot.get()), nvlCount(rightCountSlot.get()));
+                return buildJoinCountAlias(joinCnt, context);
             }
-            if (rightChildContext.isPresent() && rightCountSlot.isPresent()) {
-                Expression joinCnt = TypeCoercionUtils.processBoundFunction(
-                        new Nvl(rightCountSlot.get(), BigIntLiteral.of(1)));
-                return Optional.of(new Alias(joinCnt,
-                        JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
+            if (leftCountSlot.isPresent()) {
+                return buildJoinCountAlias(nvlCount(leftCountSlot.get()), context);
+            }
+            if (rightCountSlot.isPresent()) {
+                return buildJoinCountAlias(nvlCount(rightCountSlot.get()), context);
             }
         }
         if (joinType.isLeftSemiOrAntiJoin()) {
@@ -1047,6 +1044,19 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return rightCountSlot;
         }
         return Optional.empty();
+    }
+
+    private Expression nvlCount(Expression count) {
+        return TypeCoercionUtils.processBoundFunction(new Nvl(count, BigIntLiteral.of(1)));
+    }
+
+    private Expression multiplyCount(Expression left, Expression right) {
+        return TypeCoercionUtils.processBinaryArithmetic(new Multiply(left, right));
+    }
+
+    private Optional<Alias> buildJoinCountAlias(Expression count, PushDownAggContext context) {
+        return Optional.of(new Alias(count,
+                JOIN_CNT + context.getCascadesContext().getStatementContext().generateColumnName()));
     }
 
     private Plan buildCanonicalProject(Plan child, PushDownAggContext context, Optional<Slot> countSlot) {
