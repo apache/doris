@@ -122,7 +122,6 @@ suite("bilateral_eager_agg") {
         from pdagg_proj_t1 t1
         inner join pdagg_proj_t2 t2 
         group by t2.k;
-        select * from pdagg_proj_t2;
    """
 
     order_qt_sum_to_2_side_gby_agg_func_input_slot"""
@@ -836,6 +835,39 @@ suite("bilateral_eager_agg") {
        RIGHT SEMI JOIN t_bilateral_mg2 t2m ON t1m.k1 = t2m.k1
        GROUP BY t2m.k1, t2m.k2;
     """
+    // test distinct push down
+     sql "set eager_aggregation_mode=1"
+     order_qt_cross_join_distinct_push """
+         SELECT distinct t1.k
+         FROM t_pdajos_1 t1
+         CROSS JOIN t_pdajos_2 t2
+         CROSS JOIN t_pdajos_2 t3
+         GROUP BY t1.k;
+     """
+
+     order_qt_inner_join_distinct_push """
+         SELECT distinct t1.k
+         FROM t_pdajos_1 t1
+         inner JOIN t_pdajos_2 t2 on t1.k=t2.k
+         inner JOIN t_pdajos_2 t3  on t2.k=t3.k
+         GROUP BY t1.k;
+     """
+
+     order_qt_semi_join_distinct_push """
+         SELECT distinct t1.k
+         FROM t_pdajos_1 t1
+         left semi JOIN t_pdajos_2 t2 on t1.k=t2.k
+         left semi JOIN t_pdajos_2 t3  on t1.k=t3.k
+         GROUP BY t1.k;
+     """
+
+     order_qt_semi_join_distinct_push """
+         SELECT distinct t1.k
+         FROM t_pdajos_1 t1
+         left anti JOIN t_pdajos_2 t2 on t1.k=t2.k
+         left anti JOIN t_pdajos_2 t3  on t1.k=t3.k
+         GROUP BY t1.k;
+     """
 
     // Reset session variables to defaults
     sql "SET eager_aggregation_mode = -1;"

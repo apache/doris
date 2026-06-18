@@ -12,10 +12,9 @@
 2	1	30	30
 
 -- !sum_to_2_side --
-1	10	1000
-2	10	2000
-3	20	3000
-5	30	5000
+10	12000	20
+20	12000	10
+30	20000	10
 
 -- !sum_to_2_side_gby_agg_func_input_slot --
 1	1000	1000	1
@@ -305,4 +304,18 @@
 1	1	3
 1	2	3
 2	1	3
+
+-- !cross_join_distinct_push --
+1
+2
+
+-- !inner_join_distinct_push --
+1
+2
+
+-- !semi_join_distinct_push --
+1
+2
+
+-- !semi_join_distinct_push --
 
