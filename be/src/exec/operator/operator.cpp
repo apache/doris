@@ -17,6 +17,8 @@
 
 #include "exec/operator/operator.h"
 
+#include <algorithm>
+
 #include "common/status.h"
 #include "exec/common/util.hpp"
 #include "exec/exchange/local_exchange_sink_operator.h"
@@ -245,7 +247,7 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
     if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };

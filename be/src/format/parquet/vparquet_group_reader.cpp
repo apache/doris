@@ -208,7 +208,7 @@ Status RowGroupReader::init(
     }
     // _state is nullptr in some ut.
     if (_state && _state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_filter_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_filter_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     }
