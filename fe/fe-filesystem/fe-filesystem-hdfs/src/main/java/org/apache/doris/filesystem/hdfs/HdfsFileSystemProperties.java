@@ -47,9 +47,8 @@ import java.util.Set;
  * Without it the typed path returns nothing for HDFS-warehouse catalogs (see DV-004 / R-007).
  *
  * <p>The backend key set is a faithful port of the legacy fe-core
- * {@code org.apache.doris.datasource.property.storage.HdfsProperties.getBackendConfigProperties()} (whose
- * dependency-light twin is fe-property {@code HdfsProperties}) so the new typed path and the legacy path
- * stay at parity.
+ * {@code org.apache.doris.datasource.property.storage.HdfsProperties.getBackendConfigProperties()} so the
+ * new typed path and the legacy path stay at parity.
  *
  * <p><b>Scope note:</b> this model deliberately does NOT implement {@code HadoopStorageProperties}. The
  * FE-side Hadoop {@link org.apache.hadoop.conf.Configuration} used to actually open an HDFS file system is

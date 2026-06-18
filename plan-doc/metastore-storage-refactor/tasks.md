@@ -77,12 +77,13 @@
 - **验收**：见 WORKFLOW §5；若不跑 docker 明确标注"未跑 e2e"。
 - **依赖**：P1-T02..T05。设计 §4 P1-6 / §5 T1,T4。**（推迟，docker 折入 P2-T05；D-012）**
 
-### P1-T07 ⬜ 彻底删除 fe-property 孤儿模块（**下一阶段**；D-016 授权，超 D-005）
+### P1-T07 ✅ 彻底删除 fe-property 孤儿模块（2026-06-18 完成，commit 待提交；D-016 授权，超 D-005）
 > **用户 2026-06-18 定为下一阶段，先于 P2-T04/T05。** P1-T05 断边后 fe-property 已 0 消费者；本任务物理删除它。
 - **做什么**：① 删 `fe/fe-property/` 整个目录（26 java，package `org.apache.doris.property`）；② 删 `fe/pom.xml` 的 `<module>fe-property</module>`（:222）+ dependencyManagement 里 fe-property 条目（:831）；③ **可选** 清理 5 处 stale 注释（删模块后悬空）：`fe-filesystem-hdfs` 的 `HdfsFileSystemProperties`/`HdfsConfigFileLoader`（「移植源 = fe-property…」）+ paimon 的 `PaimonCatalogFactory`/`PaimonConnector`/`PaimonCatalogFactoryTest`（「replaces/ported from legacy fe-property…」）——均白名单内文件，注释订正非改逻辑。
 - **现场 recon（2026-06-18 已做，执行 session 须复核）**：whole-repo `grep -rln fe-property`（排除 .git/fe-property/plan-doc/target）= 仅 `fe/pom.xml`（真）+ 上述 5 文件（注释）；`grep org.apache.doris.property`（排除 fe-property dir）= **0 import**；**无 BE/docker/脚本/regression-conf 引用**。删除内容**限于 fe/**。**fe-core `datasource.property.{storage,metastore}` 两包不碰**（仍服务 hive/hudi/iceberg，D-016 明确只删 fe-property）。
 - **TDD/验收**：**RED/GREEN = 构建闸**（无 UT 可写，同 P1-T05 模式）：删后**全 FE 构建**（`mvn -f fe/pom.xml … package`，至少 `-pl fe-connector/fe-connector-paimon -am` + 一次全 reactor 编译）+ **paimon 全模块 UT 仍绿（278/0/1skip）= 证无隐藏 transitive 断裂**；`grep -rn fe-property fe/`（排除 plan-doc）只剩（若保留注释则）注释或全清；checkstyle 0；import-gate PASS；`git status` 确认 `fe/fe-property/` 已删 + `fe/pom.xml` 两处声明已删。
 - **依赖**：P1-T05（断边）。D-016。**⚠️ 超 D-005 原范围，已获用户专门授权。**
+- **完成态（2026-06-18，commit 待提交）**：删 `fe/fe-property/`（27 文件 = 26 java + pom；stale `target/` 一并清→目录全消）+ `fe/pom.xml` 两处声明（`<module>fe-property</module>` + dependencyManagement 条目）+ 清 5 处 stale 注释（paimon `PaimonCatalogFactory`×2/`PaimonConnector`×2/`PaimonCatalogFactoryTest`×1 + fe-filesystem-hdfs `HdfsConfigFileLoader`/`HdfsFileSystemProperties`：「fe-property」→「legacy」保历史语义；用户 AskUserQuestion 选「一并清理」）。**RED/GREEN=构建闸**（无 UT 可写，同 P1-T05 模式）：whole-repo `grep fe-property`（排除 plan-doc）=**0**、`grep org.apache.doris.property`=**0**；**全 FE reactor `test-compile` BUILD SUCCESS**（`-Dmaven.build.cache.enabled=false`，含 fe-core `compile`+`testCompile` 实跑，54 模块,**0 ERROR**,1:53min）=证 module+dependencyManagement 删除无隐藏 transitive 消费者；paimon 全模块 **278/0/1skip**、fe-filesystem-hdfs **78/0/0**、checkstyle 0、`tools/check-connector-imports.sh` exit 0、`git diff --name-only` 白名单干净（仅 fe-property 删除 + fe/pom.xml + 5 注释文件 + 本跟踪目录）。**fe-property 物理删除完成（0 消费者孤儿被移除）；fe-core `datasource.property.{storage,metastore}` 两包不碰（仍服务 hive/hudi/iceberg，D-016 明确）。** ⚠️ **docker e2e 未跑**（D-012，留 P2-T05）。
 
 ---
 
@@ -171,3 +172,4 @@
 - 2026-06-17：创建任务清单（P0×2 / P1×6 / P2×5），状态全 ⬜，待用户批准后开始 P1。
 - 2026-06-17：3 设计点定稿（D-006 provider 取代 MetaStoreType 枚举 / D-007 fe-kerberos 叶子 / D-008 vended 边界）；P2-T01/T02 改写（去枚举、加 MetaStoreProvider）；新增 P3a/P3b（Kerberos）。
 - 2026-06-17：用户确认 **P3a 纳入本次** + 模块名 **`fe-kerberos`**。核心任务计数 13 → **14**（+P3a-T01）；P3b 仍 follow-up（范围外占位）。
+- 2026-06-18：**P1-T07 ✅**（彻底删除 fe-property 孤儿模块，D-016）：删目录（27 文件）+ fe/pom.xml 两声明 + 清 5 处 stale 注释（一并清理，用户选）；全 FE reactor test-compile BUILD SUCCESS（fe-core 实编译，0 ERROR）+ paimon 278/0/1skip + hdfs 78/0/0 + grep fe-property 归零。任务计数 11→**12/15**。下一步 P2-T04（pom+gate，⚠️ MetaStoreProviders ServiceLoader 改 2-arg）。

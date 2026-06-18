@@ -28,9 +28,8 @@ import java.util.Map;
 /**
  * Loads Hadoop XML configuration files (e.g. {@code hdfs-site.xml} / {@code core-site.xml}) referenced by the
  * {@code hadoop.config.resources} property into a key-value map. This mirrors the legacy fe-core
- * {@code CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir} (and its fe-property port
- * {@code PropertyConfigLoader}) but lives in fe-filesystem-hdfs so the module stays a leaf that does not
- * depend on fe-core / fe-common.
+ * {@code CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir} but lives in fe-filesystem-hdfs so the
+ * module stays a leaf that does not depend on fe-core / fe-common.
  *
  * <p>The base directory under which the named resource files are resolved is computed by
  * {@link #resolveHadoopConfigDir()}: the operator-configured {@code Config.hadoop_config_dir}, bridged in via

@@ -219,7 +219,6 @@ under the License.
     <modules>
         <module>fe-foundation</module>
         <module>fe-kerberos</module>
-        <module>fe-property</module>
         <module>fe-common</module>
         <module>fe-catalog</module>
         <module>fe-filesystem</module>
@@ -824,11 +823,6 @@ under the License.
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-foundation</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>fe-property</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -253,7 +253,7 @@ public class PaimonCatalogFactoryTest {
         // WHY (P1-T03): the canonical object-store config (fs.s3a.* etc.) now arrives PRE-COMPUTED in
         // storageHadoopConfig — assembled by PaimonConnector from ConnectorContext.getStorageProperties()
         // via fe-filesystem's toHadoopConfigurationMap() — and the connector overlays it verbatim. Before
-        // P1-T03 the connector recomputed it from props via fe-property buildObjectStorageHadoopConfig.
+        // P1-T03 the connector recomputed it from props via the legacy buildObjectStorageHadoopConfig.
         // MUTATION: not applying storageHadoopConfig (fs.s3a.access.key null) -> red.
         Assertions.assertEquals("ak", conf.get("fs.s3a.access.key"));
         Assertions.assertEquals("s3.amazonaws.com", conf.get("fs.s3a.endpoint"));

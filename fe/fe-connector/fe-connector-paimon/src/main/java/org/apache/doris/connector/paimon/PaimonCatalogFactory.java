@@ -231,7 +231,7 @@ public final class PaimonCatalogFactory {
      *       ({@code s3.*}/{@code oss.*}/{@code cos.*}/{@code obs.*}/{@code AWS_*} -&gt; {@code fs.s3a.*} /
      *       Jindo {@code fs.oss.*} / etc.), computed upstream by the connector from
      *       {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
-     *       {@code toHadoopProperties().toHadoopConfigurationMap()} (P1-T03; replaces the fe-property
+     *       {@code toHadoopProperties().toHadoopConfigurationMap()} (P1-T03; replaces the legacy
      *       {@code StorageProperties.buildObjectStorageHadoopConfig(props)} call);</li>
      *   <li>{@code paimon.s3.*} / {@code paimon.s3a.*} / {@code paimon.fs.s3.*} / {@code paimon.fs.oss.*}
      *       are normalized to the Hadoop S3A prefix {@code fs.s3a.} (strip the matched prefix,
@@ -267,7 +267,7 @@ public final class PaimonCatalogFactory {
      * <ol>
      *   <li>the pre-computed {@code storageHadoopConfig} (canonical object-store translation, produced
      *       upstream from {@code ConnectorContext.getStorageProperties()} via fe-filesystem's
-     *       {@code toHadoopConfigurationMap()}; replaces the fe-property
+     *       {@code toHadoopConfigurationMap()}; replaces the legacy
      *       {@code StorageProperties.buildObjectStorageHadoopConfig(props)} call);</li>
      *   <li>the original {@code paimon.s3./s3a./fs.s3./fs.oss.} re-key + raw {@code fs./dfs./hadoop.}
      *       passthrough, which run LAST and overlay the canonical translation (last-write-wins =

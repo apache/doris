@@ -133,7 +133,7 @@ public class PaimonConnector implements Connector {
         Options options = PaimonCatalogFactory.buildCatalogOptions(properties);
         String flavor = PaimonCatalogFactory.resolveFlavor(properties);
         // Canonical object-store storage config from the FE-bound fe-filesystem StorageProperties
-        // (P1-T03), replacing the legacy fe-property buildObjectStorageHadoopConfig path. Empty for
+        // (P1-T03), replacing the legacy buildObjectStorageHadoopConfig path. Empty for
         // REST (server owns storage) and HDFS-only catalogs (carried by the raw passthrough instead).
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
@@ -213,7 +213,7 @@ public class PaimonConnector implements Connector {
      * fe-core binds the catalog's raw property map to fe-filesystem {@link StorageProperties} and hands
      * them over via {@link ConnectorContext#getStorageProperties()}; here we merge each one's
      * {@code toHadoopProperties().toHadoopConfigurationMap()} (fs.s3a.* / Jindo fs.oss.* / fs.cosn.* /
-     * fs.obs.* keys). This replaces the legacy fe-property
+     * fs.obs.* keys). This replaces the legacy
      * {@code StorageProperties.buildObjectStorageHadoopConfig(properties)} call that
      * {@link PaimonCatalogFactory#buildHadoopConfiguration}/{@code buildHmsHiveConf}/{@code buildDlfHiveConf}
      * used to make. Empty when no static object-store storage is configured — e.g. an HDFS-only catalog
