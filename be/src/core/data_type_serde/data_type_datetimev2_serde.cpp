@@ -373,8 +373,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     const cctz::time_zone& real_ctz = timezone.empty() ? cctz::utc_time_zone() : ctz;
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(
+                    checkArrowStatus(timestamp_builder.AppendNull(), column, *array_builder));
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val = col_data[i];
@@ -387,8 +387,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
                 uint32_t millisecond = datetime_val.microsecond() / 1000;
                 timestamp = (timestamp * 1000) + millisecond;
             }
-            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(
+                    checkArrowStatus(timestamp_builder.Append(timestamp), column, *array_builder));
         }
     }
     return Status::OK();
