@@ -567,10 +567,6 @@ public class SummaryProfile {
     // This method is used to display the final data status when the overall query ends.
     // This can avoid recalculating some strings and so on every time during the update process.
     public void queryFinished() {
-        // Mark profile collection as complete. This is written last, after all BE fragment
-        // profiles have been merged (called post-waitForFragmentsDone). Pollers can wait for
-        // this field to avoid reading a partial profile.
-        executionSummaryProfile.addInfoString(IS_PROFILE_COLLECTION_COMPLETED, "true");
         if (assignedWeightPerBackend != null) {
             Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
                     .sorted(Map.Entry.comparingByValue())
@@ -584,6 +580,10 @@ public class SummaryProfile {
                     SPLITS_ASSIGNMENT_WEIGHT,
                     new GsonBuilder().create().toJson(m));
         }
+        // Mark profile collection as complete. This MUST be written last, after all optional
+        // fields above (e.g. SPLITS_ASSIGNMENT_WEIGHT), so a poller that observes this marker
+        // never reads a partial profile.
+        executionSummaryProfile.addInfoString(IS_PROFILE_COLLECTION_COMPLETED, "true");
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {
