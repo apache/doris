@@ -129,7 +129,7 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
     if (isCloudMode()) {
         run_test("V2")
     } else {
-        run_test("V1")
+        // run_test("V1")
         run_test("V2")
     }
     

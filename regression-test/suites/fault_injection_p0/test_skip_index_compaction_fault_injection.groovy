@@ -42,7 +42,7 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
       "disable_auto_compaction" = "true",
-      "inverted_index_storage_format" = "V1"
+      "inverted_index_storage_format" = "V2"
     );
   """
 

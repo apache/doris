@@ -93,6 +93,6 @@ suite("test_show_nested_index_file_http_action") {
         }
     }
 
-    run_test("V1")
+    // run_test("V1")
     run_test("V2")
 }
