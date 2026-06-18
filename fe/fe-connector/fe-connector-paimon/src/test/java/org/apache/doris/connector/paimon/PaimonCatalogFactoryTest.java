@@ -17,14 +17,21 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.HadoopStorageProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Unit tests for {@link PaimonCatalogFactory}, the pure flavor-assembly core.
@@ -286,6 +293,73 @@ public class PaimonCatalogFactoryTest {
         // fe-filesystem storage map (last-write-wins). MUTATION: storage overlaying the paimon.* re-key
         // (fs.s3a.endpoint == "from-storage") -> red.
         Assertions.assertEquals("from-paimon", conf.get("fs.s3a.endpoint"));
+    }
+
+    @Test
+    public void buildStorageHadoopConfigFoldsInHdfsHadoopMap() {
+        // C2 end-to-end seam: a storage property exposing a Hadoop-config key that is NOT a raw catalog
+        // prop (so it cannot ride the connector's fs./dfs./hadoop. passthrough) must reach the FE catalog
+        // Configuration via ctx.getStorageProperties().toHadoopProperties() -> buildStorageHadoopConfig ->
+        // buildHadoopConfiguration. This is exactly the leg the HDFS C2 fix relies on: after the fix
+        // HdfsFileSystemProperties.toHadoopProperties() is non-empty and carries its hadoop.config.resources
+        // XML keys. MUTATION: dropping the toHadoopProperties() merge in buildStorageHadoopConfig -> red.
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.storageProperties = Collections.singletonList(
+                new StubHadoopStorageProperties(Collections.singletonMap("dfs.custom.key", "custom-value")));
+        PaimonConnector connector = new PaimonConnector(props(), ctx);
+
+        Map<String, String> merged = connector.buildStorageHadoopConfig();
+        Assertions.assertEquals("custom-value", merged.get("dfs.custom.key"),
+                "buildStorageHadoopConfig must fold in each storage prop's toHadoopConfigurationMap()");
+
+        // ...and that merged map flows into the actual catalog Configuration (the key is absent from props,
+        // so the only path by which it can land in conf is the storageHadoopConfig overlay).
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(props(), merged);
+        Assertions.assertEquals("custom-value", conf.get("dfs.custom.key"));
+    }
+
+    /** Minimal {@link StorageProperties} exposing a fixed Hadoop config map (C2 seam test double). */
+    private static final class StubHadoopStorageProperties implements StorageProperties, HadoopStorageProperties {
+        private final Map<String, String> hadoopConfig;
+
+        StubHadoopStorageProperties(Map<String, String> hadoopConfig) {
+            this.hadoopConfig = hadoopConfig;
+        }
+
+        @Override
+        public Optional<HadoopStorageProperties> toHadoopProperties() {
+            return Optional.of(this);
+        }
+
+        @Override
+        public Map<String, String> toHadoopConfigurationMap() {
+            return hadoopConfig;
+        }
+
+        @Override
+        public String providerName() {
+            return "STUB";
+        }
+
+        @Override
+        public StorageKind kind() {
+            return StorageKind.HDFS_COMPATIBLE;
+        }
+
+        @Override
+        public FileSystemType type() {
+            return FileSystemType.HDFS;
+        }
+
+        @Override
+        public Map<String, String> rawProperties() {
+            return Collections.emptyMap();
+        }
+
+        @Override
+        public Map<String, String> matchedProperties() {
+            return Collections.emptyMap();
+        }
     }
 
     // ---------------------------------------------------------------------

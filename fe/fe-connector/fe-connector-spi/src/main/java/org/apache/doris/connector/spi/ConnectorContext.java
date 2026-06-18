@@ -218,9 +218,10 @@ public interface ConnectorContext {
      * it sees only the {@code fe-filesystem-api} interface.
      *
      * <p>One entry per configured backend (e.g. an object store, plus HDFS when present), mirroring
-     * the engine's parsed storage list. Legacy backends that have no typed model (HDFS/broker/local)
-     * are absent; the connector handles those via its own raw {@code fs.}/{@code dfs.}/{@code hadoop.}
-     * passthrough.
+     * the engine's parsed storage list. HDFS has a typed model and contributes its
+     * {@code hadoop.config.resources} XML + HA + auth keys via {@code toHadoopProperties()} (C2);
+     * backends with no typed model (broker/local) are absent and the connector handles those via its own
+     * raw {@code fs.}/{@code dfs.}/{@code hadoop.} passthrough.
      *
      * <p>The default returns an empty list (no storage machinery), so every other connector — and any
      * credential-less warehouse — is unaffected.

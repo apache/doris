@@ -132,9 +132,12 @@ public class PaimonConnector implements Connector {
     private Catalog createCatalog() {
         Options options = PaimonCatalogFactory.buildCatalogOptions(properties);
         String flavor = PaimonCatalogFactory.resolveFlavor(properties);
-        // Canonical object-store storage config from the FE-bound fe-filesystem StorageProperties
-        // (P1-T03), replacing the legacy buildObjectStorageHadoopConfig path. Empty for
-        // REST (server owns storage) and HDFS-only catalogs (carried by the raw passthrough instead).
+        // Canonical storage config from the FE-bound fe-filesystem StorageProperties (P1-T03), replacing
+        // the legacy buildObjectStorageHadoopConfig path: object stores contribute their fs.s3a.*/fs.oss.*
+        // /fs.cosn.*/fs.obs.* translation, and an HDFS-backed catalog contributes its hadoop.config.resources
+        // XML + HA + auth keys (C2; the defaults-free fe-filesystem Hadoop map). Empty for REST (the server
+        // owns storage) and for a catalog with no typed storage at all (it reaches the conf via the raw
+        // fs./dfs./hadoop. passthrough).
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         switch (flavor) {
@@ -209,17 +212,21 @@ public class PaimonConnector implements Connector {
     }
 
     /**
-     * Assembles the canonical object-store Hadoop config from the FE-bound storage properties (P1-T03).
+     * Assembles the canonical storage Hadoop config from the FE-bound storage properties (P1-T03).
      * fe-core binds the catalog's raw property map to fe-filesystem {@link StorageProperties} and hands
      * them over via {@link ConnectorContext#getStorageProperties()}; here we merge each one's
-     * {@code toHadoopProperties().toHadoopConfigurationMap()} (fs.s3a.* / Jindo fs.oss.* / fs.cosn.* /
-     * fs.obs.* keys). This replaces the legacy
-     * {@code StorageProperties.buildObjectStorageHadoopConfig(properties)} call that
+     * {@code toHadoopProperties().toHadoopConfigurationMap()}: object stores contribute their
+     * fs.s3a.* / Jindo fs.oss.* / fs.cosn.* / fs.obs.* translation, and an HDFS-backed catalog contributes
+     * its hadoop.config.resources XML + HA + auth keys (C2; the fe-filesystem HDFS Hadoop map is
+     * defaults-free so it never clobbers a co-bound object-store provider's tuned fs.s3a.* here). This
+     * replaces the legacy {@code StorageProperties.buildObjectStorageHadoopConfig(properties)} call that
      * {@link PaimonCatalogFactory#buildHadoopConfiguration}/{@code buildHmsHiveConf}/{@code buildDlfHiveConf}
-     * used to make. Empty when no static object-store storage is configured — e.g. an HDFS-only catalog
-     * (which reaches the conf via the raw fs./dfs./hadoop. passthrough) or REST (the server owns storage).
+     * used to make. Empty for REST (the server owns storage) and for a catalog with no typed storage (it
+     * reaches the conf via the raw fs./dfs./hadoop. passthrough).
      */
-    private Map<String, String> buildStorageHadoopConfig() {
+    // Package-private (not private) so PaimonCatalogFactoryTest can drive the ctx.getStorageProperties()
+    // -> toHadoopProperties() -> Configuration wiring end-to-end (visible for testing).
+    Map<String, String> buildStorageHadoopConfig() {
         Map<String, String> merged = new HashMap<>();
         for (StorageProperties sp : context.getStorageProperties()) {
             sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));

@@ -11,9 +11,13 @@
       (region `us-east-1`, tuning 100/10000/10000 via gated normalize hook). 28/0/0 UT (FE `fs.s3.impl`/`fs.s3a.*`
       + BE `AWS_*` + tuning-preserve + s3-outranks-minio precedence). `s3.*` path byte-unchanged. e2e gated/not-run.
       Decision: PRESERVE tuning defaults (red-team refuted the "accept deviation" pass). See FIX-C1-MINIO-{design,summary}.md.
-- [ ] **P6-C2** HDFS `hadoop.config.resources` XML into FE catalog-create Configuration (MAJOR)
-      — filesystem/jdbc flavor; recommend `HdfsFileSystemProperties` expose its already-XML-loaded backend map.
-      **XML-resource gap ONLY** (kerberos-by-alias sub-claim was refuted: per-FS auth marker non-load-bearing).
+- [x] **P6-C2** HDFS `hadoop.config.resources` XML into FE catalog-create Configuration (MAJOR) — **DONE**
+      — `HdfsFileSystemProperties implements HadoopStorageProperties`; FE `toHadoopConfigurationMap()` returns a
+      **defaults-free** map (XML + HA + auth keys, no Hadoop framework defaults) so it never clobbers a co-bound
+      object-store provider's tuned `fs.s3a.*` (multi-backend clobber found by design red-team, empirically
+      verified on hadoop 3.4.2); BE `toMap()` stays defaults-laden (byte-parity). Parity for filesystem/jdbc/hms;
+      DLF deviation = `DV-036` (accept). 28/0 fe-filesystem-hdfs UT + 279/0/1skip paimon + connector glue test;
+      checkstyle + import-check clean; e2e gated/not-run. See FIX-C2-HDFS-XML-{design,summary}.md.
 - [ ] **P6-R3-residual** drop `"paimon".equals` gate on `appendBackendScanRangeDetail`; emit unconditionally under VERBOSE
       (fixes MaxCompute regression + generic-node-no-source-branch rule + false comment).
 - [ ] **P6-R1-table** bridge `createTable`: add `remoteExists && !ifNotExists` arm → `ERR_TABLE_EXISTS_ERROR` (1050).

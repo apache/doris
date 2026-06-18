@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -50,13 +51,18 @@ import java.util.Set;
  * {@code org.apache.doris.datasource.property.storage.HdfsProperties.getBackendConfigProperties()} so the
  * new typed path and the legacy path stay at parity.
  *
- * <p><b>Scope note:</b> this model deliberately does NOT implement {@code HadoopStorageProperties}. The
- * FE-side Hadoop {@link org.apache.hadoop.conf.Configuration} used to actually open an HDFS file system is
- * still built by {@link HdfsConfigBuilder} on the {@link HdfsFileSystemProvider#create(Map)} path, and the
- * real {@code UGI.doAs} stays in fe-core/ctx. This class emits only the neutral BE key strings; Kerberos
- * here is BE-key emission only, no authenticator is built (K1).
+ * <p>It also implements {@link HadoopStorageProperties} (C2) so the connector's FE catalog-create
+ * Hadoop {@link org.apache.hadoop.conf.Configuration} picks up the {@code hadoop.config.resources} XML +
+ * HA + auth keys via the typed {@code toHadoopProperties().toHadoopConfigurationMap()} pipeline. That FE
+ * map is built <b>defaults-free</b> (see {@link #toHadoopConfigurationMap()}) so it never clobbers a
+ * co-bound object-store provider's tuned {@code fs.s3a.*} values, whereas {@link #toMap()} (BE) stays
+ * defaults-laden for byte-parity with the legacy backend key set. The {@code Configuration} that actually
+ * opens an HDFS file system on the {@link HdfsFileSystemProvider#create(Map)} path is still built by
+ * {@link HdfsConfigBuilder}, and the real {@code UGI.doAs} stays in fe-core/ctx — this class emits only
+ * key strings; Kerberos here is key emission only, no authenticator is built (K1).
  */
-public final class HdfsFileSystemProperties implements FileSystemProperties, BackendStorageProperties {
+public final class HdfsFileSystemProperties
+        implements FileSystemProperties, BackendStorageProperties, HadoopStorageProperties {
 
     public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
 
@@ -114,7 +120,12 @@ public final class HdfsFileSystemProperties implements FileSystemProperties, Bac
 
     private final Map<String, String> rawProperties;
     private final Map<String, String> matchedProperties;
+    // BE key set: defaults-laden (Hadoop core-default.xml + the XML resources), byte-parity with legacy.
     private final Map<String, String> backendConfigProperties;
+    // FE catalog-create Hadoop config: same key set MINUS Hadoop's framework defaults (C2). Defaults-free
+    // so it cannot clobber a co-bound object-store provider's tuned fs.s3a.* values in a multi-backend
+    // merge; the base Configuration already supplies every Hadoop default.
+    private final Map<String, String> hadoopConfigProperties;
 
     private HdfsFileSystemProperties(Map<String, String> rawProperties) {
         this.rawProperties = Collections.unmodifiableMap(new HashMap<>(rawProperties));
@@ -124,7 +135,9 @@ public final class HdfsFileSystemProperties implements FileSystemProperties, Bac
             this.fsDefaultFS = extractDefaultFsFromUri(rawProperties);
         }
         this.backendConfigProperties =
-                Collections.unmodifiableMap(buildBackendConfigProperties(rawProperties));
+                Collections.unmodifiableMap(buildConfigProperties(rawProperties, true));
+        this.hadoopConfigProperties =
+                Collections.unmodifiableMap(buildConfigProperties(rawProperties, false));
     }
 
     /** Binds and validates raw properties. */
@@ -185,18 +198,44 @@ public final class HdfsFileSystemProperties implements FileSystemProperties, Bac
         return backendConfigProperties;
     }
 
+    @Override
+    public Optional<HadoopStorageProperties> toHadoopProperties() {
+        return Optional.of(this);
+    }
+
+    /**
+     * FE catalog-create Hadoop config map (C2): the {@code hadoop.config.resources} XML keys + user
+     * {@code hadoop./dfs./fs./juicefs.} overrides + synthesized {@code fs.defaultFS}/ipc/auth/kerberos
+     * keys, but <b>without</b> Hadoop's built-in framework defaults. Closes C2 (the XML/HA keys reach the
+     * paimon FE Configuration for the filesystem/jdbc/hms flavors). Defaults-free because the base
+     * {@link org.apache.hadoop.conf.Configuration} already carries every Hadoop default and because the
+     * defaults (notably the 62 {@code fs.s3a.*} entries from core-default.xml) would otherwise clobber a
+     * co-bound object-store provider's tuned {@code fs.s3a.*} values when merged into a multi-backend
+     * catalog Configuration. {@link #toMap()} (BE) keeps the defaults-laden set for byte-parity.
+     */
+    @Override
+    public Map<String, String> toHadoopConfigurationMap() {
+        return hadoopConfigProperties;
+    }
+
     public boolean isKerberos() {
         return AUTH_KERBEROS.equalsIgnoreCase(hdfsAuthenticationType);
     }
 
     /**
-     * Builds the backend configuration key set. Faithful port of legacy
+     * Builds the HDFS configuration key set. Faithful port of legacy
      * {@code HdfsProperties.initBackendConfigProperties()} so the typed BE map stays at parity with fe-core
      * {@code getBackendConfigProperties()}. Overlay order (last-write-wins): config-resource XML files, then
      * the {@code hadoop./dfs./fs./juicefs.} pass-through from the raw map, then the synthesized keys.
+     *
+     * @param loadHadoopDefaults {@code true} for the BE map (defaults-laden, legacy parity); {@code false}
+     *                           for the FE catalog Hadoop-config map (only the XML files' own keys, no
+     *                           Hadoop framework defaults). Only the config-resource load differs; the
+     *                           overrides/synthesized keys are identical, so the two maps agree on every
+     *                           meaningful HDFS key and differ only in the inert framework defaults.
      */
-    private Map<String, String> buildBackendConfigProperties(Map<String, String> origProps) {
-        Map<String, String> props = HdfsConfigFileLoader.loadConfigMap(hadoopConfigResources);
+    private Map<String, String> buildConfigProperties(Map<String, String> origProps, boolean loadHadoopDefaults) {
+        Map<String, String> props = HdfsConfigFileLoader.loadConfigMap(hadoopConfigResources, loadHadoopDefaults);
         Map<String, String> userOverridden = extractUserOverriddenHdfsConfig(origProps);
         if (!userOverridden.isEmpty()) {
             props.putAll(userOverridden);

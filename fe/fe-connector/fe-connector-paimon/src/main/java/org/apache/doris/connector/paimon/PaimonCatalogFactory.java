@@ -237,9 +237,10 @@ public final class PaimonCatalogFactory {
      *       are normalized to the Hadoop S3A prefix {@code fs.s3a.} (strip the matched prefix,
      *       re-key as {@code fs.s3a.} + remainder), matching legacy {@code normalizeS3Config};</li>
      *   <li>raw {@code fs.*} / {@code dfs.*} / {@code hadoop.*} keys are copied verbatim (these are
-     *       already Hadoop-recognized keys the user passed through). HDFS contributes via this
-     *       passthrough only — it is absent from {@code storageHadoopConfig} (fe-filesystem binds
-     *       object stores only), matching legacy.</li>
+     *       already Hadoop-recognized keys the user passed through). Inline HDFS keys ride this passthrough;
+     *       an HDFS catalog's {@code hadoop.config.resources} XML + HA + auth keys arrive via
+     *       {@code storageHadoopConfig} (C2; fe-filesystem's HDFS model implements {@code HadoopStorageProperties}),
+     *       and the passthrough re-applies the inline keys last (last-write-wins).</li>
      * </ul>
      *
      * <p>PURE: depends only on {@code props} and {@code storageHadoopConfig}.
@@ -276,11 +277,12 @@ public final class PaimonCatalogFactory {
      */
     private static void applyStorageConfig(Map<String, String> storageHadoopConfig,
             Map<String, String> props, BiConsumer<String, String> setter) {
-        // Pre-computed canonical object-store config (fs.s3a.*/fs.oss.*/fs.cosn.*/fs.obs.*), assembled by
-        // PaimonConnector from ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap()
-        // (fe-filesystem is now the single source of truth; P1-T03). HDFS is absent here (fe-filesystem
-        // binds object stores only) and reaches the conf via the raw fs./dfs./hadoop. passthrough below,
-        // matching legacy (applyStorageConfig never had an HDFS canonical block).
+        // Pre-computed canonical storage config, assembled by PaimonConnector from
+        // ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap() (fe-filesystem is the
+        // single source of truth; P1-T03): object stores contribute fs.s3a.*/fs.oss.*/fs.cosn.*/fs.obs.*,
+        // and an HDFS catalog contributes its hadoop.config.resources XML + HA + auth keys (C2; the
+        // fe-filesystem HDFS map is defaults-free so it cannot clobber the object-store keys above). Inline
+        // HDFS keys still ride the raw fs./dfs./hadoop. passthrough below (re-applied last, last-write-wins).
         storageHadoopConfig.forEach(setter);
         // Connector-specific (NOT in fe-filesystem): paimon.* prefix re-key + raw fs./dfs./hadoop. passthrough,
         // run LAST so explicit fs.s3a.* keys overlay the canonical translation (last-write-wins).

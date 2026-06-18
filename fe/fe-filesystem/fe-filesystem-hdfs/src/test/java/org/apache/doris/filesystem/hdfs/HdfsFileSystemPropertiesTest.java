@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 
 import org.junit.jupiter.api.Assertions;
@@ -199,8 +200,9 @@ class HdfsFileSystemPropertiesTest {
         Assertions.assertEquals(StorageKind.HDFS_COMPATIBLE, p.kind());
         Assertions.assertEquals(FileSystemType.HDFS, p.type());
         Assertions.assertEquals(BackendStorageKind.HDFS, p.backendKind());
-        // BE-only model: no Hadoop-config conversion is exposed (catalog path stays on raw pass-through).
-        Assertions.assertTrue(p.toHadoopProperties().isEmpty());
+        // C2: HDFS now surfaces a Hadoop-config map so the paimon FE catalog-create Configuration picks up
+        // the hadoop.config.resources XML / HA / auth keys (was Optional.empty before the fix).
+        Assertions.assertTrue(p.toHadoopProperties().isPresent());
     }
 
     @Test
@@ -227,6 +229,89 @@ class HdfsFileSystemPropertiesTest {
         } finally {
             HdfsConfigFileLoader.hadoopConfigDirOverride = prev;
         }
+    }
+
+    /** Returns the FE catalog-create Hadoop config map (C2). */
+    private static Map<String, String> hadoopMap(Map<String, String> input) {
+        Optional<HadoopStorageProperties> h = HdfsFileSystemProperties.of(input).toHadoopProperties();
+        Assertions.assertTrue(h.isPresent(), "HDFS must expose a Hadoop config map (C2)");
+        return h.get().toHadoopConfigurationMap();
+    }
+
+    @Test
+    void xmlKeysReachHadoopConfigMap() throws IOException {
+        // C2 regression pin: a key that lives ONLY in the referenced XML (not a raw catalog prop, so it
+        // cannot ride the connector's raw fs./dfs./hadoop. passthrough) must reach the FE Hadoop config map.
+        // Pre-fix toHadoopProperties() was empty -> .get() throws -> RED.
+        Path dir = Files.createTempDirectory("hadoop_conf");
+        Path xml = dir.resolve("hdfs-site.xml");
+        Files.write(xml,
+                ("<?xml version=\"1.0\"?><configuration>"
+                        + "<property><name>dfs.custom.key</name><value>custom-value</value></property>"
+                        + "</configuration>").getBytes(StandardCharsets.UTF_8));
+        String prev = HdfsConfigFileLoader.hadoopConfigDirOverride;
+        HdfsConfigFileLoader.hadoopConfigDirOverride = dir.toString() + "/";
+        try {
+            Map<String, String> in = new HashMap<>();
+            in.put("fs.defaultFS", "hdfs://nn:8020");
+            in.put("hadoop.config.resources", "hdfs-site.xml");
+
+            Map<String, String> out = hadoopMap(in);
+            Assertions.assertEquals("custom-value", out.get("dfs.custom.key"));
+        } finally {
+            HdfsConfigFileLoader.hadoopConfigDirOverride = prev;
+        }
+    }
+
+    @Test
+    void hadoopConfigMapExcludesFrameworkDefaultsButBeMapKeepsThem() throws IOException {
+        // Clobber guard (encodes WHY): the FE Hadoop map must NOT carry Hadoop's built-in fs.s3a.* defaults
+        // (which would overwrite a co-bound object-store provider's tuned fs.s3a.path.style.access=true in a
+        // multi-backend merge). The BE map (toMap) DOES keep them, for byte-parity with the legacy backend
+        // set. Asserting both sides pins the deliberate FE/BE asymmetry.
+        Path dir = Files.createTempDirectory("hadoop_conf");
+        Path xml = dir.resolve("hdfs-site.xml");
+        Files.write(xml,
+                ("<?xml version=\"1.0\"?><configuration>"
+                        + "<property><name>dfs.custom.key</name><value>custom-value</value></property>"
+                        + "</configuration>").getBytes(StandardCharsets.UTF_8));
+        String prev = HdfsConfigFileLoader.hadoopConfigDirOverride;
+        HdfsConfigFileLoader.hadoopConfigDirOverride = dir.toString() + "/";
+        try {
+            Map<String, String> in = new HashMap<>();
+            in.put("fs.defaultFS", "hdfs://nn:8020");
+            in.put("hadoop.config.resources", "hdfs-site.xml");
+
+            Map<String, String> feMap = hadoopMap(in);
+            Map<String, String> beMapWithDefaults = beMap(in);
+            // FE map: defaults-free -> the framework fs.s3a.* defaults are absent.
+            Assertions.assertNull(feMap.get("fs.s3a.path.style.access"),
+                    "FE Hadoop map must not carry the core-default.xml fs.s3a.* defaults (clobber guard)");
+            Assertions.assertNull(feMap.get("fs.s3a.connection.maximum"));
+            // BE map: defaults-laden -> those same framework defaults are present (legacy byte-parity).
+            // Assert presence, not the exact default value (it is hadoop-version-dependent, e.g. the
+            // fs.s3a.connection.maximum default is 96 on hadoop 3.3.x but 500 on 3.4.x).
+            Assertions.assertNotNull(beMapWithDefaults.get("fs.s3a.path.style.access"));
+            Assertions.assertNotNull(beMapWithDefaults.get("fs.s3a.connection.maximum"));
+            Assertions.assertTrue(beMapWithDefaults.size() > feMap.size(),
+                    "BE map (defaults-laden) must carry more keys than the defaults-free FE map");
+        } finally {
+            HdfsConfigFileLoader.hadoopConfigDirOverride = prev;
+        }
+    }
+
+    @Test
+    void hadoopConfigMapKeepsMeaningfulKeys() {
+        // Defaults-free does NOT mean empty: the synthesized HDFS keys + fs.defaultFS must survive in the
+        // FE Hadoop map even with no hadoop.config.resources (blank => loadConfigMap returns empty, then the
+        // synthesized keys are added; no framework defaults either way).
+        Map<String, String> in = new HashMap<>();
+        in.put("fs.defaultFS", "hdfs://nn:8020");
+        Map<String, String> out = hadoopMap(in);
+        Assertions.assertEquals("hdfs://nn:8020", out.get("fs.defaultFS"));
+        Assertions.assertEquals("simple", out.get("hdfs.security.authentication"));
+        Assertions.assertEquals("true", out.get("ipc.client.fallback-to-simple-auth-allowed"));
+        Assertions.assertNull(out.get("fs.s3a.path.style.access"));
     }
 
     @Test

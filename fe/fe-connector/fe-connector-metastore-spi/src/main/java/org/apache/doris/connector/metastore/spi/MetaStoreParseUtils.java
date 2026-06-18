@@ -82,10 +82,11 @@ public final class MetaStoreParseUtils {
 
     /**
      * Two-step storage overlay (legacy {@code AbstractPaimonProperties} precedence order): first the
-     * pre-computed canonical object-store config, then the original
+     * pre-computed canonical storage config, then the original
      * {@code paimon.s3./s3a./fs.s3./fs.oss.} re-key plus raw {@code fs./dfs./hadoop.} passthrough,
-     * which run LAST and overlay the canonical translation (last-write-wins). HDFS is absent from
-     * {@code storageHadoopConfig} and reaches the conf via the raw passthrough.
+     * which run LAST and overlay the canonical translation (last-write-wins). An HDFS catalog's
+     * {@code hadoop.config.resources} XML + HA + auth keys arrive via {@code storageHadoopConfig} (C2);
+     * inline HDFS keys still ride the raw passthrough.
      */
     public static void applyStorageConfig(Map<String, String> storageHadoopConfig,
             Map<String, String> props, BiConsumer<String, String> setter) {

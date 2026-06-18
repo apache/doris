@@ -18,8 +18,10 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
@@ -46,6 +48,10 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
     String lastHiveConfResourcesArg;
 
+    // ---- C2: getStorageProperties hook (FE-bound fe-filesystem storage props) ----
+    /** Storage properties the fake returns from {@link #getStorageProperties()} (default: none). */
+    List<StorageProperties> storageProperties = Collections.emptyList();
+
     // ---- FIX-URI-NORMALIZE / FIX-REST-VENDED-URI-NORMALIZE: normalizeStorageUri hook ----
     /** Number of times the connector invoked {@link #normalizeStorageUri}. */
     int normalizeCount;
@@ -55,6 +61,11 @@ final class RecordingConnectorContext implements ConnectorContext {
     @Override
     public String getCatalogName() {
         return "test";
+    }
+
+    @Override
+    public List<StorageProperties> getStorageProperties() {
+        return storageProperties;
     }
 
     @Override

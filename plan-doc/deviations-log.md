@@ -57,6 +57,25 @@
 
 ## 详细记录（时间倒序）
 
+### DV-037 — P6-C2 FIX-C2-HDFS-XML：legacy HDFS `getHadoopStorageConfig()` 的 `fs.hdfs.impl.disable.cache=true` 未进 typed FE Configuration（pre-existing，非 C2 引入）
+- **状态**：🟢 已登记（accept / 可转 follow-up）｜**日期**：2026-06-19｜**签字**：待用户
+- **原计划位置**：[FIX-C2-HDFS-XML-design.md §Risk](./designs/FIX-C2-HDFS-XML-design.md)
+- **偏差描述**：legacy `HdfsProperties` 的 FE `getHadoopStorageConfig()` 带 `fs.hdfs.impl.disable.cache=true`（`StorageProperties.ensureDisableCache`），typed `HdfsFileSystemProperties.backendConfigProperties` 从不加它（该键只在 `HdfsConfigBuilder` 运行期 `create()` 路上，`:44-48`）。
+- **触发场景**：任何 paimon HDFS catalog 的 FE catalog-create Configuration——**与 C2 无关**：翻闸后 HDFS 本就对 `storageHadoopConfig` 零贡献，C2 前后该键都缺；C2 只补 XML 子项，不动此键。
+- **新方案**：accept。Hadoop FS-cache 按 scheme+authority+ugi 缓存，benign；不在 C2（XML-resource gap）scope 内。
+- **影响范围**：代码无（pre-existing）。可转独立 follow-up（若将来报 FS-cache 串扰）。
+- **关联**：[task-list §P6-C2](./task-list-P6-fixes.md)、[DV-036]
+
+### DV-036 — P6-C2 FIX-C2-HDFS-XML：DLF catalog 若另绑 HDFS storage，HDFS keys 会进 DLF HiveConf（legacy DLF 只 overlay OSS/OSS_HDFS）
+- **状态**：🟢 已登记（accept）｜**日期**：2026-06-19｜**签字**：待用户
+- **原计划位置**：[FIX-C2-HDFS-XML-design.md §Risk / Open Q1](./designs/FIX-C2-HDFS-XML-design.md)
+- **偏差描述**：`HdfsFileSystemProperties` 实现 `HadoopStorageProperties` 后，`buildStorageHadoopConfig()` 对所有 flavor 共享；legacy DLF（`PaimonAliyunDLFMetaStoreProperties:90-96`）只 overlay OSS/OSS_HDFS storage，新 `DlfMetaStorePropertiesImpl.toDlfCatalogConf:141` 无条件 overlay 整个 `storageHadoopConfig`。故 DLF catalog 若也绑了 `HdfsFileSystemProperties`，HDFS keys 会进 DLF HiveConf。
+- **触发场景**：DLF catalog 的 raw props 触发 `HdfsFileSystemProvider.supports()`（`dfs.nameservices` / `hdfs|viewfs|ofs|jfs`-scheme 裸 `fs.defaultFS` / `_STORAGE_TYPE_=HDFS` / `hadoop.kerberos.principal`）——对 Aliyun-OSS 的 DLF 是 nonsensical 配置（真 DLF 用 `oss.*`/`dlf.*` + `oss.hdfs.fs.defaultFS=oss://…`，非裸 `fs.defaultFS`）。
+- **新方案**：accept。结果是 additive/inert 的 defaults-free HDFS keys，绝不破凭据/正确性；纯-OSS DLF（真实场景）byte-unchanged。修它需动 out-of-scope 的 DLF 路加 HDFS filter 去守一个 nonsensical 配置，不值。
+- **替代方案**：DLF 路按 storage 类型 filter——拒（C2 不含 DLF；增复杂度守不可达场景）。
+- **影响范围**：代码无（accept）。文档：本条 + 设计 Open Q1。
+- **关联**：[task-list §P6-C2](./task-list-P6-fixes.md)、[DV-037]
+
 ### DV-035 — P4 MINOR/NIT cleanup：15 项 accept-as-deviation（M5.1 transient-only + 14 display/perf/text/inert/连接器-更-correct/假前提）
 - **状态**：🟢 已登记（accept）｜**日期**：2026-06-12｜**签字**：用户 [D-057]
 - **范围**：review §5/§7 去重 ~17 项 P4 MINOR/NIT 中，2 项已修（N10.1 `bcee91dcb52`、sentinel `4b2c2190dc2`，见 [D-057]），余 15 项 accept。完整逐项分类见索引表 DV-035 行；要点：

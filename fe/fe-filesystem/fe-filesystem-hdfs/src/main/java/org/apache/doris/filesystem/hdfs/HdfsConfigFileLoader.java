@@ -72,20 +72,40 @@ public final class HdfsConfigFileLoader {
 
     /**
      * Loads the comma-separated config files (each resolved under {@link #hadoopConfigDir}) and returns all
-     * resolved Hadoop configuration entries as a mutable map. Returns an empty map when {@code resourcesPath}
-     * is blank. The underlying {@link Configuration} is created with Hadoop's defaults loaded, matching the
-     * legacy behavior (the BE receives the full resolved set).
+     * resolved Hadoop configuration entries as a mutable map, WITH Hadoop's built-in defaults loaded
+     * (the BE receives the full resolved set). Equivalent to {@link #loadConfigMap(String, boolean)
+     * loadConfigMap(resourcesPath, true)}; kept for the backend key set's byte-parity with the legacy path.
      *
      * @param resourcesPath comma-separated list of config file names; may be blank
      * @return a mutable map of the loaded Hadoop configuration entries (never null)
      * @throws IllegalArgumentException if a referenced file is missing
      */
     public static Map<String, String> loadConfigMap(String resourcesPath) {
+        return loadConfigMap(resourcesPath, true);
+    }
+
+    /**
+     * Loads the comma-separated config files into a key-value map. Returns an empty map when
+     * {@code resourcesPath} is blank.
+     *
+     * <p>When {@code loadHadoopDefaults} is {@code true} the underlying {@link Configuration} carries
+     * Hadoop's built-in defaults (core-default.xml) — the full resolved set the BE expects. When
+     * {@code false} only the named XML files' own keys are returned (no framework defaults): this is the
+     * FE catalog-create Hadoop-config map, kept defaults-free so it never clobbers a co-bound object-store
+     * provider's tuned {@code fs.s3a.*} values when merged into a multi-backend catalog Configuration (the
+     * base {@code Configuration} already supplies every Hadoop default).
+     *
+     * @param resourcesPath      comma-separated list of config file names; may be blank
+     * @param loadHadoopDefaults whether to include Hadoop's built-in default resources
+     * @return a mutable map of the loaded Hadoop configuration entries (never null)
+     * @throws IllegalArgumentException if a referenced file is missing
+     */
+    public static Map<String, String> loadConfigMap(String resourcesPath, boolean loadHadoopDefaults) {
         Map<String, String> confMap = new HashMap<>();
         if (StringUtils.isBlank(resourcesPath)) {
             return confMap;
         }
-        Configuration conf = new Configuration();
+        Configuration conf = new Configuration(loadHadoopDefaults);
         String baseDir = resolveHadoopConfigDir();
         for (String resource : resourcesPath.split(",")) {
             String resourcePath = baseDir + resource.trim();
