@@ -750,8 +750,9 @@ TEST_F(LoadStreamMgrTest, one_client_normal_profile) {
 
     auto profile_string = deserialize_load_stream_profile(g_response_stat.load_stream_profiles[0]);
     EXPECT_NE(std::string::npos, profile_string.find("LoadStream"));
-    EXPECT_NE(std::string::npos, profile_string.find("DeltaWriterV2"));
-    EXPECT_NE(std::string::npos, profile_string.find("MemTableWriter"));
+    EXPECT_NE(std::string::npos, profile_string.find("IndexStream"));
+    EXPECT_NE(std::string::npos, profile_string.find("TabletStream"));
+    EXPECT_NE(std::string::npos, profile_string.find("RowsetBuilder"));
 
     wait_for_close();
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
