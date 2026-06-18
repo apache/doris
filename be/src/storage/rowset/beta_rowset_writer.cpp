@@ -432,82 +432,83 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     // Submit the entire delete bitmap calculation process to thread pool for async execution
     // This avoids blocking memtable flush thread while waiting for file upload to complete
     // The process includes: file_writer->close(), _build_tmp, load_segments, and calc_delete_bitmap
-    return _calc_delete_bitmap_token->submit_func([this, segment_id,
-                                                   specified_rowsets = std::move(
-                                                           specified_rowsets)]() -> Status {
-        Status st = Status::OK();
-        // If this async pipeline fails, leave the segment unmarked. build() waits
-        // on the token and aborts this writer; marking here would allow
-        // segcompaction to consume a segment whose delete bitmap was not published.
-        // Step 1: Close file_writer (must be done before load_segments)
-        auto* file_writer = _seg_files.get(segment_id);
-        if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
-            MonotonicStopWatch close_timer;
-            close_timer.start();
-            st = file_writer->close();
-            close_timer.stop();
+    return _calc_delete_bitmap_token->submit_func(
+            [this, segment_id, specified_rowsets = std::move(specified_rowsets)]() -> Status {
+                Status st = Status::OK();
+                // If this async pipeline fails, leave the segment unmarked. build() waits
+                // on the token and aborts this writer; marking here would allow
+                // segcompaction to consume a segment whose delete bitmap was not published.
+                // Step 1: Close file_writer (must be done before load_segments)
+                auto* file_writer = _seg_files.get(segment_id);
+                if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
+                    MonotonicStopWatch close_timer;
+                    close_timer.start();
+                    st = file_writer->close();
+                    close_timer.stop();
 
-            auto close_time_ms = close_timer.elapsed_time_milliseconds();
-            if (close_time_ms > 1000) {
-                LOG(INFO) << "file_writer->close() took " << close_time_ms
-                          << "ms for segment_id=" << segment_id
-                          << ", tablet_id=" << _context.tablet_id
-                          << ", rowset_id=" << _context.rowset_id;
-            }
-            if (!st.ok()) {
-                return st;
-            }
-        }
+                    auto close_time_ms = close_timer.elapsed_time_milliseconds();
+                    if (close_time_ms > 1000) {
+                        LOG(INFO) << "file_writer->close() took " << close_time_ms
+                                  << "ms for segment_id=" << segment_id
+                                  << ", tablet_id=" << _context.tablet_id
+                                  << ", rowset_id=" << _context.rowset_id;
+                    }
+                    if (!st.ok()) {
+                        return st;
+                    }
+                }
 
-        DBUG_EXECUTE_IF("BetaRowsetWriter.generate_delete_bitmap.sleep_before_build_tmp", {
-            auto sleep_ms = dp->param<int64_t>("sleep_ms", 30000);
-            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
-        });
+                DBUG_EXECUTE_IF("BetaRowsetWriter.generate_delete_bitmap.sleep_before_build_tmp", {
+                    auto sleep_ms = dp->param<int64_t>("sleep_ms", 30000);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                });
 
-        OlapStopWatch watch;
-        // Step 2: Build tmp rowset (needs file_writer to be closed)
-        RowsetSharedPtr rowset_ptr;
-        st = _build_tmp(rowset_ptr);
-        if (!st.ok()) {
-            return st;
-        }
+                OlapStopWatch watch;
+                // Step 2: Build tmp rowset (needs file_writer to be closed)
+                RowsetSharedPtr rowset_ptr;
+                st = _build_tmp(rowset_ptr);
+                if (!st.ok()) {
+                    return st;
+                }
 
-        // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
-        auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
-        if (!st.ok()) {
-            return st;
-        }
+                // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
+                auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
+                std::vector<segment_v2::SegmentSharedPtr> segments;
+                st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
+                if (!st.ok()) {
+                    return st;
+                }
 
-        // Step 4: Calculate delete bitmap
-        st = BaseTablet::calc_delete_bitmap(_context.tablet, rowset_ptr, segments,
-                                            specified_rowsets, _context.mow_context->delete_bitmap,
-                                            _context.mow_context->max_version, nullptr, nullptr,
-                                            nullptr);
-        if (!st.ok()) {
-            return st;
-        }
+                // Step 4: Calculate delete bitmap
+                st = BaseTablet::calc_delete_bitmap(
+                        _context.tablet, rowset_ptr, segments, specified_rowsets,
+                        _context.mow_context->delete_bitmap, _context.mow_context->max_version,
+                        nullptr, nullptr, nullptr);
+                if (!st.ok()) {
+                    return st;
+                }
 
-        size_t total_rows = std::accumulate(segments.begin(), segments.end(), 0,
-                                            [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
-                                                return sum += s->num_rows();
-                                            });
-        LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: "
-                  << _context.tablet->tablet_id()
-                  << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
-                  << ", cur max_version: " << _context.mow_context->max_version
-                  << ", transaction_id: " << _context.mow_context->txn_id
-                  << ", delete_bitmap_count: "
-                  << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
-                  << ", delete_bitmap_cardinality: "
-                  << _context.mow_context->delete_bitmap->cardinality()
-                  << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
-        // Mark only after delete bitmap entries are published to mow_context. Otherwise
-        // segcompaction could convert bitmap before this segment's entries exist.
-        _mark_segment_delete_bitmap_calculated(segment_id);
-        return Status::OK();
-    });
+                size_t total_rows =
+                        std::accumulate(segments.begin(), segments.end(), 0,
+                                        [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
+                                            return sum += s->num_rows();
+                                        });
+                LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: "
+                          << _context.tablet->tablet_id()
+                          << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
+                          << ", cur max_version: " << _context.mow_context->max_version
+                          << ", transaction_id: " << _context.mow_context->txn_id
+                          << ", delete_bitmap_count: "
+                          << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
+                          << ", delete_bitmap_cardinality: "
+                          << _context.mow_context->delete_bitmap->cardinality()
+                          << ", cost: " << watch.get_elapse_time_us()
+                          << "(us), total rows: " << total_rows;
+                // Mark only after delete bitmap entries are published to mow_context. Otherwise
+                // segcompaction could convert bitmap before this segment's entries exist.
+                _mark_segment_delete_bitmap_calculated(segment_id);
+                return Status::OK();
+            });
 }
 
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
