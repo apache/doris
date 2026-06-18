@@ -28,7 +28,7 @@ suite("nereids_default_value_expression", "p0") {
               id INT NOT NULL,
               d DATEV2 NOT NULL DEFAULT to_date(now()),
               dt DATETIMEV2(3) NOT NULL DEFAULT now(3),
-              s STRING NOT NULL DEFAULT concat('a-', cast(to_date(now()) as string))
+              s STRING NOT NULL DEFAULT concat('a-', DATE_FORMAT(now(), '%M %e, %Y'))
             )
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1");
@@ -36,7 +36,7 @@ suite("nereids_default_value_expression", "p0") {
 
         sql "INSERT INTO ${tbl}(id) VALUES (1)"
         sql "sync"
-        qt_default_expr_select "SELECT id, d = CURRENT_DATE, dt IS NOT NULL, s = concat('a-', cast(CURRENT_DATE as string)) FROM ${tbl} ORDER BY id"
+        qt_default_expr_select "SELECT id, d = CURRENT_DATE, dt IS NOT NULL, s = concat('a-', DATE_FORMAT(now(), '%M %e, %Y')) FROM ${tbl} ORDER BY id"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tbl}")
     }
