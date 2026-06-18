@@ -51,21 +51,29 @@ suite("test_audit_log_hint_session_context", "nonConcurrent") {
     Thread.sleep(6000)
     sql """call flush_audit_log()"""
 
-    def retry = 180
-    def query = """select ELEMENT_AT(changed_variables, 'session_context')
-                   from __internal_schema.audit_log
-                   where stmt like '%${stmtMarker}%' order by time desc limit 1"""
-    def res = sql "${query}"
-    while (res.isEmpty()) {
+    // The hint query's audit row must carry session_context in changed_variables. Match by the
+    // marker AND the exact session_context value: the polling query below is itself audited and
+    // its statement text also contains the marker, but it sets no session_context. Picking a
+    // single row via "order by time desc limit 1" could therefore land on such a self-row (whose
+    // session_context is null) depending on audit-flush ordering, which is flaky. Counting rows
+    // whose session_context equals the expected value excludes those self-rows entirely.
+    def retry = 60
+    def query = """select count(*) from __internal_schema.audit_log
+                   where stmt like '%${stmtMarker}%'
+                   and ELEMENT_AT(changed_variables, 'session_context') = '${hintTrace}'"""
+    def found = (sql "${query}")[0][0] as long
+    while (found == 0) {
         if (retry-- < 0) {
-            throw new RuntimeException("audit_log row for the hint query was not found")
+            throw new RuntimeException("audit_log row for the hint query with the expected "
+                    + "session_context was not found")
         }
         sleep(3000)
-        res = sql "${query}"
+        sql """call flush_audit_log()"""
+        found = (sql "${query}")[0][0] as long
     }
 
     // The per-query SET_VAR hint session_context must be visible in changed_variables.
-    assertEquals(hintTrace, res[0][0].toString())
+    assertTrue(found >= 1)
 
     sql "set global enable_audit_plugin = false"
 }
