@@ -123,7 +123,7 @@ suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
         runTest(indexTbName)
     }
 
-    createTestTable("v1")
+    // createTestTable("v1")
     createTestTable("v2")
 
 }

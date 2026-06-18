@@ -142,7 +142,7 @@ suite("test_index_change_on_new_column") {
             INDEX idx_s(s) USING INVERTED
         )
         DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        PROPERTIES ( "inverted_index_storage_format" = "v1", "replication_num" = "1" );
+        PROPERTIES ( "inverted_index_storage_format" = "v2", "replication_num" = "1" );
         """
 
     sql """ INSERT INTO ${tableName} VALUES

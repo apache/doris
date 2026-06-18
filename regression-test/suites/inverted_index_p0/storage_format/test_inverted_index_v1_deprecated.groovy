@@ -74,7 +74,7 @@ suite("test_inverted_index_v1_deprecated", "p0") {
         assertTrue(showCreate2[0][1].contains("USING INVERTED"))
         assertFalse(showCreate2[0][1].contains("\"inverted_index_storage_format\" = \"V1\""))
     } finally {
-        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql "DROP TABLE IF EXISTS ${testTable} FORCE"
     }
 
     // AC4: existing V1 table metadata load and read/write must not be affected

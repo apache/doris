@@ -403,7 +403,7 @@ suite("create_ann_index_test") {
             DISTRIBUTED BY HASH(id) BUCKETS 2
             PROPERTIES (
                 "replication_num" = "1",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             );
         """
 

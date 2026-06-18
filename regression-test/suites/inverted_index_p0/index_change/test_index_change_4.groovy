@@ -137,7 +137,7 @@ suite("test_index_change_4") {
             INDEX idx_note (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
 
     sql """ INSERT INTO ${tableName} VALUES
