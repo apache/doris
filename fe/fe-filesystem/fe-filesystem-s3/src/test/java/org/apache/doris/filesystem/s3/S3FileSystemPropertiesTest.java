@@ -282,6 +282,101 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
+    void of_bindsPureMinioAliasesAndHonorsExplicitTuning() {
+        // C1: legacy minio.* keys bind to the typed fields, and explicitly-set tuning values win over
+        // the legacy minio defaults.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("minio.endpoint", "http://127.0.0.1:9000");
+        raw.put("minio.access_key", "minio-ak");
+        raw.put("minio.secret_key", "minio-sk");
+        raw.put("minio.session_token", "minio-token");
+        raw.put("minio.connection.maximum", "200");
+        raw.put("minio.connection.request.timeout", "20000");
+        raw.put("minio.connection.timeout", "20000");
+        raw.put("minio.use_path_style", "true");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("http://127.0.0.1:9000", properties.getEndpoint());
+        Assertions.assertEquals("minio-ak", properties.getAccessKey());
+        Assertions.assertEquals("minio-sk", properties.getSecretKey());
+        Assertions.assertEquals("minio-token", properties.getSessionToken());
+        Assertions.assertEquals("200", properties.getMaxConnections());
+        Assertions.assertEquals("20000", properties.getRequestTimeoutMs());
+        Assertions.assertEquals("20000", properties.getConnectionTimeoutMs());
+        Assertions.assertEquals("true", properties.getUsePathStyle());
+    }
+
+    @Test
+    void of_minioEndpointOnly_appliesUsEast1RegionDefaultAndEmitsS3aAndAwsKeys() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("minio.endpoint", "http://127.0.0.1:9000");
+        raw.put("minio.access_key", "ak");
+        raw.put("minio.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        // Parity with legacy MinioProperties region default ("us-east-1").
+        Assertions.assertEquals("us-east-1", properties.getRegion());
+
+        // FE-side Hadoop config: fixes the "no file io for scheme s3" symptom on the catalog-create path.
+        Map<String, String> hadoop = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", hadoop.get("fs.s3.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.S3AFileSystem", hadoop.get("fs.s3a.impl"));
+        Assertions.assertEquals("http://127.0.0.1:9000", hadoop.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("us-east-1", hadoop.get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("ak", hadoop.get("fs.s3a.access.key"));
+        Assertions.assertEquals("sk", hadoop.get("fs.s3a.secret.key"));
+
+        // BE-side creds: fixes the empty location.AWS_* that broke native paimon reads.
+        Map<String, String> beKv = properties.toFileSystemKv();
+        Assertions.assertEquals("http://127.0.0.1:9000", beKv.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-east-1", beKv.get("AWS_REGION"));
+        Assertions.assertEquals("ak", beKv.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk", beKv.get("AWS_SECRET_KEY"));
+    }
+
+    @Test
+    void of_minioOmittingTuning_appliesLegacyMinioTuningDefaults() {
+        // Legacy MinioProperties defaulted tuning to 100 / 10000 / 10000, NOT the S3 50 / 3000 / 1000.
+        // A minio.*-keyed catalog that omits the tuning keys must preserve those legacy defaults; this
+        // encodes the deliberate restoration so it cannot silently regress to the S3 defaults.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("minio.endpoint", "http://127.0.0.1:9000");
+        raw.put("minio.access_key", "ak");
+        raw.put("minio.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Map<String, String> beKv = properties.toFileSystemKv();
+        Assertions.assertEquals("100", beKv.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("10000", beKv.get("AWS_CONNECTION_TIMEOUT_MS"));
+
+        Map<String, String> hadoop = properties.toHadoopConfigurationMap();
+        Assertions.assertEquals("100", hadoop.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("10000", hadoop.get("fs.s3a.connection.request.timeout"));
+        Assertions.assertEquals("10000", hadoop.get("fs.s3a.connection.timeout"));
+    }
+
+    @Test
+    void of_s3KeyOutranksMinioKeyForSameField() {
+        // Byte-parity guard: with both s3.* and minio.* present, s3.* must win because the minio.*
+        // aliases are appended LAST in each field's names(). Protects the canonical s3.* path.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://canonical.s3");
+        raw.put("minio.endpoint", "http://minio.shadowed");
+        raw.put("s3.access_key", "s3-ak");
+        raw.put("minio.access_key", "minio-ak");
+        raw.put("s3.secret_key", "s3-sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("https://canonical.s3", properties.getEndpoint());
+        Assertions.assertEquals("s3-ak", properties.getAccessKey());
+    }
+
+    @Test
     void of_rejectsUnsupportedCredentialsProviderType() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
