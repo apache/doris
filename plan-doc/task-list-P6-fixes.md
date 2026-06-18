@@ -6,10 +6,11 @@
 
 ## Code-change fixes (priority order)
 
-- [ ] **P6-C1** MinIO `minio.*` aliases (MAJOR / BLOCKER-if-deployment-uses-`minio.*`)
-      — add `minio.*` aliases to `S3FileSystemProperties` + `S3FileSystemProvider.supports()`;
-      preserve MinIO defaults (region `us-east-1`, tuning 100/10000/10000). UT: FE `fs.s3.impl`/`fs.s3a.*` + BE `location.AWS_*`.
-      ⚠️ shared cross-connector (iceberg/hive use S3 provider) → must not break canonical `s3.*` path.
+- [x] **P6-C1** MinIO `minio.*` aliases (MAJOR / BLOCKER-if-deployment-uses-`minio.*`) — **DONE `9967846ef64`**
+      — added `minio.*` aliases to `S3FileSystemProperties` + `S3FileSystemProvider`; preserved MinIO defaults
+      (region `us-east-1`, tuning 100/10000/10000 via gated normalize hook). 28/0/0 UT (FE `fs.s3.impl`/`fs.s3a.*`
+      + BE `AWS_*` + tuning-preserve + s3-outranks-minio precedence). `s3.*` path byte-unchanged. e2e gated/not-run.
+      Decision: PRESERVE tuning defaults (red-team refuted the "accept deviation" pass). See FIX-C1-MINIO-{design,summary}.md.
 - [ ] **P6-C2** HDFS `hadoop.config.resources` XML into FE catalog-create Configuration (MAJOR)
       — filesystem/jdbc flavor; recommend `HdfsFileSystemProperties` expose its already-XML-loaded backend map.
       **XML-resource gap ONLY** (kerberos-by-alias sub-claim was refuted: per-FS auth marker non-load-bearing).
