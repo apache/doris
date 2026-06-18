@@ -47,5 +47,5 @@ suite("test_index_change_format", "inverted_index_format_v2"){
     }
 
     // createAndAlterTable("test_index_change_format_v1", "V1", "V2")
-    // createAndAlterTable("test_index_change_format_v2", "V2", "V1")
+    createAndAlterTable("test_index_change_format_v2", "V2", "V1")
 }

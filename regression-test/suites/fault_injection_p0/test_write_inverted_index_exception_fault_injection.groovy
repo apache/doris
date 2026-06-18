@@ -167,7 +167,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "IndexFileWriter::copyFile_openInput_error",
         "IndexFileWriter::copyFile_remainder_is_not_zero",
         "IndexFileWriter::copyFile_diff_not_equals_length",
-        "IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
+        // "IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
         "FSIndexInput::~SharedHandle_reader_close_error",
         "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error",
         "DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",

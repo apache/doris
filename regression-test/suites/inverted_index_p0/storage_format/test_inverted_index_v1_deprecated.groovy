@@ -114,6 +114,14 @@ suite("test_inverted_index_v1_deprecated", "p0") {
         sql "sync"
         def cntDel = sql "SELECT COUNT(*) FROM test_v1_legacy_compat WHERE k = 3"
         assertTrue(cntDel[0][0] == 0)
+
+        // ADD INDEX on a V1 table must be rejected when V1 creation is disabled
+        try {
+            sql "ALTER TABLE test_v1_legacy_compat ADD INDEX idx_v (v) USING INVERTED"
+            fail("Expected exception for ADD INDEX on V1 table with allow_inverted_index_v1_creation=false")
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("Inverted index V1 is deprecated and no longer allowed for new index creation."))
+        }
     } finally {
         sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         sql "DROP TABLE IF EXISTS test_v1_legacy_compat"

@@ -403,11 +403,11 @@ suite("create_ann_index_test") {
             DISTRIBUTED BY HASH(id) BUCKETS 2
             PROPERTIES (
                 "replication_num" = "1",
-                "inverted_index_storage_format" = "V2"
+                "inverted_index_storage_format" = "V1"
             );
         """
 
-        exception "ANN index is not supported in index format V1"
+        exception "Inverted index V1 is deprecated and no longer allowed for new index creation."
     }
 
     // CREATE INDEX with ivf_on_disk type on existing table
