@@ -103,7 +103,7 @@ public:
         return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
     }
 
-    std::set<std::string> partial_update_input_columns() const {
+    const std::set<std::string>& partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
     PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {

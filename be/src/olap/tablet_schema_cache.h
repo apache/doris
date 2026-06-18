@@ -17,11 +17,18 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <utility>
+
 #include "olap/tablet_fwd.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
+
+class OlapTableSchemaParam;
+struct OlapTableIndexSchema;
 
 class TabletSchemaCache : public LRUCachePolicy {
 public:
@@ -44,6 +51,16 @@ public:
     }
 
     std::pair<Cache::Handle*, TabletSchemaSPtr> insert(const std::string& key);
+
+    std::pair<Cache::Handle*, TabletSchemaSPtr> insert(const std::string& key,
+                                                       TabletSchemaSPtr tablet_schema);
+
+    std::pair<Cache::Handle*, TabletSchemaSPtr> lookup_schema(const std::string& key);
+
+    static std::string build_load_schema_cache_key(int64_t index_id,
+                                                   const OlapTableSchemaParam* table_schema_param,
+                                                   const TabletSchema& ori_tablet_schema,
+                                                   const OlapTableIndexSchema* index_schema);
 
     void release(Cache::Handle*);
 
