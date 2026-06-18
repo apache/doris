@@ -136,8 +136,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
         }
         local_state._shared_state->build_side_eos = true;
         local_state._dependency->set_ready_to_read();
-    } else if (rows != 0 && _enable_partial_build_output &&
-               local_state._shared_state->probe_side_has_build_request()) {
+    } else if (rows != 0 && _enable_partial_build_output) {
         local_state._dependency->set_ready_to_read();
     }
 

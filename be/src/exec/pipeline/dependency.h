@@ -818,14 +818,6 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 
     bool should_stop_build() const { return build_side_no_more_required; }
 
-    // Partial-build NLJ uses the probe source dependency as the build-data request token. It starts
-    // blocked for the first publication and is blocked again when probe reaches the current
-    // published build prefix.
-    bool probe_side_has_build_request() const {
-        DCHECK_EQ(source_deps.size(), 1);
-        return !source_deps.front()->ready();
-    }
-
     // if true, probe child has no more rows to process
     bool probe_side_eos = false;
     std::atomic_bool build_side_eos = false;
