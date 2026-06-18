@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TColumnType;
@@ -1051,7 +1052,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
         if (driverUrl != null) {
             Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
-            options.put("jdbc.driver_url", PaimonCatalogFactory.resolveDriverUrl(driverUrl, env));
+            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(driverUrl, env));
             String driverClass = PaimonCatalogFactory.firstNonBlank(
                     properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
             if (driverClass != null) {

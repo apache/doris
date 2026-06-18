@@ -23,6 +23,10 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
+import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -169,16 +173,22 @@ public class PaimonConnector implements Connector {
                 // file reach the live metastore client (legacy HMSBaseProperties parity).
                 Map<String, String> hiveConfFiles = context.loadHiveConfResources(
                         PaimonCatalogFactory.firstNonBlank(properties, "hive.conf.resources"));
-                HiveConf hc = PaimonCatalogFactory.buildHmsHiveConf(properties, hiveConfFiles, storageHadoopConfig);
+                // Shared parser produces the neutral HiveConf overrides (P2-T03); the connector seeds the
+                // external hive-site.xml as the BASE first, then overlays the overrides (F2 ordering).
+                HmsMetaStoreProperties hms = (HmsMetaStoreProperties)
+                        MetaStoreProviders.bind(properties, storageHadoopConfig);
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(hiveConfFiles, hms.toHiveConfOverrides());
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }
             case PaimonConnectorProperties.DLF: {
                 // Legacy parity: DLF metastore requires an OSS / OSS_HDFS backend specifically (not a
-                // generic S3 one). Enforced at catalog build, before the HiveConf is assembled,
-                // matching legacy PaimonAliyunDLFMetaStoreProperties.initializeCatalog timing.
-                PaimonCatalogFactory.requireOssStorageForDlf(properties);
-                // DLF storage is OSS (fe-filesystem-bound, in storageHadoopConfig); overlaid below.
+                // generic S3 one). This is now enforced at CREATE CATALOG by DlfMetaStoreProperties
+                // .validate() (via PaimonConnectorProvider.validateProperties), so a misconfigured
+                // S3-only DLF catalog never reaches this build path (P2-T03; replaces the old build-time
+                // requireOssStorageForDlf call).
+                // DLF storage is OSS (fe-filesystem-bound, in storageHadoopConfig); overlaid by the
+                // shared parser inside toDlfCatalogConf.
                 // NOTE (B1/cutover-blocker P5-B7): same metastore=hive runtime gap as the hms branch
                 // above — the Thrift metastore client (IMetaStoreClient/HiveMetaStoreClient, here the
                 // Aliyun ProxyMetaStoreClient) is host-provided via hive-catalog-shade at cutover, not
@@ -187,7 +197,9 @@ public class PaimonConnector implements Connector {
                 // metastore=hive paimon catalog created through the plugin throws neither
                 // NoClassDefFoundError (.../IMetaStoreClient) nor a Configuration/HiveConf
                 // LinkageError/ClassCastException.
-                HiveConf hc = PaimonCatalogFactory.buildDlfHiveConf(properties, storageHadoopConfig);
+                DlfMetaStoreProperties dlf = (DlfMetaStoreProperties)
+                        MetaStoreProviders.bind(properties, storageHadoopConfig);
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, dlf.toDlfCatalogConf());
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with DLF metastore");
             }
@@ -279,7 +291,7 @@ public class PaimonConnector implements Connector {
 
     /**
      * Resolves a driver_url to a full, scheme-bearing URL string for FE driver registration,
-     * delegating to the shared {@link PaimonCatalogFactory#resolveDriverUrl} so the FE registration
+     * delegating to the shared {@link JdbcDriverSupport#resolveDriverUrl} so the FE registration
      * path and the BE-bound scan options ({@code PaimonScanPlanProvider.getBackendPaimonOptions})
      * resolve a given driver_url identically.
      *
@@ -293,7 +305,7 @@ public class PaimonConnector implements Connector {
      */
     private String resolveFullDriverUrl(String driverUrl) {
         Map<String, String> env = context != null ? context.getEnvironment() : Collections.emptyMap();
-        return PaimonCatalogFactory.resolveDriverUrl(driverUrl, env);
+        return JdbcDriverSupport.resolveDriverUrl(driverUrl, env);
     }
 
     private void registerJdbcDriver(String driverUrl, String driverClassName) {

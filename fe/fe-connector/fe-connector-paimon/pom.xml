@@ -64,6 +64,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Shared metastore connection-fact parsers + MetaStoreProvider SPI (P2-T03 cutover): the
+             adapter calls MetaStoreProviders.bind(raw, storageHadoopConfig) to parse HMS/DLF/REST/JDBC/
+             filesystem facts instead of the old hand-rolled buildHmsHiveConf/buildDlfHiveConf/validate.
+             metastore-spi transitively pulls metastore-api + fe-kerberos (facts carriers). Hadoop/fs-free. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-metastore-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
         <dependency>
             <groupId>${project.groupId}</groupId>

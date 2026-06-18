@@ -18,9 +18,11 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -42,13 +44,18 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     }
 
     /**
-     * Validates catalog properties at CREATE CATALOG time via the pure flavor-assembly core,
-     * mirroring the legacy fe-core per-flavor {@code initNormalizeAndCheckProps}/
-     * {@code checkRequiredProperties} rules. Throws {@link IllegalArgumentException}, which the
-     * caller ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
+     * Validates catalog properties at CREATE CATALOG time via the shared metastore parsers (P2-T03):
+     * {@link MetaStoreProviders#bind} selects the backend by {@code paimon.catalog.type} and the bound
+     * {@code MetaStoreProperties.validate()} enforces the per-flavor fail-fast rules (warehouse, uri,
+     * HMS kerberos forbidIf/requireIf, DLF AK/SK + endpoint-or-region + OSS storage, JDBC
+     * driver_class-when-driver_url, REST dlf-token AK/SK). These restore the true-legacy
+     * {@code HMSBaseProperties}/{@code AliyunDLFBaseProperties}/{@code ParamRules} rules. Storage is not
+     * needed for validation, so an empty storage map is passed; an unknown {@code paimon.catalog.type}
+     * makes {@code bind} throw (no provider supports it). Throws {@link IllegalArgumentException}, which
+     * the caller ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
-        PaimonCatalogFactory.validate(properties);
+        MetaStoreProviders.bind(properties, Collections.emptyMap()).validate();
     }
 }

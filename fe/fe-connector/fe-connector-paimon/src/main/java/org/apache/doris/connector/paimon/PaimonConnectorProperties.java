@@ -75,9 +75,9 @@ public final class PaimonConnectorProperties {
 
     // ---- REST flavor keys ----
     public static final String[] REST_URI = {"paimon.rest.uri", "uri"};
-    public static final String REST_TOKEN_PROVIDER = "paimon.rest.token.provider";
-    public static final String REST_DLF_ACCESS_KEY_ID = "paimon.rest.dlf.access-key-id";
-    public static final String REST_DLF_ACCESS_KEY_SECRET = "paimon.rest.dlf.access-key-secret";
+    // REST_TOKEN_PROVIDER / REST_DLF_ACCESS_KEY_ID / REST_DLF_ACCESS_KEY_SECRET removed (P2-T03): the
+    // REST dlf-token requireIf is now owned by RestMetaStoreProperties (the @ConnectorProperty aliases
+    // live in fe-connector-metastore-spi); the connector no longer hand-checks them.
 
     // ---- JDBC flavor keys ----
     public static final String[] JDBC_URI = {"uri", "paimon.jdbc.uri"};
@@ -86,18 +86,9 @@ public final class PaimonConnectorProperties {
     public static final String[] JDBC_DRIVER_URL = {"paimon.jdbc.driver_url", "jdbc.driver_url"};
     public static final String[] JDBC_DRIVER_CLASS = {"paimon.jdbc.driver_class", "jdbc.driver_class"};
 
-    // ---- DLF flavor keys (legacy AliyunDLFBaseProperties) ----
-    public static final String[] DLF_ACCESS_KEY = {"dlf.access_key", "dlf.catalog.accessKeyId"};
-    public static final String[] DLF_SECRET_KEY = {"dlf.secret_key", "dlf.catalog.accessKeySecret"};
-    public static final String[] DLF_SESSION_TOKEN = {"dlf.session_token", "dlf.catalog.sessionToken"};
-    public static final String DLF_REGION = "dlf.region";
-    public static final String[] DLF_ENDPOINT = {"dlf.endpoint", "dlf.catalog.endpoint"};
-    public static final String[] DLF_UID = {"dlf.catalog.uid", "dlf.uid"};
-    public static final String[] DLF_CATALOG_ID = {"dlf.catalog.id", "dlf.catalog_id"};
-    public static final String[] DLF_ACCESS_PUBLIC = {"dlf.access.public", "dlf.catalog.accessPublic"};
-    public static final String DLF_ACCESS_PUBLIC_DEFAULT = "false";
-    public static final String[] DLF_PROXY_MODE = {"dlf.catalog.proxyMode", "dlf.proxy.mode"};
-    public static final String DLF_PROXY_MODE_DEFAULT = "DLF_ONLY";
+    // DLF flavor keys removed (P2-T03): the dlf.catalog.* assembly + endpoint-from-region derivation +
+    // validation moved to DlfMetaStoreProperties in fe-connector-metastore-spi (its @ConnectorProperty
+    // aliases are the single source of truth); the connector keeps only appendDlfOptions' literal Options.
 
     private PaimonConnectorProperties() {
     }
