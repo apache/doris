@@ -18,8 +18,11 @@
 #pragma once
 #include <atomic>
 
+#include "common/exception.h"
 #include "exprs/function/function.h"
+#include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
@@ -59,14 +62,27 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
         DCHECK(_open_finished || block == nullptr);
-        auto origin_column = block->get_by_position(_column_id + _gap).column;
+        const int column_position = _get_column_position(context, block);
+        if (column_position < 0 || column_position >= block->columns()) {
+            return Status::InternalError(
+                    "input block not contain column ref {}, column_id={}, gap={}, block={}",
+                    _column_name, _column_id, _gap.load(), block->dump_structure());
+        }
+        auto origin_column = block->get_by_position(column_position).column;
         result_column = filter_column_with_selector(origin_column, selector, count);
         return Status::OK();
     }
 
     DataTypePtr execute_type(const Block* block) const override {
         DCHECK(_open_finished || block == nullptr);
-        return block->get_by_position(_column_id + _gap).type;
+        const int column_position = _get_column_position_without_context(block);
+        if (column_position < 0 || column_position >= block->columns()) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "input block not contain column ref {}, column_id={}, gap={}, block={}",
+                    _column_name, _column_id, _gap.load(), block->dump_structure());
+        }
+        return block->get_by_position(column_position).type;
     }
 
     bool is_constant() const override { return false; }
@@ -76,10 +92,13 @@ public:
     const std::string& expr_name() const override { return _column_name; }
 
     void set_gap(int gap) {
-        if (_gap == 0) {
-            _gap = gap;
-        }
+        _gap = gap;
+        _gap_set = true;
     }
+
+    int get_gap() const { return _gap.load(); }
+
+    bool has_gap() const { return _gap_set.load(); }
 
     std::string debug_string() const override {
         std::stringstream out;
@@ -91,8 +110,45 @@ public:
     double execute_cost() const override { return 0.0; }
 
 private:
+    int _get_column_position(VExprContext* context, const Block* block) const {
+        if (context != nullptr) {
+            const auto resolve_result =
+                    context->lambda_execution_context().resolve_column_position(_column_name);
+            if (resolve_result.found) {
+                return resolve_result.column_position;
+            }
+            if (resolve_result.searched_named_scope) {
+                return -1;
+            }
+        }
+        return _get_column_position_without_context(block);
+    }
+
+    int _get_column_position_without_context(const Block* block) const {
+        if (!_gap_set.load()) {
+            const int position_by_name = _find_column_position_by_name(block);
+            if (position_by_name >= 0) {
+                return position_by_name;
+            }
+        }
+        return _column_id + _gap.load();
+    }
+
+    int _find_column_position_by_name(const Block* block) const {
+        if (block == nullptr) {
+            return -1;
+        }
+        for (int position = block->columns() - 1; position >= 0; --position) {
+            if (block->get_by_position(position).name == _column_name) {
+                return position;
+            }
+        }
+        return -1;
+    }
+
     int _column_id;
     std::atomic<int> _gap = 0;
+    std::atomic<bool> _gap_set = false;
     std::string _column_name;
 };
 } // namespace doris
