@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -125,6 +126,17 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         // conflict expr id
         StatementContext threadStatementContext = StatementScopeIdGenerator.getStatementContext();
         for (Relation relation : relationToLazySlotMap.keySet()) {
+            // TopN lazy materialization relies on BE adding a GLOBAL_ROWID_COL to the
+            // tablet schema. When light_schema_change=false, the table columns have
+            // col_unique_id=-1, which causes BE to skip the schema rebuild from
+            // columns_desc, so the GLOBAL_ROWID_COL is never added and the scan fails.
+            if (relation instanceof CatalogRelation
+                    && ((CatalogRelation) relation).getTable() instanceof OlapTable
+                    && !((OlapTable) ((CatalogRelation) relation).getTable()).getEnableLightSchemaChange()) {
+                LOG.debug("Skip TopN lazy materialization for table {} with light_schema_change=false",
+                        ((CatalogRelation) relation).getTable().getName());
+                return topN;
+            }
             if (relation instanceof CatalogRelation) {
                 CatalogRelation catalogRelation = (CatalogRelation) relation;
                 Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + catalogRelation.getTable().getName(),
