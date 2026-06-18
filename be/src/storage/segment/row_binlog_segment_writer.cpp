@@ -305,8 +305,7 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         IColumn* lsn_col_ptr = binlog_prefix_columns[0].get();
         CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
         for (int i = 0; i < num_rows; i++) {
-            assert_cast<ColumnInt128*>(lsn_col_ptr)
-                    ->insert_value(static_cast<int128_t>(_lsn_ids->at(i)));
+            assert_cast<ColumnInt64*>(lsn_col_ptr)->insert_value(_lsn_ids->at(i));
         }
 
         // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish

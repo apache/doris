@@ -895,11 +895,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             auto& binlog_ctx = const_cast<RowsetWriterContext&>(binlog_writer->context());
             if (binlog_ctx.write_binlog_opt().enable) {
                 const auto& src =
-                        assert_cast<const ColumnInt128&>(*lsn_block.get_by_position(0).column);
+                        assert_cast<const ColumnInt64&>(*lsn_block.get_by_position(0).column);
                 auto lsn_ids = std::make_shared<std::vector<int64_t>>();
                 lsn_ids->reserve(sort_perm.size());
                 for (auto p : sort_perm) {
-                    lsn_ids->emplace_back(static_cast<int64_t>(src.get_data()[p]));
+                    lsn_ids->emplace_back(src.get_data()[p]);
                 }
                 binlog_ctx.write_binlog_opt().write_binlog_config().insert_seg_lsn(
                         seg_id, std::move(lsn_ids));
