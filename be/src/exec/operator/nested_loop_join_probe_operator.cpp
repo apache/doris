@@ -216,6 +216,9 @@ void NestedLoopJoinProbeLocalState::_request_more_build_data() {
 }
 
 void NestedLoopJoinProbeLocalState::_finish_probe_side_for_incremental_build() {
+    if (!_can_output_from_partial_build()) {
+        return;
+    }
     _shared_state->build_side_no_more_required = true;
 }
 
