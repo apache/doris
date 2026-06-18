@@ -96,34 +96,6 @@ public:
         this->data(place).add(value, level);
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena&, bool /*agg_many*/) const override {
-        const auto& sources =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& levels =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        const auto& values = sources.get_data();
-        const double level = levels.get_data()[0];
-        for (size_t i = 0; i < batch_size; ++i) {
-            this->data(places[i] + place_offset).add(values[i], level);
-        }
-    }
-
-    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                            const IColumn** columns, Arena&) const override {
-        const auto& sources =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& levels =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        const auto& values = sources.get_data();
-        const double level = levels.get_data()[0];
-        for (size_t i = 0; i < batch_size; ++i) {
-            if (places[i]) {
-                this->data(places[i] + place_offset).add(values[i], level);
-            }
-        }
-    }
-
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena&) const override {
         const auto& sources =
@@ -131,16 +103,6 @@ public:
         const auto& levels =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         this->data(place).add_batch(sources.get_data().data(), batch_size, levels.get_data()[0]);
-    }
-
-    void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
-                         const IColumn** columns, Arena&, bool /*has_null*/) override {
-        const auto& sources =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        const auto& levels =
-                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        this->data(place).add_batch(sources.get_data().data() + batch_begin,
-                                    batch_end - batch_begin + 1, levels.get_data()[0]);
     }
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,

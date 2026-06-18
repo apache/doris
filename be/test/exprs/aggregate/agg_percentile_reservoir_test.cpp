@@ -54,7 +54,7 @@ double read_result(AggregateFunctionPtr fn, AggregateDataPtr place) {
 
 } // namespace
 
-TEST(AggregateFunctionPercentileReservoirTest, batch_paths_cover_all_overrides) {
+TEST(AggregateFunctionPercentileReservoirTest, optimized_single_place_paths) {
     auto fn = create_percentile_reservoir_function();
     ASSERT_TRUE(fn != nullptr);
 
@@ -71,24 +71,6 @@ TEST(AggregateFunctionPercentileReservoirTest, batch_paths_cover_all_overrides) 
 
     fn->add_batch_single_place(4, place, columns, arena);
     EXPECT_DOUBLE_EQ(read_result(fn, place), 2.5);
-
-    fn->reset(place);
-
-    std::vector<AggregateDataPtr> places = {place, place, place, place};
-    fn->add_batch(4, places.data(), 0, columns, arena, false);
-    EXPECT_DOUBLE_EQ(read_result(fn, place), 2.5);
-
-    fn->reset(place);
-
-    places[1] = nullptr;
-    places[3] = nullptr;
-    fn->add_batch_selected(4, places.data(), 0, columns, arena);
-    EXPECT_DOUBLE_EQ(read_result(fn, place), 2.0);
-
-    fn->reset(place);
-
-    fn->add_batch_range(1, 3, place, columns, arena, false);
-    EXPECT_DOUBLE_EQ(read_result(fn, place), 3.0);
 
     fn->reset(place);
 
