@@ -339,7 +339,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapKeys(MapKeys mapKeys, CollectorContext context) {
         LinkedList<String> suffixPath = context.accessPathBuilder.accessPath;
-        if (isFunctionNullCheckPath(suffixPath)) {
+        if (isUnderIsNull(suffixPath)) {
             // map_keys(nullable_map) returns a NULL array only when the parent map is NULL.
             // The NULL suffix therefore belongs to the map itself, not to the KEYS child.
             return continueCollectAccessPath(mapKeys.getArgument(0), context);
@@ -358,7 +358,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapValues(MapValues mapValues, CollectorContext context) {
         LinkedList<String> suffixPath = context.accessPathBuilder.accessPath;
-        if (isFunctionNullCheckPath(suffixPath)) {
+        if (isUnderIsNull(suffixPath)) {
             // map_values(nullable_map) returns a NULL array only when the parent map is NULL.
             // A map entry whose value is NULL still produces a non-NULL values array.
             return continueCollectAccessPath(mapValues.getArgument(0), context);
@@ -374,26 +374,39 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         return continueCollectAccessPath(mapValues.getArgument(0), context);
     }
 
-    private static boolean isFunctionNullCheckPath(List<String> suffixPath) {
+    private static boolean isUnderIsNull(List<String> suffixPath) {
         return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
     }
 
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
         // MAP_CONTAINS_KEY(<map>, <key>)
-        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
-            // map_contains_key(nullable_map, key) IS NULL only when the map is NULL.
-            // The key argument does not affect nullability — skip it and route
-            // the NULL suffix to the map argument alone.
+        //
+        // isUnderIsNull checks whether the parent of this expression is IS NULL,
+        // splitting queries into two shapes:
+        //
+        // Shape A (parent is IS NULL):
+        //   SQL: SELECT ... WHERE map_contains_key(m, k) IS NULL
+        //   map_contains_key(m, k) returns NULL only when m itself is NULL — so the path 
+        //   should be m.NULL, not m.KEYS.NULL
+        //
+        // Shape B (regular predicate):
+        //   SQL: SELECT ... WHERE map_contains_key(m, element_at(s, 'city'))
+        //                     AND element_at(s, 'city') IS NULL
+        //   We add the KEYS prefix for the map column and visit key arg: `element_at(s, 'city')` with a
+        //   fresh context. 
+        //   s collects two paths:
+        //     [s, city]        ← from key arg (fresh context → DATA path)
+        //     [s, city, NULL]  ← from IS NULL
+        //   NestedColumnPruning sees [s, city] and strips [s, city, NULL] in prune phase.
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
+            // Shape A: skip KEYS prefix, route NULL directly to the map column.
             return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
         }
-        // Map argument: only the key sub-column is needed.
+        // Shape B: map argument — only the key sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
         continueCollectAccessPath(mapContainsKey.getArgument(0), context);
-        // Key argument: visit with a fresh context to register its data access paths.
-        // The key may reference nested sub-columns (e.g. element_at(s, 'a')) whose
-        // full-data paths must be collected; otherwise an IS NULL / OFFSET path on
-        // the same slot would cause NestedColumnPruning to prune to metadata-only.
+        // Shape B: key argument — visit with a fresh context to register full-data paths.
         Expression keyArg = mapContainsKey.getArgument(1);
         CollectorContext keyCtx = new CollectorContext(context.statementContext, context.bottomFilter);
         continueCollectAccessPath(keyArg, keyCtx);
@@ -403,15 +416,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
         // MAP_CONTAINS_VALUE(<map>, <value>)
-        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
-            // map_contains_value(nullable_map, value) IS NULL only when the map is NULL.
-            // The value argument does not affect nullability — skip it.
+        // Same two-shape logic as visitMapContainsKey; see that method for the full rationale.
+        //
+        // Shape A (parent is IS NULL): skip VALUES prefix, route NULL to m → m.NULL.
+        // Shape B (regular predicate): add VALUES prefix for m, visit value arg with fresh context.
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
             return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
         }
-        // Map argument: only the value sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
         continueCollectAccessPath(mapContainsValue.getArgument(0), context);
-        // Value argument: visit with a fresh context to register its data access paths.
         Expression valueArg = mapContainsValue.getArgument(1);
         CollectorContext valueCtx = new CollectorContext(context.statementContext, context.bottomFilter);
         continueCollectAccessPath(valueArg, valueCtx);
@@ -421,17 +434,18 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
         // MAP_CONTAINS_ENTRY(<map>, <key>, <value>)
-        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
-            // map_contains_entry(nullable_map, key, value) IS NULL only when the map is NULL.
-            // The key and value arguments do not affect nullability — skip them.
+        // Same two-shape logic as visitMapContainsKey; see that method for the full rationale.
+        //
+        // Shape A (parent is IS NULL): skip sub-column prefix, route NULL to m → m.NULL.
+        // Shape B (regular predicate): add ACCESS_ALL for m (needs both keys and values),
+        //     visit key/value args with fresh context.
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
             return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
         }
-        // Map argument: full access is needed (both keys and values).
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
         continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
         for (int i = 1; i < mapContainsEntry.arity(); i++) {
             Expression entryArg = mapContainsEntry.getArgument(i);
-            // Entry argument: visit with a fresh context to register its data access paths.
             CollectorContext entryCtx = new CollectorContext(context.statementContext, context.bottomFilter);
             continueCollectAccessPath(entryArg, entryCtx);
         }
@@ -615,7 +629,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitIf(If ifExpr, CollectorContext context) {
-        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
             ifExpr.getCondition().accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
             ifExpr.getTrueValue().accept(this, copyContext(context));
             ifExpr.getFalseValue().accept(this, copyContext(context));
