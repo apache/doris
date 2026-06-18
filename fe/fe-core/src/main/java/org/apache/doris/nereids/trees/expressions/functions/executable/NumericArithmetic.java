@@ -278,7 +278,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "divide")
     public static Expression divideDecimal(DecimalLiteral first, DecimalLiteral second) {
-        if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
+        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return new NullLiteral(first.getDataType());
         }
         BigDecimal result = first.getValue().divide(second.getValue());
