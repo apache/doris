@@ -294,14 +294,14 @@ suite("test_predefine_ddl", "p0") {
     //     exception("column: var cannot have multiple inverted indexes with file storage format: V1")
     // }
 
-    // test {
-    //     sql """CREATE TABLE ${tableName} (
-    //         `id` bigint NULL,
-    //         `var` variant <'c' :char(10)> NULL
-    //     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-    //     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
-    //     exception("VARIANT unsupported sub-type: char(10)")
-    // }
+    test {
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant <'c' :char(10)> NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+        exception("VARIANT unsupported sub-type: char(10)")
+    }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
