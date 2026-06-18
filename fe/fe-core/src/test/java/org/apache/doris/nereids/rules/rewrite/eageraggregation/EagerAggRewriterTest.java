@@ -485,6 +485,24 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testVolatileAggregateInputBlocksPushDown() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            assertNoAggregateUnderJoin("select sum(random()), t1.id1"
+                    + " from t1 join t2 on t1.id1 = t2.id2"
+                    + " group by t1.id1");
+            assertNoAggregateUnderJoin("select sum(s.x), s.k"
+                    + " from (select random() as x, t1.id1 as k"
+                    + " from t1 join t2 on t1.id1 = t2.id2) s"
+                    + " group by s.k");
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testOuterJoinCountUsesBothSideCounts() throws Exception {
         assertJoinCountExpression(JoinType.LEFT_OUTER_JOIN, "leftCnt", "ifnull(rightCnt, 1)");
         assertJoinCountExpression(JoinType.RIGHT_OUTER_JOIN, "ifnull(leftCnt, 1)", "rightCnt");
@@ -552,10 +570,23 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .getPlan();
-        LogicalJoin<?, ?> join = findFirstPlan(plan, LogicalJoin.class);
-        Assertions.assertNotNull(join, plan.treeString());
-        Assertions.assertFalse(containsPlan(join.left(), LogicalAggregate.class), plan.treeString());
-        Assertions.assertFalse(containsPlan(join.right(), LogicalAggregate.class), plan.treeString());
+        Assertions.assertFalse(containsAggregateUnderJoin(plan), plan.treeString());
+    }
+
+    private boolean containsAggregateUnderJoin(Plan plan) {
+        if (plan instanceof LogicalJoin) {
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            if (containsPlan(join.left(), LogicalAggregate.class)
+                    || containsPlan(join.right(), LogicalAggregate.class)) {
+                return true;
+            }
+        }
+        for (Plan child : plan.children()) {
+            if (containsAggregateUnderJoin(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void assertJoinCountExpression(JoinType joinType, String expectedLeft, String expectedRight)
