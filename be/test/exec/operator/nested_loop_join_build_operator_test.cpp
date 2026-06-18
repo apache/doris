@@ -131,7 +131,7 @@ TEST_F(NestedLoopJoinBuildOperatorTest, CloseSkipsRuntimeFilterProcessWhenCancel
 
     status = local_state->open(state);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    local_state->build_blocks().emplace_back();
+    shared_state->cast<NestedLoopJoinSharedState>()->build_blocks.emplace_back(Block());
 
     state->cancel(Status::Cancelled("nested loop join build close cancelled"));
     status = local_state->close(state, Status::OK());

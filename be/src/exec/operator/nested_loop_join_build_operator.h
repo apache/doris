@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "exec/operator/join_build_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
@@ -46,6 +48,8 @@ private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
     VExprContextSPtrs _filter_src_expr_ctxs;
+    // Keep shared state alive when is_finished() is queried by the cancel worker.
+    std::shared_ptr<NestedLoopJoinSharedState> _shared_state_holder;
     std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 
