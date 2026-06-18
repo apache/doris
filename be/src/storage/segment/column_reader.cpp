@@ -1605,7 +1605,6 @@ Status StructFileColumnIterator::set_access_paths(
         }
 
         if (!need_to_read) {
-            set_reading_flag(ReadingFlag::SKIP_READING);
             sub_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
             DLOG(INFO) << "Struct column iterator set sub-column " << name << " to SKIP_READING";
             continue;
