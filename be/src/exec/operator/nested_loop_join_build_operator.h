@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
 
 #include "exec/operator/join_build_sink_operator.h"
@@ -50,6 +51,7 @@ private:
     VExprContextSPtrs _filter_src_expr_ctxs;
     // Keep shared state alive when is_finished() is queried by the cancel worker.
     std::shared_ptr<NestedLoopJoinSharedState> _shared_state_holder;
+    std::atomic_bool _build_side_finished = false;
     std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 
