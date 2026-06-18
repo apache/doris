@@ -895,6 +895,6 @@ suite("bilateral_eager_agg") {
      """
 
     // Reset session variables to defaults
-    sql "SET eager_aggregation_mode = -1;"
+    sql "SET eager_aggregation_mode = 0;"
     sql "SET force_eager_agg_hint = '';"
 }

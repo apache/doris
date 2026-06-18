@@ -140,6 +140,9 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     return agg;
                 }
                 if (pushDownAggFunctionSet.contains(aggFunction.getClass())) {
+                    if (aggFunction.containsVolatileExpression()) {
+                        return agg;
+                    }
                     // CaseWhen and If (which CASE WHEN is normalized into) must both be checked.
                     // When an agg function contains an If/CaseWhen whose condition tests IS NULL
                     // (e.g. count(if(col IS NULL, value, NULL))), pushing it to the nullable side

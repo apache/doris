@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -126,6 +127,14 @@ public class PushDownAggContext {
 
     public boolean noGroupKeyAndNoAggFunc() {
         return groupKeys.isEmpty() && aggFunctions.isEmpty();
+    }
+
+    public boolean containsVolatileAggregateFunction() {
+        return containsVolatileAggregateFunction(aggFunctions);
+    }
+
+    public static boolean containsVolatileAggregateFunction(List<AggregateFunction> aggFunctions) {
+        return aggFunctions.stream().anyMatch(Expression::containsVolatileExpression);
     }
 
     public HashMap<AggregateFunction, Alias> getAliasMap() {

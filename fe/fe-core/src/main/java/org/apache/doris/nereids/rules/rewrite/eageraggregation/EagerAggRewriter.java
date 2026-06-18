@@ -188,6 +188,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 .anyMatch(Expression::containsVolatileExpression)) {
             return Pair.of(false, false);
         }
+        if (context.containsVolatileAggregateFunction()) {
+            return Pair.of(false, false);
+        }
 
         boolean deduplicateOnly = context.getAggFunctions().isEmpty();
         boolean toLeft = false;
@@ -520,6 +523,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 Alias aliasForChild = new Alias(newFunc, alias.getName(), alias.getQualifier());
                 aliasMapForChild.put(newFunc, aliasForChild);
             }
+            if (PushDownAggContext.containsVolatileAggregateFunction(aggFunctionsForChild)) {
+                allChildrenChanged = false;
+                break;
+            }
 
             List<SlotReference> groupKeysForChild = context.getGroupKeys().stream()
                     .map(slot -> (SlotReference) union.pushDownExpressionPastSetOperator(slot, childIdx))
@@ -637,7 +644,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return genAggregate(project, context);
         }
         PushDownAggContext newContext = createContextFromProject(project, context);
-        if (newContext.noGroupKeyAndNoAggFunc()) {
+        if (newContext.noGroupKeyAndNoAggFunc() || newContext.containsVolatileAggregateFunction()) {
             return genAggregate(project, context);
         }
         Plan newChild = project.child().accept(this, newContext);
