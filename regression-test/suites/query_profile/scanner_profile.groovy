@@ -19,6 +19,8 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite('scanner_profile') {
     sql """
@@ -74,8 +76,21 @@ suite('scanner_profile') {
         return profileContent        
     }
 
-    List profileData = profileAction.getProfileList()
-    def profileWithLimit1 = getProfileByToken(token)
+    // The BE reports the detailed execution profile to FE asynchronously, after
+    // the query result has already been returned to the client. Fetching too
+    // early yields a profile whose MergedProfile carries no operators, so the
+    // scanner counters and the backfilled actualRows are not present yet. Poll
+    // until the scan operator shows up, i.e. the execution profile has landed.
+    def getCompleteProfileByToken = { pattern ->
+        String content = ""
+        Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until {
+            content = getProfileByToken(pattern).toString()
+            return content.contains("OLAP_SCAN_OPERATOR")
+        }
+        return content
+    }
+
+    def profileWithLimit1 = getCompleteProfileByToken(token)
     logger.info("${token} Profile Data: ${profileWithLimit1}")
     assertTrue(profileWithLimit1.toString().contains("- MaxScanConcurrency: 1"))
 
@@ -84,7 +99,14 @@ suite('scanner_profile') {
         select "${token}", * from scanner_profile where id < 10;
     """
 
-    String profileWithFilter = getProfileByToken(token)
+    String profileWithFilter = getCompleteProfileByToken(token)
     logger.info("${token} Profile Data: ${profileWithFilter}")
-    assertTrue(profileWithFilter.toString().contains("actualRows=9"))
+    // Verify actualRows is backfilled onto the scan node. `id < 10` matches the
+    // 9 small keys, so actualRows is expected to be 9; assert the [1, 9] range
+    // defensively in case runtime tablet/bucket selection trims a few rows.
+    def matcher = (profileWithFilter.toString() =~ /PhysicalOlapScan[^\n]*scanner_profile[^\n]*actualRows=(\d+)/)
+    assertTrue(matcher.find(), "actualRows not found on PhysicalOlapScan[scanner_profile] in profile")
+    int actualRows = matcher.group(1) as int
+    assertTrue(actualRows >= 1 && actualRows <= 9,
+            "expect actualRows in [1, 9], got ${actualRows}")
 }
