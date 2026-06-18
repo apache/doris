@@ -234,6 +234,19 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDeeperOffsetPathCoversShallowerNullPathForArray() throws Exception {
+        // cardinality(element_at(a, 1)) on ARRAY<ARRAY<INT>> generates [a, *, OFFSET]
+        // a IS NULL generates [a, NULL]
+        // [a, *, OFFSET] reads the offset of inner-array elements, which requires
+        // reading through the outer array's null bitmap. Therefore [a, NULL] is
+        // redundant and should be stripped.
+        assertAllAccessPathsContain(
+                "select cardinality(element_at(a, 1)), a is null from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
     public void testCardinalityMapElementKeepsValueOffsetPath() throws Exception {
         assertColumn("select cardinality(map_arr_col['a']) from map_array_tbl",
                 "map<text,array<int>>",
@@ -258,31 +271,50 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testDataPathCoversNullPathWithMapAwareComparison() throws Exception {
-        // element_at(map_col, 'a')   -> [map_col, *]
-        // map_values(map_col) IS NULL -> [map_col, VALUES, NULL]
+        // element_at(map_col, 'a')                       -> [map_col, *]
+        // element_at(map_values(map_col), 1) IS NULL     -> [map_col, VALUES, NULL]
         // [map_col, *] should cover [map_col, VALUES, NULL] because
         // * ≡ VALUES at the map level (type-aware comparison).
-        // Without the fix, the lexical prefix check fails and the
-        // BE receives VALUES.NULL alongside *, causing the value
-        // iterator to enter NULL_MAP_ONLY and skip real data.
+        //
+        // NOT: map_values(map_col) IS NULL — visitMapValues special-cases a lone NULL
+        // suffix as a parent-map null check (isFunctionNullCheckPath), producing
+        // [map_col, NULL] instead of [map_col, VALUES, NULL].
         assertAllAccessPathsContain(
                 "select element_at(map_col, 'a') from str_tbl"
-                        + " where map_values(map_col) is null",
+                        + " where element_at(map_values(map_col), 1) is null",
                 ImmutableList.of(path("map_col", "*")),
                 ImmutableList.of(path("map_col", "VALUES", "NULL")));
     }
 
     @Test
     public void testDataPathCoversOffsetPathWithMapAwareComparison() throws Exception {
-        // element_at(map_col, 'a')            -> [map_col, *]
-        // cardinality(map_values(map_col))    -> [map_col, VALUES, OFFSET]
+        // element_at(map_col, 'a')                           -> [map_col, *]
+        // length(element_at(map_values(map_col), 1)) > 0     -> [map_col, VALUES, OFFSET]
         // [map_col, *] should cover [map_col, VALUES, OFFSET] because
         // * ≡ VALUES at the map level (type-aware comparison).
+        //
+        // NOT: cardinality(map_values(map_col)) — visitCardinality unwraps MapValues
+        // and produces [map_col, OFFSET] instead of [map_col, VALUES, OFFSET].
         assertAllAccessPathsContain(
                 "select element_at(map_col, 'a') from str_tbl"
-                        + " where cardinality(map_values(map_col)) > 0",
+                        + " where length(element_at(map_values(map_col), 1)) > 0",
                 ImmutableList.of(path("map_col", "*")),
                 ImmutableList.of(path("map_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testMapValuesCoversStarNullPreservesKeysPath() throws Exception {
+        // element_at(map_values(map_col), 1) -> [map_col, VALUES]
+        // element_at(map_col, 'a') IS NULL    -> [map_col, *, NULL]
+        // [map_col, VALUES] covers [map_col, *, NULL] because VALUES ≡ * at map level.
+        // compareMetaPathPrefixCoverage returns rewriteWithSupplementalPaths([map_col, KEYS]).
+        // The NULL path must be stripped, AND the supplemental KEYS path must be preserved,
+        // otherwise BE can't look up key 'a' for the IS NULL evaluation.
+        assertAllAccessPathsContain(
+                "select element_at(map_values(map_col), 1) from str_tbl"
+                        + " where element_at(map_col, 'a') is null",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "*", "NULL")));
     }
 
     @Test

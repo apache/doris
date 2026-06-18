@@ -33,7 +33,6 @@ import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Normalizes and strips redundant metadata-only (NULL/OFFSET) access paths
@@ -70,6 +69,23 @@ public final class MetaPathNormalizer {
         String lastComponent = path.get(path.size() - 1);
         return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
                 || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
+    }
+
+    private static List<List<String>> collectPaths(
+            Collection<Pair<ColumnAccessPathType, List<String>>> a,
+            Collection<Pair<ColumnAccessPathType, List<String>>> b, boolean meta) {
+        List<List<String>> result = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : a) {
+            if (!p.second.isEmpty() && isMetaPath(p.second) == meta) {
+                result.add(p.second);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : b) {
+            if (!p.second.isEmpty() && isMetaPath(p.second) == meta) {
+                result.add(p.second);
+            }
+        }
+        return result;
     }
 
     // ========================================================================
@@ -189,10 +205,6 @@ public final class MetaPathNormalizer {
         //    Level 2: deeper-prefix coverage
         //      ├── stripMetaPathsByDeeperPrefix(OFFSET) deeper data/meta → OFFSET
         //      └── stripMetaPathsByDeeperPrefix(NULL)   deeper data/meta → NULL
-        //
-        //    Special
-        //      └── stripCoveredArrayNullMetaPaths       array NULL + map key supplementation
-
         stripExactPrefixCoveredMetaPaths(slot, targetAccessPaths, coveringAccessPaths);
         stripNullBySamePrefixOffset(slot, targetAccessPaths);
 
@@ -200,8 +212,6 @@ public final class MetaPathNormalizer {
                 targetAccessPaths, coveringAccessPaths);
         stripMetaPathsByDeeperPrefix(slot, AccessPathInfo.ACCESS_NULL,
                 targetAccessPaths, coveringAccessPaths);
-
-        stripCoveredArrayNullMetaPaths(slot, targetAccessPaths, coveringAccessPaths);
     }
 
     /**
@@ -219,6 +229,7 @@ public final class MetaPathNormalizer {
         }
 
         List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : slotPaths) {
             List<String> path = p.second;
             if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
@@ -239,6 +250,9 @@ public final class MetaPathNormalizer {
                         slot.getDataType(), prefix, otherPrefix);
                 if (rewrite.shouldRemoveOffsetPath()) {
                     toRemove.add(p);
+                    for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                        pathsToAdd.add(Pair.of(p.first, supplementalPath));
+                    }
                     break;
                 }
             }
@@ -246,33 +260,14 @@ public final class MetaPathNormalizer {
         for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
             allAccessPaths.remove(slotId, r);
         }
-    }
-
-    /**
-     * Decide whether an OFFSET-suffix path can be removed because another path already covers
-     * the same container.
-     */
-    private static OffsetPathRewrite analyzeOffsetPathRewrite(
-            DataType slotType, List<String> path, List<List<String>> coveringPaths) {
-        if (path.isEmpty()
-                || !AccessPathInfo.ACCESS_OFFSET.equals(path.get(path.size() - 1))) {
-            return OffsetPathRewrite.keep();
-        }
-        List<String> prefix = path.subList(0, path.size() - 1);
-        List<List<String>> filteredCoveringPaths = new ArrayList<>();
-        for (List<String> p : coveringPaths) {
-            if (!p.equals(path)) {
-                filteredCoveringPaths.add(p);
-            }
-        }
-        return analyzePrefixCoverage(slotType, prefix, filteredCoveringPaths);
+        allAccessPaths.putAll(slotId, pathsToAdd);
     }
 
     private static OffsetPathRewrite analyzePrefixCoverage(
-            DataType slotType, List<String> prefix, List<List<String>> coveringPaths) {
+            DataType slotType, List<String> prefix, List<List<String>> dataPaths) {
         List<List<String>> supplementalPaths = new ArrayList<>();
-        for (List<String> coveringPath : coveringPaths) {
-            OffsetPathRewrite candidate = compareMetaPathPrefixCoverage(slotType, prefix, coveringPath);
+        for (List<String> dataPath : dataPaths) {
+            OffsetPathRewrite candidate = compareMetaPathPrefixCoverage(slotType, prefix, dataPath);
             if (!candidate.shouldRemoveOffsetPath()) {
                 continue;
             }
@@ -291,13 +286,11 @@ public final class MetaPathNormalizer {
      * Level 2 — strip target paths ending with {@code metaSuffix}
      * (OFFSET or NULL) when a deeper-prefix path covers them.
      *
-     * <p>Data covering paths collected from both {@code coveringAccessPaths}
-     * and {@code targetAccessPaths} are compared against target prefixes via
-     * {@link #compareMetaPathPrefixCoverage}. OFFEST targets additionally
-     * use {@link #stripCoveredOffsetByPaths} for map key supplementation.
+     * <p>Data covering paths: delegated to
+     * {@link #stripMetaByDeeperDataPaths}.
      *
-     * <p>Meta covering paths (OFFSET/NULL) are collected from both sources
-     * and delegated to {@link #stripCoveredMetaByPrefix}.
+     * <p>Meta covering paths: collected from both sources and delegated
+     * to {@link #stripMetaByDeeperMetaPaths}.
      */
     private static void stripMetaPathsByDeeperPrefix(
             Slot slot, String metaSuffix,
@@ -308,60 +301,14 @@ public final class MetaPathNormalizer {
         if (targetPaths.isEmpty()) {
             return;
         }
+        Collection<Pair<ColumnAccessPathType, List<String>>> coveringPaths =
+                coveringAccessPaths.get(slotId);
 
-        // Collect data (non-meta) paths from both covering and target.
-        List<List<String>> dataPaths = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            if (!p.second.isEmpty() && !isMetaPath(p.second)) {
-                dataPaths.add(p.second);
-            }
-        }
-        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            if (!p.second.isEmpty() && !isMetaPath(p.second)) {
-                dataPaths.add(p.second);
-            }
-        }
+        List<List<String>> dataPaths = collectPaths(coveringPaths, targetPaths, false);
+        stripMetaByDeeperDataPaths(slot, targetAccessPaths, dataPaths, metaSuffix);
 
-        if (AccessPathInfo.ACCESS_OFFSET.equals(metaSuffix)) {
-            // OFFSET: use stripCoveredOffsetByPaths for map key supplementation.
-            stripCoveredOffsetByPaths(slot, targetAccessPaths, dataPaths);
-        } else {
-            // NULL: inline check — remove NULL targets covered by data paths.
-            List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-                List<String> path = p.second;
-                if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
-                    continue;
-                }
-                List<String> prefix = path.subList(0, path.size() - 1);
-                for (List<String> other : dataPaths) {
-                    if (other.size() >= prefix.size()
-                            && compareMetaPathPrefixCoverage(
-                                    slot.getDataType(), prefix, other)
-                                    .shouldRemoveOffsetPath()) {
-                        toRemove.add(p);
-                        break;
-                    }
-                }
-            }
-            for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
-                targetAccessPaths.remove(slotId, r);
-            }
-        }
-
-        // Collect meta paths from both covering and target for rows 2+3.
-        List<List<String>> metaPaths = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            if (!p.second.isEmpty() && isMetaPath(p.second)) {
-                metaPaths.add(p.second);
-            }
-        }
-        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            if (!p.second.isEmpty() && isMetaPath(p.second)) {
-                metaPaths.add(p.second);
-            }
-        }
-        stripCoveredMetaByPrefix(slot.getDataType(), slotId, metaSuffix,
+        List<List<String>> metaPaths = collectPaths(coveringPaths, targetPaths, true);
+        stripMetaByDeeperMetaPaths(slot.getDataType(), slotId, metaSuffix,
                 metaPaths, targetAccessPaths);
     }
 
@@ -371,7 +318,7 @@ public final class MetaPathNormalizer {
      * meta suffixes stripped. Same-prefix cross-type is handled by
      * {@link #stripNullBySamePrefixOffset} instead.
      */
-    private static void stripCoveredMetaByPrefix(
+    private static void stripMetaByDeeperMetaPaths(
             DataType slotType, int slotId, String metaSuffix,
             List<List<String>> coveringPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths) {
@@ -416,72 +363,31 @@ public final class MetaPathNormalizer {
         targetAccessPaths.putAll(slotId, pathsToAdd);
     }
 
-    private static void stripCoveredOffsetByPaths(
-            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
-            List<List<String>> coveringPaths) {
-        int slotId = slot.getExprId().asInt();
-        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
-        if (targetPaths.isEmpty() || coveringPaths.isEmpty()) {
-            return;
-        }
-
-        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
-        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
-            OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
-                    slot.getDataType(), p.second, coveringPaths);
-            if (!rewrite.shouldRemoveOffsetPath()) {
-                continue;
-            }
-            pathsToRemove.add(p);
-            for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
-                pathsToAdd.add(Pair.of(p.first, supplementalPath));
-            }
-        }
-        targetPaths.removeAll(pathsToRemove);
-        targetPaths.addAll(pathsToAdd);
-    }
-
     /**
-     * Remove array NULL-only paths from {@code targetAccessPaths} when another path already reads
-     * the same array container or data under it.
+     * Strip target paths ending with {@code metaSuffix} (OFFSET or NULL) when a
+     * data path deeper than or equal to the target prefix already covers the
+     * same container. Handles map key supplementation when the covering path
+     * accesses only VALUES while the target prefix uses {@code *} (≡ VALUES).
      */
-    private static void stripCoveredArrayNullMetaPaths(
+    private static void stripMetaByDeeperDataPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
-            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+            List<List<String>> dataPaths, String metaSuffix) {
         int slotId = slot.getExprId().asInt();
         Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
-        if (targetPaths.isEmpty()) {
+        if (targetPaths.isEmpty() || dataPaths.isEmpty()) {
             return;
-        }
-
-        List<List<String>> nonNullPaths = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
-            List<String> path = p.second;
-            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
-                nonNullPaths.add(path);
-            }
-        }
-        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
-            List<String> path = p.second;
-            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
-                nonNullPaths.add(path);
-            }
         }
 
         List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
         List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
         for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
             List<String> path = p.second;
-            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+            if (path.isEmpty() || !metaSuffix.equals(path.get(path.size() - 1))) {
                 continue;
             }
             List<String> prefix = path.subList(0, path.size() - 1);
-            Optional<DataType> prefixType = dataTypeAtPath(slot.getDataType(), prefix);
-            if (!prefixType.isPresent() || !prefixType.get().isArrayType()) {
-                continue;
-            }
-            OffsetPathRewrite rewrite = analyzePrefixCoverage(slot.getDataType(), prefix, nonNullPaths);
+            OffsetPathRewrite rewrite = analyzePrefixCoverage(
+                    slot.getDataType(), prefix, dataPaths);
             if (!rewrite.shouldRemoveOffsetPath()) {
                 continue;
             }
@@ -537,33 +443,6 @@ public final class MetaPathNormalizer {
 
     private static boolean pathCoversPrefix(List<String> path, List<String> prefix) {
         return prefix.size() >= path.size() && prefix.subList(0, path.size()).equals(path);
-    }
-
-    private static Optional<DataType> dataTypeAtPath(DataType slotType, List<String> path) {
-        if (path.isEmpty()) {
-            return Optional.empty();
-        }
-        DataType currentType = slotType;
-        for (int i = 1; i < path.size(); i++) {
-            String component = path.get(i);
-            if (currentType.isStructType()) {
-                StructField field = ((StructType) currentType).getField(component);
-                if (field == null) {
-                    return Optional.empty();
-                }
-                currentType = field.getDataType();
-            } else if (currentType.isArrayType()) {
-                if (!AccessPathInfo.ACCESS_ALL.equals(component)) {
-                    return Optional.empty();
-                }
-                currentType = ((ArrayType) currentType).getItemType();
-            } else if (currentType.isMapType()) {
-                currentType = descendMapType((MapType) currentType, component);
-            } else {
-                return Optional.empty();
-            }
-        }
-        return Optional.of(currentType);
     }
 
     /**
