@@ -5,6 +5,20 @@
 
 ---
 
+## D-015 — P2-T03 JDBC driver 注册副作用留连接器，仅纯 `resolveDriverUrl` 共享（不下移注册）
+- **日期**：2026-06-18 ｜ **决策者**：用户（AskUserQuestion 选「方案 A：注册留连接器（推荐）」）
+- **背景**：P2-T02 只上移了纯 `JdbcDriverSupport.resolveDriverUrl`（其 javadoc 明记 live 注册「无调用方、P2-T03 前不搬，Rule 2」）。HANDOFF 把「driver 注册下移与否」列为 P2-T03 决策点。driver 逻辑两消费方：①`PaimonConnector`（FE 侧）真执行注册（`DriverManager.registerDriver`+`DriverShim`+静态 `DRIVER_CLASS_LOADER_CACHE`/`REGISTERED_DRIVER_KEYS`）；②`PaimonScanPlanProvider.getBackendPaimonOptions`（BE 选项）只解析 URL 不注册。唯一共享=`resolveDriverUrl`。
+- **内容**：**注册副作用留 `PaimonConnector` 不动**；P2-T03 仅把两处 `PaimonCatalogFactory.resolveDriverUrl`（删）改调 `JdbcDriverSupport.resolveDriverUrl`（字节相同）。
+- **理由**：单消费方（FE 注册）→ 下移是为 hive/iceberg 将来服务的投机（Rule 2）；metastore-spi 刻意 SDK/JVM-副作用-free（DV-007 保持 hadoop/fs-free），注入 `DriverManager` 全局变更+活 `URLClassLoader`+`Class.forName` 模糊 api/spi 纯净边界；`DriverShim` 的 loader 身份对 DriverManager 接受是 load-bearing 的，子优先插件 loader 下迁移它有 classloader 风险而零功能收益（CI RCA 记忆 RC-1/3/5 反复证 classloader 危害）。**被否**：方案 B（下移注册）。
+- **影响**：`JdbcDriverSupport` javadoc「注册留待 P2-T03」状态=**已决定不下移**（待 hive/iceberg 真第二消费方时再议）；无新模块改动。
+
+## D-014 — P2-T03 采用 spi 的 legacy-faithful validate（CREATE CATALOG 比当前 paimon 更严，故意收敛）
+- **日期**：2026-06-18 ｜ **决策者**：用户（AskUserQuestion 选「采用 spi validate（legacy-faithful）」）
+- **背景**：P2-T02 的 spi `validate()` 故意比 paimon 手抄 `PaimonCatalogFactory.validate` 严，恢复了真 legacy 规则（手抄版漏掉的）：HMS **case-sensitive** `forbidIf(simple)`/`requireIf(kerberos)`（client principal+keytab）、REST **case-sensitive** `"dlf".equals(token.provider)`（手抄是 equalsIgnoreCase）、DLF 在 **CREATE** 要求 OSS 存储（手抄在 catalog-build 时 `requireOssStorageForDlf`）。P2-T02 只建 spi、无消费方；P2-T03 cutover 是这些规则首次作用于真实 CREATE CATALOG。
+- **内容**：cutover **直接采用** `MetaStoreProviders.bind(props,{}).validate()`，接受 CREATE CATALOG 比当前 paimon 更严（今天通过 paimon 宽松检查的某些 catalog 现在会在 CREATE 被拒）。这是项目 T2「等价=对齐 legacy 非对齐手抄」目标的兑现。
+- **理由**：spi 的更严规则才是权威 legacy（`HMSBaseProperties.buildRules`/`AliyunDLFBaseProperties`/`ParamRules`）；保留手抄宽松行为需 compat shim（更多代码、偏离目标、spi validate 部分闲置）。**被否**：方案 B（compat shim 保 CREATE 字节兼容）。
+- **影响**：行为变更 = 三处更严校验在 CREATE CATALOG 生效；unknown-flavor 错误文案从「Unknown paimon.catalog.type value: X」→ bind 的「No MetaStoreProvider supports...」（两者皆 IAE→DdlException，CREATE 仍失败）；DLF S3-only 拒绝时机 build→CREATE（无 reload 回归：无效 catalog 在新模型下根本无法 CREATE 故不会持久化/reload）。测试：`PaimonConnectorValidatePropertiesTest` 钉新行为（3 tightening RED→GREEN）。
+
 ## D-013 — Kerberos 中立 facts 类型（AuthType + KerberosAuthSpec）落 fe-kerberos，先于 P2-T01 建；metastore-api 依赖 fe-kerberos
 - **日期**：2026-06-18 ｜ **决策者**：用户（AskUserQuestion 选「In fe-kerberos (build it first)」）
 - **背景**：P2-T01 的 `HmsMetaStoreProperties` 需要 `AuthType`(SIMPLE/KERBEROS) + `KerberosAuthSpec`(principal/keytab facts)。`AuthType` 现仅在 `fe-common`（连接器 import gate 禁）；设计把 `KerberosAuthSpec` 归 `fe-kerberos`（P3a-T01，原排在 P2-T02 之后）→ P2-T01 引用它有构建顺序冲突。

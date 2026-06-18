@@ -6,6 +6,15 @@
 
 ---
 
+## DV-008 — P2-T03 cutover 三处对设计/任务字面的细化（别名数组只能部分删、`*MetastoreBackend.parse`→`MetaStoreProviders.bind`、新增 `assembleHiveConf` 助手）
+- **日期**：2026-06-18 ｜ **原计划位置**：tasks `P2-T03`（「删 `PaimonConnectorProperties` 别名数组」「调共享 `*MetastoreBackend.parse`」）/ 设计 §3.3（adapter 内联 `new HiveConf()+base+overrides.forEach`）。
+- **为何偏差（对照真实代码 + recon `wf_9437dd4e-06d` verify 确认）**：
+  1. **别名数组只能部分删**：任务 header 写「删别名数组」，但 `HMS_URI`/`REST_URI`/`JDBC_URI`/`JDBC_USER`/`JDBC_PASSWORD`/`JDBC_DRIVER_URL`/`JDBC_DRIVER_CLASS`/`CLIENT_POOL_*`/`LOCATION_*` 仍被**保留的** `buildCatalogOptions`/`append*Options`（paimon SDK Options 组装，非元存储连接）+ `PaimonScanPlanProvider`/`PaimonConnector` 的 JDBC 注册消费。**只有** `DLF_*`/`REST_TOKEN_PROVIDER`/`REST_DLF_*`（仅被删掉的 validate/buildDlfHiveConf 用）可删。
+  2. **`*MetastoreBackend.parse` 已被 P2-T02 的 provider 模式取代**：设计 §3.2 早期写 `Hms/DlfMetastoreBackend.parse(...)`，但 D-006 改为 `MetaStoreProvider.supports()`+`MetaStoreProviders.bind`；P2-T03 调 `bind` 非 `parse`（无中心 switch）。
+  3. **新增薄 `PaimonCatalogFactory.assembleHiveConf(base, overrides)`**：设计 §3.3 把 `new HiveConf()`+base+`overrides.forEach` 内联在 `createCatalog`。为离线可测 F2「base→overrides 覆盖」顺序（`createCatalog` 连真 metastore 无法离线测），抽成纯静态助手（Maps in, HiveConf out），HMS/DLF 两分支共用。非连接逻辑（纯组装），留连接器侧。
+- **新方案**：删 `DLF_*`/`REST_TOKEN_PROVIDER`/`REST_DLF_*` only；`MetaStoreProviders.bind` 派发；`assembleHiveConf` 助手承载 F2 layering（+2 UT）。**关键不变量保持**：HiveConf 内容 parity（content 由 spi `toHiveConfOverrides`/`toDlfCatalogConf` 产，spi 13+7 测钉）、F2 base-before-overrides（assembleHiveConf + `PaimonHmsConfResWiringTest` seam 测）。
+- **影响范围**：`PaimonCatalogFactory` 保留 `buildCatalogOptions`/`append*Options`/`buildHadoopConfiguration`/`applyStorageConfig`/`resolveFlavor`/`firstNonBlank`（+新 `assembleHiveConf`）；`PaimonConnectorProperties` 保留非-DLF/REST-DLF 常量；设计 §3.3 待加（DV-008 修订）脚注「adapter 用 assembleHiveConf 助手、Options 组装留连接器」。不影响 T2 parity。
+
 ## DV-007 — P2-T02 共享 parser 的 storage 入参用中立 `Map<String,String> storageHadoopConfig`，**不**用 `List<StorageProperties>`；spi 不依赖 fe-filesystem-api
 - **日期**：2026-06-18 ｜ **原计划位置**：设计 §3.2（`*MetastoreBackend.parse(Map raw, List<StorageProperties> storage)`）/ tasks `P2-T02` header（「依赖 metastore-api + fe-foundation + **fe-filesystem-api**」）/ WORKFLOW §4.2（「新模块 metastore-api/spi 只可依赖 fe-foundation + fe-filesystem-api」）。
 - **为何偏差（recon + 用户定夺 AskUserQuestion）**：recon（report A §6 / report D §4）证：①paimon 现有 up-move 源（`buildHmsHiveConf`/`buildDlfHiveConf`）已经吃**预算好的中立 `Map<String,String> storageHadoopConfig`**（由 `PaimonConnector.buildStorageHadoopConfig` 从 `ctx.getStorageProperties().toHadoopProperties().toHadoopConfigurationMap()` 合并），**不**在 parser 内迭代 `StorageProperties`；②metastore-api 契约只在 javadoc 提 `StorageProperties`、签名零引用 → spi 用中立 Map 即可保持 **hadoop/fs-free**（零 fe-filesystem-api 依赖，最小化模块依赖面 + 无 classloader 面）。**关键不变量保持**：storage 叠加保序 + kerberos-在-storage-之后 由 **parser 拥有**（parser 收 storageHadoopConfig，在 `toHiveConfOverrides()`/`toDlfCatalogConf()` 内部按序 overlay）。
