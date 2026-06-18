@@ -24,8 +24,12 @@ import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.debezium.time.MicroTime;
 import io.debezium.time.MicroTimestamp;
+import io.debezium.time.NanoTime;
 import io.debezium.time.NanoTimestamp;
+import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.SchemaBuilder;
 
 /** Unit tests for {@link DebeziumJsonDeserializer}. */
 class DebeziumJsonDeserializerTest {
@@ -70,6 +74,58 @@ class DebeziumJsonDeserializerTest {
                             "convertTimestamp", String.class, Object.class);
             m.setAccessible(true);
             return m.invoke(deserializer, typeName, dbzObj);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // ─── convertToTime (MySQL TIME full range) ────────────────────────────────
+    // MySQL TIME spans [-838:59:59, 838:59:59] (Debezium MicroTime/NanoTime, long micros/nanos).
+    // In-range values keep the LocalTime format; out-of-range (negative or >=24h) must format
+    // as ±HH:MM:SS[.ffffff] instead of falling back to the raw long literal.
+
+    @Test
+    void microTime_zero_isMidnight() {
+        assertEquals("00:00", invokeConvertToTime(MicroTime.SCHEMA_NAME, 0L));
+    }
+
+    @Test
+    void microTime_inRange_withMicros() {
+        assertEquals("12:34:56.123456", invokeConvertToTime(MicroTime.SCHEMA_NAME, 45_296_123_456L));
+    }
+
+    @Test
+    void microTime_inRange_upperBound() {
+        assertEquals("23:59:59.999999", invokeConvertToTime(MicroTime.SCHEMA_NAME, 86_399_999_999L));
+    }
+
+    @Test
+    void microTime_negative_mysqlLowerBound() {
+        // MySQL '-838:59:59' = -3_020_399_000_000 micros; must not fall back to the raw long.
+        assertEquals("-838:59:59", invokeConvertToTime(MicroTime.SCHEMA_NAME, -3_020_399_000_000L));
+    }
+
+    @Test
+    void microTime_over24h_mysqlUpperBound() {
+        // MySQL '838:59:59.999999' = 3_020_399_999_999 micros.
+        assertEquals(
+                "838:59:59.999999", invokeConvertToTime(MicroTime.SCHEMA_NAME, 3_020_399_999_999L));
+    }
+
+    @Test
+    void nanoTime_negative_mysqlLowerBound() {
+        assertEquals(
+                "-838:59:59", invokeConvertToTime(NanoTime.SCHEMA_NAME, -3_020_399_000_000_000L));
+    }
+
+    private Object invokeConvertToTime(String schemaName, Object dbzObj) {
+        try {
+            Schema schema = SchemaBuilder.int64().name(schemaName).optional().build();
+            Method m =
+                    DebeziumJsonDeserializer.class.getDeclaredMethod(
+                            "convertToTime", Object.class, Schema.class);
+            m.setAccessible(true);
+            return m.invoke(deserializer, dbzObj, schema);
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException(e);
         }

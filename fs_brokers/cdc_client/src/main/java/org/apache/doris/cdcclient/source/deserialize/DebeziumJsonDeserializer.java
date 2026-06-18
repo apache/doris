@@ -412,19 +412,50 @@ public class DebeziumJsonDeserializer
         return dbzObj.toString();
     }
 
+    // Format a since-midnight time value given as total microseconds (may be negative or exceed
+    // 24h) as MySQL TIME literal text: ±HH:MM:SS[.ffffff], stripping trailing fractional zeros.
+    private static String formatTimeText(long microsTotal) {
+        boolean negative = microsTotal < 0;
+        long abs = Math.abs(microsTotal);
+        long hours = abs / 3_600_000_000L;
+        long rem = abs % 3_600_000_000L;
+        long minutes = rem / 60_000_000L;
+        rem %= 60_000_000L;
+        long seconds = rem / 1_000_000L;
+        long frac = rem % 1_000_000L;
+        String sign = negative ? "-" : "";
+        if (frac == 0) {
+            return String.format("%s%02d:%02d:%02d", sign, hours, minutes, seconds);
+        }
+        String fracStr = String.format("%06d", frac).replaceAll("0+$", "");
+        return String.format("%s%02d:%02d:%02d.%s", sign, hours, minutes, seconds, fracStr);
+    }
+
     protected Object convertToTime(Object dbzObj, Schema schema) {
         try {
             if (dbzObj instanceof Long) {
+                long v = (Long) dbzObj;
                 switch (schema.name()) {
                     case MicroTime.SCHEMA_NAME:
-                        // micro to nano
-                        return LocalTime.ofNanoOfDay((Long) dbzObj * 1000L).toString();
+                        // MySQL TIME spans [-838:59:59, 838:59:59]; out-of-range (negative or
+                        // >=24h) cannot use LocalTime, format as ±HH:MM:SS instead. micro to nano.
+                        if (v >= 0 && v < 86_400_000_000L) {
+                            return LocalTime.ofNanoOfDay(v * 1000L).toString();
+                        }
+                        return formatTimeText(v);
                     case NanoTime.SCHEMA_NAME:
-                        return LocalTime.ofNanoOfDay((Long) dbzObj).toString();
+                        if (v >= 0 && v < 86_400_000_000_000L) {
+                            return LocalTime.ofNanoOfDay(v).toString();
+                        }
+                        return formatTimeText(v / 1000L);
                 }
             } else if (dbzObj instanceof Integer) {
-                // millis to nano
-                return LocalTime.ofNanoOfDay((Integer) dbzObj * 1_000_000L).toString();
+                // millis to nano; out-of-range formats as ±HH:MM:SS.
+                int v = (Integer) dbzObj;
+                if (v >= 0 && v < 86_400_000) {
+                    return LocalTime.ofNanoOfDay((long) v * 1_000_000L).toString();
+                }
+                return formatTimeText((long) v * 1000L);
             } else if (dbzObj instanceof java.util.Date) {
                 long millisOfDay = ((Date) dbzObj).getTime() % (24 * 60 * 60 * 1000);
                 // mills to nano
