@@ -75,4 +75,5 @@ suite("test_round_double_tail") {
     qt_round_scale_col """
         SELECT id, round(d, n) FROM test_round_double_tail_scale_col ORDER BY id;
     """
+    sql "set round_double_returns_decimal_for_const_scale = false"
 }

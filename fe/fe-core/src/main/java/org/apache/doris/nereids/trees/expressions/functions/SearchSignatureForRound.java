@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 import org.apache.doris.qe.ConnectContext;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -65,7 +66,8 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
     }
 
     /**
-     * True iff scale folds to an integer literal in the closed range [0, maxValue].
+     * True iff scale folds to an integer literal whose value lies in the closed range
+     * [0, maxValue].
      */
     static boolean isNonNegativeIntegerLiteralAtMost(Expression scale, int maxValue) {
         Expression folded = scale;
@@ -78,11 +80,14 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
                 && unwrapped.child(0).getDataType() instanceof Int32OrLessType) {
             unwrapped = unwrapped.child(0);
         }
-        if (unwrapped instanceof IntegerLikeLiteral) {
-            int value = ((IntegerLikeLiteral) unwrapped).getIntValue();
-            return value >= 0 && value <= maxValue;
+        if (!(unwrapped instanceof IntegerLikeLiteral)) {
+            return false;
         }
-        return false;
+        Number number = ((IntegerLikeLiteral) unwrapped).getNumber();
+        BigInteger value = (number instanceof BigInteger)
+                ? (BigInteger) number
+                : BigInteger.valueOf(number.longValue());
+        return value.signum() >= 0 && value.compareTo(BigInteger.valueOf(maxValue)) <= 0;
     }
 
     /** Drop signatures whose return type is a float-like type, so the search falls onto decimal. */
