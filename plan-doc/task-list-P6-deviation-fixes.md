@@ -21,7 +21,11 @@ A3 → A2 → B-MC2 → A1 → B-R2-be
 
 ## A3 — JNI split `self_split_weight` omitted when weight is 0  (NIT / profile-parity)
 
-- [ ] **A3**
+- [x] **A3** — DONE. Gate changed from `selfSplitWeight > 0` to `paimonSplit != null` in
+  `PaimonScanRange` ctor (emit-iff-JNI = legacy `PaimonScanNode.setPaimonParams:274` parity); new
+  `PaimonScanRangeSelfSplitWeightTest` (3, RED→GREEN verified by separate runs); 283/0/0/1skip,
+  checkstyle 0, import-check 0; design red-team 0-actionable, impl-verify APPROVE. See
+  `designs/FIX-A3-SELF-SPLIT-WEIGHT-{design,summary}.md`.
 - **Finding:** report §R1 (be). The connector gates `paimon.self_split_weight` emission on `selfSplitWeight > 0`,
   so a JNI split whose computed weight is exactly 0 (non-DataSplit sys split with `rowCount()==0`, or a DataSplit
   with total fileSize 0) leaves the prop unset → BE reads `-1` instead of `0`. Legacy emitted it unconditionally.

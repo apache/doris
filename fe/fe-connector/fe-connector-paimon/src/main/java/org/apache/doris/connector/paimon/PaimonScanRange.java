@@ -89,7 +89,14 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (builder.rowCount != null) {
             props.put("paimon.row_count", String.valueOf(builder.rowCount));
         }
-        if (builder.selfSplitWeight > 0) {
+        // FIX-A3: emit the self-split-weight for every JNI split, incl. weight 0. Legacy
+        // PaimonScanNode.setPaimonParams:274 sets it unconditionally on the JNI branch (never on
+        // native); the old `selfSplitWeight > 0` gate was a buggy is-set proxy that dropped a genuine
+        // weight-0 JNI split (rowCount-0 sys split / fileSize-0 DataSplit) -> BE read the -1 "unset"
+        // sentinel instead of 0, corrupting the _max_time_split_weight_counter profile. Gate on the
+        // JNI marker (paimonSplit) so native splits keep parity; this is also exactly when
+        // populateRangeParams reads the prop.
+        if (builder.paimonSplit != null) {
             props.put("paimon.self_split_weight", String.valueOf(builder.selfSplitWeight));
         }
         this.properties = Collections.unmodifiableMap(props);
