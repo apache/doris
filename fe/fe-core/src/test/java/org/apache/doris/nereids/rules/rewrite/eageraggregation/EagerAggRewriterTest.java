@@ -503,6 +503,26 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    void testVolatileGroupKeyAfterProjectBlocksPushDown() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            assertNoAggregateUnderJoin("select sum(s.x), s.x"
+                    + " from (select random() as x, t1.id1 as k"
+                    + " from t1 join t2 on t1.id1 = t2.id2) s"
+                    + " group by s.x");
+            assertNoAggregateUnderJoin("select sum(s.k), s.x"
+                    + " from (select random() as x, t1.id1 as k"
+                    + " from t1 join t2 on t1.id1 = t2.id2) s"
+                    + " group by s.x");
+
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
     void testOuterJoinCountUsesBothSideCounts() throws Exception {
         assertJoinCountExpression(JoinType.LEFT_OUTER_JOIN, "leftCnt", "ifnull(rightCnt, 1)");
         assertJoinCountExpression(JoinType.RIGHT_OUTER_JOIN, "ifnull(leftCnt, 1)", "rightCnt");

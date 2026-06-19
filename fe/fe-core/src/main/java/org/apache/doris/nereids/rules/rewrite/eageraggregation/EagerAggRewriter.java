@@ -619,6 +619,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return project;
         }
+        if (containsVolatileGroupKeyAfterProject(project, context)) {
+            return genAggregate(project, context);
+        }
         if (project.child() instanceof LogicalCatalogRelation
                 || (project.child() instanceof LogicalFilter
                         && project.child().child(0) instanceof LogicalCatalogRelation)) {
@@ -638,7 +641,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (newContext.aggFuncAndGroupKeyAllEmpty()) {
             return project;
         }
-        if (newContext.hasVolatileFunctions()) {
+        if (PushDownAggContext.containsVolatileFunction(newContext.getAggFunctions())) {
             return genAggregate(project, context);
         }
         Plan newChild = project.child().accept(this, newContext);
@@ -692,6 +695,16 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         return project;
+    }
+
+    private boolean containsVolatileGroupKeyAfterProject(
+            LogicalProject<? extends Plan> project, PushDownAggContext context) {
+        for (SlotReference groupKey : context.getGroupKeys()) {
+            if (project.pushDownExpressionPastProject(groupKey).containsVolatileExpression()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
