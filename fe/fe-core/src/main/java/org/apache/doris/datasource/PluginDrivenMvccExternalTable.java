@@ -118,6 +118,18 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         makeSureInitialized();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            // The backing catalog was concurrently DROPPED: onClose() nulled the (transient) connector but
+            // left objectCreated=true, so makeSureInitialized() does not re-create it and getConnector()
+            // returns null. A stale metadata-table access (e.g. an mv_infos()/jobs() scan over all MTMVs ->
+            // isMTMVSync -> a related table here) must DEGRADE to a valid empty pin so it yields an empty
+            // partition view instead of NPE-ing and aborting the whole metadata query. Mirrors the
+            // table-dropped (no-handle) branch below. On a HEALTHY catalog the connector is never null after
+            // makeSureInitialized() (initLocalObjectsImpl throws if it cannot create one), so this guard only
+            // covers the dropped-catalog race and cannot mask a genuine init failure.
+            return new PluginDrivenMvccSnapshot(emptySnapshot(),
+                    Collections.emptyMap(), Collections.emptyMap());
+        }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
 

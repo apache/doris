@@ -261,6 +261,35 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testMaterializeLatestNullConnectorDegradesToEmptyPin() {
+        // A concurrently-DROPPED catalog: onClose() nulled the (transient) connector but left objectCreated
+        // true, so makeSureInitialized() does not re-create it and getConnector() returns null. A stale
+        // metadata-table access (mv_infos()/jobs() scan -> isMTMVSync -> materializeLatest) must DEGRADE to a
+        // valid empty pin instead of NPE-ing and aborting the whole metadata query (CI 973411 test_mysql_mtmv
+        // collateral). MUTATION: dropping the null-connector guard in materializeLatest -> NPE -> red.
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        PluginDrivenExternalCatalog droppedCatalog = new TestablePluginCatalog((Connector) null, session);
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
+        PluginDrivenMvccExternalTable table =
+                new PluginDrivenMvccExternalTable(1L, "tbl", "REMOTE_TBL", droppedCatalog, db) {
+                    @Override
+                    protected synchronized void makeSureInitialized() {
+                        // no-op: skip Env-backed catalog/db init (mirror the Fixture table)
+                    }
+                };
+
+        PluginDrivenMvccSnapshot pin =
+                (PluginDrivenMvccSnapshot) table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals(-1L, pin.getConnectorSnapshot().getSnapshotId(),
+                "the null-connector (dropped-catalog) latest pin must carry the -1 snapshot sentinel");
+        Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
+                "the null-connector latest pin must have an empty partition-item map");
+        Assertions.assertTrue(pin.getNameToLastModifiedMillis().isEmpty(),
+                "the null-connector latest pin must have an empty last-modified map");
+    }
+
+    @Test
     public void testLoadSnapshotNoHandleTimeTravelThrows() {
         // No connector handle on a TIME-TRAVEL request: unlike the latest path it must FAIL LOUD (a
         // time-travel read against a missing table cannot degrade to "latest empty").
