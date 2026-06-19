@@ -45,7 +45,19 @@
       fe-core compiles; checkstyle 0; import-check clean. Design + impl red-team both 0-actionable. e2e gated.
       See FIX-C4-R2-R3-CATALOG-{design,summary}.md.
 
+## Converted deviations → code fixes (user elected to fix, NOT accept)
+
+- [ ] **A1/A2/A3 + B-R2-be/B-MC2** — 5 P6 findings pulled out of P6-DEVIATIONS to be fixed. Full per-task detail
+      (mechanism / fix / files / **no-regression argument for the two B perf items** / test intent) in
+      **[`task-list-P6-deviation-fixes.md`](./task-list-P6-deviation-fixes.md)**. Process one at a time there.
+      Summary: A1 = plugin split proportional weight (SPI `ConnectorScanRange` getters + `PluginDrivenSplit` ctor);
+      A2 = re-emit EXPLAIN `predicatesFromPaimon:`; A3 = drop `>0` gate on JNI `self_split_weight`;
+      B-R2-be = narrow schema-evolution dict to referenced split schema_ids; B-MC2 = connector-side immutable
+      (Identifier, schemaId) schema memo for time-travel.
+
 ## Accept-as-deviation (no code; needs user sign-off)
 
-- [ ] **P6-DEVIATIONS** — ~10 MINOR + ~12 NIT intentional deviations + wave-2 new items + uncheckedFallbacks
-      (see report §Legacy-diff ledger "intended=Yes" rows + §Wave 2 new findings). Record each in `deviations-log.md`.
+- [ ] **P6-DEVIATIONS (remainder)** — the deviations NOT converted to fixes above: ~remaining MINOR/NIT intentional
+      deviations + wave-2 new items + the residual `PluginDrivenExternalCatalog:140` authenticator-wiring swallow
+      (see report §Legacy-diff ledger "intended=Yes" rows + §Wave 2 new findings; note R3/R4/R5/R6 residual are
+      B8-cleanup, the 2 BLOCKERs are B8 guardrails — neither belongs here). Record each in `deviations-log.md`.
