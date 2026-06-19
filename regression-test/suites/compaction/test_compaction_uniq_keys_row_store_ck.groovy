@@ -16,6 +16,8 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.awaitility.Awaitility
+import java.util.concurrent.TimeUnit
 
 
 suite("test_compaction_uniq_keys_row_store_ck", "p0") {
@@ -186,24 +188,31 @@ suite("test_compaction_uniq_keys_row_store_ck", "p0") {
 
         checkValue()
 
-        // trigger compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "cumulative")
-
         def replicaNum = get_table_replica_num(tableName)
         logger.info("get table replica num: " + replicaNum)
-        int rowCount = 0
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            for (String rowset in (List<String>) tabletJson.rowsets) {
-                rowCount += Integer.parseInt(rowset.split(" ")[1])
+
+        // BE only picks rowsets whose version is already visible as cumulative
+        // compaction candidates, and the visible version is pushed from FE
+        // asynchronously. Right after a burst of loads it may lag, so a single
+        // cumulative round can merge only the visible prefix of rowsets. Retry
+        // trigger + recount until the rows are fully merged.
+        Awaitility.await().atMost(120, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
+            // trigger compactions for all tablets in ${tableName}
+            trigger_and_wait_compaction(tableName, "cumulative")
+            int rowCount = 0
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def tabletJson = parseJson(out.trim())
+                assert tabletJson.rowsets instanceof List
+                for (String rowset in (List<String>) tabletJson.rowsets) {
+                    rowCount += Integer.parseInt(rowset.split(" ")[1])
+                }
             }
-        }
-        assert (rowCount < 8 * replicaNum)
+            return rowCount < 8 * replicaNum
+        })
         checkValue()
         qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from ${tableName}"
     } finally {
