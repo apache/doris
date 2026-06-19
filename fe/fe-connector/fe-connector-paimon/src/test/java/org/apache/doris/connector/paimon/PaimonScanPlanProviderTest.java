@@ -1925,4 +1925,163 @@ public class PaimonScanPlanProviderTest {
                 PaimonScanPlanProvider.resolveSplitWeightDenominator(sessionWithProps(withMax)),
                 "unset file_split_size uses the configured max_file_split_size");
     }
+
+    // ============= FIX-B-R2-be: memoize the schema-evolution dict's per-schema-id reads =============
+
+    /** A real single-schema (schema_id=0) keyed FileStoreTable under the @TempDir warehouse. */
+    private static FileStoreTable createSingleSchemaTable(Catalog catalog) throws Exception {
+        catalog.createDatabase("db", false);
+        Identifier id = Identifier.create("db", "t");
+        catalog.createTable(id, Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .column("name", DataTypes.STRING())
+                .primaryKey("id")
+                .option("bucket", "1")
+                .build(), false);
+        return (FileStoreTable) catalog.getTable(id);
+    }
+
+    private static PaimonTableHandle plainHandle() {
+        return new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
+    }
+
+    @Test
+    public void schemaEvolutionDictPopulatesSharedMemo(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = base;
+            PaimonTableHandle handle = plainHandle();
+            PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+            PaimonScanPlanProvider provider =
+                    new PaimonScanPlanProvider(Collections.emptyMap(), ops, null, memo);
+
+            provider.getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty());
+
+            // WHY: the K committed-schema reads of the dict build (listAllIds loop) must go through the
+            // shared memo so repeated scans don't re-read the schema files (FIX-B-R2-be); the -1 current
+            // entry does NOT (it reads the live table). K=1 for a fresh single-schema table. MUTATION:
+            // reading schemaManager.schema(id) directly -> memo never populated -> size 0 -> red.
+            int k = base.schemaManager().listAllIds().size();
+            Assertions.assertEquals(1, k, "a fresh table has exactly one committed schema (id 0)");
+            Assertions.assertEquals(k, memo.size(),
+                    "every committed-schema read in the dict build must populate the shared memo");
+        }
+    }
+
+    @Test
+    public void schemaEvolutionDictReadsFromMemoOnHit(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+            PaimonTableHandle handle = plainHandle();
+
+            // The real (unseeded) dict.
+            RecordingPaimonCatalogOps opsReal = new RecordingPaimonCatalogOps();
+            opsReal.table = base;
+            String encodedReal = new PaimonScanPlanProvider(Collections.emptyMap(), opsReal, null,
+                    new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE))
+                    .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
+                    .get("paimon.schema_evolution");
+
+            // Pre-seed a SHARED memo for (handle, schema 0) with a SENTINEL whose fields differ from the
+            // real schema, so a cache HIT is positively observable in the emitted dict.
+            PaimonSchemaAtMemo seeded = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+            seeded.getOrLoad(handle, 0L, () -> new PaimonCatalogOps.PaimonSchemaSnapshot(
+                    Collections.singletonList(new DataField(0, "sentinel_from_memo", DataTypes.INT())),
+                    Collections.emptyList(), Collections.emptyList()));
+            RecordingPaimonCatalogOps opsSeeded = new RecordingPaimonCatalogOps();
+            opsSeeded.table = base;
+            String encodedSeeded = new PaimonScanPlanProvider(Collections.emptyMap(), opsSeeded, null, seeded)
+                    .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
+                    .get("paimon.schema_evolution");
+
+            // WHY: the dict build must RETURN the cached value for schema 0 (skip the real
+            // schemaManager.schema(0) read), so the seeded sentinel field surfaces in the dict and the
+            // encoded string differs from the unseeded real dict. MUTATION: reading directly (bypassing the
+            // memo) -> the seed is ignored -> encodedSeeded == encodedReal -> red.
+            Assertions.assertNotNull(encodedReal);
+            Assertions.assertNotEquals(encodedReal, encodedSeeded,
+                    "a pre-seeded memo entry must surface in the dict, proving the build read from the memo");
+        }
+    }
+
+    @Test
+    public void schemaEvolutionDictByteIdenticalWithMemo(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+            PaimonTableHandle handle = plainHandle();
+
+            RecordingPaimonCatalogOps opsA = new RecordingPaimonCatalogOps();
+            opsA.table = base;
+            // 2-arg ctor: fresh per-instance memo => first build is a direct read => pre-fix behavior.
+            String encodedA = new PaimonScanPlanProvider(Collections.emptyMap(), opsA)
+                    .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
+                    .get("paimon.schema_evolution");
+
+            RecordingPaimonCatalogOps opsB = new RecordingPaimonCatalogOps();
+            opsB.table = base;
+            // 4-arg ctor with a shared memo (first build is also a direct read, then cached).
+            String encodedB = new PaimonScanPlanProvider(Collections.emptyMap(), opsB, null,
+                    new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE))
+                    .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
+                    .get("paimon.schema_evolution");
+
+            // WHY: the memo changes only HOW fields are read, never WHAT is emitted -> the dict must be
+            // byte-identical to the non-memo path (no order/dedup/membership change -> zero BE-crash
+            // surface). MUTATION: the memo altering the emitted entries -> encodedA != encodedB -> red.
+            Assertions.assertNotNull(encodedA);
+            Assertions.assertEquals(encodedA, encodedB,
+                    "the memoized dict must be byte-identical to the non-memo (pre-fix) emission");
+        }
+    }
+
+    @Test
+    public void schemaEvolutionDictSkippedUnderForceJniLeavesMemoEmpty(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+
+            // (a) a force-jni handle (binlog): the whole dict is gated off, so the memo must stay empty.
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.sysTable = base;
+            ops.table = base;
+            PaimonTableHandle binlog = PaimonTableHandle.forSystemTable("db", "t", "binlog", true);
+            PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+            Map<String, String> props = new PaimonScanPlanProvider(Collections.emptyMap(), ops, null, memo)
+                    .getScanNodeProperties(null, binlog, Collections.emptyList(), Optional.empty());
+            Assertions.assertFalse(props.containsKey("paimon.schema_evolution"),
+                    "a force-jni handle skips the schema dict");
+            Assertions.assertEquals(0, memo.size(),
+                    "force-jni must not consult/populate the schema memo (guards a read moved above the gate)");
+
+            // (b) force_jni_scanner=true session on a plain handle: same gate.
+            RecordingPaimonCatalogOps ops2 = new RecordingPaimonCatalogOps();
+            ops2.table = base;
+            PaimonSchemaAtMemo memo2 = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+            Map<String, String> props2 = new PaimonScanPlanProvider(Collections.emptyMap(), ops2, null, memo2)
+                    .getScanNodeProperties(
+                            sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                            plainHandle(), Collections.emptyList(), Optional.empty());
+            Assertions.assertFalse(props2.containsKey("paimon.schema_evolution"));
+            Assertions.assertEquals(0, memo2.size());
+        }
+    }
+
+    @Test
+    public void getScanPlanProviderInjectsSharedSchemaMemo(@TempDir Path warehouse) {
+        Map<String, String> props = new HashMap<>();
+        props.put("warehouse", warehouse.toUri().toString());
+        PaimonConnector connector = new PaimonConnector(props, new RecordingConnectorContext());
+        PaimonScanPlanProvider p1 = (PaimonScanPlanProvider) connector.getScanPlanProvider();
+        PaimonScanPlanProvider p2 = (PaimonScanPlanProvider) connector.getScanPlanProvider();
+
+        // WHY: the cross-scan memo benefit hinges on getScanPlanProvider() injecting the connector's SHARED
+        // memo (the 4-arg ctor). MUTATION: dropping the schemaAtMemo arg -> each provider gets a fresh memo
+        // -> not the same instance -> red (and the fix would silently no-op cross-scan memoization).
+        Assertions.assertSame(p1.schemaAtMemoForTest(), p2.schemaAtMemoForTest(),
+                "getScanPlanProvider() must inject the connector's shared schema memo, not a fresh one");
+    }
 }

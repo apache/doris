@@ -189,6 +189,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private final Map<String, String> properties;
     private final PaimonCatalogOps catalogOps;
     private final ConnectorContext context;
+    // FIX-B-R2-be: connector-level (per-catalog, long-lived) memo of the per-committed-schema-id field
+    // read used by the schema-evolution dict (buildSchemaEvolutionParam). Injected by PaimonConnector so
+    // it is the SAME instance getMetadata uses (the cached fact (handle,schemaId)->schema fields is shared
+    // with the B-MC2 time-travel path). The public 2/3-arg ctors give each provider its OWN fresh memo so
+    // the existing construction sites are unchanged (first build = direct read = pre-fix behavior).
+    private final PaimonSchemaAtMemo schemaAtMemo;
 
     public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
         this(properties, catalogOps, null);
@@ -196,9 +202,20 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
             ConnectorContext context) {
+        this(properties, catalogOps, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
+    }
+
+    PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
+            ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
         this.properties = properties;
         this.catalogOps = catalogOps;
         this.context = context;
+        this.schemaAtMemo = schemaAtMemo;
+    }
+
+    /** Test-only: the schema memo this provider was wired with (to pin the connector injection). */
+    PaimonSchemaAtMemo schemaAtMemoForTest() {
+        return schemaAtMemo;
     }
 
     /**
@@ -660,7 +677,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // its data files with its field ids, so resolve the underlying base FileStoreTable here.
             Table schemaDictTable = resolveSchemaDictTable(table, paimonHandle);
             if (schemaDictTable != null) {
-                buildSchemaEvolutionParam(schemaDictTable, columns)
+                buildSchemaEvolutionParam(paimonHandle, schemaDictTable, columns)
                         .ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
             }
         }
@@ -1295,7 +1312,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * fails loud — {@code "miss table/file schema info"} — if a referenced id is absent). Schema reads
      * that throw are allowed to propagate (fail loud, mirroring legacy {@code putHistorySchemaInfo}).</p>
      */
-    private Optional<String> buildSchemaEvolutionParam(Table table, List<ConnectorColumnHandle> columns) {
+    private Optional<String> buildSchemaEvolutionParam(PaimonTableHandle handle, Table table,
+            List<ConnectorColumnHandle> columns) {
         if (!(table instanceof FileStoreTable)) {
             return Optional.empty();
         }
@@ -1306,12 +1324,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Current/target schema under the -1 sentinel, keyed off the REQUESTED columns (see javadoc). Its
         // top-level names are lowercased: BE keys the table-side StructNode by these names VERBATIM and the
         // native reader looks them up by the lowercase Doris slot name (legacy ExternalUtil/parseSchema
-        // parity). Nested + historical names stay paimon-cased (legacy PaimonUtil.getSchemaInfo).
+        // parity). Nested + historical names stay paimon-cased (legacy PaimonUtil.getSchemaInfo). NOT
+        // memoized: it reads the LIVE table.schema()/latest() and is keyed off the requested columns, not a
+        // committed schema id.
         history.add(buildSchemaInfo(CURRENT_SCHEMA_ID,
                 resolveCurrentSchemaFields(fileStoreTable, schemaManager, columns), true));
-        // One entry per committed schema id so every native file's schema_id resolves.
+        // One entry per committed schema id so every native file's schema_id resolves. The EMISSION is
+        // unchanged (still every listAllIds() id -> the dict always covers any file's schema_id -> no
+        // BE-crash risk); only the per-id field READ is memoized (FIX-B-R2-be). A committed schemaId's
+        // schema-<id> file is write-once, so the (handle, schemaId) cache value is immutable; the loader
+        // keeps the DIRECT read (not catalogOps.schemaAt) and a read that throws propagates uncached
+        // (fail-loud, mirroring legacy putHistorySchemaInfo).
         for (Long schemaId : schemaManager.listAllIds()) {
-            history.add(buildSchemaInfo(schemaId, schemaManager.schema(schemaId).fields(), false));
+            List<DataField> fields = schemaAtMemo.getOrLoad(handle, schemaId, () -> {
+                TableSchema ts = schemaManager.schema(schemaId);
+                return new PaimonCatalogOps.PaimonSchemaSnapshot(
+                        ts.fields(), ts.partitionKeys(), ts.primaryKeys());
+            }).fields();
+            history.add(buildSchemaInfo(schemaId, fields, false));
         }
         return Optional.of(encodeSchemaEvolution(CURRENT_SCHEMA_ID, history));
     }

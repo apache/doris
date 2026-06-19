@@ -105,8 +105,10 @@ public class PaimonConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
+        // FIX-B-R2-be: inject the SAME per-catalog schemaAtMemo getMetadata uses, so the schema-evolution
+        // dict's per-schema-id reads are memoized across scans (and shared with the B-MC2 time-travel path).
         return new PaimonScanPlanProvider(properties,
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), context);
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), context, schemaAtMemo);
     }
 
     /**
