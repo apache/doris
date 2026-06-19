@@ -359,8 +359,10 @@ public class PartitionInfo {
 
     public void dropPartition(long partitionId) {
         idToDataProperty.remove(partitionId);
+        idToStoragePolicy.remove(partitionId);
         idToReplicaAllocation.remove(partitionId);
         idToInMemory.remove(partitionId);
+        idToTabletType.remove(partitionId);
         idToItem.remove(partitionId);
         idToTempItem.remove(partitionId);
     }

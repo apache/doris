@@ -1724,8 +1724,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         };
         Throwable creationThrowable = null;
         boolean partitionInfoUpdated = false;
+        boolean editLogWritten = false;
+        boolean partitionPublished = false;
+        long partitionId = -1L;
         try {
-            long partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
+            partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
                     ? generatedPartitionId : idGeneratorBuffer.getNextId();
             List<Long> partitionIds = Lists.newArrayList(partitionId);
             List<Long> indexIds = new ArrayList<>(indexIdToMeta.keySet());
@@ -1808,6 +1811,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 // update partition info
                 partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
+                partitionInfoUpdated = true;
 
                 // log
                 PartitionPersistInfo info = null;
@@ -1834,25 +1838,32 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (writeEditLog) {
                     Env.getCurrentEnv().getEditLog().logAddPartition(info);
+                    editLogWritten = true;
                     if (isTempPartition) {
                         olapTable.addTempPartition(partition);
                     } else {
                         olapTable.addPartition(partition);
                     }
+                    partitionPublished = true;
                     LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
                 } else {
                     batchPartitions.add(Pair.of(info, partition));
+                    partitionPublished = true;
                     LOG.info("postpone creating partition[{}], temp: {}", partitionId, isTempPartition);
                 }
             } finally {
                 olapTable.writeUnlock();
             }
         } catch (DdlException e) {
+            rollbackPartitionInfoOnCreatePartitionFailure(db, tableName, partitionId, partitionInfoUpdated,
+                    editLogWritten, partitionPublished);
             failedCleanCallback.run();
             creationThrowable = e;
             throw e;
         } catch (Throwable t) {
             // Ensure cleanup and propagate unexpected errors as well
+            rollbackPartitionInfoOnCreatePartitionFailure(db, tableName, partitionId, partitionInfoUpdated,
+                    editLogWritten, partitionPublished);
             failedCleanCallback.run();
             creationThrowable = t;
             throw t;
@@ -1872,6 +1883,29 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 olapTable.completePartitionCreationFuture(partitionName, ownerFuture, creationThrowable);
             }
+        }
+    }
+
+    private void rollbackPartitionInfoOnCreatePartitionFailure(Database db, String tableName, long partitionId,
+            boolean partitionInfoUpdated, boolean editLogWritten, boolean partitionPublished) {
+        if (!partitionInfoUpdated || partitionId < 0 || editLogWritten || partitionPublished) {
+            return;
+        }
+
+        try {
+            OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+            olapTable.writeLockOrDdlException();
+            try {
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                partitionInfo.dropPartition(partitionId);
+                LOG.info("rollback partition info after failed partition creation, db={}, table={}, partition_id={}",
+                        db.getFullName(), tableName, partitionId);
+            } finally {
+                olapTable.writeUnlock();
+            }
+        } catch (Throwable t) {
+            LOG.warn("failed to rollback partition info after failed partition creation, db={}, table={}, "
+                    + "partition_id={}", db.getFullName(), tableName, partitionId, t);
         }
     }
 
