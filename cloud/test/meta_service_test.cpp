@@ -88,25 +88,24 @@ int main(int argc, char** argv) {
 
 namespace doris::cloud {
 
-std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
-    int ret = 0;
-    // MemKv
-    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
-    if (txn_kv != nullptr) {
-        ret = txn_kv->init();
-        [&] { ASSERT_EQ(ret, 0); }();
+class FailNextCreateTxnMemTxnKv : public MemTxnKv {
+public:
+    TxnErrorCode create_txn(std::unique_ptr<Transaction>* txn) override {
+        if (fail_next_create_txn_.exchange(false)) {
+            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+        return MemTxnKv::create_txn(txn);
     }
-    [&] { ASSERT_NE(txn_kv.get(), nullptr); }();
 
-    // FdbKv
-    //     config::fdb_cluster_file_path = "fdb.cluster";
-    //     static auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
-    //     static std::atomic<bool> init {false};
-    //     bool tmp = false;
-    //     if (init.compare_exchange_strong(tmp, true)) {
-    //         int ret = txn_kv->init();
-    //         [&] { ASSERT_EQ(ret, 0); ASSERT_NE(txn_kv.get(), nullptr); }();
-    //     }
+    void fail_next_create_txn() { fail_next_create_txn_.store(true); }
+
+private:
+    std::atomic_bool fail_next_create_txn_ {false};
+};
+
+std::unique_ptr<MetaServiceProxy> get_meta_service(std::shared_ptr<TxnKv> txn_kv,
+                                                   bool mock_resource_mgr) {
+    [&] { ASSERT_NE(txn_kv.get(), nullptr); }();
 
     std::unique_ptr<Transaction> txn;
     EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -119,6 +118,28 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
     auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
+}
+
+std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
+    int ret = 0;
+    // MemKv
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    if (txn_kv != nullptr) {
+        ret = txn_kv->init();
+        [&] { ASSERT_EQ(ret, 0); }();
+    }
+
+    // FdbKv
+    //     config::fdb_cluster_file_path = "fdb.cluster";
+    //     static auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
+    //     static std::atomic<bool> init {false};
+    //     bool tmp = false;
+    //     if (init.compare_exchange_strong(tmp, true)) {
+    //         int ret = txn_kv->init();
+    //         [&] { ASSERT_EQ(ret, 0); ASSERT_NE(txn_kv.get(), nullptr); }();
+    //     }
+
+    return get_meta_service(txn_kv, mock_resource_mgr);
 }
 
 std::unique_ptr<MetaServiceProxy> get_meta_service() {
@@ -1801,6 +1822,83 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
         meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                     &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_PRECOMMITED);
+    }
+}
+
+TEST(MetaServiceTest, CommitTxnOmitsTableVersionWhenPostCommitReadFails) {
+    auto txn_kv = std::make_shared<FailNextCreateTxnMemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto meta_service = get_meta_service(std::dynamic_pointer_cast<TxnKv>(txn_kv), true);
+
+    constexpr int64_t db_id = 666;
+    constexpr int64_t table_id = 1234;
+    constexpr int64_t index_id = 1235;
+    constexpr int64_t partition_id = 1236;
+    constexpr int64_t tablet_id = 1103;
+
+    int64_t txn_id = -1;
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label("test_commit_txn_omit_table_version_when_post_commit_read_fails");
+        txn_info_pb.add_table_ids(table_id);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
+    {
+        CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        brpc::Controller cntl;
+        PrecommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        req.set_precommit_timeout_ms(36000);
+        PrecommitTxnResponse res;
+        meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("commit_txn_immediately::before_commit",
+                      [&](auto&&) { txn_kv->fail_next_create_txn(); });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
+        ASSERT_EQ(res.table_stats().size(), 1) << res.ShortDebugString();
+        EXPECT_EQ(res.table_stats()[0].table_id(), table_id);
+        EXPECT_FALSE(res.table_stats()[0].has_table_version()) << res.ShortDebugString();
     }
 }
 
