@@ -1121,9 +1121,62 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (nativeSplits != null && totalSplits != null) {
             output.append(prefix).append("paimonNativeReadSplits=")
                     .append(nativeSplits).append("/").append(totalSplits).append("\n");
+            // FIX-A2 (explain gap): re-emit the legacy predicatesFromPaimon: block (the Paimon Predicate
+            // objects actually pushed to the SDK, or NONE) BETWEEN paimonNativeReadSplits= and the VERBOSE
+            // PaimonSplitStats block -- legacy order PaimonScanNode:657-671. It logically depends only on
+            // paimon.predicate and is nested in this native-splits block SOLELY so the legacy ordering
+            // holds (in a real EXPLAIN the synthetic split keys are always injected, so the gate always
+            // passes). The pushed list is already serialized into paimon.predicate (getScanNodeProperties:
+            // 579, always emitted), so deserialize+render it rather than re-converting (the filter is not
+            // in the seam).
+            String encodedPredicates = nodeProperties.get("paimon.predicate");
+            if (encodedPredicates != null) {
+                appendPredicatesFromPaimon(output, prefix, encodedPredicates);
+            }
             if (nodeProperties.containsKey(VERBOSE_EXPLAIN_KEY)) {
                 appendSplitStats(output, prefix,
                         Integer.parseInt(nativeSplits), Integer.parseInt(totalSplits));
+            }
+        }
+    }
+
+    /**
+     * FIX-A2 (explain gap): renders the legacy {@code predicatesFromPaimon:} EXPLAIN block from the
+     * {@code paimon.predicate} prop (the base64 {@link InstantiationUtil}-serialized
+     * {@code List<Predicate>} pushed to the SDK by {@link #getScanNodeProperties}). Lists each pushed
+     * predicate (double-prefix indented) or {@code  NONE} when the list is empty, byte-faithful to
+     * {@code PaimonScanNode.java:660-668}. Diagnostic-only: surfaces a conjunct that
+     * {@link PaimonPredicateConverter} silently dropped (LTZ / FLOAT / unsupported CAST), so this can list
+     * fewer entries than the generic {@code PREDICATES:} line. A decode failure is logged and the line
+     * skipped -- it must never break EXPLAIN.
+     */
+    @SuppressWarnings("unchecked")
+    private static void appendPredicatesFromPaimon(StringBuilder output, String prefix, String encoded) {
+        List<org.apache.paimon.predicate.Predicate> predicates;
+        try {
+            // paimon.predicate is standard-Base64 by construction (encodeObjectToString -> BASE64_ENCODER
+            // = Base64.getEncoder()), so a standard decoder is the exact inverse. Decode with the paimon
+            // SDK's own classloader (the plugin CL that loaded Predicate), independent of the TCCL.
+            byte[] bytes = Base64.getDecoder().decode(encoded);
+            predicates = InstantiationUtil.deserializeObject(
+                    bytes, org.apache.paimon.predicate.Predicate.class.getClassLoader());
+        } catch (Exception e) {
+            // Diagnostic line only -- never break EXPLAIN. The prop is produced by us, so a decode failure
+            // is a real bug; log + skip rather than render a misleading NONE.
+            LOG.warn("Failed to decode paimon.predicate for EXPLAIN predicatesFromPaimon", e);
+            return;
+        }
+        if (predicates == null) {
+            // unexpected payload -- skip (do not render a misleading NONE), consistent with the catch path.
+            return;
+        }
+        output.append(prefix).append("predicatesFromPaimon:");
+        if (predicates.isEmpty()) {
+            output.append(" NONE\n");
+        } else {
+            output.append("\n");
+            for (org.apache.paimon.predicate.Predicate predicate : predicates) {
+                output.append(prefix).append(prefix).append(predicate).append("\n");
             }
         }
     }

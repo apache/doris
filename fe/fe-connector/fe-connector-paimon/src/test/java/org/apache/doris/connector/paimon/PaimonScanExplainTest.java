@@ -20,9 +20,16 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.predicate.PredicateBuilder;
+import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -248,5 +255,106 @@ public class PaimonScanExplainTest {
                 .build();
         Assertions.assertFalse(range.isNativeReadRange());
         Assertions.assertEquals(12L, range.getPushDownRowCount());
+    }
+
+    // ==================== FIX-A2: predicatesFromPaimon block ====================
+
+    /** Serializes a predicate list into the paimon.predicate prop EXACTLY as production does
+     * (PaimonScanPlanProvider.encodeObjectToString = InstantiationUtil.serializeObject + Base64). */
+    private static String encodePredicates(List<Predicate> predicates) throws Exception {
+        return Base64.getEncoder().encodeToString(InstantiationUtil.serializeObject(predicates));
+    }
+
+    private static Predicate intEqPredicate() {
+        RowType rowType = RowType.builder().field("id", DataTypes.INT()).build();
+        return new PredicateBuilder(rowType).equal(0, 5);
+    }
+
+    @Test
+    public void appendExplainInfoEmitsPredicatesFromPaimonForPushedPredicate() throws Exception {
+        // WHY: legacy PaimonScanNode:660-668 listed the Paimon Predicate objects actually pushed to the
+        // SDK; the SPI path dropped it. The connector re-renders it by deserializing the already-present
+        // paimon.predicate prop. With a non-empty list, the block is "predicatesFromPaimon:\n" + one
+        // double-prefix-indented line per predicate. MUTATION: dropping the block (the pre-fix state) or
+        // mis-indenting -> red.
+        Predicate p = intEqPredicate();
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "1");
+        props.put("__total_read_splits", "2");
+        props.put("paimon.predicate", encodePredicates(Collections.singletonList(p)));
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "  ", props);
+
+        // paimonNativeReadSplits= first, then predicatesFromPaimon: with the predicate double-indented
+        // (prefix+prefix), matching legacy ordering and format byte-for-byte.
+        Assertions.assertEquals(
+                "  paimonNativeReadSplits=1/2\n"
+                        + "  predicatesFromPaimon:\n"
+                        + "    " + p.toString() + "\n",
+                out.toString());
+    }
+
+    @Test
+    public void appendExplainInfoEmitsPredicatesFromPaimonNoneForEmptyList() throws Exception {
+        // WHY: legacy rendered " NONE" when the pushed predicate list is empty (no pushable filter). The
+        // empty list still serializes to a non-null paimon.predicate (getScanNodeProperties:579 always
+        // emits it). MUTATION: skipping the line for empty, or rendering it differently than " NONE" -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "1");
+        props.put("__total_read_splits", "2");
+        props.put("paimon.predicate", encodePredicates(Collections.emptyList()));
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "  ", props);
+
+        Assertions.assertEquals(
+                "  paimonNativeReadSplits=1/2\n"
+                        + "  predicatesFromPaimon: NONE\n",
+                out.toString());
+    }
+
+    @Test
+    public void appendExplainInfoOrdersPredicatesBetweenNativeSplitsAndVerboseStats() throws Exception {
+        // WHY: legacy order is paimonNativeReadSplits -> predicatesFromPaimon -> VERBOSE PaimonSplitStats
+        // (PaimonScanNode:657-671). Pins that the new block lands between the two. MUTATION: emitting
+        // predicatesFromPaimon after PaimonSplitStats (wrong placement) -> red.
+        Predicate p = intEqPredicate();
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "0");
+        props.put("__total_read_splits", "2");
+        props.put("__explain_verbose", "true");
+        props.put("paimon.predicate", encodePredicates(Collections.singletonList(p)));
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "", props);
+
+        String text = out.toString();
+        int iNative = text.indexOf("paimonNativeReadSplits=");
+        int iPreds = text.indexOf("predicatesFromPaimon:");
+        int iStats = text.indexOf("PaimonSplitStats:");
+        Assertions.assertTrue(iNative >= 0 && iPreds >= 0 && iStats >= 0, text);
+        Assertions.assertTrue(iNative < iPreds && iPreds < iStats,
+                "order must be paimonNativeReadSplits < predicatesFromPaimon < PaimonSplitStats: " + text);
+    }
+
+    @Test
+    public void appendExplainInfoSkipsPredicatesFromPaimonWhenPropAbsent() {
+        // WHY: absent paimon.predicate != empty list. When the prop is missing (another connector's props,
+        // or a path that did not build it) the line must be SKIPPED, not rendered as " NONE". This is why
+        // every existing exact-equality test above (none set paimon.predicate) stays green. Mirrors the
+        // sibling appendExplainInfoSkipsWhenSyntheticKeysAbsent guard. MUTATION: rendering " NONE" on a
+        // null prop -> red here AND breaks the existing exact-equality tests.
+        Map<String, String> props = new HashMap<>();
+        props.put("__native_read_splits", "1");
+        props.put("__total_read_splits", "2");
+
+        StringBuilder out = new StringBuilder();
+        provider().appendExplainInfo(out, "  ", props);
+
+        String text = out.toString();
+        Assertions.assertTrue(text.contains("paimonNativeReadSplits=1/2"), text);
+        Assertions.assertFalse(text.contains("predicatesFromPaimon"),
+                "predicatesFromPaimon must be skipped when paimon.predicate is absent: " + text);
     }
 }

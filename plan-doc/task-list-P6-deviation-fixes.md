@@ -41,7 +41,12 @@ A3 → A2 → B-MC2 → A1 → B-R2-be
 
 ## A2 — EXPLAIN drops legacy `predicatesFromPaimon:` line  (MINOR / missing-port)
 
-- [ ] **A2**
+- [x] **A2** — DONE. `appendExplainInfo` deserializes the already-present `paimon.predicate` prop (the
+  exact pushed `List<Predicate>`) and renders the legacy block between `paimonNativeReadSplits=` and the
+  VERBOSE `PaimonSplitStats` (legacy order `PaimonScanNode:657-671`); chosen over re-converting (filter
+  not in the seam, provider re-instantiated per call). 4 new `PaimonScanExplainTest` (RED→GREEN by
+  separate runs: 3 fail unfixed → 0); 287/0/0/1skip, checkstyle 0, import-check 0; design red-team
+  0-actionable, impl-verify APPROVE. See `designs/FIX-A2-PREDICATES-FROM-PAIMON-{design,summary}.md`.
 - **Finding:** report §R2 (scan). Legacy `PaimonScanNode:660-668` listed the converted Paimon `Predicate` objects
   actually pushed to the SDK (or ` NONE`). The SPI `appendExplainInfo:1117` emits only generic `PREDICATES:` +
   `paimonNativeReadSplits=` + VERBOSE `PaimonSplitStats`, so a silently-dropped LTZ/FLOAT/CAST conjunct is no longer
