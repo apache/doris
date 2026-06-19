@@ -38,6 +38,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.Options;
 
 import java.io.IOException;
@@ -48,6 +49,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -81,9 +83,26 @@ public class PaimonConnector implements Connector {
     private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> REGISTERED_DRIVER_KEYS = ConcurrentHashMap.newKeySet();
 
+    // FIX-4 (CI 973411): the legacy paimon table cache (meta.cache.paimon.table.*) governed BOTH the data
+    // snapshot AND the schema; the SPI cutover dropped it (marked the keys dead). meta.cache.paimon.table.ttl-second
+    // is restored here: it sizes the latest-snapshot cache below (data) AND, via schemaCacheTtlSecondOverride(),
+    // the generic schema cache (schema). enable/capacity remain best-effort (capacity uses the legacy default).
+    static final String TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
+    // Legacy default = Config.external_cache_expire_time_seconds_after_access (24h); the connector is isolated
+    // from fe-core Config, so the legacy default is mirrored here (an explicit ttl-second always overrides it).
+    static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
+    // Legacy default = Config.max_external_table_cache_num.
+    static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog catalog;
+
+    // FIX-4: per-catalog (long-lived) cache of each table's latest snapshot id, sized by
+    // meta.cache.paimon.table.ttl-second (<=0 disables -> always live, the no-cache catalog). getMetadata()
+    // returns a fresh metadata per query, so this lives on the connector and is injected into the metadata so
+    // beginQuerySnapshot pins a stable id across queries. Cleared wholesale on REFRESH CATALOG (connector rebuilt).
+    private final PaimonLatestSnapshotCache latestSnapshotCache;
 
     // FIX-B-MC2: connector-level (per-catalog, long-lived) second-level memo for the time-travel
     // schema-at-snapshot read. getMetadata() returns a FRESH metadata per query, so this must live on the
@@ -94,13 +113,62 @@ public class PaimonConnector implements Connector {
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
         this.context = context;
+        this.latestSnapshotCache =
+                new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
+    }
+
+    /**
+     * Parses {@code meta.cache.paimon.table.ttl-second} (legacy default 24h; {@code <= 0} disables caching ->
+     * the no-cache catalog reads live). An unparseable value falls back to the default rather than failing
+     * catalog creation (validation of the knob is best-effort; the legacy CacheSpec check was dropped at cutover).
+     */
+    private static long resolveTableCacheTtlSecond(Map<String, String> properties) {
+        String raw = properties.get(TABLE_CACHE_TTL_SECOND);
+        if (raw == null || raw.trim().isEmpty()) {
+            return DEFAULT_TABLE_CACHE_TTL_SECOND;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            LOG.warn("Invalid {}={}, falling back to default {}s",
+                    TABLE_CACHE_TTL_SECOND, raw, DEFAULT_TABLE_CACHE_TTL_SECOND);
+            return DEFAULT_TABLE_CACHE_TTL_SECOND;
+        }
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
                 new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties, context,
-                schemaAtMemo);
+                schemaAtMemo, latestSnapshotCache);
+    }
+
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        // REFRESH TABLE: drop the cached latest snapshot id so the next read goes live. Keyed by the REMOTE
+        // db/table names, matching the key beginQuerySnapshot stores (PaimonTableHandle carries remote names).
+        latestSnapshotCache.invalidate(Identifier.create(dbName, tableName));
+    }
+
+    @Override
+    public void invalidateAll() {
+        latestSnapshotCache.invalidateAll();
+    }
+
+    @Override
+    public OptionalLong schemaCacheTtlSecondOverride() {
+        // Restore the legacy single-knob semantics: meta.cache.paimon.table.ttl-second also governs the schema
+        // cache (the SPI routes paimon schema to the generic schema cache keyed by schema.cache.ttl-second). So
+        // the no-cache catalog (ttl-second=0) serves FRESH schema. Absent -> no override (engine default TTL).
+        String raw = properties.get(TABLE_CACHE_TTL_SECOND);
+        if (raw == null || raw.trim().isEmpty()) {
+            return OptionalLong.empty();
+        }
+        try {
+            return OptionalLong.of(Long.parseLong(raw.trim()));
+        } catch (NumberFormatException e) {
+            return OptionalLong.empty();
+        }
     }
 
     @Override

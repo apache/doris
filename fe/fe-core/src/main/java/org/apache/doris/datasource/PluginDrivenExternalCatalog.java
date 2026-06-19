@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * An {@link ExternalCatalog} backed by a Connector SPI plugin.
@@ -250,6 +251,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public Connector getConnector() {
         makeSureInitialized();
         return connector;
+    }
+
+    /**
+     * FIX-4: let the connector's own cache knob also govern the schema cache (restoring the legacy single-knob
+     * semantics — e.g. paimon's {@code meta.cache.paimon.table.ttl-second} sized the whole table cache, schema
+     * included). Applied to the engine's EPHEMERAL cache-sizing property copy only (never persisted). An
+     * explicit user {@code schema.cache.ttl-second} wins. Uses the {@code connector} field directly (no forced
+     * init / no throw): this hook only runs during a cache read, by which point the catalog is already
+     * initialized; a null connector (uninitialized or concurrently dropped) simply leaves the engine default.
+     */
+    @Override
+    public void overlayMetaCacheConfig(Map<String, String> metaCacheProperties) {
+        if (metaCacheProperties.containsKey(SCHEMA_CACHE_TTL_SECOND)) {
+            return;
+        }
+        Connector localConnector = connector;
+        if (localConnector == null) {
+            return;
+        }
+        OptionalLong override = localConnector.schemaCacheTtlSecondOverride();
+        if (override.isPresent()) {
+            metaCacheProperties.put(SCHEMA_CACHE_TTL_SECOND, String.valueOf(override.getAsLong()));
+        }
     }
 
     /**

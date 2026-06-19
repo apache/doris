@@ -40,11 +40,11 @@ public class PaimonConnectorProvider implements ConnectorProvider {
 
     private static final Logger LOG = LogManager.getLogger(PaimonConnectorProvider.class);
 
-    // Legacy PaimonExternalCatalog.checkProperties validated these table-handle cache knobs
-    // (meta.cache.paimon.table.{enable,ttl-second,capacity}) via CacheSpec. On the plugin path they are dead:
-    // a cut-over paimon table reports meta-cache engine "default" (not "paimon"), so it never reaches
-    // PaimonExternalMetaCache, which these keys size. Re-imposing CacheSpec validation would only reject malformed
-    // values for a knob that no longer does anything; instead warn the operator the keys are ignored (R2).
+    // Legacy PaimonExternalCatalog.checkProperties validated the table-handle cache knobs
+    // (meta.cache.paimon.table.{enable,ttl-second,capacity}) via CacheSpec. FIX-4 restores ttl-second: it now
+    // sizes the connector latest-snapshot cache (data) AND the generic schema cache (via
+    // schemaCacheTtlSecondOverride). enable/capacity remain not-wired on the plugin path, so they are still
+    // reported as ignored (R2) — ttl-second is intentionally excluded from this set since it again takes effect.
     private static final String DEAD_TABLE_CACHE_PREFIX = "meta.cache.paimon.table.";
 
     @Override
@@ -79,6 +79,8 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     private static void warnIgnoredDeadTableCacheKeys(Map<String, String> properties) {
         List<String> dead = properties.keySet().stream()
                 .filter(k -> k.startsWith(DEAD_TABLE_CACHE_PREFIX))
+                // ttl-second is restored (FIX-4): it sizes the snapshot cache + schema cache TTL, so it is NOT dead.
+                .filter(k -> !k.equals(PaimonConnector.TABLE_CACHE_TTL_SECOND))
                 .sorted()
                 .collect(Collectors.toList());
         if (!dead.isEmpty()) {

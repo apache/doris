@@ -89,6 +89,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // sites compile unchanged; production goes through the 4-arg ctor with the connector-shared memo.
     private final PaimonSchemaAtMemo schemaAtMemo;
 
+    // FIX-4: per-catalog latest-snapshot-id cache (injected by PaimonConnector, the long-lived owner) so the
+    // query-begin pin serves a STABLE snapshot id across queries within the TTL (restores the legacy table
+    // cache). The 3-arg / 4-arg ctors give each metadata its OWN disabled cache (ttl<=0 => always live) so the
+    // existing direct-construction tests compile unchanged; production goes through the 5-arg ctor.
+    private final PaimonLatestSnapshotCache latestSnapshotCache;
+
     public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
         this(catalogOps, properties, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
@@ -96,11 +102,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
+        this(catalogOps, properties, context, schemaAtMemo, new PaimonLatestSnapshotCache(0L, 1));
+    }
+
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo,
+            PaimonLatestSnapshotCache latestSnapshotCache) {
         this.catalogOps = catalogOps;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
         this.context = context;
         this.catalogProperties = properties;
         this.schemaAtMemo = schemaAtMemo;
+        this.latestSnapshotCache = latestSnapshotCache;
     }
 
     @Override
@@ -401,8 +414,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (paimonHandle.isSystemTable()) {
             return Optional.empty();
         }
-        Table table = resolveTable(paimonHandle);
-        long id = catalogOps.latestSnapshotId(table).orElse(-1L);
+        // FIX-4: serve the latest snapshot id through the per-catalog cache so the with-cache catalog pins a
+        // STABLE id across queries (an external write made after the pin is invisible until the entry expires
+        // or REFRESH TABLE/CATALOG invalidates it). The live read (resolveTable + latestSnapshotId) runs only
+        // on a miss; when caching is disabled (ttl-second<=0, the no-cache catalog) it runs every call.
+        Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
+        long id = latestSnapshotCache.getOrLoad(identifier,
+                () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).build());
     }
 
