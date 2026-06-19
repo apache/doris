@@ -33,11 +33,6 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    if (auto it = info.shared_state_map.find(_parent->dests_id().front());
-        it != info.shared_state_map.end()) {
-        _shared_state_holder =
-                std::static_pointer_cast<NestedLoopJoinSharedState>(it->second.first);
-    }
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
