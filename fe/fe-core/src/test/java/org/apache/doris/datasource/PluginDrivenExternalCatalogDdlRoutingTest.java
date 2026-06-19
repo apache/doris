@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
@@ -521,34 +522,34 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
-    public void testCreateTableExistingTableWithoutIfNotExistsStillErrors() throws Exception {
+    public void testCreateTableExistingRemoteTableWithoutIfNotExistsReportsErrno1050() {
+        // FIX-R1-TABLE: a table that exists REMOTELY but is absent from this FE's cache (stale cache /
+        // other-FE / external create), created without IF NOT EXISTS, must be rejected with MySQL errno
+        // 1050 (ERR_TABLE_EXISTS_ERROR / SQLSTATE 42S01) -- legacy parity ({Paimon,MaxCompute}MetadataOps
+        // both report 1050 for the remote arm). The connector is NOT consulted (the FE short-circuits).
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         Mockito.when(db.getRemoteName()).thenReturn("DB1");
         catalog.dbNullableResult = db;
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "DB1", "t1")).thenReturn(Optional.of(handle));
+        CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(info.getDbName()).thenReturn("db1");
+        Mockito.when(info.getTableName()).thenReturn("t1");
+        Mockito.when(info.isIfNotExists()).thenReturn(false);
 
-        try (MockedStatic<CreateTableInfoToConnectorRequestConverter> conv =
-                Mockito.mockStatic(CreateTableInfoToConnectorRequestConverter.class)) {
-            ConnectorCreateTableRequest req = Mockito.mock(ConnectorCreateTableRequest.class);
-            conv.when(() -> CreateTableInfoToConnectorRequestConverter.convert(Mockito.any(), Mockito.any()))
-                    .thenReturn(req);
-            Mockito.doThrow(new DorisConnectorException("Table 't1' already exists in database 'DB1'"))
-                    .when(metadata).createTable(session, req);
-            CreateTableInfo info = Mockito.mock(CreateTableInfo.class);
-            Mockito.when(info.getDbName()).thenReturn("db1");
-            Mockito.when(info.getTableName()).thenReturn("t1");
-            Mockito.when(info.isIfNotExists()).thenReturn(false);
-
-            // WHY (Rule 9 / Rule 12): existing table + NO IF NOT EXISTS must NOT short-circuit -- it
-            // must reach connector.createTable and surface its "already exists" as DdlException
-            // (fail-loud, legacy parity). A mutation that returns true on `exists` regardless of
-            // isIfNotExists() would skip createTable -> no throw -> this assertThrows + verify go red.
-            DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
-            Assertions.assertTrue(ex.getMessage().contains("already exists"));
-            Mockito.verify(metadata).createTable(session, req);
-            Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
-        }
+        // WHY (Rule 9 / Rule 12): pre-fix the bridge gated the 1050 report on localExists only, so a
+        // remote-ONLY conflict fell through to metadata.createTable and surfaced a GENERIC DdlException
+        // (errno ERR_UNKNOWN_ERROR = 0) -- silently dropping the documented MySQL 1050 contract some
+        // ORMs branch on. The fix reports 1050 at the FE before the connector. MUTATION: restoring the
+        // `if (localExists)` guard makes this remote-only case (localExists=false) fall through -> errno
+        // reverts to 0 and metadata.createTable IS called -> the errno assertion AND the never().createTable
+        // verify both go red.
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+        Assertions.assertEquals(ErrorCode.ERR_TABLE_EXISTS_ERROR, ex.getMysqlErrorCode(),
+                "remote-existing table without IF NOT EXISTS must surface MySQL errno 1050 (legacy parity)");
+        Assertions.assertTrue(ex.getMessage().contains("already exists"));
+        Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
+        Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
     }
 
     @Test
@@ -576,11 +577,15 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
             Mockito.when(info.isIfNotExists()).thenReturn(false);
 
             // WHY (Rule 9 / Rule 12): a local-ONLY conflict without IF NOT EXISTS must be REJECTED at the FE
-            // level (ERR_TABLE_EXISTS_ERROR), never handed to connector.createTable. The pre-fix code
-            // consumed the existence probe only in the IF NOT EXISTS branch and fell through here, calling
-            // metadata.createTable -> created a duplicate remote table. Mutation (drop the localExists
-            // guard) -> no throw + createTable called -> both assertions go red.
+            // level with MySQL errno 1050 (ERR_TABLE_EXISTS_ERROR), never handed to connector.createTable
+            // (which would create a duplicate remote table under lower_case_meta_names case-folding). Paired
+            // with testCreateTableExistingRemoteTableWithoutIfNotExistsReportsErrno1050, this pins that the
+            // existence rejection covers EITHER arm: MUTATION re-narrowing the report to the remote arm only
+            // (e.g. `if (remoteExists)`) lets this local-only case (remoteExists=false) fall through ->
+            // createTable called + errno reverts to ERR_UNKNOWN_ERROR -> the asserts below go red.
             DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createTable(info));
+            Assertions.assertEquals(ErrorCode.ERR_TABLE_EXISTS_ERROR, ex.getMysqlErrorCode(),
+                    "local-cache conflict without IF NOT EXISTS must surface MySQL errno 1050");
             Assertions.assertTrue(ex.getMessage().contains("already exists"));
             Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
             Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());

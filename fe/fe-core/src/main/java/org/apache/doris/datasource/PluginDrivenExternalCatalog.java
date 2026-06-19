@@ -301,16 +301,17 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                         getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
                 return true;
             }
-            // !IF NOT EXISTS: a table present ONLY in the local FE cache (folded onto an existing name
-            // under lower_case_meta_names while the case-sensitive remote has no such table) must be
-            // rejected HERE -- connector.createTable would otherwise CREATE it remotely instead of
-            // failing. Mirrors legacy PaimonMetadataOps.performCreateTable:206-214 (local arm). A
-            // remote-only conflict still falls through to connector.createTable, which throws
-            // "already exists" -> DdlException (unchanged).
-            if (localExists) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR,
-                        createTableInfo.getTableName());
-            }
+            // !IF NOT EXISTS: a table that already exists -- whether remotely (connector) OR only in the
+            // local FE cache (a case-variant name folded onto an existing table under lower_case_meta_names
+            // while the case-sensitive remote has no such table) -- must be rejected HERE with MySQL errno
+            // 1050 (ERR_TABLE_EXISTS_ERROR / SQLSTATE 42S01). Mirrors legacy {Paimon,MaxCompute}MetadataOps,
+            // which report ERR_TABLE_EXISTS_ERROR for BOTH the remote arm (PaimonMetadataOps:195 /
+            // MaxComputeMetadataOps:184) and the local arm (:212 / :195). Reporting before
+            // metadata.createTable also keeps a local-cache-only conflict from being CREATED remotely
+            // (the connector would otherwise create a duplicate). Reaching here already guarantees
+            // (remoteExists || localExists) && !isIfNotExists; reportDdlException throws.
+            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR,
+                    createTableInfo.getTableName());
         }
         ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
                 .convert(createTableInfo, db.getRemoteName());

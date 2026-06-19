@@ -25,7 +25,13 @@
       es/jdbc gain new (NPE-safe, rule-mandated) VERBOSE output. New `PluginDrivenScanNodeVerboseExplainTest` (3 tests,
       RED→GREEN mutation-verified); 45/0/0 `PluginDrivenScanNode*` + checkstyle clean; e2e gated/not-run.
       es_http `ES terminate_after:` gate left as separate residual (R3-LAYER-2). See FIX-R3-RESIDUAL-{design,summary}.md.
-- [ ] **P6-R1-table** bridge `createTable`: add `remoteExists && !ifNotExists` arm → `ERR_TABLE_EXISTS_ERROR` (1050).
+- [x] **P6-R1-table** bridge `createTable`: report `ERR_TABLE_EXISTS_ERROR` (1050) for a remote-existing table —
+      **DONE** — dropped the `if (localExists)` guard so the existence-branch reports 1050 unconditionally (remote
+      OR local arm), short-circuiting before `metadata.createTable`. Exact legacy parity (paimon `:195/:212` +
+      maxcompute `:184/:195`, both arms 1050). Generic bridge → all SPI connectors; es/jdbc/trino existing-table
+      CREATE now says "already exists" (benign, NIT). Rewrote remote test + strengthened local test with errno
+      assertion (RED→GREEN mutation-verified); 26/0/0 DdlRouting + 12/0/0 Engine + checkstyle clean; e2e gated.
+      Design red-team `wf_19fd7785-165` (0 actionable). See FIX-R1-TABLE-{design,summary}.md.
 - [ ] **P6-C4** thread `hive_metastore_client_timeout_second` through `ConnectorContext.getEnvironment()`.
 - [ ] **P6-R2-catalog** warn-and-strip now-dead `meta.cache.paimon.table.*` keys at CREATE CATALOG.
 - [ ] **P6-R3-catalog** include catalog name in `listDatabaseNames` `LOG.warn` (decide keep best-effort swallow).
