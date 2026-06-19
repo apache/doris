@@ -30,6 +30,12 @@
 5	3	e
 6	3	f
 
+-- !list_int_bloom --
+1	1	a
+2	1	b
+5	3	e
+6	3	f
+
 -- !no_pruning --
 13	250	m
 18	350	r
@@ -123,3 +129,12 @@ Beijing	3
 2	1	4	b
 3	1	5	c
 4	1	9	d
+
+-- !list_expr_bloom --
+1	1	a
+2	1	b
+5	3	e
+6	3	f
+
+-- !list_str_bloom --
+3	c

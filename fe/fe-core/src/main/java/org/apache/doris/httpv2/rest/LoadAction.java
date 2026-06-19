@@ -46,6 +46,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
+import com.google.common.net.HostAndPort;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -504,14 +505,11 @@ public class LoadAction extends RestBaseController {
         }
 
         String reqHost = "";
-        String[] pair = reqHostStr.split(":");
-        if (pair.length == 1) {
-            reqHost = pair[0];
-        } else if (pair.length == 2) {
-            reqHost = pair[0];
-        } else {
+        try {
+            reqHost = HostAndPort.fromString(reqHostStr).getHost();
+        } catch (IllegalArgumentException e) {
             LOG.info("Invalid header host: {}", reqHostStr);
-            throw new LoadException("Invalid header host: " + reqHost);
+            throw new LoadException("Invalid header host: " + reqHostStr);
         }
 
         // User specified redirect policy
@@ -579,19 +577,26 @@ public class LoadAction extends RestBaseController {
             throw new AnalysisException("empty endpoint: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
+        String host;
+        int port;
+        try {
+            HostAndPort hp = HostAndPort.fromString(hostPort);
+            if (!hp.hasPort()) {
+                throw new IllegalArgumentException("No port found");
+            }
+            host = hp.getHost();
+            port = hp.getPort();
+        } catch (IllegalArgumentException e) {
             LOG.info("Invalid endpoint: {}", hostPort);
             throw new AnalysisException("Invalid endpoint: " + hostPort);
         }
 
-        int port = Integer.parseInt(pair[1]);
         if (port <= 0 || port >= 65536) {
-            LOG.info("Invalid endpoint port: {}", pair[1]);
-            throw new AnalysisException("Invalid endpoint port: " + pair[1]);
+            LOG.info("Invalid endpoint port: {}", port);
+            throw new AnalysisException("Invalid endpoint port: " + port);
         }
 
-        return Pair.of(pair[0], port);
+        return Pair.of(host, port);
     }
 
     // NOTE: This function can only be used for AuditlogPlugin stream load for now.

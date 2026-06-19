@@ -4,10 +4,3 @@
 
 -- !bitmap_to_base64_empty --
 AA==
-
--- !bitmap_to_base64_single --
-BQEBAAAAAAAAAA==
-
--- !bitmap_to_base64_multi --
-BQIBAAAAAAAAAH+WmAAAAAAA
-
