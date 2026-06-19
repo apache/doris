@@ -17,6 +17,8 @@
 
 import groovy.json.JsonSlurper
 import org.apache.doris.regression.action.ProfileAction
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 def getProfile = { masterHTTPAddr, id ->
     def dst = 'http://' + masterHTTPAddr
@@ -197,7 +199,20 @@ PROPERTIES (
     def masterAddress = masterIP + ":" + masterHTTPPort
     logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-    def profileString = getProfile(masterAddress, jobId.toString())
+    // The BE reports the detailed execution profile to FE asynchronously, after
+    // the load job has already finished (the Summary section is pushed
+    // synchronously on txn VISIBLE, but the Fragments/operators are filled only
+    // when the coordinator BE's report lands). Fetching too early yields a
+    // profile whose MergedProfile carries no operators, so the scan counters
+    // are not present yet. Poll until they show up, i.e. the execution profile
+    // has landed; the await times out and fails loudly if it never does.
+    def profileString = ""
+    Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until {
+        profileString = getProfile(masterAddress, jobId.toString())
+        return profileString.contains("NumScanners") &&
+                profileString.contains("RowsProduced") &&
+                profileString.contains("RowsRead")
+    }
     logger.info("profileDataString:" + profileString)
     assertTrue(profileString.contains("NumScanners"))
     assertTrue(profileString.contains("RowsProduced"))
