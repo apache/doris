@@ -15,7 +15,9 @@
 
 ## Suggested order (independent; smallest blast radius first)
 
-A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ A3 / ✅ A2 / ✅ B-MC2 / ✅ A1 done; next = **B-R2-be**, last of the 5)
+A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ ALL 5 DONE: A3 `5fa47c27eb8` / A2 `1935748d6c3` / B-MC2 `10284edbf88`
+/ A1 `9d687145a28` / B-R2-be `60ed665c4dc`. **Batch complete.** Next batch item = P6-DEVIATIONS 余项
+accept-as-deviation signing → `task-list-P6-fixes.md`.)
 
 ---
 
@@ -143,7 +145,22 @@ A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ A3 / ✅ A2 / ✅ B-MC2 / ✅ A1 d
 
 ## B-R2-be — `history_schema_info` eager superset → narrow to referenced schema_ids  (NIT / intentional) — **NO PERF REGRESSION**
 
-- [ ] **B-R2-be**
+- [x] **B-R2-be** — DONE `60ed665c4dc`. **Narrowing was REJECTED as architecturally infeasible connector-only +
+  BE-crash-prone** (props build before splits; `getScanPlanProvider()` returns a NEW provider per call so
+  planScan's schema_ids can't reach the dict build; the referenced set is per-scan; the generic bridge can't
+  collect `paimon.schema_id`; re-planning in props = new I/O; an under-covering narrowed set hard-crashes BE
+  per CI 969249). **User chose Option A = memoize the reads, keep the eager superset emission.** Implemented:
+  the dict emission stays **byte-identical** (full `listAllIds()` → always covers → zero BE-crash risk); only
+  the per-schema-id field READ is served from a connector-level immutable memo — **REUSING the B-MC2
+  `PaimonSchemaAtMemo`** (it already caches `(handle,schemaId)→schema fields`, the same write-once fact).
+  New package-private 4-arg provider ctor (2/3-arg delegate with a fresh memo → ~25 sites unchanged);
+  `buildSchemaEvolutionParam` takes the handle + memo-wraps the loop (DIRECT-read loader, not
+  `catalogOps.schemaAt`, so real-table+fake-catalogOps tests unaffected); `getScanPlanProvider()` injects the
+  shared per-catalog memo. Consistency (same key→same value across both features) verified via the write-once
+  invariant + B-MC2-never-writes-$ro/sys. +5 UT (memo-populated / sentinel-HIT / byte-identical / force-jni /
+  wiring) each RED→GREEN; 303/0/1skip; checkstyle 0; import-check 0. design red-team `wf_222e1abd-655` (4
+  lenses sound, recommended REUSE, 6 actionable folded), impl-verify COMMIT_AS_IS. e2e gated. See
+  `designs/FIX-B-R2-BE-SCHEMA-DICT-MEMO-*.md`.
 - **Finding:** report §R2 (be). `buildSchemaEvolutionParam:1214-1232` emits the `-1` (current, from requested columns —
   cheap, keep) PLUS **one entry per `schemaManager.listAllIds()`** — reading every committed schema file even for a
   single-schema query. Legacy added entries lazily, one per distinct file `schema_id` a split referenced, + `-1`.
