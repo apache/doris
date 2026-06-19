@@ -73,6 +73,8 @@ This software includes third party software subject to the following copyrights:
 - Netty Reactive Streams - https://github.com/playframework/netty-reactive-streams
 - Jackson-core - https://github.com/FasterXML/jackson-core
 - Jackson-dataformat-cbor - https://github.com/FasterXML/jackson-dataformats-binary
+- Darts-clone (double-array trie) - Copyright 2008-2014 Susumu Yata - https://github.com/s-yata/darts-clone (BSD 2-clause; see dist/licenses/LICENSE-darts-clone.txt)
+- mecab-ipadic (IPADIC) Japanese morphological dictionary - Copyright 2000-2003 Nara Institute of Science and Technology (NAIST) - licensed under NAIST-2003 (BSD-style); the kuromoji analyzer bundles the UTF-8 form from https://github.com/lindera/mecab-ipadic (content of mecab-ipadic-2.7.0-20070801). See dist/licenses/LICENSE-ipadic.txt.
 
 The licenses for these third party components are included in LICENSE.txt
 

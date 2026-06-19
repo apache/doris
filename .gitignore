@@ -151,3 +151,6 @@ compile_commands.json
 
 .worktrees/
 .worktree_initialized
+
+# generated kuromoji dictionary binaries
+/be/dict/kuromoji/*.bin

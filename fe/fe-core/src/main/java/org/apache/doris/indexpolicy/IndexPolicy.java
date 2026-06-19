@@ -69,7 +69,7 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
             "empty", "char_replace", "icu_normalizer");
 
     public static final Set<String> BUILTIN_ANALYZERS = ImmutableSet.of(
-            "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik");
+            "none", "standard", "unicode", "english", "chinese", "icu", "basic", "ik", "kuromoji");
 
     public static final Set<String> BUILTIN_NORMALIZERS = ImmutableSet.of("lowercase");
 

@@ -53,6 +53,7 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_ICU = InvertedIndexProperties.INVERTED_INDEX_PARSER_ICU;
     public static String INVERTED_INDEX_PARSER_BASIC = InvertedIndexProperties.INVERTED_INDEX_PARSER_BASIC;
     public static String INVERTED_INDEX_PARSER_IK = InvertedIndexProperties.INVERTED_INDEX_PARSER_IK;
+    public static String INVERTED_INDEX_PARSER_KUROMOJI = InvertedIndexProperties.INVERTED_INDEX_PARSER_KUROMOJI;
 
     public static String INVERTED_INDEX_PARSER_MODE_KEY = InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY;
 
@@ -124,7 +125,8 @@ public class InvertedIndexUtil {
                                 || parser.equals(INVERTED_INDEX_PARSER_CHINESE)
                                     || parser.equals(INVERTED_INDEX_PARSER_ICU)
                                         || parser.equals(INVERTED_INDEX_PARSER_BASIC)
-                                            || parser.equals(INVERTED_INDEX_PARSER_IK))) {
+                                            || parser.equals(INVERTED_INDEX_PARSER_IK)
+                                                || parser.equals(INVERTED_INDEX_PARSER_KUROMOJI))) {
                 throw new AnalysisException("INVERTED index parser: " + parser
                     + " is invalid for column: " + indexColName + " of type " + colType);
             }
@@ -232,9 +234,10 @@ public class InvertedIndexUtil {
         checkAnalyzerName(analyzerName, colType);
         checkNormalizerName(normalizerName, colType);
 
-        if (parser != null && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik")) {
+        if (parser != null
+                && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik|kuromoji")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
-                    + ", parser must be none, english, unicode, chinese, icu, basic or ik");
+                    + ", parser must be none, english, unicode, chinese, icu, basic, ik or kuromoji");
         }
 
         if (parserMode != null) {
@@ -248,8 +251,13 @@ public class InvertedIndexUtil {
                     throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
                         + ", parser_mode must be ik_max_word or ik_smart for ik parser");
                 }
-            } else if (parserMode != null) {
-                throw new AnalysisException("parser_mode is only available for chinese and ik parser");
+            } else if (INVERTED_INDEX_PARSER_KUROMOJI.equals(parser)) {
+                if (!parserMode.matches("search|normal|extended")) {
+                    throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
+                        + ", parser_mode must be search, normal or extended for kuromoji parser");
+                }
+            } else {
+                throw new AnalysisException("parser_mode is only available for chinese, ik and kuromoji parser");
             }
         }
 

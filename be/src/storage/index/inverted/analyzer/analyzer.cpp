@@ -39,6 +39,7 @@
 #include "storage/index/inverted/analyzer/basic/basic_analyzer.h"
 #include "storage/index/inverted/analyzer/icu/icu_analyzer.h"
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
+#include "storage/index/inverted/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -69,7 +70,8 @@ bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name
            analyzer_name == INVERTED_INDEX_PARSER_CHINESE ||
            analyzer_name == INVERTED_INDEX_PARSER_ICU ||
            analyzer_name == INVERTED_INDEX_PARSER_BASIC ||
-           analyzer_name == INVERTED_INDEX_PARSER_IK;
+           analyzer_name == INVERTED_INDEX_PARSER_IK ||
+           analyzer_name == INVERTED_INDEX_PARSER_KUROMOJI;
 }
 
 AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
@@ -107,6 +109,11 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
             ik_analyzer->setMode(false);
         }
         analyzer = std::move(ik_analyzer);
+    } else if (parser_type == InvertedIndexParserType::PARSER_KUROMOJI) {
+        auto kuromoji_analyzer = std::make_shared<KuromojiAnalyzer>();
+        kuromoji_analyzer->initDict(config::inverted_index_dict_path + "/kuromoji");
+        kuromoji_analyzer->setMode(kuromoji_mode_from_string(parser_mode));
+        analyzer = std::move(kuromoji_analyzer);
     } else {
         // default
         analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
