@@ -296,15 +296,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // getSplits()/startSplit() (see setSelectedPartitions).
             output.append(prefix).append("partition=").append(selectedPartitionNum)
                     .append("/").append(totalPartitionNum).append("\n");
-            // FIX-E (explain gap): the VERBOSE per-backend block (dataFileNum/deleteFileNum/
-            // deleteSplitNum) lives in the parent FileScanNode but this override does not call super,
-            // so re-emit it under the same VERBOSE && !isBatchMode() gate. GATED to paimon (the only
-            // connector with merge-on-read delete files surfaced via getDeleteFiles) so es/jdbc/
-            // max_compute VERBOSE output stays byte-unchanged. Emitted before the connector explain so
-            // the block ordering matches the legacy PaimonScanNode (FileScanNode body, then paimon's).
-            if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()
-                    && "paimon".equals(
-                            desc.getTable().getDatabase().getCatalog().getType())) {
+            // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
+            // per-file "path start/length" lines, and dataFileNum/deleteFileNum/deleteSplitNum) lives in
+            // the parent FileScanNode but this override does not call super, so re-emit it under the SAME
+            // gate the parent uses: VERBOSE && !isBatchMode() (FileScanNode#getNodeExplainString). Emitted
+            // UNCONDITIONALLY for every plugin connector -- like the sibling inputSplitNum / partition=N/M
+            // (above) and pushdown agg= (below) lines -- because it is universal FileScanNode info, not
+            // connector-specific: NO source-name branch belongs in this generic node (a "paimon".equals(
+            // getType()) gate here previously dropped it for non-paimon connectors). This RESTORES the
+            // block that legacy MaxComputeScanNode / TrinoConnectorScanNode inherited from FileScanNode
+            // pre-cutover, and is consistent for every FILE_SCAN plugin connector (es/jdbc render their
+            // synthetic per-split path; connectors with no delete files render deleteFileNum=0 via
+            // getDeleteFiles -> empty). Connector-SPECIFIC EXPLAIN stays delegated to
+            // ConnectorScanPlanProvider.appendExplainInfo below; this block is emitted before that
+            // delegation so the ordering matches the legacy PaimonScanNode (FileScanNode body, then the
+            // connector's lines).
+            if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
                 appendBackendScanRangeDetail(output, prefix);
             }
             // Delegate connector-specific EXPLAIN info to the SPI. Thread the native/total split counts

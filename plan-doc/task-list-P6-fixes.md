@@ -18,8 +18,13 @@
       verified on hadoop 3.4.2); BE `toMap()` stays defaults-laden (byte-parity). Parity for filesystem/jdbc/hms;
       DLF deviation = `DV-036` (accept). 28/0 fe-filesystem-hdfs UT + 279/0/1skip paimon + connector glue test;
       checkstyle + import-check clean; e2e gated/not-run. See FIX-C2-HDFS-XML-{design,summary}.md.
-- [ ] **P6-R3-residual** drop `"paimon".equals` gate on `appendBackendScanRangeDetail`; emit unconditionally under VERBOSE
-      (fixes MaxCompute regression + generic-node-no-source-branch rule + false comment).
+- [x] **P6-R3-residual** drop `"paimon".equals` gate on `appendBackendScanRangeDetail`; emit unconditionally under VERBOSE
+      — **DONE** — removed the source-name conjunct (gate now `VERBOSE && !isBatchMode()`, identical to parent
+      `FileScanNode`) + rewrote the false comment. **Scope (red-team-corrected, broader than review's "maxcompute"):**
+      all 5 `SPI_READY_TYPES` route through this node — paimon unchanged, maxcompute/trino-connector parity-RESTORED,
+      es/jdbc gain new (NPE-safe, rule-mandated) VERBOSE output. New `PluginDrivenScanNodeVerboseExplainTest` (3 tests,
+      RED→GREEN mutation-verified); 45/0/0 `PluginDrivenScanNode*` + checkstyle clean; e2e gated/not-run.
+      es_http `ES terminate_after:` gate left as separate residual (R3-LAYER-2). See FIX-R3-RESIDUAL-{design,summary}.md.
 - [ ] **P6-R1-table** bridge `createTable`: add `remoteExists && !ifNotExists` arm → `ERR_TABLE_EXISTS_ERROR` (1050).
 - [ ] **P6-C4** thread `hive_metastore_client_timeout_second` through `ConnectorContext.getEnvironment()`.
 - [ ] **P6-R2-catalog** warn-and-strip now-dead `meta.cache.paimon.table.*` keys at CREATE CATALOG.
