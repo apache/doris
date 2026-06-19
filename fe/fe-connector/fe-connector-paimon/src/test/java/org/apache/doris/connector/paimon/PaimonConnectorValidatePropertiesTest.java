@@ -73,6 +73,17 @@ public class PaimonConnectorValidatePropertiesTest {
     }
 
     @Test
+    public void deadTableCacheKeyIsAcceptedNotRejected() {
+        // R2: legacy validated meta.cache.paimon.table.{enable,ttl-second,capacity} via CacheSpec (rejecting
+        // malformed values). On the plugin path those keys are dead (a cut-over paimon table reports meta-cache
+        // engine "default", never PaimonExternalMetaCache), so a malformed value is intentionally NOT rejected
+        // (warn-only). The catalog is otherwise well-formed, so the dead key is the only variable.
+        Assertions.assertDoesNotThrow(() -> validate(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                "meta.cache.paimon.table.capacity", "-5")));
+    }
+
+    @Test
     public void requiresWarehouseForRest() {
         // Legacy parity: AbstractPaimonProperties requires warehouse and PaimonRestMetaStoreProperties
         // does NOT override it, so a REST catalog without warehouse is rejected.

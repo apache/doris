@@ -50,7 +50,7 @@ import java.util.function.BiConsumer;
  *
  * <p>The metastore CONNECTION facts (validate rules, HMS/DLF HiveConf key sets, JDBC driver-url
  * resolution, alias arrays) were moved to the shared {@code fe-connector-metastore-spi}
- * ({@code MetaStoreProviders.bind} -&gt; {@code HmsMetaStoreProperties.toHiveConfOverrides()} /
+ * ({@code MetaStoreProviders.bind} -&gt; {@code HmsMetaStoreProperties.toHiveConfOverrides(String)} /
  * {@code DlfMetaStoreProperties.toDlfCatalogConf()}; {@code JdbcDriverSupport.resolveDriverUrl}) — see P2-T03.
  */
 public final class PaimonCatalogFactory {
@@ -308,7 +308,7 @@ public final class PaimonCatalogFactory {
      * base, then overrides).
      *
      * <p>The {@code overrides} are produced by the shared metastore parsers
-     * ({@code HmsMetaStoreProperties.toHiveConfOverrides()} — uri + verbatim {@code hive.*} + auth keys
+     * ({@code HmsMetaStoreProperties.toHiveConfOverrides(String)} — uri + verbatim {@code hive.*} + auth keys
      * + socket-timeout default + storage overlay + kerberos block last; or
      * {@code DlfMetaStoreProperties.toDlfCatalogConf()} — the 8 {@code dlf.catalog.*} keys + OSS storage
      * overlay), which own the ordering-sensitive logic (storage overlay BEFORE the kerberos block). This

@@ -31,7 +31,7 @@ import java.util.Objects;
  *
  * <p>The HMS <em>service</em> principal (e.g. {@code hive.metastore.kerberos.principal}) is
  * deliberately NOT part of this spec: it is a HiveConf override carried via
- * {@code HmsMetaStoreProperties.toHiveConfOverrides()}, not a doAs login fact.
+ * {@code HmsMetaStoreProperties.toHiveConfOverrides(String)}, not a doAs login fact.
  */
 public final class KerberosAuthSpec {
 

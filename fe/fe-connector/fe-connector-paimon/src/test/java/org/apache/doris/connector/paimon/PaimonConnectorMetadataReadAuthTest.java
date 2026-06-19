@@ -70,10 +70,15 @@ public class PaimonConnectorMetadataReadAuthTest {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        // listDatabaseNames swallows failures and returns empty; the proof is that the seam NEVER ran
-        // (log empty) yet the authenticator was entered. MUTATION: an un-wrapped direct
-        // catalogOps.listDatabases() would log "listDatabases" despite the auth failure -> red.
-        Assertions.assertTrue(metadata(ops, ctx).listDatabaseNames(null).isEmpty());
+        // R3: listDatabaseNames now RETHROWS the failure (carrying the catalog name) instead of swallowing to
+        // empty, matching legacy PaimonMetadataOps. The seam still NEVER ran (log empty) yet the authenticator
+        // was entered, so the M-11 wrap coverage holds. MUTATION: an un-wrapped direct catalogOps.listDatabases()
+        // would log "listDatabases" despite the auth failure -> red; reverting to swallow-to-empty makes the
+        // assertThrows red.
+        RuntimeException ex = Assertions.assertThrows(RuntimeException.class,
+                () -> metadata(ops, ctx).listDatabaseNames(null));
+        Assertions.assertTrue(ex.getMessage().contains(ctx.getCatalogName()),
+                "rethrown failure must carry the catalog name (legacy parity)");
         Assertions.assertTrue(ops.log.isEmpty(),
                 "auth failure must abort BEFORE the listDatabases seam runs");
         Assertions.assertEquals(1, ctx.authCount);

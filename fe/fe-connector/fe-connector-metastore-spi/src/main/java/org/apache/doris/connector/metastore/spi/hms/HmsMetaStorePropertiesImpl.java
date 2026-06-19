@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Hive Metastore (HMS) backend facts. {@link #toHiveConfOverrides()} produces the neutral key map the
+ * Hive Metastore (HMS) backend facts. {@link #toHiveConfOverrides(String)} produces the neutral key map the
  * connector layers onto its own {@code HiveConf} (the connector seeds {@code new HiveConf()} +
  * {@code hive.conf.resources} first, then applies these overrides). Ported faithfully from the paimon
  * connector's {@code buildHmsHiveConf} (the up-move source), whose ordering is load-bearing: the
@@ -155,7 +155,7 @@ public final class HmsMetaStorePropertiesImpl extends AbstractMetaStorePropertie
     }
 
     @Override
-    public Map<String, String> toHiveConfOverrides() {
+    public Map<String, String> toHiveConfOverrides(String defaultClientSocketTimeoutSeconds) {
         Map<String, String> conf = new LinkedHashMap<>();
         // 1. All user hive.* keys verbatim (legacy initUserHiveConfig).
         raw.forEach((k, v) -> {
@@ -175,9 +175,14 @@ public final class HmsMetaStorePropertiesImpl extends AbstractMetaStorePropertie
         putIfNotBlank(conf, "hadoop.security.authentication", hdfsAuthType);
         putIfNotBlank(conf, "hadoop.kerberos.principal", hdfsKerberosPrincipal);
         putIfNotBlank(conf, "hadoop.kerberos.keytab", hdfsKerberosKeytab);
-        // 4. Metastore client socket-timeout default (legacy checkAndInit: default 10s when unset).
+        // 4. Metastore client socket-timeout default. Legacy checkAndInit applied
+        //    Config.hive_metastore_client_timeout_second (default 10s) when the user had not set
+        //    hive.metastore.client.socket.timeout. metastore-spi cannot read FE Config, so the engine threads the
+        //    configured default in via ConnectorContext.getEnvironment() (C4); blank falls back to the legacy 10s.
         if (StringUtils.isBlank(raw.get("hive.metastore.client.socket.timeout"))) {
-            conf.put("hive.metastore.client.socket.timeout", "10");
+            conf.put("hive.metastore.client.socket.timeout",
+                    StringUtils.isNotBlank(defaultClientSocketTimeoutSeconds)
+                            ? defaultClientSocketTimeoutSeconds : "10");
         }
         // 5. Storage overlay (legacy buildHiveConfiguration + appendUserHadoopConfig). BEFORE kerberos.
         MetaStoreParseUtils.applyStorageConfig(storageHadoopConfig, raw, conf::put);

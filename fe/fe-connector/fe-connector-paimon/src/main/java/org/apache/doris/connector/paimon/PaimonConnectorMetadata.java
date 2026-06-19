@@ -93,13 +93,16 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
-        // M-11: wrap the remote read in executeAuthenticated so the FE-injected Kerberos UGI applies
-        // (legacy PaimonMetadataOps.listDatabaseNames wrapped it too). Full read-vs-DDL parity (D-052).
+        // M-11: wrap the remote read in executeAuthenticated so the FE-injected Kerberos UGI applies (legacy
+        // PaimonMetadataOps.listDatabaseNames wrapped it too). On failure, rethrow with the catalog name exactly
+        // as legacy PaimonMetadataOps did (R3) — swallowing to an empty list would mask a transient metastore
+        // failure as "zero databases" and diverges from every other connector (all propagate). Read-vs-DDL
+        // parity (D-052).
         try {
             return context.executeAuthenticated(() -> catalogOps.listDatabases());
         } catch (Exception e) {
-            LOG.warn("Failed to list Paimon databases", e);
-            return Collections.emptyList();
+            throw new RuntimeException(
+                    "Failed to list databases names, catalog name: " + context.getCatalogName(), e);
         }
     }
 

@@ -266,6 +266,11 @@ public class DefaultConnectorContext implements ConnectorContext {
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));
         env.put("jdbc_driver_secure_path", Config.jdbc_driver_secure_path);
+        // HMS metastore client socket-timeout default (C4): the metastore-spi cannot read FE Config
+        // (no fe-common dependency), so the FE-configured value is threaded through the environment and
+        // applied by HmsMetaStoreProperties.toHiveConfOverrides when the user has not overridden it.
+        env.put("hive_metastore_client_timeout_second",
+                String.valueOf(Config.hive_metastore_client_timeout_second));
         // The trino-connector plugin runs in an isolated classloader and cannot read FE
         // Config (it would see its own bundled copy with default values). Pass the
         // configured plugin dir through the engine environment instead.

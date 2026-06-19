@@ -38,8 +38,12 @@ public interface HmsMetaStoreProperties extends MetaStoreProperties {
     /**
      * Neutral {@code hive.*} / {@code hadoop.security.*} / SASL overrides to be layered onto the
      * connector's {@code HiveConf}. Includes the HMS service principal when configured.
+     *
+     * @param defaultClientSocketTimeoutSeconds the metastore client socket-timeout (seconds) to apply when the
+     *        user has not set {@code hive.metastore.client.socket.timeout}; the engine threads the FE
+     *        {@code hive_metastore_client_timeout_second} config value here (C4). Blank falls back to {@code "10"}.
      */
-    Map<String, String> toHiveConfOverrides();
+    Map<String, String> toHiveConfOverrides(String defaultClientSocketTimeoutSeconds);
 
     /**
      * The client Kerberos login facts (principal/keytab), present only for a Kerberos-secured

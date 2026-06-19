@@ -180,7 +180,9 @@ public class PaimonConnector implements Connector {
                 // external hive-site.xml as the BASE first, then overlays the overrides (F2 ordering).
                 HmsMetaStoreProperties hms = (HmsMetaStoreProperties)
                         MetaStoreProviders.bind(properties, storageHadoopConfig);
-                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(hiveConfFiles, hms.toHiveConfOverrides());
+                HiveConf hc = PaimonCatalogFactory.assembleHiveConf(hiveConfFiles,
+                        hms.toHiveConfOverrides(context.getEnvironment()
+                                .getOrDefault("hive_metastore_client_timeout_second", "10")));
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
                         "Failed to create Paimon catalog with HMS metastore");
             }

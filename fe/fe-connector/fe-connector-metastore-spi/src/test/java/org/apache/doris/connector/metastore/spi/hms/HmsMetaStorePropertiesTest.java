@@ -53,7 +53,7 @@ public class HmsMetaStorePropertiesTest {
         Assertions.assertEquals(AuthType.SIMPLE, props.getAuthType());
         Assertions.assertFalse(props.kerberos().isPresent());
 
-        Map<String, String> conf = props.toHiveConfOverrides();
+        Map<String, String> conf = props.toHiveConfOverrides("10");
         Assertions.assertEquals("thrift://h:9083", conf.get("hive.metastore.uris"));
         Assertions.assertEquals("10", conf.get("hive.metastore.client.socket.timeout"));
         // No kerberos leakage on a simple catalog.
@@ -73,7 +73,7 @@ public class HmsMetaStorePropertiesTest {
                 "hadoop.security.auth_to_local", "RULE:[1:$1]",
                 "warehouse", "wh"));
 
-        Map<String, String> conf = props.toHiveConfOverrides();
+        Map<String, String> conf = props.toHiveConfOverrides("10");
         Assertions.assertEquals("kerberos", conf.get("hive.metastore.authentication.type"));
         Assertions.assertEquals("doris@REALM", conf.get("hive.metastore.client.principal"));
         Assertions.assertEquals("/etc/doris.keytab", conf.get("hive.metastore.client.keytab"));
@@ -100,7 +100,7 @@ public class HmsMetaStorePropertiesTest {
                 "hive.metastore.client.principal", "p", "hive.metastore.client.keytab", "k",
                 "hadoop.security.authentication", "simple",
                 "warehouse", "wh"));
-        Map<String, String> conf = props.toHiveConfOverrides();
+        Map<String, String> conf = props.toHiveConfOverrides("10");
         Assertions.assertEquals("kerberos", conf.get("hadoop.security.authentication"));
         Assertions.assertEquals("true", conf.get("hive.metastore.sasl.enabled"));
     }
@@ -113,7 +113,7 @@ public class HmsMetaStorePropertiesTest {
                 "hadoop.kerberos.principal", "hdfs@REALM",
                 "hadoop.kerberos.keytab", "/etc/hdfs.keytab",
                 "warehouse", "wh"));
-        Map<String, String> conf = props.toHiveConfOverrides();
+        Map<String, String> conf = props.toHiveConfOverrides("10");
         Assertions.assertEquals("kerberos", conf.get("hadoop.security.authentication"));
         Assertions.assertEquals("true", conf.get("hive.metastore.sasl.enabled"));
         // Metastore auth type itself is unset -> SIMPLE, but the effective kerberos facts come from HDFS.
@@ -128,7 +128,7 @@ public class HmsMetaStorePropertiesTest {
     public void usernameAliasResolvesToHadoopUsername() {
         Map<String, String> conf = of(raw(
                 "hive.metastore.uris", "thrift://h", "hive.metastore.username", "bob", "warehouse", "wh"))
-                .toHiveConfOverrides();
+                .toHiveConfOverrides("10");
         Assertions.assertEquals("bob", conf.get("hadoop.username"));
     }
 
@@ -181,7 +181,7 @@ public class HmsMetaStorePropertiesTest {
                 "hive.metastore.uris", "thrift://h",
                 "hive.metastore.authentication.type", "kerberos",
                 "hive.metastore.client.principal", "p", "hive.metastore.client.keytab", "k",
-                "warehouse", "wh"), storage).toHiveConfOverrides();
+                "warehouse", "wh"), storage).toHiveConfOverrides("10");
         Assertions.assertEquals("ran", conf.get("fs.s3a.marker"));
         Assertions.assertEquals("kerberos", conf.get("hadoop.security.authentication"));
     }
@@ -202,7 +202,7 @@ public class HmsMetaStorePropertiesTest {
         storage.put("hadoop.username", "from-storage");
         Map<String, String> conf = HmsMetaStorePropertiesImpl.of(raw(
                 "hive.metastore.uris", "thrift://h", "hive.metastore.username", "bob", "warehouse", "wh"),
-                storage).toHiveConfOverrides();
+                storage).toHiveConfOverrides("10");
         Assertions.assertEquals("bob", conf.get("hadoop.username"));
     }
 
@@ -216,15 +216,41 @@ public class HmsMetaStorePropertiesTest {
                 "hadoop.kerberos.principal", "hdfs@REALM", "hadoop.kerberos.keytab", "/k",
                 "warehouse", "wh"));
         Assertions.assertFalse(props.kerberos().isPresent());
-        Assertions.assertFalse(props.toHiveConfOverrides().containsKey("hive.metastore.sasl.enabled"));
+        Assertions.assertFalse(props.toHiveConfOverrides("10").containsKey("hive.metastore.sasl.enabled"));
     }
 
     @Test
     public void userSuppliedSocketTimeoutSurvivesTheDefault() {
         Map<String, String> conf = of(raw(
                 "hive.metastore.uris", "thrift://h", "hive.metastore.client.socket.timeout", "30",
-                "warehouse", "wh")).toHiveConfOverrides();
+                "warehouse", "wh")).toHiveConfOverrides("10");
         Assertions.assertEquals("30", conf.get("hive.metastore.client.socket.timeout"));
+    }
+
+    @Test
+    public void threadedSocketTimeoutDefaultFlowsThrough() {
+        // C4: the FE-configured hive_metastore_client_timeout_second (threaded as the default arg) is applied
+        // instead of the hardcoded 10 when the user did not set hive.metastore.client.socket.timeout.
+        Map<String, String> conf = of(raw("hive.metastore.uris", "thrift://h", "warehouse", "wh"))
+                .toHiveConfOverrides("60");
+        Assertions.assertEquals("60", conf.get("hive.metastore.client.socket.timeout"));
+    }
+
+    @Test
+    public void userSocketTimeoutOverridesThreadedDefault() {
+        // C4: a per-catalog hive.metastore.client.socket.timeout still wins over the threaded FE default.
+        Map<String, String> conf = of(raw(
+                "hive.metastore.uris", "thrift://h", "hive.metastore.client.socket.timeout", "30",
+                "warehouse", "wh")).toHiveConfOverrides("60");
+        Assertions.assertEquals("30", conf.get("hive.metastore.client.socket.timeout"));
+    }
+
+    @Test
+    public void blankThreadedSocketTimeoutFallsBackToTen() {
+        // C4: defensive fallback — a blank threaded default keeps the historical 10s (legacy parity when unset).
+        Map<String, String> conf = of(raw("hive.metastore.uris", "thrift://h", "warehouse", "wh"))
+                .toHiveConfOverrides("");
+        Assertions.assertEquals("10", conf.get("hive.metastore.client.socket.timeout"));
     }
 
     @Test

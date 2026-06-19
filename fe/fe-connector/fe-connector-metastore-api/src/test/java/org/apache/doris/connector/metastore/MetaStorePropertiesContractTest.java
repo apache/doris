@@ -113,7 +113,7 @@ class MetaStorePropertiesContractTest {
             }
 
             @Override
-            public Map<String, String> toHiveConfOverrides() {
+            public Map<String, String> toHiveConfOverrides(String defaultClientSocketTimeoutSeconds) {
                 return Map.of("hive.metastore.sasl.enabled", "true");
             }
 
@@ -125,7 +125,7 @@ class MetaStorePropertiesContractTest {
 
         Assertions.assertEquals("thrift://hms:9083", hms.getUri());
         Assertions.assertEquals(AuthType.KERBEROS, hms.getAuthType());
-        Assertions.assertEquals("true", hms.toHiveConfOverrides().get("hive.metastore.sasl.enabled"));
+        Assertions.assertEquals("true", hms.toHiveConfOverrides("10").get("hive.metastore.sasl.enabled"));
         Assertions.assertTrue(hms.kerberos().isPresent());
         Assertions.assertTrue(hms.kerberos().get().hasCredentials());
         Assertions.assertEquals("hive/_HOST@REALM", hms.kerberos().get().getPrincipal());
