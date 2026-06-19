@@ -85,15 +85,17 @@ import java.util.Stack;
 public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void, CollectorContext> {
     private StatementContext statementContext;
     private boolean bottomPredicate;
+    private boolean skipMetaPath;
     private Multimap<Integer, CollectAccessPathResult> slotToAccessPaths;
     private Stack<Map<String, Expression>> nameToLambdaArguments = new Stack<>();
 
     public AccessPathExpressionCollector(
             StatementContext statementContext, Multimap<Integer, CollectAccessPathResult> slotToAccessPaths,
-            boolean bottomPredicate) {
+            boolean bottomPredicate, boolean skipMetaPath) {
         this.statementContext = statementContext;
         this.slotToAccessPaths = slotToAccessPaths;
         this.bottomPredicate = bottomPredicate;
+        this.skipMetaPath = skipMetaPath;
     }
 
     public void collect(Expression expression) {
@@ -205,9 +207,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // single check covers nested CHAR cases too.
         if (arg.getDataType().isStringLikeType() && !arg.getDataType().isCharType()
                 && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             return arg.accept(this, offsetContext);
         }
         // fall through to default (recurse into children with fresh contexts)
@@ -219,9 +225,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         Expression arg = mapSize.child();
         DataType argType = arg.getDataType();
         if (argType.isMapType() && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             return arg.accept(this, offsetContext);
         }
         return visit(mapSize, context);
@@ -234,9 +244,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // Arrays and maps share the same offset-array + data storage layout as strings on the BE.
         DataType argType = arg.getDataType();
         if ((argType.isArrayType() || argType.isMapType()) && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
             Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
@@ -621,6 +635,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // and nested access (element_at(s, 'city') IS NULL → [s, city, NULL]).
         // For unrecognized expressions, the default visitor resets context, safely discarding NULL.
         if (arg.nullable() && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext nullContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             nullContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_NULL);
