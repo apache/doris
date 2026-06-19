@@ -683,6 +683,11 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeSta
     while (_join_block.rows() < state->batch_size()) {
         while (_current_build_pos == _shared_state->build_blocks.size() ||
                _probe_block_pos == probe_block->rows()) {
+            if (_current_build_pos == _shared_state->build_blocks.size() &&
+                !_shared_state->build_side_eos) {
+                _need_more_build_data = true;
+                return Status::OK();
+            }
             RETURN_IF_ERROR(_advance_lazy_probe_row(state, *probe_block));
             if (_join_block.rows() >= state->batch_size()) {
                 break;
@@ -807,6 +812,11 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
     while (_join_block.rows() + add_rows() <= state->batch_size()) {
         while (_current_build_pos == _shared_state->build_blocks.size() ||
                _probe_block_pos == probe_block->rows()) {
+            if (_current_build_pos == _shared_state->build_blocks.size() &&
+                !_shared_state->build_side_eos) {
+                _need_more_build_data = true;
+                return;
+            }
             // if probe block is empty(), do not need disprocess the probe block rows
             if (_probe_block_pos < probe_block->rows()) {
                 _probe_side_process_count++;
@@ -852,10 +862,9 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
 // Generate based on build side when the existing small-build heuristic applies, or while the
 // current probe block is consuming incrementally published build blocks.
 bool NestedLoopJoinProbeLocalState::use_generate_block_base_build() const {
-    const bool in_incremental_probe_block =
-            _can_output_from_partial_build() &&
-            (!_shared_state->build_side_eos || _need_more_build_data || _current_build_pos != 0 ||
-             _current_build_row_pos != 0);
+    const bool in_incremental_probe_block = _can_output_from_partial_build() &&
+                                            (!_shared_state->build_side_eos ||
+                                             _need_more_build_data || _current_build_row_pos != 0);
     return in_incremental_probe_block ||
            (_shared_state->build_side_eos && _shared_state->build_blocks.size() == 1);
 }
