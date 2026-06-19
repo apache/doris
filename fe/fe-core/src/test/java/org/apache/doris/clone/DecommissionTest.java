@@ -144,7 +144,7 @@ public class DecommissionTest extends TestWithFeService {
                 + "    \"replication_num\" = \"1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTableStmt(createStr));
-        int totalReplicaNum = 1 * 2400;
+        int totalReplicaNum = 1 * 64;
         checkBalance(1, totalReplicaNum, 4);
 
         Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList().get(0);
