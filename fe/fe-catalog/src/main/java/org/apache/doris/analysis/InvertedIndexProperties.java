@@ -35,11 +35,15 @@ public class InvertedIndexProperties {
     public static String INVERTED_INDEX_PARSER_ICU = "icu";
     public static String INVERTED_INDEX_PARSER_BASIC = "basic";
     public static String INVERTED_INDEX_PARSER_IK = "ik";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI = "kuromoji";
 
     public static String INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
     public static String INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
     public static String INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
     public static String INVERTED_INDEX_PARSER_SMART = "ik_smart";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI_NORMAL = "normal";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI_SEARCH = "search";
+    public static String INVERTED_INDEX_PARSER_KUROMOJI_EXTENDED = "extended";
 
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";

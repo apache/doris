@@ -2282,6 +2282,14 @@ build_icu() {
     make install
 }
 
+# mecab-ipadic
+build_mecab_ipadic() {
+    check_if_source_exist "${MECAB_IPADIC_SOURCE}"
+    rm -rf "${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/share"
+    cp -r "${TP_SOURCE_DIR}/${MECAB_IPADIC_SOURCE}" "${TP_INSTALL_DIR}/share/${MECAB_IPADIC_SOURCE}"
+}
+
 # jindofs
 build_jindofs() {
     check_if_source_exist "${JINDOFS_SOURCE}"
@@ -2568,6 +2576,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         azure
         brotli
         icu
+        mecab_ipadic
         pugixml
         paimon_cpp_17
         paimon_cpp
@@ -2675,6 +2684,7 @@ cleanup_package_source() {
         azure)           src_var="AZURE_SOURCE" ;;
         dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
         icu)             src_var="ICU_SOURCE" ;;
+        mecab_ipadic)    src_var="MECAB_IPADIC_SOURCE" ;;
         jindofs)         src_var="JINDOFS_SOURCE" ;;
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;

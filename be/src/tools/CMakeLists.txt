@@ -116,3 +116,44 @@ if (BUILD_INDEX_TOOL)
             )
     endif()
 endif()
+
+# Offline generator for the Japanese kuromoji dictionary. Compiles the UTF-8
+# mecab-ipadic source into the four dict/kuromoji/*.bin files that the BE install
+# rule ships. EXCLUDE_FROM_ALL and not installed: it is a maintenance tool, not
+# part of doris_be. Regenerate with `ninja kuromoji_dict`.
+add_executable(kuromoji_build_dict EXCLUDE_FROM_ALL
+    kuromoji_build_dict.cpp
+)
+
+target_include_directories(kuromoji_build_dict PRIVATE ${PROJECT_SOURCE_DIR}/..)
+
+pch_reuse(kuromoji_build_dict)
+
+set_target_properties(kuromoji_build_dict PROPERTIES ENABLE_EXPORTS 1)
+
+if (COMPILER_CLANG)
+    target_compile_options(kuromoji_build_dict PRIVATE
+    -Wno-implicit-int-conversion
+    -Wno-shorten-64-to-32
+    )
+endif()
+
+target_link_libraries(kuromoji_build_dict
+    ${DORIS_LINK_LIBS}
+)
+
+# `ninja kuromoji_dict` runs the tool over the staged mecab-ipadic source and
+# (re)writes dict/kuromoji/*.bin. Point KUROMOJI_IPADIC_SRC elsewhere if the
+# source is not under the thirdparty share directory.
+set(KUROMOJI_IPADIC_SRC "${THIRDPARTY_DIR}/share/mecab-ipadic-2.7.0-20250920"
+    CACHE PATH "UTF-8 mecab-ipadic source directory used to generate the kuromoji dictionary")
+set(KUROMOJI_DICT_OUT "${BASE_DIR}/dict/kuromoji")
+add_custom_command(
+    OUTPUT "${KUROMOJI_DICT_OUT}/system.bin" "${KUROMOJI_DICT_OUT}/matrix.bin"
+           "${KUROMOJI_DICT_OUT}/chardef.bin" "${KUROMOJI_DICT_OUT}/unkdict.bin"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${KUROMOJI_DICT_OUT}"
+    COMMAND $<TARGET_FILE:kuromoji_build_dict> "${KUROMOJI_IPADIC_SRC}" "${KUROMOJI_DICT_OUT}"
+    DEPENDS kuromoji_build_dict
+    COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
+    VERBATIM)
+add_custom_target(kuromoji_dict DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
