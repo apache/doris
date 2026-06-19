@@ -40,7 +40,7 @@ suite("bilateral_eager_agg") {
         );
         insert into t_pdajos_1 values(1,10),(1,20),(2,30);
         insert into t_pdajos_2 values(1,100),(1,200),(2,300);
-        
+
         drop table if exists pdagg_proj_t1;
         drop table if exists pdagg_proj_t2;
         create table pdagg_proj_t1 (
