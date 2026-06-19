@@ -150,6 +150,9 @@ docker/runtime/be/resource/apache-doris/
 compile_commands.json
 .github
 
+# generated kuromoji dictionary binaries
+/be/dict/kuromoji/*.bin
+
 .worktrees/
 .worktree_initialized
 

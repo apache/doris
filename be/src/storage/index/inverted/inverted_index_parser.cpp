@@ -39,6 +39,8 @@ std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_
         return INVERTED_INDEX_PARSER_BASIC;
     case InvertedIndexParserType::PARSER_IK:
         return INVERTED_INDEX_PARSER_IK;
+    case InvertedIndexParserType::PARSER_KUROMOJI:
+        return INVERTED_INDEX_PARSER_KUROMOJI;
     default:
         return INVERTED_INDEX_PARSER_UNKNOWN;
     }
@@ -62,6 +64,8 @@ InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::st
         return InvertedIndexParserType::PARSER_BASIC;
     } else if (parser_str_lower == INVERTED_INDEX_PARSER_IK) {
         return InvertedIndexParserType::PARSER_IK;
+    } else if (parser_str_lower == INVERTED_INDEX_PARSER_KUROMOJI) {
+        return InvertedIndexParserType::PARSER_KUROMOJI;
     }
 
     return InvertedIndexParserType::PARSER_UNKNOWN;
@@ -89,8 +93,13 @@ std::string get_parser_mode_string_from_properties(
     if (parser_it == properties.end()) {
         parser_it = properties.find(INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
-    if (parser_it != properties.end() && parser_it->second == INVERTED_INDEX_PARSER_IK) {
-        return INVERTED_INDEX_PARSER_SMART;
+    if (parser_it != properties.end()) {
+        if (parser_it->second == INVERTED_INDEX_PARSER_IK) {
+            return INVERTED_INDEX_PARSER_SMART;
+        }
+        if (parser_it->second == INVERTED_INDEX_PARSER_KUROMOJI) {
+            return INVERTED_INDEX_PARSER_KUROMOJI_SEARCH;
+        }
     }
     return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
 }
