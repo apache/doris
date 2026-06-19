@@ -15,7 +15,7 @@
 
 ## Suggested order (independent; smallest blast radius first)
 
-A3 → A2 → B-MC2 → A1 → B-R2-be
+A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ A3 / ✅ A2 / ✅ B-MC2 done; next = **A1**, then B-R2-be)
 
 ---
 
@@ -88,7 +88,21 @@ A3 → A2 → B-MC2 → A1 → B-R2-be
 
 ## B-MC2 — time-travel schema re-resolved per query (no second-level cache)  (NIT / CACHE-P1) — **NO PERF REGRESSION**
 
-- [ ] **B-MC2**
+- [x] **B-MC2** — DONE `10284edbf88`. New connector-side `PaimonSchemaAtMemo`
+  (`ConcurrentHashMap<MemoKey, PaimonSchemaSnapshot>`, loader-outside-lock + best-effort clear-on-overflow
+  bound), owned by the long-lived per-catalog `PaimonConnector` (rebuilt→empty on REFRESH) and injected
+  into each per-query metadata via a new **package-private 4-arg ctor** (public 3-arg delegates with a fresh
+  per-instance memo → ~15 sites unchanged). `getTableSchema(snapshot)` schemaId>=0 branch: `resolveTable`
+  ONCE outside the loader, memo wraps ONLY the `schemaAt` read, `ConnectorTableSchema` rebuilt fresh per
+  query. **Design red-team MAJOR adopted:** memoize the raw `PaimonSchemaSnapshot` (pure function of the
+  key), NOT the built `ConnectorTableSchema` (which embeds live `coreOptions` → stale-properties risk).
+  `MemoKey` = extracted handle identity (db,table,sysName,branch)+schemaId (no `Table` pinning — a
+  deviation from the red-team's "delegate to handle.equals" to avoid retaining the loaded paimon Table).
+  +3 `PaimonConnectorMetadataMvccTest` + new `PaimonSchemaAtMemoTest` (3), each RED-verified by a separate
+  mutation run (RED-1 memo-disabled / RED-2 key-drops-fields / RED-3 bound-disabled). 293/0/0/1skip,
+  checkstyle 0, import-check 0; design red-team `wf_903bf4e9-3a4`, impl-verify `wf_67804f35-d5e`
+  (2× COMMIT_AS_IS + 1× FIX_THEN_COMMIT = only the verifier's own scratch file; production code clean).
+  e2e gated, NOT run. See `designs/FIX-B-MC2-SCHEMA-AT-MEMO-{design,summary}.md`.
 - **Finding:** report §MC2. `PluginDrivenMvccExternalTable.loadSnapshot:259-262` resolves schema-at-snapshot via
   `metadata.getTableSchema(pinnedHandle, snapshot)` (a `schemaAt` round-trip) **every query** and pins it to the
   per-statement `PluginDrivenMvccSnapshot` only. Repeated time-travel to the same snapshot re-reads it; legacy served
