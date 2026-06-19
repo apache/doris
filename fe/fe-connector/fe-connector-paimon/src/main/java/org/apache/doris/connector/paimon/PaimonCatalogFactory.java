@@ -322,6 +322,15 @@ public final class PaimonCatalogFactory {
      */
     public static HiveConf assembleHiveConf(Map<String, String> base, Map<String, String> overrides) {
         HiveConf hiveConf = new HiveConf();
+        // Pin the conf classloader to the plugin loader, mirroring buildHadoopConfiguration (above).
+        // HiveMetaStoreClient.loadFilterHooks resolves metastore.filter.hook via Configuration.getClass,
+        // which uses the conf's OWN classLoader field (= the thread-context CL captured at new HiveConf(),
+        // which here is still the parent 'app' loader because assembleHiveConf runs before the TCCL pin in
+        // PaimonConnector.createCatalogFromContext). Under child-first plugin loading that resolves
+        // DefaultMetaStoreFilterHookImpl from the parent while MetaStoreFilterHook is child-loaded, giving
+        // "class DefaultMetaStoreFilterHookImpl not MetaStoreFilterHook". Pinning keeps the whole
+        // hive-metastore class graph in one loader (covers both the hms and dlf flavors).
+        hiveConf.setClassLoader(PaimonCatalogFactory.class.getClassLoader());
         if (base != null) {
             base.forEach(hiveConf::set);
         }

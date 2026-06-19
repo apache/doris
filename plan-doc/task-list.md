@@ -1,13 +1,11 @@
-# Task List — CI 968994 paimon regression fixes
+# Task List — CI 973411 paimon-SPI regression fixes
 
-Build 968994 (commit 3d93f195eff). 32 failures. Root: recent self-contained packaging
-commits are internally incomplete + one SPI explain-gap regression. F (hive_ctas) = stale, excluded.
+Source RCA: `memory/catalog-spi-ci-973411-4fails-rca.md` + workflow `wf_e1c3d93c-22c` (adversarially verified).
+Build 973411, HEAD e1d6f88. All 4 test files are byte-identical to master ⇒ all 4 are SPI-migration regressions.
 
-- [x] FIX-A — bundle s3-transfer-manager (Class A: s3 FileIO/AWS SDK interceptor skew; 6 direct + 18 collateral) — `75496c94e36`
-- [x] FIX-B — bundle hadoop-huaweicloud (Class B: obs cross-loader cast; paimon_base_filesystem) — `3c7adfe1de1`
-- [x] FIX-C — paimon-hive-shade module, relocate thrift (Class C: TFramedTransport NoClassDefFound; 2 tests) — `5ac8c302596`
-- [x] FIX-E — PluginDrivenScanNode/PaimonScanPlanProvider explain emission (Class E: 5 explain-mismatch) — `d4526013364`
+- [x] FIX-1 — test_create_paimon_table: paimon-over-HMS create-db classloader split (PaimonCatalogFactory.assembleHiveConf) — DONE (16/16 UT, checkstyle clean)
+- [ ] FIX-2 — test_mysql_mtmv: connector-null NPE during mv_infos scan (PluginDrivenMvccExternalTable.materializeLatest)
+- [ ] FIX-3 — test_paimon_mtmv: Duplicated p_NULL partition naming (ListPartitionItem.toPartitionKeyDesc)
+- [ ] FIX-4 — test_paimon_table_meta_cache: restore paimon table snapshot cache (PaimonConnector + Connector SPI + fe-core refresh wiring)
 
-Excluded:
-- F — external_table_p0.hive.write.test_hive_ctas_to_doris: pre-existing stale test (auto-partition-name
-  truncation #56304 on master), not a branch regression. Track upstream / exclude from gating.
+Order: 1 → 2 → 3 → 4 (smallest/lightest module first; #4 largest). TDD per fix, independent commit each.

@@ -28,6 +28,8 @@ import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -385,6 +387,30 @@ public class PaimonCatalogFactoryTest {
         Assertions.assertEquals("auth-conf", hc.get("hive.metastore.sasl.qop"));
         Assertions.assertEquals("thrift://from-override:9083", hc.get("hive.metastore.uris"));
         Assertions.assertEquals("doris", hc.get("hadoop.username"));
+    }
+
+    @Test
+    public void assembleHiveConfPinsPluginClassLoaderNotTccl() {
+        // WHY (FIX-1, CI 973411): HiveMetaStoreClient.loadFilterHooks resolves metastore.filter.hook via
+        // Configuration.getClass, which uses the HiveConf's OWN classLoader field. new HiveConf() captures
+        // the thread-context CL active AT CONSTRUCTION into that field. At runtime assembleHiveConf runs
+        // before the plugin TCCL pin, so the conf would capture the parent 'app' loader; under child-first
+        // plugin loading that resolves DefaultMetaStoreFilterHookImpl from the parent while
+        // MetaStoreFilterHook is child-loaded -> "class ... not ...". The conf MUST be pinned to the plugin
+        // loader (the one that loaded HiveMetaStoreClient/MetaStoreFilterHook), exactly as
+        // buildHadoopConfiguration already does. MUTATION: drop the setClassLoader -> the conf keeps the
+        // foreign TCCL below -> red. (A flat-classpath assertion alone cannot repro the real cross-loader
+        // cast, so we install a distinct TCCL to make the captured-loader bug observable offline.)
+        ClassLoader foreign = new URLClassLoader(new URL[0], null);
+        ClassLoader prev = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(foreign);
+            HiveConf hc = PaimonCatalogFactory.assembleHiveConf(null, Collections.emptyMap());
+            Assertions.assertSame(PaimonCatalogFactory.class.getClassLoader(), hc.getClassLoader());
+            Assertions.assertNotSame(foreign, hc.getClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(prev);
+        }
     }
 
     @Test
