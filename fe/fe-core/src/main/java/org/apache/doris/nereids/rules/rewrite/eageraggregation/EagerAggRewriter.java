@@ -94,7 +94,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            context.getBilateralState().registerNoCountSlot(join);
             return join;
         }
         Pair<Boolean, Boolean> pushSide = decideJoinPushSide(join, context);
@@ -166,7 +165,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         if (newLeft == join.left() && newRight == join.right()) {
-            context.getBilateralState().registerNoCountSlot(join);
             return join;
         }
         Optional<Slot> leftChildCountSlot = context.getBilateralState().getCountSlot(newLeft);
@@ -178,7 +176,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return buildCanonicalJoinProject(newJoin, context, leftChildContext, rightChildContext,
                     leftChildCountSlot, rightChildCountSlot);
         }
-        context.getBilateralState().registerNoCountSlot(newJoin);
         return newJoin;
     }
 
@@ -477,11 +474,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 int countSlotIndex = findOutputIndex(child, countSlot.get());
                 if (countSlotIndex >= 0) {
                     context.getBilateralState().registerCountSlot(project, projection.get(countSlotIndex).toSlot());
-                } else {
-                    context.getBilateralState().registerNoCountSlot(project);
                 }
-            } else {
-                context.getBilateralState().registerNoCountSlot(project);
             }
             return project;
         } else {
@@ -494,7 +487,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (union.getQualifier() != Qualifier.ALL || !union.getConstantExprsList().isEmpty()
                 || !union.getOutputs().stream().allMatch(e -> e instanceof SlotReference)
                 || context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            context.getBilateralState().registerNoCountSlot(union);
             return union;
         }
         List<Plan> newChildren = Lists.newArrayList();
@@ -595,7 +587,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             newOutput.addAll(context.getGroupKeys());
             Optional<Alias> countStarAlias = findCountStarAlias(context);
             Optional<SlotReference> unionCnt = Optional.empty();
-            if (context.needOutputCount() && !countStarAlias.isPresent()) {
+            if (context.needOutputCount() && countStarAlias.isEmpty()) {
                 unionCnt = Optional.of(new SlotReference(
                         "unionCnt" + context.getCascadesContext().getStatementContext().generateColumnName(),
                         BigIntType.INSTANCE));
@@ -615,12 +607,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 } else {
                     context.getBilateralState().registerCountSlot(newUnion, unionCnt.get());
                 }
-            } else {
-                context.getBilateralState().registerNoCountSlot(newUnion);
             }
             return newUnion;
         } else {
-            context.getBilateralState().registerNoCountSlot(union);
             return union;
         }
     }
@@ -628,7 +617,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            context.getBilateralState().registerNoCountSlot(project);
             return project;
         }
         if (project.child() instanceof LogicalCatalogRelation
@@ -648,7 +636,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         PushDownAggContext newContext = createContextFromProject(project, context);
         if (newContext.aggFuncAndGroupKeyAllEmpty()) {
-            context.getBilateralState().registerNoCountSlot(project);
             return project;
         }
         if (newContext.hasVolatileFunctions()) {
@@ -699,16 +686,11 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                 newProjections.add(childCountSlot.get());
             }
             LogicalProject<Plan> result = new LogicalProject<>(newProjections, newChild);
-            if (childCountSlot.isPresent()) {
-                context.getBilateralState().registerCountSlot(result,
-                        (Slot) result.getOutput().get(findOutputIndex(result, childCountSlot.get())));
-            } else {
-                context.getBilateralState().registerNoCountSlot(result);
-            }
+            childCountSlot.ifPresent(slot -> context.getBilateralState().registerCountSlot(result,
+                    (Slot) result.getOutput().get(findOutputIndex(result, slot))));
             return result;
         }
 
-        context.getBilateralState().registerNoCountSlot(project);
         return project;
     }
 
@@ -720,7 +702,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PushDownAggContext context) {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
-            context.getBilateralState().registerNoCountSlot(filter);
             return filter;
         }
         if (filter.getConjuncts().stream().anyMatch(Expression::containsVolatileExpression)) {
@@ -742,11 +723,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (newChild != filter.child()) {
             Plan newFilter = filter.withChildren(newChild);
             Optional<Slot> countSlot = context.getBilateralState().getCountSlot(newChild);
-            if (countSlot.isPresent()) {
-                context.getBilateralState().registerCountSlot(newFilter, countSlot.get());
-            } else {
-                context.getBilateralState().registerNoCountSlot(newFilter);
-            }
+            countSlot.ifPresent(slot -> context.getBilateralState().registerCountSlot(newFilter, slot));
             return newFilter;
         }
         return genAggregate(filter, context);
@@ -778,7 +755,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     private Plan genAggregate(Plan child, PushDownAggContext context) {
         if (isPushDisabledByVariable(context)) {
-            context.getBilateralState().registerNoCountSlot(child);
             return child;
         }
         if (checkStats(child, context) || isPushEnabledByVariable(context)) {
@@ -813,15 +789,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
                         .orElse(a.toSlot());
                 context.getBilateralState().registerPushedAggFuncSlot(a.getExprId(), pushedSlot);
             }
-
-            if (outputCountAlias.isPresent()) {
-                context.getBilateralState().registerCountSlot(normalized, outputCountAlias.get().toSlot());
-            } else {
-                context.getBilateralState().registerNoCountSlot(normalized);
-            }
+            outputCountAlias.ifPresent(
+                    alias -> context.getBilateralState().registerCountSlot(normalized, alias.toSlot()));
             return normalized;
         } else {
-            context.getBilateralState().registerNoCountSlot(child);
             return child;
         }
     }
@@ -935,11 +906,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             projectedCountSlot = Optional.of(joinCount.get().toSlot());
         }
         LogicalProject<Plan> project = new LogicalProject<>(projections, join);
-        if (projectedCountSlot.isPresent()) {
-            context.getBilateralState().registerCountSlot(project, projectedCountSlot.get());
-        } else {
-            context.getBilateralState().registerNoCountSlot(project);
-        }
+        projectedCountSlot.ifPresent(slot -> context.getBilateralState().registerCountSlot(project, slot));
         return project;
     }
 
@@ -1093,11 +1060,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return child;
         } else {
             LogicalProject<Plan> project = new LogicalProject<>(projections, child);
-            if (countSlot.isPresent()) {
-                context.getBilateralState().registerCountSlot(project, countSlot.get());
-            } else {
-                context.getBilateralState().registerNoCountSlot(project);
-            }
+            countSlot.ifPresent(slot -> context.getBilateralState().registerCountSlot(project, slot));
             return project;
         }
     }

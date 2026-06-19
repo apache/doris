@@ -104,10 +104,6 @@ public class BilateralState {
         planToCountSlot.put(plan, Optional.of(countSlot));
     }
 
-    public void registerNoCountSlot(Plan plan) {
-        planToCountSlot.put(plan, Optional.empty());
-    }
-
     public Optional<Slot> getCountSlot(Plan plan) {
         return planToCountSlot.getOrDefault(plan, Optional.empty());
     }
