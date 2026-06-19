@@ -1150,20 +1150,46 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
-        Map<String, String> summary = snapshot.summary();
-        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+        return getCountFromSummary(snapshot.summary(), sessionVariable.ignoreIcebergDanglingDelete);
+    }
+
+    /**
+     * Decide whether the row count can be pushed down from an Iceberg snapshot
+     * summary, returning the count, or -1 if it cannot be pushed down (the
+     * caller then falls back to a normal scan).
+     *
+     * <p>A snapshot summary is NOT guaranteed to carry the {@code total-*}
+     * counters: snapshots produced by compaction/replace (and some writers)
+     * may omit {@code total-equality-deletes} / {@code total-position-deletes}
+     * / {@code total-records}. Previously this method called
+     * {@code summary.get(...).equals(...)} / {@code Long.parseLong(...)}
+     * directly on the map values, which threw a {@link NullPointerException}
+     * (e.g. "Cannot invoke String.equals because Map.get(...) is null") for
+     * {@code SELECT COUNT(*)} on such a table while {@code SELECT *} worked.
+     * When any required counter is absent we now fall back to a scan.
+     */
+    @VisibleForTesting
+    public static long getCountFromSummary(Map<String, String> summary, boolean ignoreDanglingDelete) {
+        String equalityDeletes = summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES);
+        String positionDeletes = summary.get(IcebergUtils.TOTAL_POSITION_DELETES);
+        String totalRecords = summary.get(IcebergUtils.TOTAL_RECORDS);
+        if (equalityDeletes == null || positionDeletes == null || totalRecords == null) {
+            // summary is missing a required counter, can not push down count
+            return -1;
+        }
+        if (!equalityDeletes.equals("0")) {
             // has equality delete files, can not push down count
             return -1;
         }
 
-        long deleteCount = Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
+        long deleteCount = Long.parseLong(positionDeletes);
         if (deleteCount == 0) {
             // no delete files, can push down count directly
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
+            return Long.parseLong(totalRecords);
         }
-        if (sessionVariable.ignoreIcebergDanglingDelete) {
+        if (ignoreDanglingDelete) {
             // has position delete files, if we ignore dangling delete, can push down count
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS)) - deleteCount;
+            return Long.parseLong(totalRecords) - deleteCount;
         } else {
             // otherwise, can not push down count
             return -1;
