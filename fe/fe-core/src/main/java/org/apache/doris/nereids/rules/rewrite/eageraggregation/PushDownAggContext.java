@@ -117,24 +117,16 @@ public class PushDownAggContext {
 
     }
 
-    /**
-     * check validation
-     * @return true, if groupKeys is not empty
-     */
-    public boolean isValid() {
-        return !groupKeys.isEmpty();
+    public boolean aggFuncAndGroupKeyAllEmpty() {
+        return aggFunctions.isEmpty() && groupKeys.isEmpty();
     }
 
-    public boolean noGroupKeyAndNoAggFunc() {
-        return groupKeys.isEmpty() && aggFunctions.isEmpty();
+    public boolean hasVolatileFunctions() {
+        return containsVolatileFunction(aggFunctions) || containsVolatileFunction(groupKeys);
     }
 
-    public boolean containsVolatileAggregateFunction() {
-        return containsVolatileAggregateFunction(aggFunctions);
-    }
-
-    public static boolean containsVolatileAggregateFunction(List<AggregateFunction> aggFunctions) {
-        return aggFunctions.stream().anyMatch(Expression::containsVolatileExpression);
+    public static boolean containsVolatileFunction(List<? extends Expression> expressions) {
+        return expressions.stream().anyMatch(Expression::containsVolatileExpression);
     }
 
     public HashMap<AggregateFunction, Alias> getAliasMap() {

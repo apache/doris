@@ -197,7 +197,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, hasCaseWhen,
                 new BilateralState());
-        if (!pushDownContext.isValid()) {
+        if (groupKeys.isEmpty()) {
             return agg;
         }
         try {
