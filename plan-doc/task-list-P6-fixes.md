@@ -32,9 +32,18 @@
       CREATE now says "already exists" (benign, NIT). Rewrote remote test + strengthened local test with errno
       assertion (RED→GREEN mutation-verified); 26/0/0 DdlRouting + 12/0/0 Engine + checkstyle clean; e2e gated.
       Design red-team `wf_19fd7785-165` (0 actionable). See FIX-R1-TABLE-{design,summary}.md.
-- [ ] **P6-C4** thread `hive_metastore_client_timeout_second` through `ConnectorContext.getEnvironment()`.
-- [ ] **P6-R2-catalog** warn-and-strip now-dead `meta.cache.paimon.table.*` keys at CREATE CATALOG.
-- [ ] **P6-R3-catalog** include catalog name in `listDatabaseNames` `LOG.warn` (decide keep best-effort swallow).
+- [x] **P6-C4 / R2-catalog / R3-catalog** (3 MINOR, combined) — **DONE `82b6de0de98`** —
+      **C4**: thread `Config.hive_metastore_client_timeout_second` (env key `hive_metastore_client_timeout_second`)
+      into `HmsMetaStoreProperties.toHiveConfOverrides(String)` instead of hardcoded `"10"` (byte-parity when
+      `fe.conf` unset; restores `HMSBaseProperties:204-208`). **R2-catalog**: **warn-only** (NOT strip; user-confirmed)
+      in `PaimonConnectorProvider.validateProperties` on dead `meta.cache.paimon.table.*` — keys proven dead on the
+      plugin path (`getMetaCacheEngine()=="default"` → never `PaimonExternalMetaCache`); warn lives in the connector,
+      not the connector-agnostic bridge (report's cited location = wrong layer). **R3-catalog**: **rethrow** (user-
+      confirmed, not just add catalog name) — `listDatabaseNames` now throws `RuntimeException("Failed to list databases
+      names, catalog name: <name>")` exactly as legacy `PaimonMetadataOps:340` (+ all other connectors propagate);
+      was swallowing to emptyList with a false parity comment. 280/0 paimon (+1 gated skip) + 16/0 + 3/0 + 14/0 + 12/0;
+      fe-core compiles; checkstyle 0; import-check clean. Design + impl red-team both 0-actionable. e2e gated.
+      See FIX-C4-R2-R3-CATALOG-{design,summary}.md.
 
 ## Accept-as-deviation (no code; needs user sign-off)
 
