@@ -15,7 +15,7 @@
 
 ## Suggested order (independent; smallest blast radius first)
 
-A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ A3 / ✅ A2 / ✅ B-MC2 done; next = **A1**, then B-R2-be)
+A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ A3 / ✅ A2 / ✅ B-MC2 / ✅ A1 done; next = **B-R2-be**, last of the 5)
 
 ---
 
@@ -63,7 +63,21 @@ A3 → A2 → B-MC2 → A1 → B-R2-be   (✅ A3 / ✅ A2 / ✅ B-MC2 done; next
 
 ## A1 — Plugin splits get uniform split weight (legacy = proportional)  (MINOR / regression)
 
-- [ ] **A1**
+- [x] **A1** — DONE `9d687145a28`. SPI `ConnectorScanRange` gained default getters
+  `getSelfSplitWeight()`/`getTargetSplitSize()` (sentinel -1); `PluginDrivenSplit` ctor sets the FileSplit
+  weight fields when `weight>=0 && target>0` (generic, connector-agnostic → other connectors keep
+  `standard()`); `PaimonScanRange` carries `targetSplitSize` (Builder default -1) + `@Override` both getters;
+  `PaimonScanPlanProvider` computes `resolveSplitWeightDenominator` (= legacy `fileSplitSize>0 ? :
+  max_file_split_size` 64MB) once and threads `weightDenominator` to every builder. **Key gap the task-list
+  missed (caught by tracing legacy):** native ranges never set `selfSplitWeight` (default 0) — legacy used
+  `length (+DV)` (`PaimonSplit:72,112`); since native is the default path, weight 0 would clamp to 0.01
+  (uniform) and defeat the fix. So `buildNativeRange` now sets `selfSplitWeight = length + DV` + the
+  denominator. FE-only (BE-thrift `paimon.self_split_weight` stays A3-gated on `paimonSplit`). New
+  `PluginDrivenSplitWeightTest` (fe-core, 5) + `ConnectorScanRangeWeightDefaultsTest` (api) + 5
+  `PaimonScanPlanProviderTest` + 6 updated call-sites; each RED-verified by a separate mutation
+  (ctor-gate / native-weight / sentinel / denominator / swap). api 44/0 + paimon 298/0/1skip + fe-core 5/0;
+  checkstyle 0; import-check 0. design red-team `wf_c8345c28-ee6` (4 lenses sound, 6 actionable folded in),
+  impl-verify `wf_3381cfaa-205` (2 lenses COMMIT_AS_IS). e2e gated. See `designs/FIX-A1-SPLIT-WEIGHT-*.md`.
 - **Finding:** report §R1 (scan). `PluginDrivenSplit` ctor (`PluginDrivenSplit.java:39-48`) forwards
   path/start/length/fileSize/modTime/hosts/partitionValues to `FileSplit` but **never sets `selfSplitWeight` /
   `targetSplitSize`**, so `FileSplit.getSplitWeight()` hits the null branch → `SplitWeight.standard()` (uniform).
