@@ -1723,6 +1723,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         };
         Throwable creationThrowable = null;
+        boolean partitionInfoUpdated = false;
         try {
             long partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
                     ? generatedPartitionId : idGeneratorBuffer.getNextId();
