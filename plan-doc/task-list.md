@@ -5,7 +5,7 @@ Build 973411, HEAD e1d6f88. All 4 test files are byte-identical to master ⇒ al
 
 - [x] FIX-1 — test_create_paimon_table: paimon-over-HMS create-db classloader split (PaimonCatalogFactory.assembleHiveConf) — DONE (16/16 UT, checkstyle clean)
 - [x] FIX-2 — test_mysql_mtmv: connector-null NPE during mv_infos scan (PluginDrivenMvccExternalTable.materializeLatest) — DONE (36/36 UT, RED reproduced exact NPE, checkstyle clean)
-- [ ] FIX-3 — test_paimon_mtmv: Duplicated p_NULL partition naming (ListPartitionItem.toPartitionKeyDesc)
+- [x] FIX-3 — test_paimon_mtmv: Duplicated p_NULL partition naming (ListPartitionItem.toPartitionKeyDesc) — DONE (2/2 new UT + MTMV 10/10, RED reproduced p_NULL collision, checkstyle clean)
 - [ ] FIX-4 — test_paimon_table_meta_cache: restore paimon table snapshot cache (PaimonConnector + Connector SPI + fe-core refresh wiring)
 
 Order: 1 → 2 → 3 → 4 (smallest/lightest module first; #4 largest). TDD per fix, independent commit each.

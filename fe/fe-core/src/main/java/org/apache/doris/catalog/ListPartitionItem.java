@@ -82,17 +82,16 @@ public class ListPartitionItem extends PartitionItem {
 
     @Override
     public PartitionKeyDesc toPartitionKeyDesc() {
-        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(ListPartitionItem::toDisplayPartitionValues)
                 .collect(Collectors.toList());
         return PartitionKeyDesc.createIn(inValues);
     }
 
     @Override
     public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
-        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
-                .collect(Collectors.toList());
         Set<List<PartitionValue>> res = Sets.newHashSet();
-        for (List<PartitionValue> values : inValues) {
+        for (PartitionKey partitionKey : partitionKeys) {
+            List<PartitionValue> values = toDisplayPartitionValues(partitionKey);
             if (values.size() <= pos) {
                 throw new AnalysisException(
                         String.format("toPartitionKeyDesc IndexOutOfBounds, values: %s, pos: %d", values.toString(),
@@ -101,6 +100,31 @@ public class ListPartitionItem extends PartitionItem {
             res.add(Lists.newArrayList(values.get(pos)));
         }
         return PartitionKeyDesc.createIn(Lists.newArrayList(res));
+    }
+
+    /**
+     * Like {@link PartitionInfo#toPartitionValue} but, for a genuine-NULL partition value whose key carries a
+     * sized {@code originHiveKeys} (set by connectors that render NULL via a sentinel, e.g. paimon's
+     * partition.default-name normalized to Doris's {@code __HIVE_DEFAULT_PARTITION__}), uses that sentinel
+     * string as the DISPLAY value. The value stays {@code isNull=true}, so {@code getValue(type)} is still a
+     * {@link org.apache.doris.analysis.NullLiteral} and partition pruning / {@code col IS NULL} are unaffected;
+     * only the rendered partition name differs. This gives a genuine-NULL partition a DISTINCT MTMV name
+     * (e.g. {@code p_HIVEDEFAULTPARTITION}) instead of {@code p_NULL}, which would otherwise collide with a
+     * literal string {@code 'NULL'} partition (CI 973411 test_paimon_mtmv "Duplicated named partition: p_NULL").
+     * For internal OLAP partitions {@code originHiveKeys} is empty, so this is a no-op.
+     */
+    private static List<PartitionValue> toDisplayPartitionValues(PartitionKey partitionKey) {
+        List<PartitionValue> values = PartitionInfo.toPartitionValue(partitionKey);
+        List<String> originHiveKeys = partitionKey.getOriginHiveKeys();
+        if (originHiveKeys.size() != partitionKey.getKeys().size()) {
+            return values;
+        }
+        for (int i = 0; i < values.size(); i++) {
+            if (values.get(i).isNullPartition()) {
+                values.set(i, new PartitionValue(originHiveKeys.get(i), true));
+            }
+        }
+        return values;
     }
 
     @Override
