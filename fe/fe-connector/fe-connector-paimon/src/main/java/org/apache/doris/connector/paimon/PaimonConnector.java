@@ -85,6 +85,12 @@ public class PaimonConnector implements Connector {
     private final ConnectorContext context;
     private volatile Catalog catalog;
 
+    // FIX-B-MC2: connector-level (per-catalog, long-lived) second-level memo for the time-travel
+    // schema-at-snapshot read. getMetadata() returns a FRESH metadata per query, so this must live on the
+    // connector (not the metadata) to give the cross-query hit the legacy PaimonExternalMetaCache provided.
+    // Cleared wholesale on REFRESH CATALOG (the connector is rebuilt). See PaimonSchemaAtMemo.
+    private final PaimonSchemaAtMemo schemaAtMemo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
+
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
         this.context = context;
@@ -93,7 +99,8 @@ public class PaimonConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new PaimonConnectorMetadata(
-                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties, context);
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog()), properties, context,
+                schemaAtMemo);
     }
 
     @Override

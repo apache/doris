@@ -83,12 +83,24 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // directly-injected map avoids depending on the session being populated and is simpler.
     private final Map<String, String> catalogProperties;
 
+    // FIX-B-MC2: time-travel schema-at-snapshot memo. Injected by PaimonConnector (the per-catalog,
+    // long-lived owner) so the at-snapshot resolve hits across queries. The public 3-arg ctor gives each
+    // metadata its OWN fresh memo (no cross-query benefit, but correct) so the ~15 existing construction
+    // sites compile unchanged; production goes through the 4-arg ctor with the connector-shared memo.
+    private final PaimonSchemaAtMemo schemaAtMemo;
+
     public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
+        this(catalogOps, properties, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
+    }
+
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
         this.catalogOps = catalogOps;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
         this.context = context;
         this.catalogProperties = properties;
+        this.schemaAtMemo = schemaAtMemo;
     }
 
     @Override
@@ -217,9 +229,15 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return getTableSchema(session, handle);
         }
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        long schemaId = snapshot.getSchemaId();
         Table table = resolveTable(paimonHandle);
+        // FIX-B-MC2: memoize the schemaAt schema-file read across queries. resolveTable + buildTableSchema
+        // still run every query (keeping the live coreOptions/properties current); only the schemaAt
+        // round-trip is skipped on a repeat. The memo is keyed by (handle-identity, schemaId) — a pure
+        // function — and owned by the per-catalog PaimonConnector. resolveTable runs ONCE, outside the
+        // loader, so a branch handle's getTable reload happens at most once per query (= the pre-fix path).
         PaimonCatalogOps.PaimonSchemaSnapshot schema =
-                catalogOps.schemaAt(table, snapshot.getSchemaId());
+                schemaAtMemo.getOrLoad(paimonHandle, schemaId, () -> catalogOps.schemaAt(table, schemaId));
         return buildTableSchema(
                 paimonHandle.getTableName(),
                 table,

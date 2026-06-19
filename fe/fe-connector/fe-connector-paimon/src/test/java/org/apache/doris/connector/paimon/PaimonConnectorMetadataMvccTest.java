@@ -61,6 +61,14 @@ public class PaimonConnectorMetadataMvccTest {
         return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
     }
 
+    // Builds a metadata sharing an EXTERNAL PaimonSchemaAtMemo, modelling two queries (each a fresh
+    // getMetadata() with its own catalog-ops) that share the connector-owned schema-at-snapshot memo.
+    private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops,
+            PaimonSchemaAtMemo memo) {
+        return new PaimonConnectorMetadata(
+                ops, Collections.emptyMap(), new RecordingConnectorContext(), memo);
+    }
+
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
         for (String name : columnNames) {
@@ -797,6 +805,104 @@ public class PaimonConnectorMetadataMvccTest {
             names.add(c.getName());
         }
         return names;
+    }
+
+    // ============= getTableSchema(snapshot): cross-query schema-at-snapshot memo (FIX-B-MC2) =============
+
+    @Test
+    public void getTableSchemaAtSnapshotIsMemoizedAcrossQueries() {
+        // Two queries = two fresh PaimonConnectorMetadata (production builds one per query via
+        // getMetadata()), each with its OWN catalog-ops, sharing the connector-owned PaimonSchemaAtMemo.
+        PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(10000);
+        RecordingPaimonCatalogOps ops1 = new RecordingPaimonCatalogOps();
+        RecordingPaimonCatalogOps ops2 = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        // Transient table set -> resolveTable issues no getTable; only schemaAt reaches the ops seam.
+        handle.setPaimonTable(new FakePaimonTable(
+                "t1", rowType("id", "dt"), Collections.emptyList(), Collections.emptyList()));
+        PaimonCatalogOps.PaimonSchemaSnapshot atSchema = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                rowType("id", "dt").getFields(), Arrays.asList("dt"), Collections.emptyList());
+        ops1.schemaAt = atSchema;
+        ops2.schemaAt = atSchema;
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L).build();
+
+        ConnectorTableSchema schema1 = metadataWith(ops1, memo).getTableSchema(null, handle, snapshot);
+        ConnectorTableSchema schema2 = metadataWith(ops2, memo).getTableSchema(null, handle, snapshot);
+
+        // WHY: a repeated time-travel to the same (table, schemaId) must hit the connector-level memo and
+        // NOT re-read the schema file (restoring the legacy PaimonExternalMetaCache hit dropped by CACHE-P1).
+        // MUTATION: drop the memo -> the second query also calls schemaAt -> ops2.log gains "schemaAt:2".
+        Assertions.assertEquals(1, Collections.frequency(ops1.log, "schemaAt:2"),
+                "the first query must perform the schemaAt read");
+        Assertions.assertFalse(ops2.log.contains("schemaAt:2"),
+                "the second query at the same schemaId must hit the memo and NOT re-read schemaAt");
+        Assertions.assertEquals(columnNames(schema1), columnNames(schema2),
+                "both queries must resolve the same at-snapshot schema");
+    }
+
+    @Test
+    public void getTableSchemaAtSnapshotMemoIsKeyedBySchemaId() {
+        PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(10000);
+        RecordingPaimonCatalogOps ops1 = new RecordingPaimonCatalogOps();
+        RecordingPaimonCatalogOps ops2 = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList()));
+        ops1.schemaAt = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                rowType("id").getFields(), Collections.emptyList(), Collections.emptyList());
+        ops2.schemaAt = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                rowType("id", "v2").getFields(), Collections.emptyList(), Collections.emptyList());
+
+        metadataWith(ops1, memo).getTableSchema(null, handle,
+                ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L).build());
+        metadataWith(ops2, memo).getTableSchema(null, handle,
+                ConnectorMvccSnapshot.builder().snapshotId(9L).schemaId(3L).build());
+
+        // WHY: a DIFFERENT schemaId is a different schema version (schema evolution), so it must NOT be
+        // served from schemaId=2's entry. MUTATION: drop schemaId from the key -> schemaId=3 hits
+        // schemaId=2's entry -> ops2 never reads -> "schemaAt:3" absent -> red.
+        Assertions.assertTrue(ops2.log.contains("schemaAt:3"),
+                "a different schemaId must miss the memo and read its own schema");
+    }
+
+    @Test
+    public void getTableSchemaAtSnapshotMemoIsKeyedByBranch() {
+        PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(10000);
+        // Query 1: BASE handle at schemaId=2 (transient table set -> no reload).
+        RecordingPaimonCatalogOps baseOps = new RecordingPaimonCatalogOps();
+        PaimonTableHandle baseHandle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        baseHandle.setPaimonTable(new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList()));
+        baseOps.schemaAt = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                rowType("id").getFields(), Collections.emptyList(), Collections.emptyList());
+        // Query 2: BRANCH handle (db1.t1@b1) at the SAME schemaId=2; withBranch clears the transient table
+        // so resolveTable reloads the branch table, whose at-schemaId schema differs (bid, bdt).
+        RecordingPaimonCatalogOps branchOps = new RecordingPaimonCatalogOps();
+        PaimonTableHandle branchHandle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList()).withBranch("b1");
+        branchOps.branchTable = new FakePaimonTable(
+                "t1", rowType("bid", "bdt"), Collections.emptyList(), Collections.emptyList());
+        branchOps.schemaAt = new PaimonCatalogOps.PaimonSchemaSnapshot(
+                rowType("bid", "bdt").getFields(), Arrays.asList("bdt"), Collections.emptyList());
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L).build();
+
+        ConnectorTableSchema baseSchema =
+                metadataWith(baseOps, memo).getTableSchema(null, baseHandle, snapshot);
+        ConnectorTableSchema branchSchema =
+                metadataWith(branchOps, memo).getTableSchema(null, branchHandle, snapshot);
+
+        // WHY: the same schemaId on a different BRANCH is a different schema, so the branch query must miss
+        // the base entry and read its own. MUTATION: drop branchName from the key -> the branch query hits
+        // the base entry -> (a) branchOps never reads "schemaAt:2" AND (b) branch columns == base [id] -> red.
+        Assertions.assertTrue(branchOps.log.contains("schemaAt:2"),
+                "a branch handle at the same schemaId must miss the base entry and read the branch schema");
+        Assertions.assertEquals(Arrays.asList("bid", "bdt"), columnNames(branchSchema),
+                "the branch query must return the branch schema, not a base value cached under a branch-blind key");
+        Assertions.assertEquals(Collections.singletonList("id"), columnNames(baseSchema),
+                "sanity: the base query returns the base schema");
     }
 
     // ==================== applySnapshot ====================
