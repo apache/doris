@@ -41,7 +41,15 @@ public final class MetaStoreProviders {
 
     private static List<MetaStoreProvider> load() {
         List<MetaStoreProvider> list = new ArrayList<>();
-        ServiceLoader.load(MetaStoreProvider.class).forEach(list::add);
+        // Use the SPI interface's own defining classloader, not the thread-context classloader.
+        // At CREATE CATALOG time this static initializer is first triggered from
+        // PaimonConnectorProvider.validateProperties, which runs on an FE worker thread whose TCCL is
+        // the FE app loader. fe-core does not depend on fe-connector-metastore-spi, so the providers and
+        // their META-INF/services file live only inside the connector plugin's (child) classloader; a
+        // 1-arg ServiceLoader.load (TCCL) therefore finds nothing and caches an empty list process-wide.
+        // MetaStoreProvider.class.getClassLoader() is the plugin loader that defined this interface, so it
+        // can see the service file and the impls regardless of the caller's TCCL.
+        ServiceLoader.load(MetaStoreProvider.class, MetaStoreProvider.class.getClassLoader()).forEach(list::add);
         return list;
     }
 
