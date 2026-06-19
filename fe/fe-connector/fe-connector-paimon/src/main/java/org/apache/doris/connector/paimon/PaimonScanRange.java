@@ -59,6 +59,10 @@ public class PaimonScanRange implements ConnectorScanRange {
     private final Map<String, String> partitionValues;
     private final Map<String, String> properties;
     private final long selfSplitWeight;
+    // FIX-A1: weight denominator (legacy scan-level targetSplitSize, PaimonScanNode:499) for the FE
+    // FileSplit proportional weight. -1 = not provided (SPI sentinel). Separate from the file-splitting
+    // granularity used to slice native files.
+    private final long targetSplitSize;
 
     private PaimonScanRange(Builder builder) {
         this.path = builder.path;
@@ -67,6 +71,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         this.fileSize = builder.fileSize;
         this.fileFormat = builder.fileFormat;
         this.selfSplitWeight = builder.selfSplitWeight;
+        this.targetSplitSize = builder.targetSplitSize;
         this.partitionValues = builder.partitionValues != null
                 ? Collections.unmodifiableMap(builder.partitionValues)
                 : Collections.emptyMap();
@@ -173,8 +178,14 @@ public class PaimonScanRange implements ConnectorScanRange {
         return !properties.containsKey("paimon.split") && path != null;
     }
 
+    @Override
     public long getSelfSplitWeight() {
         return selfSplitWeight;
+    }
+
+    @Override
+    public long getTargetSplitSize() {
+        return targetSplitSize;
     }
 
     @Override
@@ -281,6 +292,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         private String fileFormat = "";
         private Map<String, String> partitionValues;
         private long selfSplitWeight;
+        // -1 = not provided (SPI sentinel). NOT 0: a 0 denominator is invalid (would divide-by-zero), unlike
+        // selfSplitWeight whose 0 is a legitimate empty-file / 0-row weight.
+        private long targetSplitSize = -1;
 
         // JNI reader fields
         private String paimonSplit;
@@ -327,6 +341,11 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder selfSplitWeight(long selfSplitWeight) {
             this.selfSplitWeight = selfSplitWeight;
+            return this;
+        }
+
+        public Builder targetSplitSize(long targetSplitSize) {
+            this.targetSplitSize = targetSplitSize;
             return this;
         }
 

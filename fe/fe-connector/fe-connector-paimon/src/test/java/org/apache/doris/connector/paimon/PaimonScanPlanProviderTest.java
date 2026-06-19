@@ -275,7 +275,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
 
         // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
         // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
@@ -300,7 +300,7 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
 
         // WHY: a DV-less native split must still normalize its data-file path and must NOT emit a DV
         // descriptor. MUTATION: emitting a deletion_file for a null DV, or skipping data normalization -> red.
@@ -320,7 +320,7 @@ public class PaimonScanPlanProviderTest {
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
 
         // MUTATION: NPE on null context, or fabricating a normalized path from nothing -> red.
         Assertions.assertEquals("oss://bkt/a/part-0.parquet", range.getPath().orElse(null));
@@ -345,7 +345,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L);
+                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L, 64L * 1024 * 1024);
 
         // WHY: the engine seam normalizes against the VENDED map (the REST static map is empty). If the
         // connector dropped the token (reverting to the 1-arg seam) or substituted an empty map, a REST
@@ -1084,7 +1084,7 @@ public class PaimonScanPlanProviderTest {
         long target = Math.max(1L, file.length() / 3);   // force the file to sub-split into >=2 ranges
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target, 64L * 1024 * 1024);
 
         // WHY: the load-bearing correctness claim of FIX-NATIVE-SUBSPLIT — a paimon deletion vector is a
         // bitmap of GLOBAL file row positions, so EVERY sub-range of a DV-bearing file must carry the
@@ -1112,7 +1112,7 @@ public class PaimonScanPlanProviderTest {
         RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L * 1024 * 1024);
 
         Assertions.assertEquals(1, ranges.size(),
                 "a non-positive target (COUNT(*) pushdown) must keep the file as one whole-file range");
@@ -1818,5 +1818,111 @@ public class PaimonScanPlanProviderTest {
 
         Assertions.assertFalse(scanProps.containsKey("paimon.schema_evolution"),
                 "non-DataTable (JNI path) must not emit the native schema dictionary");
+    }
+
+    // ==================== FIX-A1: split weight (FE BE-assignment proportional weight) ====================
+
+    @Test
+    public void scanRangeBuilderDefaultsTargetSplitSizeToSentinel() {
+        // A range built WITHOUT a denominator reports the -1 SPI sentinel (so PluginDrivenSplit keeps
+        // standard()); selfSplitWeight defaults to a real 0 (a valid empty-file/sys weight). A range WITH
+        // both round-trips them. MUTATION: defaulting targetSplitSize to 0 -> a 0 denominator -> red.
+        PaimonScanRange noWeight = new PaimonScanRange.Builder().build();
+        Assertions.assertEquals(-1L, noWeight.getTargetSplitSize(),
+                "targetSplitSize default must be the -1 sentinel, not 0 (0 is an invalid denominator)");
+
+        PaimonScanRange weighted = new PaimonScanRange.Builder()
+                .selfSplitWeight(7L).targetSplitSize(99L).build();
+        Assertions.assertEquals(7L, weighted.getSelfSplitWeight());
+        Assertions.assertEquals(99L, weighted.getTargetSplitSize());
+    }
+
+    @Test
+    public void buildNativeRangeSetsProportionalWeightFromLengthAndDv() {
+        // Legacy PaimonSplit(LocationPath,...).selfSplitWeight = sub-range length, += deletionFile.length()
+        // when a DV is attached (PaimonSplit:72,112). The native FE weight reproduces that and carries the
+        // scan-level denominator. MUTATION: dropping the native .selfSplitWeight(...) -> weight 0 -> red.
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps());
+        RawFile file = parquetRawFile("/data/part-0.parquet");
+        DeletionFile dv = new DeletionFile("/data/dv-0.index", 8L, 16L, 4L);
+
+        PaimonScanRange withDv = provider.buildNativeRange(
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L, 64 * MB);
+        Assertions.assertEquals(64L + dv.length(), withDv.getSelfSplitWeight(),
+                "native weight = sub-range length + the deletion-vector length");
+        Assertions.assertEquals(64 * MB, withDv.getTargetSplitSize(),
+                "native range must carry the weight denominator");
+
+        PaimonScanRange noDv = provider.buildNativeRange(
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 70L, 64 * MB);
+        Assertions.assertEquals(70L, noDv.getSelfSplitWeight(),
+                "a DV-less native range weight is just the sub-range length");
+    }
+
+    @Test
+    public void buildNativeRangesThreadsDenominatorDistinctFromFileSplitTarget() {
+        // Positional-swap guard: the file-split target and the weight denominator are two adjacent long
+        // params. Splitting must follow the FILE-SPLIT target while every sub-range carries the DENOMINATOR.
+        // MUTATION: swapping the two args -> wrong split count AND wrong targetSplitSize -> red.
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps());
+        RawFile file = parquetRawFile("/data/part-0.parquet");        // length 100
+        long fileSplitTarget = Math.max(1L, file.length() / 3);       // 33 -> >=2 sub-ranges
+        long denominator = 64 * MB;                                   // numerically distinct from 33
+
+        List<PaimonScanRange> ranges = provider.buildNativeRanges(
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(),
+                fileSplitTarget, denominator);
+
+        Assertions.assertEquals(
+                PaimonScanPlanProvider.computeFileSplitOffsets(file.length(), fileSplitTarget).size(),
+                ranges.size(),
+                "sub-splitting must follow the file-split target, not the denominator");
+        Assertions.assertTrue(ranges.size() >= 2, "fixture must sub-split into >=2 ranges");
+        for (PaimonScanRange r : ranges) {
+            Assertions.assertEquals(denominator, r.getTargetSplitSize(),
+                    "every native sub-range must carry the weight denominator");
+        }
+    }
+
+    @Test
+    public void buildNativeRangesCarriesDenominatorEvenWhenFileSplitSizeZero() {
+        // Under COUNT(*) pushdown the file-split size is 0 (whole-file range), but the denominator is
+        // computed independently, so the single range still gets a positive denominator (non-standard
+        // weight) and the whole-file length as its weight.
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                new HashMap<>(), new RecordingPaimonCatalogOps());
+        RawFile file = parquetRawFile("/data/part-0.parquet");
+
+        List<PaimonScanRange> ranges = provider.buildNativeRanges(
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64 * MB);
+
+        Assertions.assertEquals(1, ranges.size(), "a non-positive target keeps the file whole");
+        Assertions.assertEquals(64 * MB, ranges.get(0).getTargetSplitSize(),
+                "a whole-file (count-pushdown) range still carries the weight denominator");
+        Assertions.assertEquals(file.length(), ranges.get(0).getSelfSplitWeight(),
+                "the whole-file range weight is the full file length");
+    }
+
+    @Test
+    public void resolveSplitWeightDenominatorMatchesLegacyFormula() {
+        // Legacy getFileSplitSize()>0 ? getFileSplitSize() : getMaxSplitSize() (PaimonScanNode:499);
+        // getMaxSplitSize() = max_file_split_size, default 64MB.
+        Map<String, String> withSplitSize = new HashMap<>();
+        withSplitSize.put("file_split_size", "1234");
+        Assertions.assertEquals(1234L,
+                PaimonScanPlanProvider.resolveSplitWeightDenominator(sessionWithProps(withSplitSize)),
+                "file_split_size>0 is used as the denominator");
+
+        Assertions.assertEquals(64 * MB,
+                PaimonScanPlanProvider.resolveSplitWeightDenominator(sessionWithProps(Collections.emptyMap())),
+                "unset file_split_size falls back to max_file_split_size (64MB default)");
+
+        Map<String, String> withMax = new HashMap<>();
+        withMax.put("max_file_split_size", "777");
+        Assertions.assertEquals(777L,
+                PaimonScanPlanProvider.resolveSplitWeightDenominator(sessionWithProps(withMax)),
+                "unset file_split_size uses the configured max_file_split_size");
     }
 }

@@ -377,10 +377,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> vendedToken =
                 context != null ? extractVendedToken(table) : Collections.emptyMap();
 
+        // FIX-A1: the FE FileSplit proportional-weight denominator (legacy PaimonScanNode:499, set on ALL
+        // splits). Session-only, so compute once here (before any split is built). DISTINCT from the
+        // file-splitting targetSplitSize below — named weightDenominator to make a positional swap impossible.
+        long weightDenominator = resolveSplitWeightDenominator(session);
+
         // Non-DataSplit → always JNI
         for (Split split : nonDataSplits) {
             ranges.add(buildJniScanRange(split, tableLocation, defaultFileFormat,
-                    Collections.emptyMap(), false, cppReader));
+                    Collections.emptyMap(), false, cppReader, weightDenominator));
         }
 
         // COUNT(*) pushdown (FIX-COUNT-PUSHDOWN): collapse every split whose merged (post-merge /
@@ -437,13 +442,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
                                     ? optDeletionFiles.get().get(i) : null;
                     ranges.addAll(buildNativeRanges(file, deletionFile, defaultFileFormat,
-                            partitionValues, vendedToken, effectiveSplitSize));
+                            partitionValues, vendedToken, effectiveSplitSize, weightDenominator));
                 }
             } else {
                 // JNI reader path
                 ranges.add(buildJniScanRange(
                         dataSplit, tableLocation, defaultFileFormat,
-                        partitionValues, true, cppReader));
+                        partitionValues, true, cppReader, weightDenominator));
             }
         }
 
@@ -453,7 +458,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> partitionValues = getPartitionInfoMap(
                     table, countRepresentative.partition(), session.getTimeZone());
             ranges.add(buildCountRange(countRepresentative, tableLocation, defaultFileFormat,
-                    partitionValues, cppReader, countSum));
+                    partitionValues, cppReader, countSum, weightDenominator));
         }
 
         return ranges;
@@ -471,8 +476,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     PaimonScanRange buildNativeRange(RawFile file, DeletionFile deletionFile,
             String defaultFileFormat, Map<String, String> partitionValues,
-            Map<String, String> vendedToken, long start, long length) {
+            Map<String, String> vendedToken, long start, long length, long weightDenominator) {
         String fileFormat = getFileFormatBySuffix(file.path()).orElse(defaultFileFormat);
+        // FIX-A1: native sub-split FE weight = the sub-range byte length, + the deletion-vector length when
+        // attached (legacy PaimonSplit(LocationPath,...).selfSplitWeight = length, setDeletionFile += DV).
+        // This is FE-scheduling only; the BE-thrift paimon.self_split_weight stays gated on paimonSplit (A3)
+        // so native ranges still do not emit it to BE.
+        long selfSplitWeight = length + (deletionFile != null ? deletionFile.length() : 0);
         PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
                 .path(normalizeUri(file.path(), vendedToken))
                 .start(start)
@@ -480,6 +490,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .fileSize(file.length())
                 .fileFormat(fileFormat)
                 .partitionValues(partitionValues)
+                .selfSplitWeight(selfSplitWeight)
+                .targetSplitSize(weightDenominator)
                 .schemaId(file.schemaId());
         if (deletionFile != null) {
             builder.deletionFile(
@@ -502,11 +514,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     List<PaimonScanRange> buildNativeRanges(RawFile file, DeletionFile deletionFile,
             String defaultFileFormat, Map<String, String> partitionValues,
-            Map<String, String> vendedToken, long targetSplitSize) {
+            Map<String, String> vendedToken, long targetSplitSize, long weightDenominator) {
         List<PaimonScanRange> result = new ArrayList<>();
         for (long[] offset : computeFileSplitOffsets(file.length(), targetSplitSize)) {
             result.add(buildNativeRange(file, deletionFile, defaultFileFormat,
-                    partitionValues, vendedToken, offset[0], offset[1]));
+                    partitionValues, vendedToken, offset[0], offset[1], weightDenominator));
         }
         return result;
     }
@@ -724,7 +736,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     private PaimonScanRange buildJniScanRange(Split split, String tableLocation,
             String defaultFileFormat, Map<String, String> partitionValues,
-            boolean isDataSplit, boolean cppReader) {
+            boolean isDataSplit, boolean cppReader, long weightDenominator) {
         long splitWeight = 0;
         if (isDataSplit) {
             splitWeight = computeSplitWeight((DataSplit) split);
@@ -745,6 +757,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
+                .targetSplitSize(weightDenominator)
                 .build();
     }
 
@@ -767,7 +780,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * reading data. The serialization format honors the cpp-reader flag, like {@link #buildJniScanRange}.
      */
     private PaimonScanRange buildCountRange(DataSplit dataSplit, String tableLocation,
-            String defaultFileFormat, Map<String, String> partitionValues, boolean cppReader, long rowCount) {
+            String defaultFileFormat, Map<String, String> partitionValues, boolean cppReader, long rowCount,
+            long weightDenominator) {
         String serializedSplit = encodeSplit(dataSplit, cppReader);
         // FIX-JNI-FILE-FORMAT (P7-1): real data-file format, not "jni" (see buildJniScanRange).
         return new PaimonScanRange.Builder()
@@ -776,6 +790,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(computeSplitWeight(dataSplit))
+                .targetSplitSize(weightDenominator)
                 .rowCount(rowCount)
                 .build();
     }
@@ -860,6 +875,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 sessionLong(session, MAX_INITIAL_FILE_SPLIT_NUM, DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM),
                 sessionLong(session, MAX_FILE_SPLIT_NUM, DEFAULT_MAX_FILE_SPLIT_NUM),
                 totalNativeFileSize);
+    }
+
+    /**
+     * The proportional-weight denominator (FIX-A1) = legacy scan-level {@code targetSplitSize}
+     * ({@code PaimonScanNode:497-500}): {@code file_split_size} when set ({@code > 0}), else
+     * {@code max_file_split_size} (default 64 MB). Exact parity with legacy
+     * {@code getFileSplitSize() > 0 ? getFileSplitSize() : getMaxSplitSize()}. This is DISTINCT from
+     * {@link #resolveTargetSplitSize} (the native file-splitting granularity); it is the divisor for the FE
+     * {@code FileSplit} proportional split weight and is applied to EVERY split type (native / JNI / count),
+     * even under COUNT(*) pushdown where the file-splitting size is 0.
+     */
+    static long resolveSplitWeightDenominator(ConnectorSession session) {
+        long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
+        return fileSplitSize > 0
+                ? fileSplitSize
+                : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
     }
 
     /**
