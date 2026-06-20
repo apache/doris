@@ -56,6 +56,17 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
         }
     }
 
+    /**
+     * Wires the HDFS Kerberos authenticator on the plugin/cutover path (rereview2 M-8). Legacy set
+     * it inside {@link #initializeCatalog}, which is dead on that path, so the runtime authenticator
+     * stayed the base no-op and {@code doAs} was silently lost over Kerberized HDFS. Mirrors HMS,
+     * which sets its authenticator in {@code initNormalizeAndCheckProps}.
+     */
+    @Override
+    public void initExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
+        initHdfsExecutionAuthenticator(storagePropertiesList);
+    }
+
     @Override
     protected void appendCustomCatalogOptions() {
         //nothing need to do

@@ -27,6 +27,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
@@ -246,6 +247,13 @@ public class RefreshManager {
             table.setUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        // FIX-4: also drop any connector-side per-table cache (e.g. paimon's latest-snapshot cache) so the
+        // next read reflects the latest external state. Connector-agnostic (generic SPI no-op default); keyed
+        // by the REMOTE db/table names the connector uses.
+        if (table.getCatalog() instanceof PluginDrivenExternalCatalog) {
+            ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector()
+                    .invalidateTable(db.getRemoteName(), table.getRemoteName());
+        }
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }

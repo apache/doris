@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectionProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
@@ -138,5 +139,22 @@ public class MetastoreProperties extends ConnectionProperties {
 
     public ExecutionAuthenticator getExecutionAuthenticator() {
         return NOOP_AUTH;
+    }
+
+    /**
+     * Wires an {@link ExecutionAuthenticator} that is derived from the catalog's storage properties,
+     * for metastore types whose authenticator cannot be built at {@link #initNormalizeAndCheckProps()}
+     * time (which has no storage-properties context).
+     *
+     * <p>The default is a no-op: most metastore types either build their authenticator in
+     * {@code initNormalizeAndCheckProps} (e.g. HMS, from its hive props) or have none. The Paimon
+     * filesystem/jdbc flavors override this to build the HDFS Kerberos authenticator from the
+     * HDFS {@code StorageProperties} — mirroring what legacy did inside {@code initializeCatalog}
+     * (which is dead on the plugin/cutover path). Invoked once on catalog init by
+     * {@code PluginDrivenExternalCatalog.initPreExecutionAuthenticator}, before
+     * {@link #getExecutionAuthenticator()} is read.</p>
+     */
+    public void initExecutionAuthenticator(java.util.List<StorageProperties> storagePropertiesList) {
+        // no-op by default
     }
 }

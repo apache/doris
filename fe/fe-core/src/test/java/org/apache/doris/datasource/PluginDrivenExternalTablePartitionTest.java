@@ -225,6 +225,50 @@ public class PluginDrivenExternalTablePartitionTest {
         Assertions.assertTrue(((PluginDrivenSchemaCacheValue) result.get()).getPartitionColumns().isEmpty());
     }
 
+    // ==================== getTableProperties (SHOW CREATE TABLE source, D-046) ====================
+
+    @Test
+    public void testGetTablePropertiesStripsSchemaControlKeysButKeepsUserOptions() {
+        // The connector stuffs BOTH user-facing table options (path / file.format) AND the
+        // FE-internal schema-control keys (partition_columns / primary_keys) into one properties map.
+        Map<String, String> rawProps = new LinkedHashMap<>();
+        rawProps.put("path", "s3://wh/db/t");
+        rawProps.put("file.format", "orc");
+        rawProps.put("partition_columns", "dt");
+        rawProps.put("primary_keys", "id");
+        PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
+                Collections.singletonList(new Column("id", PrimitiveType.INT)),
+                Collections.emptyList(), Collections.emptyList(), rawProps);
+        PluginDrivenExternalTable table = tableWithCacheValue(cacheValue);
+
+        Map<String, String> props = table.getTableProperties();
+        // WHY (D-046): SHOW CREATE TABLE's LOCATION reads "path" and PROPERTIES(...) dumps this map.
+        // The user-facing options MUST survive, but the FE-internal control keys MUST be stripped —
+        // they are emitted only so initSchema() can derive partition columns and would corrupt the
+        // round-tripped DDL. MUTATION: dropping the filter -> partition_columns/primary_keys leak ->
+        // red; over-filtering (removing "path") -> LOCATION renders empty -> red.
+        Assertions.assertEquals("s3://wh/db/t", props.get("path"));
+        Assertions.assertEquals("orc", props.get("file.format"));
+        Assertions.assertFalse(props.containsKey("partition_columns"),
+                "partition_columns is an FE-internal control key, must not appear in SHOW CREATE PROPERTIES");
+        Assertions.assertFalse(props.containsKey("primary_keys"),
+                "primary_keys is an FE-internal control key, must not appear in SHOW CREATE PROPERTIES");
+    }
+
+    @Test
+    public void testGetTablePropertiesEmptyWhenConnectorEmitsNone() {
+        // MaxCompute-style connector emits no table properties: the 3-arg cache-value ctor must
+        // default to an empty map so SHOW CREATE TABLE stays comment-only (no empty LOCATION ''/
+        // PROPERTIES () lines). MUTATION: defaulting to null -> NPE in getTableProperties / Env -> red.
+        PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
+                Collections.singletonList(new Column("c", PrimitiveType.INT)),
+                Collections.emptyList(), Collections.emptyList());
+        PluginDrivenExternalTable table = tableWithCacheValue(cacheValue);
+
+        Assertions.assertTrue(table.getTableProperties().isEmpty(),
+                "a connector emitting no properties (e.g. MaxCompute) must yield empty table properties");
+    }
+
     // ==================== helpers ====================
 
     private static ConnectorPartitionInfo partition(String name, String year, String month) {

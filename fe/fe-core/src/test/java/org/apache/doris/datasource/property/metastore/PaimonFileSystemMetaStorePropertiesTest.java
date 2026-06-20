@@ -48,6 +48,28 @@ public class PaimonFileSystemMetaStorePropertiesTest {
     }
 
     @Test
+    public void testInitExecutionAuthenticatorWiresHdfsAuthenticatorWithoutInitializeCatalog() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.defaultFS", "file:///tmp");
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "filesystem");
+        props.put("warehouse", "file:///tmp");
+        PaimonFileSystemMetaStoreProperties paimonProps =
+                (PaimonFileSystemMetaStoreProperties) MetastoreProperties.create(props);
+        // M-8: before wiring, the runtime authenticator is the base no-op — filesystem only set the
+        // real authenticator inside initializeCatalog(), which is DEAD on the plugin/cutover path, so
+        // doAs was silently lost over Kerberized HDFS. This assertion pins the bug.
+        Assertions.assertNotEquals(HadoopExecutionAuthenticator.class,
+                paimonProps.getExecutionAuthenticator().getClass());
+        // The fix: initExecutionAuthenticator builds the HDFS authenticator from the storage props at
+        // catalog-init time (the path PluginDrivenExternalCatalog now invokes), WITHOUT initializeCatalog.
+        // MUTATION: removing the filesystem initExecutionAuthenticator override leaves the no-op -> red.
+        paimonProps.initExecutionAuthenticator(StorageProperties.createAll(props));
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class,
+                paimonProps.getExecutionAuthenticator().getClass());
+    }
+
+    @Test
     public void testNonKerberosCatalog() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put("fs.defaultFS", "file:///tmp");

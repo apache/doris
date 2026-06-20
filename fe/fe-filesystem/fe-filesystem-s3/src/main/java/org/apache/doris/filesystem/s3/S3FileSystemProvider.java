@@ -50,13 +50,14 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
             S3FileSystemProperties.ACCESS_KEY, "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
             "glue.access_key", "aws.glue.access-key",
             "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
-            "s3.access-key-id"};
+            "s3.access-key-id", "minio.access_key"};
     private static final String[] ENDPOINT_NAMES = {
             S3FileSystemProperties.ENDPOINT, "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
-            "glue.endpoint", "aws.glue.endpoint"};
+            "glue.endpoint", "aws.glue.endpoint", "minio.endpoint"};
     private static final String[] REGION_NAMES = {
             S3FileSystemProperties.REGION, "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"};
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region",
+            "minio.region"};
     private static final String[] ROLE_ARN_NAMES = {
             S3FileSystemProperties.ROLE_ARN, "AWS_ROLE_ARN", "glue.role_arn"};
     private static final String[] CREDENTIALS_PROVIDER_TYPE_NAMES = {

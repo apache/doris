@@ -19,6 +19,7 @@ package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -62,18 +63,43 @@ public interface ConnectorMetadata extends
         return Optional.empty();
     }
 
-    /** Returns the snapshot at the given wall-clock time, or empty if none. */
-    default Optional<ConnectorMvccSnapshot> getSnapshotAt(
+    /**
+     * Resolves an explicit time-travel spec (extracted from {@code FOR TIME AS OF} /
+     * {@code FOR VERSION AS OF}, or the {@code @tag} / {@code @branch} / {@code @incr}
+     * scan params) into a pinned snapshot.
+     *
+     * <p>The connector owns all provider-specific parsing of {@code spec} (snapshot-id
+     * lookup, datetime parsing, tag/branch resolution, incremental-window validation).
+     * The returned snapshot's {@link ConnectorMvccSnapshot#getProperties()} carries the
+     * connector's scan options and its {@link ConnectorMvccSnapshot#getSchemaId()} is the
+     * resolved schema version.</p>
+     *
+     * <p>Returns {@link Optional#empty()} when the spec is unsupported or the target is not
+     * found, in which case the engine surfaces a user error. The default returns empty:
+     * connectors without time-travel do not honor explicit specs.</p>
+     */
+    default Optional<ConnectorMvccSnapshot> resolveTimeTravel(
             ConnectorSession session, ConnectorTableHandle handle,
-            long timestampMillis) {
+            ConnectorTimeTravelSpec spec) {
         return Optional.empty();
     }
 
-    /** Returns the snapshot with the given id, or empty if none. */
-    default Optional<ConnectorMvccSnapshot> getSnapshotById(
-            ConnectorSession session, ConnectorTableHandle handle,
-            long snapshotId) {
-        return Optional.empty();
+    /**
+     * Threads a pinned MVCC / time-travel {@code snapshot} into the table handle BEFORE
+     * {@code planScan}, so an MVCC-capable connector can return a handle that reads at that
+     * snapshot (mirrors the {@code applyFilter} / {@code applyProjection} handle-update pattern).
+     *
+     * <p>Contract for MVCC connectors: thread the FULL {@code snapshot.getProperties()}
+     * (the scan-options map) into the returned handle so the read path sees exactly the
+     * connector-resolved options. When {@code properties} is empty, fall back to setting
+     * {@code scan.snapshot-id = snapshot.getSnapshotId()} (latest-pin parity).</p>
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without time-travel ignore the
+     * pin and read whatever is current.</p>
+     */
+    default ConnectorTableHandle applySnapshot(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        return handle;  // default: connectors without time-travel ignore the pin
     }
 
     @Override

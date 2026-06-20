@@ -237,6 +237,12 @@ public final class CosFileSystemProperties
         kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put("use_path_style", usePathStyle);
+        // Mirror fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // anonymous access (no static credentials) emits ANONYMOUS; otherwise the key is omitted so
+        // BE uses SimpleAWSCredentialsProvider. COS never configures a provider type explicitly.
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
         return Collections.unmodifiableMap(kv);
     }
 

@@ -87,5 +87,16 @@ public enum ConnectorCapability {
      * {@link ConnectorTableOps#getColumnsFromQuery} to provide column metadata
      * for arbitrary SQL queries passed through to the remote data source.</p>
      */
-    SUPPORTS_PASSTHROUGH_QUERY
+    SUPPORTS_PASSTHROUGH_QUERY,
+    /**
+     * Indicates the connector exposes per-partition statistics (record count, on-disk size,
+     * file count) via {@link ConnectorTableOps#listPartitions}.
+     *
+     * <p>{@code SHOW PARTITIONS} renders a rich multi-column result (Partition / PartitionKey /
+     * RecordCount / FileSizeInBytes / FileCount) for connectors declaring this capability, instead
+     * of the single partition-name column used by connectors that only implement
+     * {@code listPartitionNames}. This is distinct from {@link #SUPPORTS_STATISTICS}, which is
+     * table-level statistics for the optimizer.</p>
+     */
+    SUPPORTS_PARTITION_STATS
 }

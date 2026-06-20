@@ -106,6 +106,42 @@ public final class FileSystemFactory {
     }
 
     /**
+     * Binds the given raw properties into the catalog's typed fe-filesystem
+     * {@link org.apache.doris.filesystem.properties.StorageProperties} list (one entry per configured
+     * backend), for connectors to consume via {@code ConnectorContext.getStorageProperties()}.
+     *
+     * <p>Mirrors {@link #getFileSystem(Map)}'s dual path: when {@link #initPluginManager} has run
+     * (production), delegates to the live {@link FileSystemPluginManager#bindAll} so the runtime
+     * directory-loaded object-store providers are visible; otherwise falls back to ServiceLoader
+     * discovery (unit-test / migration path). Legacy providers without typed binding are skipped
+     * (see {@link FileSystemPluginManager#bindAll}). Never returns null.
+     */
+    public static List<org.apache.doris.filesystem.properties.StorageProperties> bindAllStorageProperties(
+            Map<String, String> properties) {
+        // Bridge the operator-configured hadoop config dir to filesystem plugins: a plugin leaf cannot import
+        // fe-core Config, so the HDFS plugin's config-resource loader reads this system property instead. Keep
+        // the key in sync with HdfsConfigFileLoader.CONFIG_DIR_PROPERTY ("doris.hadoop.config.dir").
+        System.setProperty("doris.hadoop.config.dir", Config.hadoop_config_dir);
+        FileSystemPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            return mgr.bindAll(properties);
+        }
+        // Fallback: ServiceLoader discovery (unit-test / migration path), mirroring getFileSystem(Map).
+        List<org.apache.doris.filesystem.properties.StorageProperties> result = new ArrayList<>();
+        for (FileSystemProvider provider : getProviders()) {
+            if (provider.supports(properties)) {
+                try {
+                    result.add(provider.bind(properties));
+                } catch (UnsupportedOperationException e) {
+                    LOG.debug("FileSystemProvider {} has no typed binding; skipping in "
+                            + "bindAllStorageProperties", provider.name());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      * SPI entry point accepting legacy {@link StorageProperties}.
      * Converts via {@link StoragePropertiesConverter} then delegates to
      * {@link #getFileSystem(Map)}.
