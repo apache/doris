@@ -48,9 +48,6 @@ import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -75,13 +72,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.partition.Partition;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -207,8 +201,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof PluginDrivenExternalCatalog
-                || catalog instanceof PaimonExternalCatalog)) {
+                || catalog instanceof PluginDrivenExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsCommand",
                     catalog.getType()));
         }
@@ -366,52 +359,6 @@ public class ShowPartitionsCommand extends ShowCommand {
                 && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARTITION_STATS);
     }
 
-    private ShowResultSet handleShowPaimonTablePartitions() throws AnalysisException {
-        PaimonExternalCatalog paimonCatalog = (PaimonExternalCatalog) catalog;
-        String db = tableName.getDb();
-        String tbl = tableName.getTbl();
-
-        PaimonExternalDatabase database = (PaimonExternalDatabase) paimonCatalog.getDb(db)
-                .orElseThrow(() -> new AnalysisException("Paimon database '" + db + "' does not exist"));
-        PaimonExternalTable paimonTable = database.getTable(tbl)
-                .orElseThrow(() -> new AnalysisException("Paimon table '" + db + "." + tbl + "' does not exist"));
-
-        Map<String, Partition> partitionSnapshot = paimonTable.getPartitionSnapshot(Optional.empty());
-        if (partitionSnapshot == null) {
-            partitionSnapshot = Collections.emptyMap();
-        }
-
-        LinkedHashSet<String> partitionColumnNames = paimonTable
-                .getPartitionColumns(Optional.empty())
-                .stream()
-                .map(Column::getName)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        String partitionColumnsStr = String.join(",", partitionColumnNames);
-
-        List<List<String>> rows = partitionSnapshot
-                .entrySet()
-                .stream()
-                .map(entry -> {
-                    List<String> row = new ArrayList<>(5);
-                    row.add(entry.getKey());
-                    row.add(partitionColumnsStr);
-                    row.add(String.valueOf(entry.getValue().recordCount()));
-                    row.add(String.valueOf(entry.getValue().fileSizeInBytes()));
-                    row.add(String.valueOf(entry.getValue().fileCount()));
-                    return row;
-                }).collect(Collectors.toList());
-        // sort by partition name
-        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
-            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
-        } else {
-            rows.sort(Comparator.comparing(x -> x.get(0)));
-        }
-
-        rows = applyLimit(limit, offset, rows);
-
-        return new ShowResultSet(getMetaData(), rows);
-    }
-
     private ShowResultSet handleShowHMSTablePartitions() throws AnalysisException {
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         List<List<String>> rows = new ArrayList<>();
@@ -477,8 +424,6 @@ public class ShowPartitionsCommand extends ShowCommand {
             return new ShowResultSet(getMetaData(), rows);
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             return handleShowPluginDrivenTablePartitions();
-        } else if (catalog instanceof PaimonExternalCatalog) {
-            return handleShowPaimonTablePartitions();
         } else {
             return handleShowHMSTablePartitions();
         }
@@ -502,10 +447,10 @@ public class ShowPartitionsCommand extends ShowCommand {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
             builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
             builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
-        } else if (catalog instanceof PaimonExternalCatalog || hasPartitionStatsCapability()) {
-            // Legacy paimon catalog (pre-cutover) OR a plugin connector that declares
-            // SUPPORTS_PARTITION_STATS (paimon-after-cutover): 5-column rich result. Must match the
-            // row width built in handleShowPluginDrivenTablePartitions().
+        } else if (hasPartitionStatsCapability()) {
+            // A plugin connector that declares SUPPORTS_PARTITION_STATS (paimon after cutover):
+            // 5-column rich result. Must match the row width built in
+            // handleShowPluginDrivenTablePartitions().
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(300)))
                     .addColumn(new Column("PartitionKey", ScalarType.createVarchar(300)))
                     .addColumn(new Column("RecordCount", ScalarType.createVarchar(300)))

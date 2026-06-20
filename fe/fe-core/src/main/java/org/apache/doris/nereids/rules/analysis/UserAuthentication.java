@@ -29,7 +29,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -55,10 +54,7 @@ public class UserAuthentication {
         }
         TableIf authTable = table;
         Set<String> authColumns = columns;
-        if (table instanceof PaimonSysExternalTable) {
-            authTable = ((PaimonSysExternalTable) table).getSourceTable();
-            authColumns = Collections.emptySet();
-        } else if (table instanceof IcebergSysExternalTable) {
+        if (table instanceof IcebergSysExternalTable) {
             authTable = ((IcebergSysExternalTable) table).getSourceTable();
             authColumns = Collections.emptySet();
         } else if (table instanceof PluginDrivenSysExternalTable) {

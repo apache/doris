@@ -31,7 +31,7 @@ import java.util.Optional;
  * <p>Created transiently by {@link org.apache.doris.datasource.systable.PluginDrivenSysTable} during
  * planning/describe (via {@code createSysExternalTable}); it is NEVER added to a persisted table map
  * and is NOT GSON-registered, mirroring legacy sys ExternalTables (e.g.
- * {@link org.apache.doris.datasource.paimon.PaimonSysExternalTable}).</p>
+ * {@code PaimonSysExternalTable}).</p>
  *
  * <p>It reports {@link org.apache.doris.catalog.TableIf.TableType#PLUGIN_EXTERNAL_TABLE} (inherited);
  * no connector-specific table type is introduced. The whole schema/partition/row-count path is reused
