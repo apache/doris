@@ -178,10 +178,18 @@ public class CatalogProperty {
                 if (storagePropertiesMap == null) {
                     try {
                         boolean checkStorageProperties = true;
+                        MetastoreProperties msp = getMetastoreProperties();
                         AbstractVendedCredentialsProvider provider =
-                                VendedCredentialsFactory.getProviderType(getMetastoreProperties());
+                                VendedCredentialsFactory.getProviderType(msp);
                         if (provider != null) {
-                            checkStorageProperties = !provider.isVendedCredentialsEnabled(getMetastoreProperties());
+                            checkStorageProperties = !provider.isVendedCredentialsEnabled(msp);
+                        } else if (msp != null) {
+                            // Non-provider backends signal vended credentials via the metastore-props gate
+                            // (e.g. a Paimon REST catalog skips the static storage map): SDK-free replacement
+                            // of the former VendedCredentialsFactory PAIMON case. Iceberg still routes through
+                            // its provider above, so its behavior is unchanged. The null guard preserves the
+                            // pre-change "build the static map" behavior when there is no metastore.
+                            checkStorageProperties = !msp.isVendedCredentialsEnabled();
                         }
                         if (checkStorageProperties) {
                             this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
