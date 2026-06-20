@@ -24,6 +24,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -126,5 +127,29 @@ public interface Connector extends Closeable {
      */
     default String executeRestRequest(String path, String body) {
         throw new UnsupportedOperationException("REST passthrough not supported by this connector");
+    }
+
+    /**
+     * Invalidates any connector-side per-table cache (e.g. a latest-snapshot/version cache) so a subsequent
+     * read reflects the latest external state. Called by the engine on {@code REFRESH TABLE}. The names are
+     * the REMOTE db/table names (as seen by the connector). Default no-op for connectors that cache nothing.
+     */
+    default void invalidateTable(String dbName, String tableName) {
+    }
+
+    /** Invalidates all connector-side per-table caches. Default no-op. */
+    default void invalidateAll() {
+    }
+
+    /**
+     * Optional per-connector override of the catalog's schema-cache TTL (in seconds), consulted generically by
+     * the engine when sizing the schema meta-cache. Semantics match {@code schema.cache.ttl-second}:
+     * {@code 0} disables schema caching (always read fresh), {@code -1} = no expiration, {@code > 0} = TTL.
+     * Lets a connector make its own cache knob also govern schema freshness (e.g. paimon's
+     * {@code meta.cache.paimon.table.ttl-second}, which legacy used for the whole table cache). An explicit
+     * user {@code schema.cache.ttl-second} always wins over this. Default: no override.
+     */
+    default OptionalLong schemaCacheTtlSecondOverride() {
+        return OptionalLong.empty();
     }
 }

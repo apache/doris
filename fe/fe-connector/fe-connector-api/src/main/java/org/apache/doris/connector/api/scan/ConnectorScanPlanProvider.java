@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.Collections;
 import java.util.List;
@@ -48,6 +49,27 @@ public interface ConnectorScanPlanProvider {
      */
     default ConnectorScanRangeType getScanRangeType() {
         return ConnectorScanRangeType.FILE_SCAN;
+    }
+
+    /**
+     * Whether this connector is PREDICATE-DRIVEN and therefore opts out of the FE prune-to-zero
+     * short-circuit.
+     *
+     * <p>A connector whose {@link #planScan} re-plans through its own SDK from the pushed predicate and
+     * does NOT consume {@code requiredPartitions} (e.g. paimon) must return {@code true}. The engine then
+     * maps a GENUINE prune-to-zero (FE pruning emptied the partition set over a non-empty universe) to
+     * scan-all instead of short-circuiting to zero rows. This is required for master parity once a
+     * genuine-null partition is rendered as a NON-null sentinel ({@code isNull=false}): {@code col IS NULL}
+     * prunes every partition away, yet the genuine-null rows must still be returned via the pushed
+     * predicate (the legacy {@code PaimonScanNode} never consults the FE partition selection).</p>
+     *
+     * <p>Default {@code false}: connectors that genuinely restrict the read to the pruned partitions
+     * (e.g. MaxCompute, whose read session spans only {@code requiredPartitions}) keep the short-circuit.</p>
+     *
+     * @return {@code true} to disable the prune-to-zero short-circuit for this connector
+     */
+    default boolean ignorePartitionPruneShortCircuit() {
+        return false;
     }
 
     /**
@@ -124,6 +146,37 @@ public interface ConnectorScanPlanProvider {
             long limit,
             List<String> requiredPartitions) {
         return planScan(session, handle, columns, filter, limit);
+    }
+
+    /**
+     * Plans the scan, signalling whether a no-grouping {@code COUNT(*)} is being pushed down here.
+     *
+     * <p>When {@code countPushdown} is true, the engine has determined the query is a no-grouping
+     * {@code COUNT(*)} (Nereids {@code getPushDownAggNoGroupingOp()==COUNT}) and BE is already in
+     * count mode. A connector that can produce a precomputed row count for (some of) its splits
+     * should emit it so BE serves the count from metadata instead of materializing rows
+     * (e.g. Paimon's {@code DataSplit.mergedRowCount()}). The default ignores the flag and delegates
+     * to the 6-arg variant, so connectors without a metadata row count are unaffected and keep the
+     * normal scan.</p>
+     *
+     * @param session            the current session
+     * @param handle             the table handle
+     * @param columns            the columns to read
+     * @param filter             an optional remaining filter expression
+     * @param limit              the maximum number of rows to return, or -1 for no limit
+     * @param requiredPartitions the pruned partition spec strings, or null/empty for all
+     * @param countPushdown      whether a no-grouping {@code COUNT(*)} is being pushed down to this scan
+     * @return a list of scan ranges
+     */
+    default List<ConnectorScanRange> planScan(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit,
+            List<String> requiredPartitions,
+            boolean countPushdown) {
+        return planScan(session, handle, columns, filter, limit, requiredPartitions);
     }
 
     /**
@@ -263,6 +316,21 @@ public interface ConnectorScanPlanProvider {
     default void appendExplainInfo(StringBuilder output,
             String prefix, Map<String, String> nodeProperties) {
         // Default: no extra EXPLAIN info
+    }
+
+    /**
+     * Returns the delete-file paths carried by one scan range's table-format descriptor, for the
+     * VERBOSE per-backend EXPLAIN block ({@code deleteFileNum}/{@code deleteSplitNum}).
+     *
+     * <p>The default returns an empty list, so connectors without merge-on-read deletes contribute
+     * nothing. A connector that threads delete files onto its per-range thrift (e.g. Paimon's
+     * deletion vectors) overrides this to read them back from {@code tableFormatParams}.</p>
+     *
+     * @param tableFormatParams the per-range table-format descriptor (may be {@code null})
+     * @return the delete-file paths for this range (default: empty)
+     */
+    default List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
+        return Collections.emptyList();
     }
 
     /**

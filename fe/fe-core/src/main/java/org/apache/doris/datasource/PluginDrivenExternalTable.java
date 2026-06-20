@@ -33,6 +33,8 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.systable.PluginDrivenSysTable;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -46,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -70,6 +73,18 @@ public class PluginDrivenExternalTable extends ExternalTable {
     public PluginDrivenExternalTable(long id, String name, String remoteName,
             ExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.PLUGIN_EXTERNAL_TABLE);
+    }
+
+    /**
+     * Single seam for acquiring this table's {@link ConnectorTableHandle}. The base class resolves
+     * the handle for its own remote name; {@link PluginDrivenSysExternalTable} overrides this to
+     * thread a system-table handle through {@code initSchema}/{@code getNameToPartitionItems}/
+     * {@code fetchRowCount} without duplicating the metadata round-trip in each site.
+     */
+    protected Optional<ConnectorTableHandle> resolveConnectorTableHandle(
+            ConnectorSession session, ConnectorMetadata metadata) {
+        String dbName = db != null ? db.getRemoteName() : "";
+        return metadata.getTableHandle(session, dbName, getRemoteName());
     }
 
     /**
@@ -148,21 +163,37 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
-        Optional<ConnectorTableHandle> handleOpt = metadata.getTableHandle(session, dbName, tableName);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
             return Optional.empty();
         }
 
         ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+        return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
+    }
 
+    /**
+     * Converts a connector {@link ConnectorTableSchema} into a {@link PluginDrivenSchemaCacheValue}:
+     * applies identifier mapping to the column names and derives the partition-column views from the
+     * {@code partition_columns} property. Shared by {@link #initSchema()} (latest schema) and the
+     * MVCC subclass (schema AS OF a pinned snapshot), so both produce byte-identical cache values.
+     */
+    protected PluginDrivenSchemaCacheValue toSchemaCacheValue(ConnectorMetadata metadata,
+            ConnectorSession session, String dbName, String tableName, ConnectorTableSchema tableSchema) {
         // Apply identifier mapping to column names (lowercase / explicit mapping)
         List<ConnectorColumn> mappedColumns = new ArrayList<>(tableSchema.getColumns().size());
         for (ConnectorColumn col : tableSchema.getColumns()) {
             String mappedName = metadata.fromRemoteColumnName(session, dbName, tableName, col.getName());
             if (!mappedName.equals(col.getName())) {
-                mappedColumns.add(new ConnectorColumn(mappedName, col.getType(),
-                        col.getComment(), col.isNullable(), col.getDefaultValue(), col.isKey()));
+                ConnectorColumn remapped = new ConnectorColumn(mappedName, col.getType(),
+                        col.getComment(), col.isNullable(), col.getDefaultValue(), col.isKey());
+                // Preserve the WITH_TIMEZONE marker across the name remap (the 6-arg ctor defaults it off)
+                // so DESC still shows the Extra marker for renamed/explicitly-mapped TZ columns.
+                if (col.isWithTimeZone()) {
+                    remapped = remapped.withTimeZone();
+                }
+                mappedColumns.add(remapped);
             } else {
                 mappedColumns.add(col);
             }
@@ -197,7 +228,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 }
             }
         }
-        return Optional.of(new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames));
+        return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
+                tableSchema.getProperties());
     }
 
     @Override
@@ -224,6 +256,28 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumns())
                 .orElse(Collections.emptyList());
+    }
+
+    /**
+     * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
+     * write-only), used by SHOW CREATE TABLE to render LOCATION + PROPERTIES (D-046). The
+     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
+     * the connector so {@link #initSchema()} can derive the partition columns) are stripped — they
+     * are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     */
+    public Map<String, String> getTableProperties() {
+        makeSureInitialized();
+        Map<String, String> raw = getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableProperties())
+                .orElse(Collections.emptyMap());
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : raw.entrySet()) {
+            if ("partition_columns".equals(entry.getKey()) || "primary_keys".equals(entry.getKey())) {
+                continue;
+            }
+            result.put(entry.getKey(), entry.getValue());
+        }
+        return result;
     }
 
     @Override
@@ -257,8 +311,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
-        String dbName = db != null ? db.getRemoteName() : "";
-        Optional<ConnectorTableHandle> handleOpt = metadata.getTableHandle(session, dbName, getRemoteName());
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
         }
@@ -332,6 +385,42 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
     }
 
+    /**
+     * Exposes the connector's system tables (e.g. {@code tbl$snapshots}) through the live fe-core
+     * system-table machinery. Delegates name discovery to the connector SPI
+     * ({@link ConnectorMetadata#listSupportedSysTables}); each returned bare name (already lowercase)
+     * is wrapped in a {@link PluginDrivenSysTable} so {@link org.apache.doris.catalog.TableIf#findSysTable}
+     * resolves {@code tbl$name} and {@link org.apache.doris.datasource.systable.SysTableResolver} can
+     * build the transient sys ExternalTable. Mirrors the legacy no-cache getTableHandle pattern: the
+     * handle/name list is fetched per call (system-table planning is infrequent), so no extra caching.
+     */
+    @Override
+    public Map<String, SysTable> getSupportedSysTables() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyMap();
+        }
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyMap();
+        }
+        List<String> names = metadata.listSupportedSysTables(session, handleOpt.get());
+        if (names.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        // Keep keys exactly as returned by the connector (already lowercase) so the inherited,
+        // case-sensitive findSysTable exact-match works, mirroring legacy PaimonSysTable keys.
+        Map<String, SysTable> result = Maps.newHashMapWithExpectedSize(names.size());
+        for (String sysName : names) {
+            result.put(sysName, new PluginDrivenSysTable(sysName));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
@@ -357,9 +446,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
 
-        String dbName = db != null ? db.getRemoteName() : "";
-        String tableName = getRemoteName();
-        Optional<ConnectorTableHandle> handleOpt = metadata.getTableHandle(session, dbName, tableName);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return UNKNOWN_ROW_COUNT;
         }
@@ -392,6 +479,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 // TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName() returns null
                 // (no switch case in TableType.toEngineName), matching legacy behavior.
                 return TableType.MAX_COMPUTE_EXTERNAL_TABLE.toEngineName();
+            case "paimon":
+                // TableType.PAIMON_EXTERNAL_TABLE.toEngineName() returns "paimon",
+                // preserving the legacy PaimonExternalTable engine name.
+                return TableType.PAIMON_EXTERNAL_TABLE.toEngineName();
             default:
                 return super.getEngine();
         }
@@ -410,6 +501,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
             case "max_compute":
                 return TableType.MAX_COMPUTE_EXTERNAL_TABLE.name();
+            case "paimon":
+                return TableType.PAIMON_EXTERNAL_TABLE.name();
             default:
                 return TableType.PLUGIN_EXTERNAL_TABLE.name();
         }
