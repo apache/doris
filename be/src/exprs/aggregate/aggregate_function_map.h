@@ -35,7 +35,7 @@ namespace doris {
 template <PrimitiveType K>
 struct AggregateFunctionMapAggData {
     using KeyType = typename PrimitiveTypeTraits<K>::CppType;
-    using Map = phmap::flat_hash_map<StringRef, int64_t>;
+    using Map = doris::flat_hash_map<StringRef, int64_t>;
 
     AggregateFunctionMapAggData() { throw Exception(Status::FatalError("__builtin_unreachable")); }
 
