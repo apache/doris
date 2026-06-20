@@ -21,13 +21,23 @@ Two decisions were taken via AskUserQuestion after the feasibility dig:
   physically relocated (B2 was rejected — it forces a generic `MetastoreProperties`-registry rework +
   cross-loader re-basing for no marginal benefit toward dropping deps, and iceberg/hive keep their
   metastore-props in fe-core *with* their engine SDK, so B1 makes paimon the clean outlier — parity-OK).
-- **D-PB2 — sequencing = phased.**
-  - **Batch 1 (this doc, safe core):** delete the 33 DEAD files + reverse-ref cleanups + dead tests +
-    B1-strip the 6 metastore-props. **paimon maven deps STAY** (still needed by the one genuinely-LIVE
-    SDK class, `PaimonVendedCredentialsProvider`).
-  - **Batch 2 (later, docker-e2e-gated, separate):** migrate `PaimonVendedCredentialsProvider` out of
-    fe-core + rework the generic `VendedCredentialsFactory` paimon seam (shared with iceberg) + **drop
-    all 5 paimon maven deps**. This is the genuine cross-cutting piece; isolated for review/risk.
+- **D-PB2 — sequencing = phased.** *(Refined 2026-06-20 after firsthand discovery — see note below.)*
+  - **Batch 1 (this doc, safe core) — ✅ DONE (commit `7632a074e4b`):** delete the 33 DEAD files +
+    reverse-ref cleanups + dead tests + decouple the metastore-props from the deleted
+    `PaimonExternalCatalog` constants (inline `getPaimonCatalogType` literals). **paimon maven deps STAY.**
+  - **Batch 2 (later, docker-e2e-gated, separate):** **B1-strip the 6 metastore-props** (remove their
+    paimon-SDK catalog-building methods + imports + trim the 7 catalog-building test files) + migrate
+    `PaimonVendedCredentialsProvider` out of fe-core + rework the generic `VendedCredentialsFactory`
+    paimon seam (shared with iceberg) + **drop all 5 paimon maven deps**. All SDK-removal lands together.
+
+  > **Refinement (user-signed 2026-06-20):** the B1 strip was originally slotted into Batch 1, but
+  > firsthand recon showed it is *not* "deletions only" — it reshapes 6 LIVE classes (the strip-target
+  > methods have zero live main callers, but the live `executionAuthenticator`/`initExecutionAuthenticator`
+  > wiring at `PluginDrivenExternalCatalog:137-138` must be preserved) and gut-trims **7** metastore-props
+  > test files that assert the dead catalog-building (`AbstractPaimonPropertiesTest`, `PaimonCatalogTest`
+  > [@Disabled manual → delete], `Paimon{HMS,FileSystem,Jdbc,Rest,AliyunDLF}MetaStorePropertiesTest`).
+  > It drops no dep by itself (it is a *prerequisite* for the Batch-2 dep-drop). So it was **moved to
+  > Batch 2**, leaving Batch 1 as the clean, complete "remove dead legacy" PR.
 
 End state after Batch 1+2 = fe-core fully paimon-SDK-free (zero `org.apache.paimon.*` imports), all 5
 paimon maven deps gone.
@@ -121,7 +131,7 @@ generic `VendedCredentialsFactory.getProviderType()` `case PAIMON` ← `CatalogP
 
 ---
 
-## 4. Batch 1 — B1 strip the 6 metastore-props (paimon-SDK-free)
+## 4. Batch 2 — B1 strip the 6 metastore-props (paimon-SDK-free) — *moved out of Batch 1*
 
 **Strip from `AbstractPaimonProperties` + 5 flavors:** the `org.apache.paimon.*` imports;
 abstract+impl `initializeCatalog(...)`; `buildCatalogOptions()`/`appendCatalogOptions()`/abstract
@@ -146,26 +156,28 @@ calls into stripped methods (e.g. `buildCatalogOptions`/`getCatalogOptionsMap`) 
 
 ---
 
-## 5. Commit plan (each compiles independently; cycle-safe)
+## 5. Commit plan
 
 The dead subtree and the metastore-props are **mutually dependent** (subtree calls `initializeCatalog`;
 props reference `PaimonExternalCatalog.PAIMON_*`). **Additionally** the dead subtree calls a *removed*
 reverse-ref symbol: `PaimonUtils:57` → `ExternalMetaCacheMgr.paimon()`. So — exactly as P4 #64300 found
 ("reverse-ref removal and file deletion must land as one compiling unit") — severing the reverse-refs and
-deleting the dead files **cannot** be split. Batch 1 = **2 commits**:
+deleting the dead files **cannot** be split.
 
+**Batch 1 = 1 commit — ✅ DONE (`7632a074e4b`):**
 - **C1 (sever reverse-refs + delete dead, atomic):** §2 reverse-ref cleanups (6 files) + §2 javadoc
-  scrubs (3) + §4 decouple (inline `getPaimonCatalogType` literals in 5 flavors, drop their
-  `PaimonExternalCatalog` import) + §3 fixture-test trims (2) + 2 constant-test repoints + `git rm` the
-  33 dead files (§1) + 5 dead test files (§3). After C1 the metastore-props keep their SDK catalog-building
-  methods (now caller-less) but still compile against the present paimon deps.
-  *Verify:* fe-core `test-compile` green; `datasource/paimon/` holds only `PaimonVendedCredentialsProvider`.
+  scrubs (3) + §4-decouple only (inline `getPaimonCatalogType` literals in 5 flavors, drop their
+  `PaimonExternalCatalog` import — NOT the SDK strip) + §3 fixture-test trims (2) + 2 constant-test repoints
+  + `git rm` the 33 dead files (§1) + 5 dead test files (§3). After C1 the metastore-props keep their SDK
+  catalog-building methods (now caller-less) and still compile against the present paimon deps.
+  *Verified:* fe-core `test-compile` BUILD SUCCESS + checkstyle 0; 49 affected tests pass;
+  `datasource/paimon/` holds only `PaimonVendedCredentialsProvider`.
   *(First attempt split this into prep-then-delete; the `PaimonUtils → paimon()` coupling broke the
   intermediate compile — merged per P4 precedent.)*
-- **C2 (B1 strip):** §4 strip SDK methods + imports from the 6 metastore-props + trim their tests'
-  assertions on the stripped catalog-building methods (`buildCatalogOptions`/`getCatalogOptions`/
-  `getMetastoreType`). *Verify:* fe-core compiles; checkstyle 0; import-gate net; paimon connector UT
-  green; `grep org.apache.paimon fe-core/src/main` = only `PaimonVendedCredentialsProvider` remains (Batch 2).
+
+**Batch 2 (later, docker-gated):** §4 strip SDK methods + imports from the 6 metastore-props + trim the 7
+catalog-building test files; migrate `PaimonVendedCredentialsProvider`; rework `VendedCredentialsFactory`;
+**drop all 5 paimon deps**. *Target:* `grep org.apache.paimon fe-core/src/main` = ∅; `dependency:tree | grep paimon` = ∅.
 
 **Hard pre-commit (HANDOFF):** scrub `regression-test/conf/regression-conf.groovy` (plaintext key);
 clean scratch (`.audit-scratch/`/`conf.cmy/`/`META-INF/`/`*.bak`). **Path-whitelist `git add`; NEVER `git add -A`.**
