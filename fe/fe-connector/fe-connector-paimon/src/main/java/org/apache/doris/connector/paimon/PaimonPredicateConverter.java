@@ -278,12 +278,22 @@ public class PaimonPredicateConverter {
                 }
                 return null;
             case TIMESTAMP_WITHOUT_TIME_ZONE:
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                // Zone-free type: interpret the literal's wall-clock in UTC to match paimon's
+                // stored min/max file/partition stats (computed by reading the wall clock as UTC).
+                // Mirrors legacy PaimonValueConverter#visit(TimestampType), which uses a fixed
+                // GMT Calendar. Using the session zone here would shift the epoch-millis vs the
+                // stored stats and risk false file/partition pruning = silent data loss.
                 if (value instanceof LocalDateTime) {
                     LocalDateTime dt = (LocalDateTime) value;
                     long millis = dt.toInstant(ZoneOffset.UTC).toEpochMilli();
                     return Timestamp.fromEpochMillis(millis);
                 }
+                return null;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                // Do NOT push: legacy never pushed LTZ predicates (PaimonValueConverter has no
+                // visit(LocalZonedTimestampType), so it fell to defaultMethod -> null). Pushing
+                // via a fixed zone is an instant mismatch under non-UTC sessions; leave LTZ
+                // conjuncts to BE-side filtering (this conjunct is cleanly dropped).
                 return null;
             default:
                 return null;

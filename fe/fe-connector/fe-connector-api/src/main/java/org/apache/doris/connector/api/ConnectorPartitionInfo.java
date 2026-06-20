@@ -35,6 +35,7 @@ public final class ConnectorPartitionInfo {
     private final long rowCount;
     private final long sizeBytes;
     private final long lastModifiedMillis;
+    private final long fileCount;
 
     /**
      * Backward-compatible constructor. Numeric stats fields are set to
@@ -44,13 +45,13 @@ public final class ConnectorPartitionInfo {
             Map<String, String> partitionValues,
             Map<String, String> properties) {
         this(partitionName, partitionValues, properties,
-                UNKNOWN, UNKNOWN, UNKNOWN);
+                UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN);
     }
 
     public ConnectorPartitionInfo(String partitionName,
             Map<String, String> partitionValues,
             Map<String, String> properties,
-            long rowCount, long sizeBytes, long lastModifiedMillis) {
+            long rowCount, long sizeBytes, long lastModifiedMillis, long fileCount) {
         this.partitionName = Objects.requireNonNull(
                 partitionName, "partitionName");
         this.partitionValues = partitionValues == null
@@ -62,6 +63,7 @@ public final class ConnectorPartitionInfo {
         this.rowCount = rowCount;
         this.sizeBytes = sizeBytes;
         this.lastModifiedMillis = lastModifiedMillis;
+        this.fileCount = fileCount;
     }
 
     public String getPartitionName() {
@@ -91,6 +93,11 @@ public final class ConnectorPartitionInfo {
         return lastModifiedMillis;
     }
 
+    /** @return number of data files in the partition, or {@link #UNKNOWN}. */
+    public long getFileCount() {
+        return fileCount;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -103,6 +110,7 @@ public final class ConnectorPartitionInfo {
         return rowCount == that.rowCount
                 && sizeBytes == that.sizeBytes
                 && lastModifiedMillis == that.lastModifiedMillis
+                && fileCount == that.fileCount
                 && partitionName.equals(that.partitionName)
                 && partitionValues.equals(that.partitionValues)
                 && properties.equals(that.properties);
@@ -111,7 +119,7 @@ public final class ConnectorPartitionInfo {
     @Override
     public int hashCode() {
         return Objects.hash(partitionName, partitionValues, properties,
-                rowCount, sizeBytes, lastModifiedMillis);
+                rowCount, sizeBytes, lastModifiedMillis, fileCount);
     }
 
     @Override
@@ -119,6 +127,7 @@ public final class ConnectorPartitionInfo {
         return "ConnectorPartitionInfo{name='" + partitionName
                 + "', values=" + partitionValues
                 + ", rowCount=" + rowCount
-                + ", sizeBytes=" + sizeBytes + "}";
+                + ", sizeBytes=" + sizeBytes
+                + ", fileCount=" + fileCount + "}";
     }
 }

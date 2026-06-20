@@ -32,6 +32,11 @@ public final class ConnectorColumn {
     private final boolean isKey;
     private final boolean isAutoInc;
     private final boolean isAggregated;
+    // Marks a "with local time zone" timestamp column. fe-core's ConnectorColumnConverter translates
+    // this into Column.setWithTZExtraInfo() so DESC shows the WITH_TIMEZONE "Extra" marker, matching
+    // legacy PaimonExternalTable/PaimonSysExternalTable/IcebergUtils which set it from the SOURCE type
+    // root regardless of the timestamp_tz mapping flag. Defaults false; set via withTimeZone().
+    private final boolean withTimeZone;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -51,6 +56,12 @@ public final class ConnectorColumn {
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
+        this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false);
+    }
+
+    private ConnectorColumn(String name, ConnectorType type, String comment,
+            boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
+            boolean isAggregated, boolean withTimeZone) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -59,6 +70,17 @@ public final class ConnectorColumn {
         this.isKey = isKey;
         this.isAutoInc = isAutoInc;
         this.isAggregated = isAggregated;
+        this.withTimeZone = withTimeZone;
+    }
+
+    /**
+     * Returns a copy of this column marked as a "with local time zone" timestamp. See
+     * {@link #isWithTimeZone()}; the marker is intentionally orthogonal to the mapped {@link #getType()}
+     * so it survives even when the column is mapped to a plain DATETIME (timestamp_tz mapping off).
+     */
+    public ConnectorColumn withTimeZone() {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, true);
     }
 
     public String getName() {
@@ -93,6 +115,10 @@ public final class ConnectorColumn {
         return isAggregated;
     }
 
+    public boolean isWithTimeZone() {
+        return withTimeZone;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -106,6 +132,7 @@ public final class ConnectorColumn {
                 && isKey == that.isKey
                 && isAutoInc == that.isAutoInc
                 && isAggregated == that.isAggregated
+                && withTimeZone == that.withTimeZone
                 && name.equals(that.name)
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
@@ -114,7 +141,8 @@ public final class ConnectorColumn {
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated);
+        return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated,
+                withTimeZone);
     }
 
     @Override
