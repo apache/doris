@@ -6,18 +6,32 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P5-T29（批 B8）Batch 2：strip metastore-props SDK + 迁 `PaimonVendedCredentialsProvider` + 删 paimon maven 依赖（docker-gated）**
+# 🎯 下一个 session 的任务 — **P5-T30（B9）post-cutover 回归（live-e2e，用户跑）+ accepted-deviation 签字**
 
-> 📍 **完整修订计划（authoritative，含 firsthand 核实 + 用户签字 D-PB1/D-PB2 + 逐文件 edit 清单）见
-> [`tasks/designs/P5-T29-paimon-legacy-removal-design.md`](./tasks/designs/P5-T29-paimon-legacy-removal-design.md)**（本 session 2026-06-20 新建）。
-> 下文 §「P5-T29 scope ledger」是旧框架，部分被该 design doc **取代**（尤其 §B 常量「搬家」实际改为内联字面量、§D maven 决策见下「关键 scope 修正」）。
-> 样板 = **P4 #64300**（`73832991962`）；对照基线 = `reviews/P6-paimon-fullpath-cleanroom-2026-06-18.md` §B8 ledger。
+> **✅ P5-T29（B8）Batch 1 + Batch 2 全部完成 — fe-core 现已完全 paimon-SDK-free（`grep org.apache.paimon
+> fe/fe-core/src/{main,test}` = ∅，5 个 paimon maven 依赖已删）。** 仅剩 **B9（P5-T30）post-cutover live-e2e
+> 回归**（docker-gated，`enablePaimonTest=true`，用户跑）+ deviations 签字。**P5 阶段主体工作至此收尾。**
+>
+> **Batch 2 已完成（local-commit 见 git log，未 push）**：详见
+> [`tasks/designs/P5-T29-paimon-legacy-removal-design.md`](./tasks/designs/P5-T29-paimon-legacy-removal-design.md) §5「Batch 2 DONE」+ §6 gates。
+> **关键偏离（用户 2026-06-20 改签 GAMMA）**：recon（`wf_12d67943-eeb`）+ 对抗 review（`wf_ef1fd738-3b9`）证实
+> `PaimonVendedCredentialsProvider` 的 SDK 方法**早已死**（extract* 仅 iceberg 路调用；真 paimon vended 路在连接器
+> `PaimonScanPlanProvider.extractVendedToken`，cutover FIX-1 已搬走），唯一 LIVE 是 SDK-free 的
+> `isVendedCredentialsEnabled` gate。故**不做** design 原设想的「迁出 + cross-loader seam」，改 **GAMMA**：
+> **整删 provider**（+ 其 test）+ 删 `VendedCredentialsFactory` `case PAIMON` + gate 下放到新 SDK-free
+> `MetastoreProperties.isVendedCredentialsEnabled()`（base=false，`PaimonRestMetaStoreProperties`→true）。
+> iceberg gate 路径 byte-identical（review 6-path 真值表核实），LIVE Kerberos auth 装配未动。
+> 顺手：删 Jdbc `getBackendPaimonOptions`（SDK-free 但 0 live caller）、删 `PaimonDlfRestCatalogTest`（§3 漏列的 SDK importer）、
+> 修 `s3-transfer-manager` 注释（真消费者 = hadoop-aws 非 paimon-s3）。**fe/pom.xml `paimon.version` 保留（R-007）。**
+>
+> 下文 §「P5-T29 scope ledger」是旧框架（Batch 1 视角），已被 design doc §5/§6 **取代**，仅作历史参考。
+> 样板 = **P4 #64300**（`73832991962`）。
 
 **✅ Batch 1（C1）已完成 + local-commit `7632a074e4b`（未 push）**：删 **33 dead 文件**（`datasource/paimon/*` 除 LIVE `PaimonVendedCredentialsProvider`、`metacache/paimon/*`、`systable/PaimonSysTable`）+ 清 **6 处 live reverse-ref**（`ExternalCatalog`/`ExternalMetaCacheMgr`/`ExternalMetaCacheRouteResolver`/`Env`[保 LIVE D-046 PLUGIN 分支]/`UserAuthentication`/`ShowPartitionsCommand`[保 `hasPartitionStatsCapability`+live `PAIMON_EXTERNAL_TABLE` 枚举]）+ **3 javadoc scrub** + **5 dead test 删** + 2 generic fixture test 修（`StatementContextTest` mock→`PluginDrivenMvccExternalTable`、`ExternalMetaCacheRouteResolverTest`）+ metastore-props `getPaimonCatalogType` 内联字面量（脱钩已删的 `PaimonExternalCatalog`，免「常量搬家」前置）。**fe-core test-compile BUILD SUCCESS + checkstyle 0 + 49 改动测试绿**；`datasource/paimon/` 现仅剩 `PaimonVendedCredentialsProvider`。`reverse-ref + 删文件须同一 commit`（P4 precedent：`PaimonUtils:57`→已删的 `ExternalMetaCacheMgr.paimon()`）。
 
 **🔱 关键 scope 修正（本 session firsthand，推翻旧 §D 框架）**：方案 A/B 都**只碰 7 个 metastore-props**，都**不能单独删** 5 个 paimon maven 依赖——31 个 fe-core 文件 import `org.apache.paimon.*`，其中 ~23 是 Batch 1 已删的 dead 子树；剩 **6 metastore-props**（SDK 100% 在 dead catalog-building 方法→可 strip）+ **`PaimonVendedCredentialsProvider`**（genuinely LIVE，runtime 用 paimon REST SDK，挂在 generic `VendedCredentialsFactory.getProviderType` 的 `case PAIMON`，经 `CatalogProperty:182`）。**用户签 = Plan B（fe-core fully paimon-free）+ D-PB1 strip-in-place（不物理搬 7 类，与 iceberg/hive parity）+ D-PB2 phased**。strip 因「reshape 6 live 类 + trim 7 test 文件 + 单独不删 dep」从 Batch 1 **移到 Batch 2**（用户 2026-06-20 签）。
 
-**Batch 2（下一步，docker-gated，design doc §4 有逐文件清单）**：
+**Batch 2（✅ 已完成；下为「原计划」历史记录，第 3 项 vended 实际改用 GAMMA — 见上 banner + design doc §5）**：
 1. **B1-strip 6 metastore-props**（`AbstractPaimonProperties`+5 flavor）：删 `initializeCatalog`/`buildCatalogOptions`/`appendCatalogOptions`/`appendCustomCatalogOptions`/`getCatalogOptionsMap`/`getCatalogOptions`(catalogOptions 字段)/`getMetastoreType`/`appendUserHadoopConfig`/`normalizeS3Config`/Jdbc `getBackendPaimonOptions`+`registerJdbcDriver`+`DriverShim` + 全 `org.apache.paimon.*` import。**保 LIVE**：`warehouse` @ConnectorProperty、`executionAuthenticator`+`getExecutionAuthenticator`、`initExecutionAuthenticator`/`initHdfsExecutionAuthenticator`（`PluginDrivenExternalCatalog:137-138` 读，Kerberos doAs）、`initNormalizeAndCheckProps`/validation、`getPaimonCatalogType`（已内联）。**这些 strip 方法 0 live main caller**（只 test）。
 2. **trim 7 test**：`PaimonCatalogTest`（@Disabled 手测→直接删）、`AbstractPaimonPropertiesTest`（test-local subclass override 被删的抽象方法→修）、`Paimon{HMS,FileSystem,Jdbc,Rest,AliyunDLF}MetaStorePropertiesTest`（去 catalog-building 断言，保 validation/binding/type/auth）。
 3. **迁 `PaimonVendedCredentialsProvider` 出 fe-core** + 改 generic `VendedCredentialsFactory`（switch on `MetastoreProperties.Type.PAIMON`，与 iceberg 共享；需新 fe-core seam 让 plugin-loader 侧 provider 喂回，cross-loader）。**这是真正的 cross-cutting 件**，碰 generic/shared fe-core（iceberg 也在同 factory）。
@@ -77,8 +91,8 @@
 # 📦 仓库 / 进度状态
 - **当前分支 = `branch-catalog-spi`**（开发主分支）。HEAD 近端：`38e7140ce56`（#64446 P5 迁移+翻闸）← `e9c5b3e70ce`（修编译）。
   P0–P5(迁移+翻闸) + P3 hybrid + P4 全部已合入本分支。
-- **P5 状态**：B0–B7 全完成并合入 #64446；**仅剩 B8（P5-T29 删 legacy）+ B9（P5-T30 回归）**。
-- **legacy 仍在 fe-core**（待 P5-T29 删）：`datasource/paimon/`(30) + `metacache/paimon/`(3) + `systable/PaimonSysTable`(1) + 8 处反向引用文件 + paimon maven 依赖(5)。STILL-CONSUMED `property/metastore/Paimon*`(7) **保留**。
+- **P5 状态**：B0–B7 合入 #64446；**B8（P5-T29 删 legacy）= Batch 1 + Batch 2 全完成**（local-commit，未 push）；**仅剩 B9（P5-T30 live-e2e 回归，用户跑）**。
+- **fe-core 现已完全 paimon-SDK-free**：`datasource/paimon/` 整目录已删；6 个 `property/metastore/Paimon*` 已 strip 成 SDK-free 描述符（保 LIVE auth/validation/@ConnectorProperty/type）；5 个 paimon maven 依赖已删。`grep org.apache.paimon fe/fe-core/src/{main,test}` = ∅。**fe/pom.xml `paimon.version` 保留**（R-007：fe-connector-paimon + BE 仍用）。
 - ⚠️ `regression-test/conf/regression-conf.groovy` 若仍 modified 且含**明文 Aliyun key** → commit 前继续 path-whitelist，**严禁 `git add -A`**；`regression-conf.groovy.bak` 同理排除。
 - 未跟踪 scratch：`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak` 等——commit 前清，勿 add。
 - `reviews/P6-paimon-fullpath-cleanroom-2026-06-18.md`（B8 readiness ledger 来源）若仍未跟踪，下次方便时 vet + commit 或保留本地。

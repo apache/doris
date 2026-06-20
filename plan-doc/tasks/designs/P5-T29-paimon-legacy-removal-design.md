@@ -175,9 +175,31 @@ deleting the dead files **cannot** be split.
   *(First attempt split this into prep-then-delete; the `PaimonUtils → paimon()` coupling broke the
   intermediate compile — merged per P4 precedent.)*
 
-**Batch 2 (later, docker-gated):** §4 strip SDK methods + imports from the 6 metastore-props + trim the 7
-catalog-building test files; migrate `PaimonVendedCredentialsProvider`; rework `VendedCredentialsFactory`;
-**drop all 5 paimon deps**. *Target:* `grep org.apache.paimon fe-core/src/main` = ∅; `dependency:tree | grep paimon` = ∅.
+**Batch 2 = 1 code commit — ✅ DONE:** §4 strip SDK methods + imports from the 6 metastore-props + trim
+the 8 catalog-building test files; **drop all 5 paimon deps**. *Target met:* `grep org.apache.paimon
+fe-core/src/{main,test}` = ∅; `dependency:tree -Dincludes=org.apache.paimon` on fe-core = ∅.
+
+> **🔱 Vended-provider deviation (firsthand recon `wf_12d67943-eeb` + user re-signed 2026-06-20 → GAMMA):**
+> the design above (§0.2/§4) assumed `PaimonVendedCredentialsProvider` was LIVE end-to-end and had to be
+> *migrated out* of fe-core with a cross-loader `VendedCredentialsFactory` seam. **Recon refuted that
+> premise** (adversarially confirmed): the provider's paimon-SDK methods (`extractRawVendedCredentials`/
+> `getTableName`) are **dead** — reachable only via `getStoragePropertiesMapWithVendedCredentials`, whose
+> only callers are iceberg; the real paimon runtime vended path moved to the connector
+> (`PaimonScanPlanProvider.extractVendedToken`) at cutover FIX-1. The provider's only LIVE duty was the
+> SDK-free `isVendedCredentialsEnabled` gate (`instanceof PaimonRestMetaStoreProperties`) read by
+> `CatalogProperty.initStorageProperties`. So the cross-loader migration was unnecessary. The user chose
+> **GAMMA**: **delete `PaimonVendedCredentialsProvider` entirely** (+ its test), remove the
+> `VendedCredentialsFactory` `case PAIMON` (+ import), and **relocate the gate** to a new SDK-free
+> `MetastoreProperties.isVendedCredentialsEnabled()` (base = `false`, `PaimonRestMetaStoreProperties` →
+> `true`). `CatalogProperty`'s gate now routes the provider path for iceberg (byte-identical) and the
+> metastore-props path for everything else. A 3-agent adversarial review (`wf_ef1fd738-3b9`) verified the
+> `checkStorageProperties` truth table is byte-identical to HEAD on all 6 paths and no LIVE Kerberos
+> auth-wiring was severed. Also: `getBackendPaimonOptions` (Jdbc) was dropped (SDK-free but 0 live callers —
+> connector has its own); `PaimonDlfRestCatalogTest` (paimon-SDK importer not in §3's named list) was deleted.
+> *Verified:* fe-core `test-compile` BUILD SUCCESS + checkstyle 0; 32 affected tests green; import-gate OK;
+> `s3-transfer-manager` retained (real consumer = hadoop-aws, comment corrected). **fe/pom.xml
+> dependencyManagement `paimon.version` kept (R-007: fe-connector-paimon + BE still consume it).**
+> live-e2e `enablePaimonTest=true` is **docker-gated → user-run (B9/P5-T30)**, NOT run here.
 
 **Hard pre-commit (HANDOFF):** scrub `regression-test/conf/regression-conf.groovy` (plaintext key);
 clean scratch (`.audit-scratch/`/`conf.cmy/`/`META-INF/`/`*.bak`). **Path-whitelist `git add`; NEVER `git add -A`.**
@@ -187,9 +209,10 @@ Each commit: `[P5-T29] <subj>` + root cause + fix + tests + `Co-Authored-By: Cla
 
 ## 6. Verification gates (mirror P4 #64300)
 
-- [ ] fe-core `compile` BUILD SUCCESS + `testCompile` + checkstyle 0 (`validate` phase) per commit.
-- [ ] `tools/check-connector-imports.sh` exit 0.
-- [ ] paimon connector module UT green (`-pl :fe-connector-paimon -am package -Dassembly.skipAssembly=true`).
-- [ ] After C3: `grep -rl "import org.apache.paimon\." fe/fe-core/src/main` = ONLY `PaimonVendedCredentialsProvider`.
-- [ ] Batch 2 (separate): `dependency:tree | grep paimon` = removed set absent; live-e2e `enablePaimonTest=true`.
-- [ ] regression-gated live-e2e (B9/P5-T30, user-run) after Batch 2 — 5-flavor read + sys-table + MTMV + DDL no regression.
+- [x] **Batch 1+2:** fe-core `test-compile` BUILD SUCCESS + checkstyle 0 (`validate` phase).
+- [x] **Batch 1+2:** `tools/check-connector-imports.sh` exit 0.
+- [x] **Batch 2:** `grep -rl "import org.apache.paimon\." fe/fe-core/src/{main,test}` = ∅ (was: only `PaimonVendedCredentialsProvider`).
+- [x] **Batch 2:** `dependency:tree -Dincludes=org.apache.paimon` on fe-core = ∅; `s3-transfer-manager` retained.
+- [x] **Batch 2:** 32 affected tests green (5 trimmed flavor tests + `VendedCredentialsFactoryTest`).
+- [ ] paimon connector module UT green (`-pl :fe-connector-paimon -am package -Dassembly.skipAssembly=true`) — connector untouched; spot-check optional.
+- [ ] regression-gated live-e2e (B9/P5-T30, **docker-gated, user-run**) after Batch 2 — 5-flavor read + sys-table + MTMV + DDL no regression.
