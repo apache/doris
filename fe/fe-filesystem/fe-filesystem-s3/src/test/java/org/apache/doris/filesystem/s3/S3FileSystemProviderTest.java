@@ -90,6 +90,19 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supports_acceptsPureMinioKeyedConfiguration() {
+        // C1: a catalog keyed purely with minio.* properties (legacy MinioProperties namespace) must
+        // bind via the shared S3 provider. Before the minio.* aliases were added, this returned false,
+        // leaving storage unbound ("no file io for scheme s3").
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.endpoint", "http://127.0.0.1:9000");
+        props.put("minio.access_key", "ak");
+        props.put("minio.secret_key", "sk");
+
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
     void bind_returnsValidatedS3FileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", "https://minio.local");

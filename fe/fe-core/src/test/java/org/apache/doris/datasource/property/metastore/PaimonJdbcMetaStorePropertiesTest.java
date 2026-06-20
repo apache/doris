@@ -18,7 +18,9 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.paimon.options.CatalogOptions;
 import org.junit.jupiter.api.Assertions;
@@ -50,6 +52,28 @@ public class PaimonJdbcMetaStorePropertiesTest {
                 jdbcProps.getCatalogOptions().get(CatalogOptions.URI.key()));
         Assertions.assertEquals("paimon", jdbcProps.getCatalogOptions().get("jdbc.user"));
         Assertions.assertEquals("secret", jdbcProps.getCatalogOptions().get("jdbc.password"));
+    }
+
+    @Test
+    public void testInitExecutionAuthenticatorWiresHdfsAuthenticatorWithoutInitializeCatalog() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:mysql://localhost:3306/paimon");
+        props.put("warehouse", "file:///tmp");
+        props.put("fs.defaultFS", "file:///tmp");
+        PaimonJdbcMetaStoreProperties jdbcProps =
+                (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+        // M-8: like filesystem, the jdbc flavor only set the real authenticator inside the now-dead
+        // initializeCatalog(), so the cutover path kept the base no-op and lost doAs over Kerberized
+        // HDFS. This assertion pins the bug.
+        Assertions.assertNotEquals(HadoopExecutionAuthenticator.class,
+                jdbcProps.getExecutionAuthenticator().getClass());
+        // The fix wires the HDFS authenticator from the storage props WITHOUT initializeCatalog.
+        // MUTATION: removing the jdbc initExecutionAuthenticator override leaves the no-op -> red.
+        jdbcProps.initExecutionAuthenticator(StorageProperties.createAll(props));
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class,
+                jdbcProps.getExecutionAuthenticator().getClass());
     }
 
     @Test
