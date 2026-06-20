@@ -101,6 +101,8 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -4936,6 +4938,41 @@ public class Env {
             sb.append("\n)");
         } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
+            PluginDrivenExternalTable pluginExternalTable;
+            if (table instanceof PluginDrivenSysExternalTable) {
+                // Mirror the legacy paimon unwrap: a system table ($snapshots etc.) renders the
+                // DDL of its source table. Check the sys subclass FIRST (it extends
+                // PluginDrivenExternalTable).
+                pluginExternalTable = ((PluginDrivenSysExternalTable) table).getSourceTable();
+            } else if (table instanceof PluginDrivenExternalTable) {
+                pluginExternalTable = (PluginDrivenExternalTable) table;
+            } else {
+                throw new RuntimeException("Unexpected plugin table type: " + table.getClass().getSimpleName());
+            }
+            // Render LOCATION + PROPERTIES for SHOW CREATE TABLE parity (D-046) ONLY for the paimon
+            // engine type — the single plugin-driven connector whose legacy DDL carried them.
+            // FIX-SHOWCREATE-PLUGIN-PROPS: gating only on a non-empty property map wrongly rendered
+            // LOCATION '' + PROPERTIES(...) for JDBC/ES/Trino plugin tables (whose getTableProperties()
+            // returns non-empty connection props, including credentials), diverging from their legacy
+            // comment-only DDL (ENGINE=...;) and leaking the JDBC password. Other connectors
+            // (MaxCompute) already stay comment-only via an empty map; the engine-type gate is the
+            // extension point when hive/iceberg/hudi later migrate to plugin-driven and need LOCATION.
+            boolean rendersLocationProperties = TableType.PAIMON_EXTERNAL_TABLE.name()
+                    .equals(pluginExternalTable.getEngineTableTypeName());
+            Map<String, String> properties = pluginExternalTable.getTableProperties();
+            if (rendersLocationProperties && !properties.isEmpty()) {
+                sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
+                sb.append("\nPROPERTIES (");
+                Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Entry<String, String> prop = iterator.next();
+                    sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                    if (iterator.hasNext()) {
+                        sb.append(",");
+                    }
+                }
+                sb.append("\n)");
+            }
         }
 
         createTableStmt.add(sb + ";");

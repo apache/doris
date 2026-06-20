@@ -69,6 +69,13 @@ public final class S3FileSystemProperties
     public static final String DEFAULT_CREDENTIALS_PROVIDER_TYPE = "DEFAULT";
     public static final String DEFAULT_REGION = "us-east-1";
 
+    // Legacy MinioProperties defaulted the connection tuning knobs higher than S3 (100 / 10000 / 10000
+    // vs 50 / 3000 / 1000). Restored for minio.*-keyed catalogs only, to preserve pre-SPI behavior.
+    private static final String MINIO_KEY_PREFIX = "minio.";
+    private static final String MINIO_DEFAULT_MAX_CONNECTIONS = "100";
+    private static final String MINIO_DEFAULT_REQUEST_TIMEOUT_MS = "10000";
+    private static final String MINIO_DEFAULT_CONNECTION_TIMEOUT_MS = "10000";
+
     private static final Pattern[] ENDPOINT_PATTERNS = new Pattern[] {
             Pattern.compile(
                     "^(?:https?://)?(?:"
@@ -84,14 +91,15 @@ public final class S3FileSystemProperties
 
     @Getter
     @ConnectorProperty(names = {ENDPOINT, "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
-            "glue.endpoint", "aws.glue.endpoint"},
+            "glue.endpoint", "aws.glue.endpoint", "minio.endpoint"},
             required = false,
             description = "The endpoint of S3.")
     private String endpoint = "";
 
     @Getter
     @ConnectorProperty(names = {REGION, "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"},
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region",
+            "minio.region"},
             required = false,
             isRegionField = true,
             description = "The region of S3.")
@@ -101,7 +109,7 @@ public final class S3FileSystemProperties
     @ConnectorProperty(names = {ACCESS_KEY, "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
             "glue.access_key", "aws.glue.access-key",
             "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
-            "s3.access-key-id"},
+            "s3.access-key-id", "minio.access_key"},
             required = false,
             description = "The access key of S3.")
     private String accessKey = "";
@@ -110,7 +118,7 @@ public final class S3FileSystemProperties
     @ConnectorProperty(names = {SECRET_KEY, "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
             "glue.secret_key", "aws.glue.secret-key",
             "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
-            "s3.secret-access-key"},
+            "s3.secret-access-key", "minio.secret_key"},
             required = false,
             sensitive = true,
             description = "The secret key of S3.")
@@ -118,7 +126,7 @@ public final class S3FileSystemProperties
 
     @Getter
     @ConnectorProperty(names = {SESSION_TOKEN, "AWS_TOKEN", "session_token",
-            "s3.session-token", "iceberg.rest.session-token"},
+            "s3.session-token", "iceberg.rest.session-token", "minio.session_token"},
             required = false,
             sensitive = true,
             description = "The session token of S3.")
@@ -149,25 +157,27 @@ public final class S3FileSystemProperties
     private String rootPath = "";
 
     @Getter
-    @ConnectorProperty(names = {MAX_CONNECTIONS, "AWS_MAX_CONNECTIONS"},
+    @ConnectorProperty(names = {MAX_CONNECTIONS, "AWS_MAX_CONNECTIONS", "minio.connection.maximum"},
             required = false,
             description = "The maximum number of connections to S3.")
     private String maxConnections = DEFAULT_MAX_CONNECTIONS;
 
     @Getter
-    @ConnectorProperty(names = {REQUEST_TIMEOUT_MS, "AWS_REQUEST_TIMEOUT_MS"},
+    @ConnectorProperty(names = {REQUEST_TIMEOUT_MS, "AWS_REQUEST_TIMEOUT_MS",
+            "minio.connection.request.timeout"},
             required = false,
             description = "The request timeout of S3 in milliseconds.")
     private String requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS;
 
     @Getter
-    @ConnectorProperty(names = {CONNECTION_TIMEOUT_MS, "AWS_CONNECTION_TIMEOUT_MS"},
+    @ConnectorProperty(names = {CONNECTION_TIMEOUT_MS, "AWS_CONNECTION_TIMEOUT_MS",
+            "minio.connection.timeout"},
             required = false,
             description = "The connection timeout of S3 in milliseconds.")
     private String connectionTimeoutMs = DEFAULT_CONNECTION_TIMEOUT_MS;
 
     @Getter
-    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access"},
+    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access", "minio.use_path_style"},
             required = false,
             description = "Whether to use path-style bucket addressing.")
     private String usePathStyle = "false";
@@ -363,6 +373,41 @@ public final class S3FileSystemProperties
         if (StringUtils.containsIgnoreCase(endpoint, "glue") && StringUtils.isNotBlank(region)) {
             endpoint = buildS3Endpoint(region);
         }
+        applyLegacyMinioTuningDefaults();
+    }
+
+    /**
+     * Restores the legacy {@code MinioProperties} connection-tuning defaults (100 / 10000 / 10000)
+     * for catalogs keyed with {@code minio.*} properties. The typed S3 path defaults to 50 / 3000 / 1000,
+     * so without this a pure {@code minio.*} catalog that omits the tuning keys would silently change its
+     * connection-pool size and timeouts versus the pre-SPI behavior. Each knob is restored only when it
+     * was not supplied under any alias (so explicit values are honored), and the whole step is gated on a
+     * {@code minio.*} key being present so the canonical {@code s3.*} path is byte-for-byte unchanged.
+     */
+    private void applyLegacyMinioTuningDefaults() {
+        boolean minioKeyed = rawProperties.entrySet().stream()
+                .anyMatch(e -> e.getKey().startsWith(MINIO_KEY_PREFIX) && StringUtils.isNotBlank(e.getValue()));
+        if (!minioKeyed) {
+            return;
+        }
+        if (!hasRawKey(MAX_CONNECTIONS, "AWS_MAX_CONNECTIONS", "minio.connection.maximum")) {
+            maxConnections = MINIO_DEFAULT_MAX_CONNECTIONS;
+        }
+        if (!hasRawKey(REQUEST_TIMEOUT_MS, "AWS_REQUEST_TIMEOUT_MS", "minio.connection.request.timeout")) {
+            requestTimeoutMs = MINIO_DEFAULT_REQUEST_TIMEOUT_MS;
+        }
+        if (!hasRawKey(CONNECTION_TIMEOUT_MS, "AWS_CONNECTION_TIMEOUT_MS", "minio.connection.timeout")) {
+            connectionTimeoutMs = MINIO_DEFAULT_CONNECTION_TIMEOUT_MS;
+        }
+    }
+
+    private boolean hasRawKey(String... keys) {
+        for (String key : keys) {
+            if (StringUtils.isNotBlank(rawProperties.get(key))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String buildS3Endpoint(String region) {

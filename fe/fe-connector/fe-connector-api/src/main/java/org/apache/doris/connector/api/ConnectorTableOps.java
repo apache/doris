@@ -20,6 +20,7 @@ package org.apache.doris.connector.api;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 
 import java.util.Collections;
@@ -39,11 +40,51 @@ public interface ConnectorTableOps {
         return Optional.empty();
     }
 
+    /**
+     * Lists the system-table names supported for the given base table
+     * (e.g. ["snapshots", "schemas", "options", "audit_log", "binlog"]).
+     *
+     * <p>The names are WITHOUT any "$" prefix; fe-core composes the
+     * "{baseTable}${sysName}" reference name. Default: empty (no system
+     * tables). Implemented by connectors that expose system tables.</p>
+     */
+    default List<String> listSupportedSysTables(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Returns a handle for the named system table of the given base table,
+     * or empty if this connector does not expose that system table.
+     *
+     * <p>The returned handle is connector-internal and carries whatever the
+     * connector needs (system-table name, scan-routing hints, etc.); it is
+     * opaque to fe-core. {@code sysName} is the bare name (no "$").</p>
+     */
+    default Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        return Optional.empty();
+    }
+
     /** Returns the schema (columns, format, etc.) for the given table. */
     default ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {
         throw new DorisConnectorException(
                 "getTableSchema not implemented");
+    }
+
+    /**
+     * Returns the schema AT {@code snapshot.getSchemaId()} &mdash; the schema as of the
+     * pinned snapshot, for time-travel reads under schema evolution.
+     *
+     * <p>The default ignores the snapshot and returns the latest schema via
+     * {@link #getTableSchema(ConnectorSession, ConnectorTableHandle)}. A connector that
+     * supports schema-at-snapshot overrides this to resolve the schema version.</p>
+     */
+    default ConnectorTableSchema getTableSchema(
+            ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getTableSchema(session, handle);
     }
 
     /** Returns a name-to-handle map for all columns of the table. */

@@ -18,7 +18,6 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -29,7 +28,7 @@ import java.util.Set;
  * SPI provider for HDFS-family filesystems: hdfs, viewfs, ofs, jfs, oss.
  * Registered via META-INF/services for Java ServiceLoader discovery.
  */
-public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class HdfsFileSystemProvider implements FileSystemProvider<HdfsFileSystemProperties> {
 
     public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
 
@@ -53,6 +52,18 @@ public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProp
         }
         return properties.containsKey("dfs.nameservices")
                 || properties.containsKey("hadoop.kerberos.principal");
+    }
+
+    @Override
+    public HdfsFileSystemProperties bind(Map<String, String> properties) {
+        return HdfsFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(HdfsFileSystemProperties properties) throws IOException {
+        // DFSFileSystem builds its own Configuration (incl. the create()-side Kerberos authenticator)
+        // from the raw map via HdfsConfigBuilder; route through the unchanged create(Map) path.
+        return create(properties.rawProperties());
     }
 
     @Override

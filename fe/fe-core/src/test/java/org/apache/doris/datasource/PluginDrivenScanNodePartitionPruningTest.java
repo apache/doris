@@ -99,11 +99,67 @@ public class PluginDrivenScanNodePartitionPruningTest {
         // returns unconditional true precisely so PruneFileScanPartition leaves non-partitioned tables
         // NOT_PRUNED (see PluginDrivenExternalTablePartitionTest
         // #testNonPartitionedTableReportsNoPartitionsButStillOptsIntoPruning).
+        // totalPartitionNum=5 (> 0): a GENUINE prune-to-zero over a non-empty universe.
         SelectedPartitions emptyPruned = new SelectedPartitions(5, Collections.emptyMap(), true);
 
         List<String> result = PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned);
 
         Assertions.assertNotNull(result);
         Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testPrunedToZeroWithoutIgnoreStillShortCircuits() {
+        // Default (non-predicate-driven connector, ignoreShortCircuit=false): a genuine prune-to-zero still
+        // maps to the non-null empty list so getSplits() short-circuits — the existing MaxCompute parity.
+        SelectedPartitions emptyPruned = new SelectedPartitions(5, Collections.emptyMap(), true);
+        List<String> result = PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned, false);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testPrunedToZeroWithIgnoreShortCircuitScansAll() {
+        // A predicate-driven connector (paimon: ConnectorScanPlanProvider.ignorePartitionPruneShortCircuit()
+        // == true) must NOT short-circuit a genuine prune-to-zero. With the master-parity isNull=false a
+        // genuine-null paimon partition renders as a NON-null sentinel, so `region IS NULL` prunes EVERY
+        // partition away (empty set over a 5-partition universe); short-circuiting here would drop the
+        // genuine-null row. Returning null (scan-all) lets getSplits() call planScan, which the paimon SDK
+        // answers from the pushed `region IS NULL` predicate -> the genuine-null row is returned (master
+        // PaimonScanNode parity; regression test_paimon_runtime_filter_partition_pruning qt_null_partition_4).
+        // MUTATION: ignoring the flag -> returns the empty short-circuit list -> red.
+        SelectedPartitions emptyPruned = new SelectedPartitions(5, Collections.emptyMap(), true);
+        Assertions.assertNull(
+                PluginDrivenScanNode.resolveRequiredPartitions(emptyPruned, true),
+                "a predicate-driven connector must scan-all (null) on a prune-to-zero, not short-circuit");
+    }
+
+    @Test
+    public void testPrunedSubsetWithIgnoreShortCircuitStillForwards() {
+        // The flag only governs the empty/short-circuit case. A non-empty pruned set is still forwarded
+        // unchanged (the connector may ignore it, but the non-empty contract is preserved).
+        Map<String, PartitionItem> items = new LinkedHashMap<>();
+        items.put("pt=1", Mockito.mock(PartitionItem.class));
+        SelectedPartitions pruned = new SelectedPartitions(5, items, true);
+        List<String> result = PluginDrivenScanNode.resolveRequiredPartitions(pruned, true);
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+    }
+
+    @Test
+    public void testPrunedEmptyOverEmptyUniverseScansAll() {
+        // RD-1 (B5b-4): a pruned-but-empty selection whose partition UNIVERSE was ALSO empty
+        // (totalPartitionNum == 0) is NOT a genuine prune-to-zero. It is an MVCC time-travel pin
+        // (FOR VERSION/TIME AS OF, @tag, @branch) whose snapshot deliberately carries an empty
+        // partition-item map and defers partition pruning to the connector's predicate pushdown.
+        // It must map to null (scan-all) so getSplits() does NOT short-circuit and planScan runs,
+        // mirroring legacy PaimonScanNode (which ignores selectedPartitions and re-plans via the SDK).
+        // MUTATION: returning the empty list (like the totalPartitionNum>0 case above) short-circuits
+        // to zero splits -> silent data loss for partitioned time-travel + a partition predicate, and
+        // this assertion goes red.
+        SelectedPartitions emptyUniverse = new SelectedPartitions(0, Collections.emptyMap(), true);
+
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(emptyUniverse),
+                "a pruned-empty selection over an empty partition universe (time-travel pin) must scan all");
     }
 }
