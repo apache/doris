@@ -18,11 +18,13 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
 
 import org.junit.jupiter.api.Assertions;
@@ -138,6 +140,28 @@ class ConnectorColumnConverterTest {
         Assertions.assertTrue(ct.getTypeName().startsWith("DECIMAL"));
         Assertions.assertEquals(18, ct.getPrecision());
         Assertions.assertEquals(6, ct.getScale());
+    }
+
+    @Test
+    void testWithTimeZoneColumnSetsExtraInfo() {
+        // A ConnectorColumn marked withTimeZone() must convert to a Doris Column carrying the
+        // WITH_TIMEZONE extra info — the value DESC shows in its "Extra" column (IndexSchemaProcNode
+        // reads Column.getExtraInfo()). This is the SPI transport for legacy
+        // PaimonExternalTable/IcebergUtils setWithTZExtraInfo(). MUTATION: dropping the
+        // setWithTZExtraInfo() call in convertColumn -> getExtraInfo()==null -> red.
+        ConnectorColumn marked = new ConnectorColumn("ts_ltz",
+                ConnectorType.of("TIMESTAMPTZ", 3, 0), null, true, null, true).withTimeZone();
+        Column col = ConnectorColumnConverter.convertColumn(marked);
+        Assertions.assertEquals("WITH_TIMEZONE", col.getExtraInfo());
+    }
+
+    @Test
+    void testPlainColumnHasNoExtraInfo() {
+        // Regression guard: an unmarked column must NOT receive the WITH_TIMEZONE extra info.
+        ConnectorColumn plain = new ConnectorColumn("id",
+                ConnectorType.of("INT", -1, -1), null, true, null, true);
+        Column col = ConnectorColumnConverter.convertColumn(plain);
+        Assertions.assertNull(col.getExtraInfo());
     }
 
     @Test

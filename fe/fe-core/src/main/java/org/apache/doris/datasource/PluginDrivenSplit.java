@@ -45,6 +45,17 @@ public class PluginDrivenSplit extends FileSplit {
                 scanRange.getHosts().toArray(new String[0]),
                 buildPartitionValues(scanRange));
         this.connectorScanRange = scanRange;
+        // FIX-A1: thread the connector's proportional split weight into the FileSplit scheduling fields so
+        // FederationBackendPolicy distributes by size (legacy parity) instead of uniform standard() weight.
+        // Set ONLY when the connector provides BOTH a weight (>= 0; 0 is a real weight) and a positive
+        // denominator (guards FileSplit.getSplitWeight's division). Connectors that supply neither keep the
+        // -1 SPI default -> both fields stay null -> getSplitWeight() == SplitWeight.standard() (no change).
+        long weight = scanRange.getSelfSplitWeight();
+        long targetSize = scanRange.getTargetSplitSize();
+        if (weight >= 0 && targetSize > 0) {
+            this.selfSplitWeight = weight;
+            this.targetSplitSize = targetSize;
+        }
     }
 
     /** Returns the underlying connector scan range for format-specific param extraction. */

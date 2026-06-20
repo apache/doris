@@ -466,6 +466,16 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Hook for plugin/SPI catalogs to overlay DERIVED meta-cache config (e.g. a connector-provided schema-cache
+     * TTL) onto the EPHEMERAL property copy the engine uses to size the meta cache. Default no-op. MUST NOT
+     * mutate persisted catalog properties — the caller ({@code ExternalMetaCacheMgr.findCatalogProperties})
+     * passes a throwaway copy, so SHOW CREATE CATALOG is unaffected. Connector-agnostic: the base does nothing;
+     * {@code PluginDrivenExternalCatalog} delegates to the connector SPI.
+     */
+    public void overlayMetaCacheConfig(Map<String, String> metaCacheProperties) {
+    }
+
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog

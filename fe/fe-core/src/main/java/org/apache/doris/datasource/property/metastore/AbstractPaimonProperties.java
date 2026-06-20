@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableList;
@@ -76,6 +77,26 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         tableOptionsMap = extractTableOptions();
+    }
+
+    /**
+     * Builds the HDFS Kerberos {@link ExecutionAuthenticator} from the catalog's storage bindings,
+     * mirroring what {@code initializeCatalog} does for the legacy path. Shared by the filesystem and
+     * jdbc flavors' {@link #initExecutionAuthenticator} override so the plugin/cutover path wires a
+     * real {@code doAs} authenticator (the legacy {@code initializeCatalog} that did this is dead on
+     * that path). No-op when there is no HDFS storage (e.g. an S3-backed warehouse) — leaving the
+     * base no-op authenticator, which is correct (no Kerberos UGI to apply).
+     */
+    protected void initHdfsExecutionAuthenticator(List<StorageAdapter> storageAdapters) {
+        if (storageAdapters == null) {
+            return;
+        }
+        for (StorageAdapter adapter : storageAdapters) {
+            if (adapter.getType() == StorageTypeId.HDFS) {
+                this.executionAuthenticator = asLegacyAuthenticator(adapter.getExecutionAuthenticator());
+                return;
+            }
+        }
     }
 
     protected void appendCatalogOptions() {

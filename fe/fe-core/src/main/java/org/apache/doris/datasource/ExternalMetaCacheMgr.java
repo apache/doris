@@ -334,10 +334,16 @@ public class ExternalMetaCacheMgr {
         if (catalog == null) {
             return null;
         }
-        if (catalog.getProperties() == null) {
-            return Maps.newHashMap();
+        Map<String, String> props = catalog.getProperties() == null
+                ? Maps.newHashMap()
+                : Maps.newHashMap(catalog.getProperties());
+        // Let a plugin/SPI catalog overlay DERIVED meta-cache config (e.g. a connector-provided schema-cache
+        // TTL) onto this EPHEMERAL copy used to size the cache. Connector-agnostic (virtual dispatch; the base
+        // ExternalCatalog is a no-op) and non-persisting (this copy is throwaway -> no SHOW CREATE leak).
+        if (catalog instanceof ExternalCatalog) {
+            ((ExternalCatalog) catalog).overlayMetaCacheConfig(props);
         }
-        return Maps.newHashMap(catalog.getProperties());
+        return props;
     }
 
     private void logMissingCatalogSkip(long catalogId, String operation) {

@@ -40,12 +40,17 @@ under the License.
     <modules>
         <module>fe-connector-api</module>
         <module>fe-connector-spi</module>
+        <module>fe-connector-metastore-api</module>
+        <module>fe-connector-metastore-spi</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
         <module>fe-connector-jdbc</module>
         <module>fe-connector-hms</module>
         <module>fe-connector-hive</module>
+        <!-- FIX-C: paimon HMS-thrift shade (relocates org.apache.thrift to a paimon-private
+             package); MUST build before fe-connector-paimon which depends on it. -->
+        <module>fe-connector-paimon-hive-shade</module>
         <module>fe-connector-paimon</module>
         <module>fe-connector-hudi</module>
         <module>fe-connector-iceberg</module>

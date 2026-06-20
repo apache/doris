@@ -19,6 +19,8 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -48,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * An {@link ExternalCatalog} backed by a Connector SPI plugin.
@@ -127,6 +130,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         try {
             MetastoreProperties msp = catalogProperty.getMetastoreProperties();
             if (msp != null) {
+                // Wire any storage-derived authenticator first (rereview2 M-8): the paimon
+                // filesystem/jdbc flavors build their HDFS Kerberos authenticator from the catalog's
+                // storage properties here, because their legacy initializeCatalog() — which did this —
+                // is dead on the plugin/cutover path. Default no-op for every other metastore type.
+                msp.initExecutionAuthenticator(catalogProperty.getOrderedStoragePropertiesList());
                 executionAuthenticator = msp.getExecutionAuthenticator();
                 return;
             }
@@ -147,7 +155,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         String catalogType = getType();
         return ConnectorFactory.createConnector(catalogType,
                 catalogProperty.getProperties(),
-                new DefaultConnectorContext(name, id, this::getExecutionAuthenticator));
+                new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
+                        () -> catalogProperty.getStoragePropertiesMap()));
     }
 
     @Override
@@ -245,6 +254,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     /**
+     * FIX-4: let the connector's own cache knob also govern the schema cache (restoring the legacy single-knob
+     * semantics — e.g. paimon's {@code meta.cache.paimon.table.ttl-second} sized the whole table cache, schema
+     * included). Applied to the engine's EPHEMERAL cache-sizing property copy only (never persisted). An
+     * explicit user {@code schema.cache.ttl-second} wins. Uses the {@code connector} field directly (no forced
+     * init / no throw): this hook only runs during a cache read, by which point the catalog is already
+     * initialized; a null connector (uninitialized or concurrently dropped) simply leaves the engine default.
+     */
+    @Override
+    public void overlayMetaCacheConfig(Map<String, String> metaCacheProperties) {
+        if (metaCacheProperties.containsKey(SCHEMA_CACHE_TTL_SECOND)) {
+            return;
+        }
+        Connector localConnector = connector;
+        if (localConnector == null) {
+            return;
+        }
+        OptionalLong override = localConnector.schemaCacheTtlSecondOverride();
+        if (override.isPresent()) {
+            metaCacheProperties.put(SCHEMA_CACHE_TTL_SECOND, String.valueOf(override.getAsLong()));
+        }
+    }
+
+    /**
      * Routes {@code CREATE TABLE} through the SPI's
      * {@code ConnectorTableOps.createTable(session, request)} instead of the
      * legacy {@code metadataOps} path used by other {@link ExternalCatalog}
@@ -284,16 +316,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // short-circuit (Env.createTable contract: return true when the table already exists), so a
         // "CREATE TABLE IF NOT EXISTS ... AS SELECT" does NOT fall through to an INSERT into the
         // pre-existing table. The table name is intentionally NOT remote-resolved (legacy parity).
-        boolean exists = metadata.getTableHandle(session, db.getRemoteName(),
-                createTableInfo.getTableName()).isPresent()
-                || db.getTableNullable(createTableInfo.getTableName()) != null;
-        if (exists && createTableInfo.isIfNotExists()) {
-            LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
-                    getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
-            return true;
+        boolean remoteExists = metadata.getTableHandle(session, db.getRemoteName(),
+                createTableInfo.getTableName()).isPresent();
+        boolean localExists = db.getTableNullable(createTableInfo.getTableName()) != null;
+        if (remoteExists || localExists) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}.{}.{}] which already exists; skipping (IF NOT EXISTS)",
+                        getName(), createTableInfo.getDbName(), createTableInfo.getTableName());
+                return true;
+            }
+            // !IF NOT EXISTS: a table that already exists -- whether remotely (connector) OR only in the
+            // local FE cache (a case-variant name folded onto an existing table under lower_case_meta_names
+            // while the case-sensitive remote has no such table) -- must be rejected HERE with MySQL errno
+            // 1050 (ERR_TABLE_EXISTS_ERROR / SQLSTATE 42S01). Mirrors legacy {Paimon,MaxCompute}MetadataOps,
+            // which report ERR_TABLE_EXISTS_ERROR for BOTH the remote arm (PaimonMetadataOps:195 /
+            // MaxComputeMetadataOps:184) and the local arm (:212 / :195). Reporting before
+            // metadata.createTable also keeps a local-cache-only conflict from being CREATED remotely
+            // (the connector would otherwise create a duplicate). Reaching here already guarantees
+            // (remoteExists || localExists) && !isIfNotExists; reportDdlException throws.
+            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR,
+                    createTableInfo.getTableName());
         }
-        // existing + !IF NOT EXISTS falls through to connector.createTable, which throws
-        // "already exists" -> DdlException (unchanged); only the IF NOT EXISTS hit short-circuits.
         ConnectorCreateTableRequest request = CreateTableInfoToConnectorRequestConverter
                 .convert(createTableInfo, db.getRemoteName());
         try {
