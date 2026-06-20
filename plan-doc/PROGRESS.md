@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-06-10** | 当前阶段：**P4 maxcompute 完成 ✅（已合入），P5 paimon B0–B4 已落地（测基建/flavor/normal-read/DDL/sys-tables+MVCC；下一 = B5 MTMV 桥）**——P4 full-adopter 迁移 + live 翻闸 + legacy 删除全部完成并合入 `branch-catalog-spi`：**#64253**（T01–T06 连接器全适配 + `CatalogFactory.SPI_READY_TYPES += "max_compute"`）+ **#64300**（T07–T09 删 20 fe-core 文件 + 清反向引用 + MCUtils 下沉 be-java-extensions，fe-core 依赖树**彻底无 odps**，HEAD `e96037cf6aa`）；upstream PR **#64119**（MaxCompute 连接校验）功能已迁连接器 SPI 并随 #64300 合入。前序 P0/P1/P2（#63582/#63641/#64096）+ P3 hybrid（#64143）均已合入。**P5 paimon B0–B4 已落地 2026-06-10**（recon+设计 2026-06-09；B0 测基建 / B1 flavor 装配 / B2 normal-read / B3 DDL metadata / B4 sys-tables E7 + MVCC E5；签字 D-037/D-038/D7/**D-039**(E7=live SysTable 机制非 RFC §10)；连接器 124 绿 + fe-core PluginDriven*Test 100 绿、checkstyle/import-gate 0、**未提交**；下一 = B5 MTMV 桥，翻闸 B7 gated on B5+live-e2e）。| 项目总进度：**~33%**（按 §一 进度条加权：P0+P1+P2+P4 满 + P3 hybrid 45% + P5 设计 ~5%，约 8.0/25 周）
+> 最后更新：**2026-06-20** | 当前阶段：**P5 paimon 迁移 + 翻闸已合入 ✅，仅剩 P5-T29 删 legacy + maven 依赖（B8）+ P5-T30 回归（B9）**——P5 全量（B0–B7 = 测基建/flavor/normal-read/DDL/sys-tables+MVCC/MTMV桥/时间旅行/**翻闸** + P6 全路径 clean-room review 的全部 deviation fix）squash-合入 `branch-catalog-spi`：**#64446 / `38e7140ce56`**（"migrate to catalog SPI + cutover"，+ `e9c5b3e70ce` 修编译）。paimon 现已在 `SPI_READY_TYPES`，FE 走 SPI 路径。**下一 = P5-T29**（删 fe-core `datasource/paimon/`(30)+`metacache/paimon/`(3)+`systable/PaimonSysTable`+8 处反向引用+paimon maven 依赖；**硬前置**=迁出 `PaimonExternalCatalog` 常量；**STILL-CONSUMED `property/metastore/Paimon*`(7) 保留**；详见 [tasks/P5 §P5-T29 执行计划](./tasks/P5-paimon-migration.md)）。前序 P0/P1/P2（#63582/#63641/#64096）+ P3 hybrid（#64143）+ P4（#64253/#64300）均已合入。| 项目总进度：**~42%**（按 §一 进度条加权：P0+P1+P2+P4 满 + P3 hybrid 45% + P5 ~95%，约 10.75/25 周）
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -14,12 +14,12 @@
 | **P2** | trino-connector 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 已合入 `branch-catalog-spi`（#64096，squash `0793f032662`；T12 回归推迟 DV-003）| [tasks/P2](./tasks/P2-trino-connector-migration.md) |
 | P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | ✅ hybrid（D-019）批 A–D 已合入 `branch-catalog-spi`（**#64143** squash `5c240dc7a34`）；批 E（live cutover）并入 P7 | [tasks/P3](./tasks/P3-hudi-migration.md) |
 | **P4** | maxcompute 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成并合入 `branch-catalog-spi`（**#64253** T01–T06 适配+翻闸 + **#64300** T07–T09 删 legacy/odps-free；含 #64119 校验迁移）| [tasks/P4](./tasks/P4-maxcompute-migration.md) |
-| **P5** | paimon 迁移 | 3 周 | ▰▰▰▰▱▱▱▱▱▱ 45% | 🚧 **B0–B4 已落地**（测基建/flavor/normal-read/DDL/sys-tables+MVCC；D-037/D-038/D7/D-039 签字，未提交）；下一 = B5 MTMV 桥；翻闸 B7 gated on B5 + live-e2e | [tasks/P5](./tasks/P5-paimon-migration.md) + [recon](./research/p5-paimon-migration-recon.md) |
+| **P5** | paimon 迁移 | 3 周 | ▰▰▰▰▰▰▰▰▰▱ 95% | 🚧 **迁移 + 翻闸已合入 `branch-catalog-spi`（#64446 `38e7140ce56`）**；仅剩 **B8 = P5-T29 删 legacy + maven 依赖** + B9 回归 | [tasks/P5](./tasks/P5-paimon-migration.md) + [recon](./research/p5-paimon-migration-recon.md) |
 | P6 | iceberg 迁移 | 5 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P8 | 收尾清理 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 
-**全局进度：~34%**（25 周计划中已完成约 8.5 周：P0+P1+P2+P4 满 + P3 hybrid 45% + P5 45%；按 §一 进度条加权）
+**全局进度：~42%**（25 周计划中已完成约 10.75 周：P0+P1+P2+P4 满 + P3 hybrid 45% + P5 ~95%；按 §一 进度条加权）
 
 ---
 
@@ -34,7 +34,7 @@
 | trino-connector | ✅ | ✅ 100% | ✅ | ✅ | ✅ | **100%** | [详情](./connectors/trino-connector.md) |
 | hudi | 🟡（D-005 区分符 + D-020 模型 dispatch 已设计；实现批 E）| 🟨 55%（读路径 dormant + 批 C 测试基线）| ❌（gate 关）| ❌ | 0/0（寄生 hms）| **25%** | [详情](./connectors/hudi.md) |
 | maxcompute | ✅ | ✅ 100% | ✅ **已合入 #64253** | ✅ **#64300 已删** | ✅ 0/0 | **100%** | [详情](./connectors/maxcompute.md) |
-| paimon | ✅（D-037/D-038/D-039）| 🟨 70%（read+DDL+sys-tables+MVCC连接器侧；MTMV桥 B5 待）| ❌（gate 关）| ❌ | 0/10 | **45%** | [详情](./connectors/paimon.md) |
+| paimon | ✅ | ✅ 100%（迁移+翻闸已合入 #64446）| ✅ **已入 SPI_READY_TYPES** | ⏳ **P5-T29 待删** | 🟡（热区翻闸已清；infra 死引用 8 处待 T29）| **95%** | [详情](./connectors/paimon.md) |
 | iceberg | 🟡 | 🟥 10% | ❌ | ❌ | 0/19 | **5%** | [详情](./connectors/iceberg.md) |
 | hive (+hms) | 🟡 | 🟥 20% | ❌ | ❌ | 0/31 | **10%** | [详情](./connectors/hive.md) |
 
@@ -44,14 +44,15 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P5 — paimon 迁移（🚧 B0–B4 已落地 2026-06-10，D-037/D-038/D7/D-039 已签字；下一 = B5 MTMV 桥）
+### P5 — paimon 迁移（✅ 迁移+翻闸已合入 #64446；🎯 下一 = **P5-T29 删 legacy + maven 依赖**）
 
-> 策略 = **full adopter + 翻闸**（复用 P4 样板，非 P3 hybrid）。recon `research/p5-paimon-migration-recon.md` + 设计 `tasks/P5-paimon-migration.md`（30 TODO / B0–B9 批 + old→new 映射 + 批次依赖图）。覆盖 5 功能区：普通读/系统表/procedure/DDL/mtmv。
+> 策略 = **full adopter + 翻闸**（复用 P4 样板）。B0–B7 全完成并 squash-合入 `branch-catalog-spi`（**#64446 / `38e7140ce56`** + `e9c5b3e70ce` 修编译）：测基建/flavor/normal-read/DDL/sys-tables+MVCC(E7/E5)/MTMV桥(E10)/时间旅行(AS-OF/tag/branch/@incr)/**翻闸** + P6 全路径 clean-room review 的全部 deviation fix（C1 MinIO/C2 HDFS XML/R1-table/R3-residual/C4+R2+R3-catalog/A1/A2/A3/B-MC2/B-R2-be）。paimon 已在 `SPI_READY_TYPES`。
 >
-> **已签字决策**：**D-037**=flavor(hms/filesystem/dlf/rest/jdbc) 走单 Catalog + `createCatalog` flavor switch（MC 一致，**非** backend 模块——5 个 backend 模块是空壳）；**D-038**=MTMV/MVCC 桥 P5 内实现（fe-core `PaimonPluginDrivenExternalTable`），翻闸(B7) gated on 它(B5)，禁静默读 latest。
-> **校正先验**（recon + 对抗复审证伪）：① 「6 flavor 工厂已重组」假（backend 模块空壳，连接器走单 Catalog stub）；② 「FE 分发全缺」假（DROP/CREATE·DROP DB/SHOW PARTITIONS/TVF 已部分预接，残留=连接器 `listPartitions*`）；③ 「Base64 blocker」假（BE 有 STD fallback，真风险=pin paimon-core 三方版本对齐）。procedure 区=**零可迁 doc-only**。
-> **关键 SPI 缺口**：E7 sys-table hook（greenfield 须新增 default-no-op）、E10 MTMV（无面，经 fe-core 子类桥）、E5 MVCC（首个真消费者，须 wire）、E6 vended（REST flavor 需，可延后）；删 fe-core 重复 `PaimonPredicateConverter`（**P1-T02 推迟项**）+ 清 10 处反向 `instanceof`。
-> **前置风险**：R-004（classloader SDK 单例）、R-007（FE/BE 共享 jar）、R-012（snapshotId 类型）。**最高 correctness 风险**：MTMV 单-pin 不变式 + `lastFileCreationTime()` 跨 flavor 可靠性（须 live 验）。**关联决策**：D-037、D-038、D-005、D-006。
+> **🎯 P5-T29（B8）= 本阶段最后一块主体工作**：删 fe-core `datasource/paimon/`(30) + `metacache/paimon/`(3) + `systable/PaimonSysTable`(1) + 清 8 处反向引用死分支 + **删 paimon maven 依赖**。
+> **硬前置**：迁出 `PaimonExternalCatalog.PAIMON_FILESYSTEM/_HMS` 常量（被 5 个 STILL-CONSUMED metastore-props 引用）；scrub 悬空 javadoc `{@link PaimonSysTable}`；保 dispatch ordering；`CreateTableInfo.ENGINE_PAIMON` 是 LIVE 保留。
+> **STILL-CONSUMED 不删**：`property/metastore/Paimon*`(7，cutover Kerberos 装配 LIVE，P6 R1)；`property/storage/*Properties`（跨连接器共享，P6 R2）。
+> **⚠️ maven 核心冲突**：STILL-CONSUMED metastore-props 直接 import paimon SDK → **fe-core 不可能像 P4 完全 paimon-free**（除非方案 B 连带迁出 metastore-props，越界 metastore 子线）。须先定方案 A（推荐，部分删）vs B。
+> **样板 = P4 #64300**；scope ledger + checklist 详见 [tasks/P5 §P5-T29 执行计划](./tasks/P5-paimon-migration.md)。**风险**：R-004（classloader SDK 单例）、R-007（FE/BE 共享 jar）→ 删后验 paimon-core FE classpath 恰一份。
 
 ### P4 — maxcompute 迁移（✅ 已完成并合入：**#64253** T01–T06 适配+翻闸 + **#64300** T07–T09 删 legacy/odps-free；含 #64119 校验迁移）
 
@@ -149,6 +150,7 @@
 
 > 倒序，新内容置顶；超过 14 天的条目移除（git log 保留历史）。
 
+- **2026-06-20（阶段里程碑 · P5 迁移+翻闸合入 + 文档对账）** ✅ **P5 paimon B0–B7 全完成并 squash-合入 `branch-catalog-spi`** —— **PR #64446 / `38e7140ce56`**（"[refactor](catalog) P5 paimon: migrate to catalog SPI + cutover"）+ `e9c5b3e70ce`（修编译）。涵盖 B5 MTMV 桥（通用 `PluginDrivenMvccExternalTable`，D-040/041/042）、B5b 时间旅行全 parity（AS-OF/tag/branch/@incr，D-043/044）、B6 procedure no-op、**B7 翻闸**（入 `SPI_READY_TYPES` + GSON 原子 compat + D-045/046/047 restore SHOW PARTITIONS/SHOW CREATE）、**P6 全路径 clean-room review**（报告 `reviews/P6-paimon-fullpath-cleanroom-2026-06-18.md`：2 BLOCKER=B8 删除护栏、2 MAJOR=C1 MinIO/C2 HDFS XML 已修，余 parity）+ 全部 deviation fix（C1/C2/R1-table/R3-residual/C4+R2+R3-catalog/A1/A2/A3/B-MC2/B-R2-be）。**仅剩 P5-T29（B8 删 legacy + maven 依赖）+ P5-T30（B9 回归）**。本 session = 对账 stale 跟踪文档（PROGRESS 停 B4、tasks/P5 停 B5b、HANDOFF 停历史工作分支）→ 全部刷到「迁移+翻闸已合入、下一步 P5-T29」状态，0 产线代码；P5-T29 scope ledger（DEAD/硬前置/STILL-CONSUMED/maven 方案 A/B）已 firsthand 核实并写入 [tasks/P5 §P5-T29 执行计划](./tasks/P5-paimon-migration.md)。**下一 session = P5-T29**（建议先 AskUserQuestion 定 maven scope A/B）。
 - **2026-06-10（实现里程碑 · P5 B0–B4）** ✅ **P5 paimon B0–B4 已落地**（连接器+fe-core，**未提交**，用户控时机）：B0 测基建+parity baseline / B1 flavor 装配(全 5 flavor) / B2 normal-read / B3 DDL metadata / **B4 sys-tables E7 + MVCC E5（本 session，T16-T20）**。B4 = subagent-driven（understand workflow 纠偏 2 处 → 用户签 **D-039**「E7 复用 live `SysTableResolver` 机制，非 RFC §10」[DV-023]；T20 MVCC inert until B5）+ 5 dispatch（implement→双审→fix-loop）+ 3-lens final holistic（PARITY/SCOPE READY + 1 ADVERSARIAL BLOCKER「`PluginDrivenScanNode.create` 绕 seam 丢 forceJni→binlog/audit_log 静默错行」**已修**）。另核出并修 B2 遗留缺陷 [DV-024]（普通 paimon plugin 表 BE 描述符 SCHEMA_TABLE→应 HIVE_TABLE）。**验证**：连接器 124/0/0/1 绿、fe-core PluginDriven*Test 100 绿、checkstyle/import-gate 0、无 cutover/B5 泄漏、唯一 fe-connector-api 改动=T16 两 default no-op。**下一 = B5 MTMV 桥**（接活 E5：`PluginDrivenExternalTable`→MvccTable + `beginQuerySnapshot` 调用 + `ConnectorMvccSnapshotAdapter` 构造）。
 - **2026-06-09（设计里程碑 · P5 kickoff）** ✅ **P5 paimon recon + 设计完成**（0 产线代码）：14-agent code-grounded recon + cross-cut 对抗复审，产 [recon](./research/p5-paimon-migration-recon.md)（5 功能区旧实现 + E1–E10 SPI 状态 + 跨切面风险 + MC 一致性 11 约定）+ [设计 doc](./tasks/P5-paimon-migration.md)（old→new 映射 + 30 TODO/B0–B9 + 验收 + 批次依赖图）。**用户签字 D-037**（flavor=单 Catalog + `createCatalog` switch，**非** backend 模块）/ **D-038**（MTMV/MVCC 桥 P5 内实现，翻闸 gated on B5，禁静默读 latest）。**证伪 3 先验**：backend 模块空壳（连接器走单 Catalog stub）、FE 分发部分已预接（残留=连接器 listPartitions）、Base64 非 blocker（BE 有 STD fallback）。procedure 区=零可迁 doc-only（expire_snapshots=iceberg、CALL migrate_table=Spark 两假阳性）。**下一 = B0 测试基建 + parity baseline 起分批实现**。
 - **2026-06-09（阶段里程碑 · P4 完成）** ✅ **P4 maxcompute 迁移全部完成并合入 `branch-catalog-spi`** —— **#64253**（T01–T06 连接器 full 适配 + live 翻闸 `SPI_READY_TYPES += "max_compute"`）+ **#64300**（T07–T09 删 20 fe-core legacy 文件 + 清反向引用 + MCUtils 下沉 be-java-extensions，`fe-core dependency:tree | grep odps`=∅，HEAD `e96037cf6aa`）。upstream PR **#64119**（MaxCompute 连接校验）功能已迁连接器 SPI（`validateMaxComputeConnection`/`checkOperationSupported`，连接器 UT 101/0/0/1）并随 #64300 squash 合入（`git log -S` 证）。fe-core **彻底无 odps**（代码 + 依赖树）。本 session = 交接文档同步（PROGRESS + HANDOFF 第 19 次），0 产线代码；**下一 session = P5 paimon 迁移 kickoff**（recon + 设计 + 批次计划，复用 P4 full-adopter 写 SPI 样板）。
@@ -214,8 +216,8 @@
 
 | 类型 | 总数 | 最新条目 | 文档 |
 |---|---|---|---|
-| **决策**（D-NNN） | 39 | D-039（P5-D8 paimon B4 E7=复用 live SysTable 机制，非 RFC §10）；D-038（P5-D2 MTMV/MVCC 桥 P5 内实现）；D-037（P5-D1 flavor=单 Catalog）| [decisions-log.md](./decisions-log.md) |
-| **偏差**（DV-NNN） | 24 | DV-024（P5-B4 修 B2 遗留：普通 paimon plugin 表 BE 描述符 SCHEMA_TABLE→HIVE_TABLE）；DV-023（RFC §10 E7 设计被 P5-B4 取代）；DV-022（P4-T09 fe-common 去 odps）| [deviations-log.md](./deviations-log.md) |
+| **决策**（D-NNN） | 57 | D-057（最新，见 log：prune-path sentinel residue re-scope 非-MVCC 连接器）；D-045/046/047（P5-B7 restore SHOW PARTITIONS 5 列 / SHOW CREATE LOCATION+PROPERTIES / Hybrid SPI）；D-040–044（P5-B5/B5b MTMV+时间旅行）| [decisions-log.md](./decisions-log.md) |
+| **偏差**（DV-NNN） | 37 | DV-036/037（P6-C2 HDFS XML：DLF / disable-cache）；DV-024（P5-B4 BE 描述符 SCHEMA_TABLE→HIVE_TABLE）；DV-023（RFC §10 E7 被 P5-B4 取代）| [deviations-log.md](./deviations-log.md) |
 | **风险**（R-NNN） | 14 | R-014（thrift sink 选择灵活性） | [risks.md](./risks.md) |
 
 ---
@@ -224,9 +226,9 @@
 
 > 当本项目通过 Claude Code 这类 LLM agent 推进时，跟踪当前 session 状态、handoff 状况和 context 健康度。
 
-- **本 session 已完成**：**P5 paimon B4（sys-tables E7 + MVCC E5，T16-T20，连接器+fe-core，未提交）** —— understand workflow（6-agent）纠偏 2 处 → 用户签 **D-039**（E7 复用 live SysTable 机制非 RFC §10）+ T20 留 B4（inert until B5）；subagent-driven 5 dispatch（implement→双审→fix-loop）+ 3-lens final holistic（PARITY/SCOPE READY + 1 ADVERSARIAL BLOCKER `PluginDrivenScanNode.create` 绕 seam 丢 forceJni **已修**）；另修 B2 遗留缺陷 [DV-024]。验证：连接器 124 绿、fe-core 100 绿、checkstyle/import-gate 0。同步 decisions-log(+D-039) + deviations-log(+DV-023/DV-024) + RFC §10 脚注 + tasks/P5 + 本 PROGRESS + connectors/paimon + HANDOFF（覆盖）+ auto-memory。
-- **下一个 session 应做**：**B5 MTMV 桥**（gated on B4，现满足）—— T21 GAP-LISTPART-AT-SNAPSHOT / T22 fe-core `PaimonPluginDrivenExternalTable` implements MTMVRelatedTableIf+MTMVBaseTableIf+MvccTable + `loadSnapshot` / T23 子类 MTMV 方法 / T24 rehome `PaimonMvccSnapshot` / T25 isPartitionInvalid parity。**关键**：B5 须把 B4 inert 的 E5 接活（调 `beginQuerySnapshot` + 构造 `ConnectorMvccSnapshotAdapter` + 接 scan-params/snapshot 到 `PluginDrivenScanNode` 令 T19 sys-guard 生效）。**B6**（procedure doc no-op）可穿插。继 B7 翻闸（gated on B5+live-e2e）→ B8 删 legacy → B9 回归。详见 [tasks/P5](./tasks/P5-paimon-migration.md) 批次依赖图。
-- **是否需要 handoff**：**是**——本场已**覆盖** rewrite [HANDOFF.md](./HANDOFF.md)（P5 B4 完成 + D-039 + 下一步 B5）。
+- **本 session 已完成**：**文档对账（0 产线代码）** —— 发现 P5 迁移+翻闸已随 #64446 合入 `branch-catalog-spi`，但跟踪文档严重 stale（PROGRESS 停 B4、tasks/P5 停 B5b、HANDOFF 停历史工作分支 `catalog-spi-07-paimon`）。在 `branch-catalog-spi` firsthand 核实 P5-T29 删除 scope（DEAD `datasource/paimon/`(30)+`metacache/paimon/`(3)+`systable/PaimonSysTable`；硬前置=迁出 `PaimonExternalCatalog` 常量；STILL-CONSUMED `property/metastore/Paimon*`(7) 保留；maven 5 依赖 + 「fe-core 不可完全 paimon-free」冲突）。同步刷新 HANDOFF（覆盖）+ 本 PROGRESS + tasks/P5（含新 §P5-T29 执行计划 checklist）+ connectors/paimon。
+- **下一个 session 应做**：**P5-T29（B8 删 legacy + maven 依赖）**——见 [tasks/P5 §P5-T29 执行计划](./tasks/P5-paimon-migration.md) 的 A–E checklist。**建议先 AskUserQuestion 定 maven scope 方案 A（推荐，部分删，fe-core 保 paimon-core/common）vs B（连带迁出 metastore-props，完全 paimon-free，越界 metastore 子线）**。样板 = P4 #64300。继 B9 回归（可与 T29 §E 验证合并）。
+- **是否需要 handoff**：**是**——本场已**覆盖** rewrite [HANDOFF.md](./HANDOFF.md)（P5 迁移+翻闸合入 #64446 + 下一步 P5-T29 scope ledger）。
 - **协作规范**：[AGENT-PLAYBOOK.md](./AGENT-PLAYBOOK.md)（context 预算、subagent 使用、handoff 触发条件）
 
 ---

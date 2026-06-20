@@ -18,18 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
-import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.hive.HiveCatalogOptions;
-
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -56,7 +46,7 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_HMS;
+        return "hms";
     }
 
     protected PaimonHMSMetaStoreProperties(Map<String, String> props) {
@@ -68,49 +58,5 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
-    }
-
-
-    /**
-     * Builds the Hadoop Configuration by adding hive-site.xml and storage-specific configs.
-     */
-    private Configuration buildHiveConfiguration(List<StorageProperties> storagePropertiesList) {
-        Configuration conf = hmsBaseProperties.getHiveConf();
-
-        for (StorageProperties sp : storagePropertiesList) {
-            if (sp.getHadoopStorageConfig() != null) {
-                conf.addResource(sp.getHadoopStorageConfig());
-            }
-        }
-        return conf;
-    }
-
-    @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        buildCatalogOptions();
-        Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        appendUserHadoopConfig(conf);
-        CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
-        try {
-            return executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create Paimon catalog with HMS metastore, msg: "
-                    + ExceptionUtils.getRootCause(e), e);
-        }
-
-    }
-
-    @Override
-    protected String getMetastoreType() {
-        //See org.apache.paimon.hive.HiveCatalogFactory
-        return HiveCatalogOptions.IDENTIFIER;
-    }
-
-    @Override
-    protected void appendCustomCatalogOptions() {
-        catalogOptions.set(CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS_KEY,
-                String.valueOf(clientPoolCacheEvictionIntervalMs));
-        catalogOptions.set(LOCATION_IN_PROPERTIES_KEY, String.valueOf(locationInProperties));
-        catalogOptions.set("uri", hmsBaseProperties.getHiveMetastoreUri());
     }
 }
