@@ -17,17 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
-
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
-import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.hive.HiveCatalogOptions;
-
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,7 +31,7 @@ import java.util.Map;
  * <p>Key Characteristics:
  * <ul>
  *   <li>Internally uses HiveCatalog with custom HiveConf configured for Aliyun DLF.</li>
- *   <li>Relies on {@link ProxyMetaStoreClient} to bridge DLF compatibility.</li>
+ *   <li>Relies on a DLF proxy metastore client to bridge DLF compatibility.</li>
  *   <li>Requires Aliyun OSS as the storage backend. Other storage types are not
  *       currently verified for compatibility.</li>
  * </ul>
@@ -50,14 +39,8 @@ import java.util.Map;
  * <p>Note: This is an internal extension and not an officially supported Paimon
  * metastore type. Future compatibility should be validated when upgrading Paimon
  * or changing storage backends.
- *
- * @see org.apache.paimon.hive.HiveCatalog
- * @see org.apache.paimon.catalog.CatalogFactory
- * @see ProxyMetaStoreClient
  */
 public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties {
-
-    private AliyunDLFBaseProperties baseProperties;
 
     protected PaimonAliyunDLFMetaStoreProperties(Map<String, String> props) {
         super(props);
@@ -66,46 +49,10 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        baseProperties = AliyunDLFBaseProperties.of(origProps);
-    }
-
-    private HiveConf buildHiveConf() {
-        HiveConf hiveConf = new HiveConf();
-        hiveConf.set(DataLakeConfig.CATALOG_ACCESS_KEY_ID, baseProperties.dlfAccessKey);
-        hiveConf.set(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, baseProperties.dlfSecretKey);
-        hiveConf.set(DataLakeConfig.CATALOG_ENDPOINT, baseProperties.dlfEndpoint);
-        hiveConf.set(DataLakeConfig.CATALOG_REGION_ID, baseProperties.dlfRegion);
-        hiveConf.set(DataLakeConfig.CATALOG_SECURITY_TOKEN, baseProperties.dlfSessionToken);
-        hiveConf.set(DataLakeConfig.CATALOG_USER_ID, baseProperties.dlfUid);
-        hiveConf.set(DataLakeConfig.CATALOG_ID, baseProperties.dlfCatalogId);
-        hiveConf.set(DataLakeConfig.CATALOG_PROXY_MODE, baseProperties.dlfProxyMode);
-        return hiveConf;
-    }
-
-    @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        HiveConf hiveConf = buildHiveConf();
-        buildCatalogOptions();
-        StorageProperties ossProps = storagePropertiesList.stream()
-                .filter(sp -> sp.getType() == StorageProperties.Type.OSS
-                        || sp.getType() == StorageProperties.Type.OSS_HDFS)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Paimon DLF metastore requires OSS storage properties."));
-        ossProps.getHadoopStorageConfig().forEach(entry -> hiveConf.set(entry.getKey(), entry.getValue()));
-        appendUserHadoopConfig(hiveConf);
-        CatalogContext catalogContext = CatalogContext.create(catalogOptions, hiveConf);
-        return CatalogFactory.createCatalog(catalogContext);
-    }
-
-    @Override
-    protected void appendCustomCatalogOptions() {
-        catalogOptions.set("metastore.client.class", ProxyMetaStoreClient.class.getName());
-        catalogOptions.set("client-pool-cache.keys", "conf:" + DataLakeConfig.CATALOG_ID);
-    }
-
-    @Override
-    protected String getMetastoreType() {
-        return HiveCatalogOptions.IDENTIFIER;
+        // Validate the DLF properties: AliyunDLFBaseProperties.of(...) runs checkAndInit() and throws on
+        // missing dlf.access_key/dlf.secret_key/dlf.endpoint. The bound object is not retained because the
+        // catalog is now built connector-side — only the validation side effect is needed here.
+        AliyunDLFBaseProperties.of(origProps);
     }
 
     @Override

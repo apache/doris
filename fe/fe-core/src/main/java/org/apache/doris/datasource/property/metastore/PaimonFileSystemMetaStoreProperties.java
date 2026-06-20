@@ -17,15 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.catalog.FileSystemCatalogFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -35,45 +27,14 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
         super(props);
     }
 
-    @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        buildCatalogOptions();
-        Configuration conf = new Configuration();
-        storagePropertiesList.forEach(storageProperties -> {
-            conf.addResource(storageProperties.getHadoopStorageConfig());
-            if (storageProperties.getType().equals(StorageProperties.Type.HDFS)) {
-                this.executionAuthenticator = new HadoopExecutionAuthenticator(((HdfsProperties) storageProperties)
-                        .getHadoopAuthenticator());
-            }
-        });
-        appendUserHadoopConfig(conf);
-        CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
-        try {
-            return this.executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     /**
-     * Wires the HDFS Kerberos authenticator on the plugin/cutover path (rereview2 M-8). Legacy set
-     * it inside {@link #initializeCatalog}, which is dead on that path, so the runtime authenticator
-     * stayed the base no-op and {@code doAs} was silently lost over Kerberized HDFS. Mirrors HMS,
-     * which sets its authenticator in {@code initNormalizeAndCheckProps}.
+     * Wires the HDFS Kerberos authenticator on the plugin/cutover path (rereview2 M-8): the runtime
+     * authenticator would otherwise stay the base no-op and {@code doAs} would be silently lost over
+     * Kerberized HDFS. Mirrors HMS, which sets its authenticator in {@code initNormalizeAndCheckProps}.
      */
     @Override
     public void initExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
         initHdfsExecutionAuthenticator(storagePropertiesList);
-    }
-
-    @Override
-    protected void appendCustomCatalogOptions() {
-        //nothing need to do
-    }
-
-    @Override
-    protected String getMetastoreType() {
-        return FileSystemCatalogFactory.IDENTIFIER;
     }
 
     @Override

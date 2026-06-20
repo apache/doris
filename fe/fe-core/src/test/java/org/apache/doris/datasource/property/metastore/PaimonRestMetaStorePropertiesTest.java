@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -37,60 +36,22 @@ public class PaimonRestMetaStorePropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Assertions.assertEquals("rest", restProps.getPaimonCatalogType());
-        Assertions.assertEquals("rest", restProps.getMetastoreType());
     }
 
     @Test
-    public void testUriAliases() {
-        // Test different URI property names
-        Map<String, String> props1 = new HashMap<>();
-        props1.put("uri", "http://localhost:8080");
-        props1.put("paimon.rest.token.provider", "none");
-        props1.put("warehouse", "catalog_name");
-        PaimonRestMetaStoreProperties restProps1 = new PaimonRestMetaStoreProperties(props1);
-        restProps1.initNormalizeAndCheckProps();
-
-        Map<String, String> props2 = new HashMap<>();
-        props2.put("paimon.rest.uri", "http://localhost:8080");
-        props2.put("paimon.rest.token.provider", "none");
-        props2.put("warehouse", "catalog_name");
-        PaimonRestMetaStoreProperties restProps2 = new PaimonRestMetaStoreProperties(props2);
-        restProps2.initNormalizeAndCheckProps();
-
-        // Both should work and set the same URI in catalog options
-        restProps1.buildCatalogOptions();
-        restProps2.buildCatalogOptions();
-
-        Options options1 = restProps1.getCatalogOptions();
-        Options options2 = restProps2.getCatalogOptions();
-
-        Assertions.assertEquals("http://localhost:8080", options1.get("uri"));
-        Assertions.assertEquals("http://localhost:8080", options2.get("uri"));
-    }
-
-    @Test
-    public void testPaimonRestPropertiesPassthrough() {
+    public void testIsVendedCredentialsEnabled() {
+        // A Paimon REST catalog vends credentials per-table and has no static storage map; the SDK-free
+        // gate (replacing the former PaimonVendedCredentialsProvider) must report true so
+        // CatalogProperty.initStorageProperties skips building the static StorageProperties map.
         Map<String, String> props = new HashMap<>();
         props.put("paimon.rest.uri", "http://localhost:8080");
-        props.put("paimon.rest.custom.property", "custom-value");
-        props.put("paimon.rest.timeout", "30000");
-        props.put("paimon.rest.retry.count", "3");
-        props.put("paimon.rest.token.provider", "none");
         props.put("warehouse", "catalog_name");
+        props.put("paimon.rest.token.provider", "none");
 
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         restProps.initNormalizeAndCheckProps();
 
-        restProps.buildCatalogOptions();
-        Options catalogOptions = restProps.getCatalogOptions();
-
-        // Basic URI should be set
-        Assertions.assertEquals("http://localhost:8080", catalogOptions.get("uri"));
-
-        // Custom paimon.rest.* properties should be passed through without prefix
-        Assertions.assertEquals("custom-value", catalogOptions.get("custom.property"));
-        Assertions.assertEquals("30000", catalogOptions.get("timeout"));
-        Assertions.assertEquals("3", catalogOptions.get("retry.count"));
+        Assertions.assertTrue(restProps.isVendedCredentialsEnabled());
     }
 
     @Test
@@ -333,33 +294,6 @@ public class PaimonRestMetaStorePropertiesTest {
                 IllegalArgumentException.class, restProps3::initNormalizeAndCheckProps);
         String errorMessage3 = exception3.getMessage();
         Assertions.assertTrue(errorMessage3.contains("DLF token provider requires"));
-    }
-
-    @Test
-    public void testPaimonRestPropertiesWithMultipleCustomProperties() {
-        Map<String, String> props = new HashMap<>();
-        props.put("paimon.rest.uri", "http://localhost:8080");
-        props.put("paimon.rest.custom.auth.token", "token123");
-        props.put("paimon.rest.custom.header.x-api-key", "api-key-456");
-        props.put("paimon.rest.custom.ssl.verify", "false");
-        props.put("non.paimon.property", "should-not-be-included");
-        props.put("paimon.rest.token.provider", "none");
-        props.put("warehouse", "catalog_name");
-
-        PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
-        restProps.initNormalizeAndCheckProps();
-
-        restProps.buildCatalogOptions();
-        Options catalogOptions = restProps.getCatalogOptions();
-
-        // paimon.rest.* properties should be passed through without prefix
-        Assertions.assertEquals("token123", catalogOptions.get("custom.auth.token"));
-        Assertions.assertEquals("api-key-456", catalogOptions.get("custom.header.x-api-key"));
-        Assertions.assertEquals("false", catalogOptions.get("custom.ssl.verify"));
-
-        // Non-paimon.rest properties should not be included
-        Assertions.assertNull(catalogOptions.get("non.paimon.property"));
-        Assertions.assertNull(catalogOptions.get("should-not-be-included"));
     }
 
     @Test

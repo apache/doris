@@ -17,21 +17,14 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
 import lombok.Getter;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
 
-import java.util.List;
 import java.util.Map;
 
 public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
-
-    private static final String PAIMON_REST_PROPERTY_PREFIX = "paimon.rest.";
 
     @ConnectorProperty(names = {"paimon.rest.uri", "uri"},
             description = "The uri of the Paimon rest catalog service.")
@@ -74,27 +67,15 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
         return "rest";
     }
 
+    /**
+     * A Paimon REST catalog vends storage credentials per-table at scan time (via the connector's
+     * REST token path) and has no static catalog-level storage map, so the catalog skips building it.
+     * SDK-free replacement of the former {@code PaimonVendedCredentialsProvider.isVendedCredentialsEnabled}
+     * gate. Read by {@code CatalogProperty.initStorageProperties}.
+     */
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        buildCatalogOptions();
-        CatalogContext catalogContext = CatalogContext.create(catalogOptions);
-        return CatalogFactory.createCatalog(catalogContext);
-    }
-
-    @Override
-    protected void appendCustomCatalogOptions() {
-        catalogOptions.set("uri", paimonRestUri);
-        for (Map.Entry<String, String> entry : origProps.entrySet()) {
-            if (entry.getKey().startsWith(PAIMON_REST_PROPERTY_PREFIX)) {
-                String key = entry.getKey().substring(PAIMON_REST_PROPERTY_PREFIX.length());
-                catalogOptions.set(key, entry.getValue());
-            }
-        }
-    }
-
-    @Override
-    protected String getMetastoreType() {
-        return "rest";
+    public boolean isVendedCredentialsEnabled() {
+        return true;
     }
 
     private ParamRules buildRules() {
