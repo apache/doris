@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.paimon.options.CatalogOptions;
@@ -46,7 +45,7 @@ public class PaimonJdbcMetaStorePropertiesTest {
         jdbcProps.initNormalizeAndCheckProps();
         jdbcProps.buildCatalogOptions();
 
-        Assertions.assertEquals(PaimonExternalCatalog.PAIMON_JDBC, jdbcProps.getPaimonCatalogType());
+        Assertions.assertEquals("jdbc", jdbcProps.getPaimonCatalogType());
         Assertions.assertEquals("jdbc", jdbcProps.getCatalogOptions().get(CatalogOptions.METASTORE.key()));
         Assertions.assertEquals("jdbc:mysql://localhost:3306/paimon",
                 jdbcProps.getCatalogOptions().get(CatalogOptions.URI.key()));

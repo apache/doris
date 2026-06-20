@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -72,7 +71,7 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_REST;
+        return "rest";
     }
 
     @Override

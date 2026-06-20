@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
@@ -111,6 +110,6 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_DLF;
+        return "dlf";
     }
 }

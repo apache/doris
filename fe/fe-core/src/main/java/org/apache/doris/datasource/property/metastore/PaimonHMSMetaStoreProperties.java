@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
@@ -56,7 +55,7 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_HMS;
+        return "hms";
     }
 
     protected PaimonHMSMetaStoreProperties(Map<String, String> props) {

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -79,6 +78,6 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_FILESYSTEM;
+        return "filesystem";
     }
 }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,7 +36,7 @@ public class PaimonRestMetaStorePropertiesTest {
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         restProps.initNormalizeAndCheckProps();
 
-        Assertions.assertEquals(PaimonExternalCatalog.PAIMON_REST, restProps.getPaimonCatalogType());
+        Assertions.assertEquals("rest", restProps.getPaimonCatalogType());
         Assertions.assertEquals("rest", restProps.getMetastoreType());
     }
 

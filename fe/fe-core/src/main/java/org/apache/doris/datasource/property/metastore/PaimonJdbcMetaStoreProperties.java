@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -97,7 +96,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_JDBC;
+        return "jdbc";
     }
 
     @Override
