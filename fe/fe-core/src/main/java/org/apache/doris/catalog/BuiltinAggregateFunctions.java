@@ -87,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxx;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSyy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RetentionV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sem;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
@@ -194,6 +195,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(RegrSxy.class, "regr_sxy"),
                 agg(RegrSyy.class, "regr_syy"),
                 agg(Retention.class, "retention"),
+                agg(RetentionV2.class, "retention_v2"),
                 agg(Sem.class, "sem"),
                 agg(SequenceCount.class, "sequence_count"),
                 agg(SequenceMatch.class, "sequence_match"),

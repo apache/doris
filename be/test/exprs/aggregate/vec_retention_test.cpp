@@ -293,4 +293,160 @@ TEST_F(VRetentionTest, testSerialize) {
     agg_function->destroy(place2);
     agg_function->destroy(place3);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// retention_v2 tests (uint32_t bitmask state, fixed-4-byte serialization)
+// ──────────────────────────────────────────────────────────────────────────────
+
+class VRetentionV2Test : public testing::Test {
+public:
+    AggregateFunctionPtr agg_function;
+
+    VRetentionV2Test() {}
+
+    void SetUp() {
+        AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+        DataTypes data_types = {
+                std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>(),
+        };
+        agg_function = factory.get("retention_v2", data_types, nullptr, false, -1);
+        EXPECT_NE(agg_function, nullptr);
+    }
+
+    void TearDown() {}
+
+    Arena arena;
+};
+
+TEST_F(VRetentionV2Test, testEmpty) {
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    ColumnString buf;
+    VectorBufferWriter buf_writer(buf);
+    agg_function->serialize(place, buf_writer);
+    buf_writer.commit();
+    // v2 always serializes exactly 4 bytes
+    EXPECT_EQ(buf.get_data_at(0).size, sizeof(uint32_t));
+    VectorBufferReader buf_reader(buf.get_data_at(0));
+    agg_function->deserialize(place, buf_reader, arena);
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place2 = memory2.get();
+    agg_function->create(place2);
+
+    agg_function->merge(place, place2, arena);
+    auto column_result =
+            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    agg_function->insert_result_into(place, *column_result);
+    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
+                           .get_data();
+    for (int i = 0; i < result.size(); i++) {
+        EXPECT_EQ(result[i], 0);
+    }
+    EXPECT_EQ(column_result->get_offsets()[0], 3);
+    agg_function->destroy(place);
+    agg_function->destroy(place2);
+}
+
+TEST_F(VRetentionV2Test, testSample) {
+    const int batch_size = 4;
+
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < batch_size; i++) {
+        agg_function->add(place, column, i, arena);
+    }
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place2 = memory2.get();
+    agg_function->create(place2);
+
+    agg_function->merge(place2, place, arena);
+
+    auto column_result2 =
+            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    agg_function->insert_result_into(place2, *column_result2);
+    auto& result2 = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result2).get_data())
+                            .get_data();
+    for (int i = 0; i < result2.size(); i++) {
+        EXPECT_EQ(result2[i], 1);
+    }
+    EXPECT_EQ(column_result2->get_offsets()[0], 3);
+    agg_function->destroy(place2);
+}
+
+TEST_F(VRetentionV2Test, testSerialize) {
+    const int batch_size = 2;
+
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < batch_size; i++) {
+        agg_function->add(place, column, i, arena);
+    }
+
+    ColumnString buf;
+    VectorBufferWriter buf_writer(buf);
+    agg_function->serialize(place, buf_writer);
+    buf_writer.commit();
+    // v2 serializes exactly 4 bytes regardless of event count
+    EXPECT_EQ(buf.get_data_at(0).size, sizeof(uint32_t));
+    agg_function->destroy(place);
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place2 = memory2.get();
+    agg_function->create(place2);
+
+    VectorBufferReader buf_reader(buf.get_data_at(0));
+    agg_function->deserialize(place2, buf_reader, arena);
+
+    auto column_result =
+            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
+    agg_function->insert_result_into(place2, *column_result);
+    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
+                           .get_data();
+    // event[0]=1 (first_flag), events[1..2]=0 → result = [1, 0, 0]
+    EXPECT_EQ(result[0], 1);
+    EXPECT_EQ(result[1], 0);
+    EXPECT_EQ(result[2], 0);
+    EXPECT_EQ(column_result->get_offsets()[0], 3);
+    agg_function->destroy(place2);
+}
 } // namespace doris

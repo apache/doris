@@ -17,6 +17,7 @@
 
 #include "exprs/aggregate/aggregate_function_retention.h"
 
+#include "exprs/aggregate/aggregate_function_retention_v2.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
@@ -24,5 +25,7 @@ namespace doris {
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("retention",
                                    creator_without_type::creator<AggregateFunctionRetention>);
+    factory.register_function_both("retention_v2",
+                                   creator_without_type::creator<AggregateFunctionRetentionV2>);
 }
 } // namespace doris
