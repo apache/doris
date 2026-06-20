@@ -108,8 +108,6 @@ import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -4924,28 +4922,6 @@ public class Env {
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
-                }
-            }
-            sb.append("\n)");
-        } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
-            addTableComment(table, sb);
-            PaimonExternalTable paimonExternalTable;
-            if (table instanceof PaimonExternalTable) {
-                paimonExternalTable = (PaimonExternalTable) table;
-            } else if (table instanceof PaimonSysExternalTable) {
-                paimonExternalTable = ((PaimonSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Paimon table type: " + table.getClass().getSimpleName());
-            }
-            Map<String, String> properties = paimonExternalTable.getTableProperties();
-            sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
             while (iterator.hasNext()) {
                 Entry<String, String> prop = iterator.next();
                 sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
