@@ -18,10 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import org.apache.paimon.catalog.FileSystemCatalogFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -29,23 +27,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class PaimonFileSystemMetaStorePropertiesTest {
-
-    @Test
-    public void testKerberosCatalog() throws Exception {
-        Map<String, String> props = new HashMap<>();
-        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
-        props.put("fs.defaultFS", "hdfs://mycluster_test");
-        props.put("hadoop.security.authentication", "kerberos");
-        props.put("hadoop.kerberos.principal", "myprincipal");
-        props.put("hadoop.kerberos.keytab", "mykeytab");
-        props.put("type", "paimon");
-        props.put("paimon.catalog.type", "filesystem");
-        props.put("warehouse", "hdfs://mycluster_test/paimon");
-        PaimonFileSystemMetaStoreProperties paimonProps = (PaimonFileSystemMetaStoreProperties) MetastoreProperties.create(props);
-        //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
-        Assertions.assertThrows(RuntimeException.class, () -> paimonProps.initializeCatalog("paimon", StorageProperties.createAll(props))
-        );
-    }
 
     @Test
     public void testInitExecutionAuthenticatorWiresHdfsAuthenticatorWithoutInitializeCatalog() throws Exception {
@@ -56,30 +37,16 @@ public class PaimonFileSystemMetaStorePropertiesTest {
         props.put("warehouse", "file:///tmp");
         PaimonFileSystemMetaStoreProperties paimonProps =
                 (PaimonFileSystemMetaStoreProperties) MetastoreProperties.create(props);
-        // M-8: before wiring, the runtime authenticator is the base no-op — filesystem only set the
-        // real authenticator inside initializeCatalog(), which is DEAD on the plugin/cutover path, so
-        // doAs was silently lost over Kerberized HDFS. This assertion pins the bug.
+        // M-8: before wiring, the runtime authenticator is the base no-op — the filesystem flavor only
+        // set the real authenticator inside the legacy initializeCatalog() (removed with the legacy
+        // catalog-build path), so doAs was silently lost over Kerberized HDFS. This assertion pins the bug.
         Assertions.assertNotEquals(HadoopExecutionAuthenticator.class,
                 paimonProps.getExecutionAuthenticator().getClass());
         // The fix: initExecutionAuthenticator builds the HDFS authenticator from the storage props at
-        // catalog-init time (the path PluginDrivenExternalCatalog now invokes), WITHOUT initializeCatalog.
+        // catalog-init time (the path PluginDrivenExternalCatalog now invokes).
         // MUTATION: removing the filesystem initExecutionAuthenticator override leaves the no-op -> red.
         paimonProps.initExecutionAuthenticator(StorageProperties.createAll(props));
         Assertions.assertEquals(HadoopExecutionAuthenticator.class,
                 paimonProps.getExecutionAuthenticator().getClass());
-    }
-
-    @Test
-    public void testNonKerberosCatalog() throws Exception {
-        Map<String, String> props = new HashMap<>();
-        props.put("fs.defaultFS", "file:///tmp");
-        props.put("type", "paimon");
-        props.put("paimon.catalog.type", "filesystem");
-        props.put("warehouse", "file:///tmp");
-        PaimonFileSystemMetaStoreProperties paimonProps = (PaimonFileSystemMetaStoreProperties) MetastoreProperties.create(props);
-        Assertions.assertEquals(FileSystemCatalogFactory.IDENTIFIER, paimonProps.getMetastoreType());
-        Assertions.assertEquals("filesystem", paimonProps.getPaimonCatalogType());
-        Assertions.assertDoesNotThrow(() -> paimonProps.initializeCatalog("paimon", StorageProperties.createAll(props)));
-        Assertions.assertEquals(HadoopExecutionAuthenticator.class, paimonProps.getExecutionAuthenticator().getClass());
     }
 }
