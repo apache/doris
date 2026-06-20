@@ -22,11 +22,11 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
@@ -497,7 +497,7 @@ public class StatementContextTest {
     public void testPreloadPaimonLatestSnapshotBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
-        PaimonExternalTable paimonExternalTable = Mockito.mock(PaimonExternalTable.class);
+        PluginDrivenMvccExternalTable paimonExternalTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
         DatabaseIf<TableIf> database = mockDatabase();
         CatalogIf<?> catalog = mockCatalog();
         MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);

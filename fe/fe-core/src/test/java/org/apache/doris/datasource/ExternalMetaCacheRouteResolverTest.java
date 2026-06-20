@@ -26,7 +26,6 @@ import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
-import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -77,10 +76,6 @@ public class ExternalMetaCacheRouteResolverTest {
         List<String> icebergEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
                 new IcebergHMSExternalCatalog(2L, "iceberg", null, Collections.emptyMap(), ""), 2L);
         Assert.assertEquals(java.util.Collections.singletonList("iceberg"), icebergEngines);
-
-        List<String> paimonEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
-                new PaimonExternalCatalog(3L, "paimon", null, Collections.emptyMap(), ""), 3L);
-        Assert.assertEquals(java.util.Collections.singletonList("paimon"), paimonEngines);
 
         List<String> dorisEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
                 new RemoteDorisExternalCatalog(5L, "doris", null, Collections.emptyMap(), ""), 5L);
@@ -138,7 +133,7 @@ public class ExternalMetaCacheRouteResolverTest {
         RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
                 "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
         RecordingExternalMetaCache paimon = new RecordingExternalMetaCache(
-                "paimon", Collections.emptyList(), catalog -> catalog instanceof PaimonExternalCatalog);
+                "paimon", Collections.emptyList(), catalog -> false);
         ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg, paimon);
         long catalogId = 8L;
 
@@ -187,7 +182,7 @@ public class ExternalMetaCacheRouteResolverTest {
         RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
                 "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
         RecordingExternalMetaCache paimon = new RecordingExternalMetaCache(
-                "paimon", Collections.emptyList(), catalog -> catalog instanceof PaimonExternalCatalog);
+                "paimon", Collections.emptyList(), catalog -> false);
         ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, paimon);
         long catalogId = 9L;
 

@@ -51,7 +51,6 @@ import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -977,8 +976,6 @@ public abstract class ExternalCatalog
                 return new LakeSoulExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, localDbName, remoteDbName);
-            case PAIMON:
-                return new PaimonExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TRINO_CONNECTOR:
                 return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case REMOTE_DORIS:

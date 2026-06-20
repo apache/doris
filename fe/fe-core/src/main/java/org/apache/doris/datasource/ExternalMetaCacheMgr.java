@@ -32,7 +32,6 @@ import org.apache.doris.datasource.metacache.LegacyMetaCacheFactory;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
-import org.apache.doris.datasource.paimon.PaimonExternalMetaCache;
 import org.apache.doris.fs.FileSystemCache;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
@@ -63,7 +62,6 @@ public class ExternalMetaCacheMgr {
     private static final String ENGINE_HIVE = "hive";
     private static final String ENGINE_HUDI = "hudi";
     private static final String ENGINE_ICEBERG = "iceberg";
-    private static final String ENGINE_PAIMON = "paimon";
     private static final String ENGINE_DORIS = "doris";
 
     /**
@@ -171,11 +169,6 @@ public class ExternalMetaCacheMgr {
     public IcebergExternalMetaCache iceberg(long catalogId) {
         prepareCatalogByEngine(catalogId, ENGINE_ICEBERG);
         return (IcebergExternalMetaCache) engine(ENGINE_ICEBERG);
-    }
-
-    public PaimonExternalMetaCache paimon(long catalogId) {
-        prepareCatalogByEngine(catalogId, ENGINE_PAIMON);
-        return (PaimonExternalMetaCache) engine(ENGINE_PAIMON);
     }
 
     public DorisExternalMetaCache doris(long catalogId) {
@@ -299,7 +292,6 @@ public class ExternalMetaCacheMgr {
         cacheRegistry.register(new HiveExternalMetaCache(commonRefreshExecutor, fileListingExecutor));
         cacheRegistry.register(new HudiExternalMetaCache(commonRefreshExecutor));
         cacheRegistry.register(new IcebergExternalMetaCache(commonRefreshExecutor));
-        cacheRegistry.register(new PaimonExternalMetaCache(commonRefreshExecutor));
         cacheRegistry.register(new DorisExternalMetaCache(commonRefreshExecutor));
     }
 

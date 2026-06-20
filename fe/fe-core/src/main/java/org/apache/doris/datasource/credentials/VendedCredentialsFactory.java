@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.credentials;
 
 import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
-import org.apache.doris.datasource.paimon.PaimonVendedCredentialsProvider;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties.Type;
@@ -62,10 +61,10 @@ public class VendedCredentialsFactory {
         switch (type) {
             case ICEBERG:
                 return IcebergVendedCredentialsProvider.getInstance();
-            case PAIMON:
-                return PaimonVendedCredentialsProvider.getInstance();
             default:
-                // Other types do not support vendor credentials
+                // Other types either do not support vended credentials, or signal them via the
+                // MetastoreProperties.isVendedCredentialsEnabled() gate (e.g. Paimon REST) instead
+                // of a dedicated provider.
                 return null;
         }
     }
