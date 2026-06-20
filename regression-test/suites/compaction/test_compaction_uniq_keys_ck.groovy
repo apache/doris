@@ -112,12 +112,14 @@ suite("test_compaction_uniq_keys_ck") {
         def replicaNum = get_table_replica_num(tableName)
         logger.info("get table replica num: " + replicaNum)
 
-        // BE only picks rowsets whose version is already visible as cumulative
-        // compaction candidates, and the visible version is pushed from FE
-        // asynchronously. Right after a burst of loads it may lag, so a single
-        // cumulative round can merge only the visible prefix of rowsets. Retry
-        // trigger + recount until the rows are fully merged.
-        Awaitility.await().atMost(120, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
+        // BE only treats a rowset as a cumulative compaction candidate once the BE has
+        // the FE-pushed visible version covering it (Tablet::_pick_visible_rowsets_to_compaction).
+        // The fast incremental push from FE (PublishVersionDaemon) can be missed; the
+        // periodic fallback then syncs it, bounded by partition_info_update_interval_secs
+        // (60s) + report_tablet_interval_seconds (60s), i.e. up to ~120s. So keep triggering
+        // + recounting -- the merge happens the instant the visible version lands -- and give
+        // the loop budget well above that ~120s ceiling so it stays deterministic.
+        Awaitility.await().atMost(300, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
             // trigger compactions for all tablets in ${tableName}
             trigger_and_wait_compaction(tableName, "cumulative")
             int rowCount = 0

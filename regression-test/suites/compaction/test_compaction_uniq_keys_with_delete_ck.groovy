@@ -145,7 +145,7 @@ suite("test_compaction_uniq_keys_with_delete_ck") {
         // asynchronously. Right after a burst of loads it may lag, so a single
         // cumulative round can merge only the visible prefix of rowsets. Retry
         // trigger + recount until the rows are fully merged.
-        Awaitility.await().atMost(120, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
+        Awaitility.await().atMost(300, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until(() -> {
             // trigger compactions for all tablets in ${tableName}
             trigger_and_wait_compaction(tableName, "cumulative")
             int rowCount = 0
