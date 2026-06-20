@@ -58,6 +58,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -198,12 +199,17 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
-            // A value equal to the Doris-canonical null sentinel marks a genuine NULL partition.
-            // Connectors normalize their own sentinel (e.g. paimon's partition.default-name) to this
-            // in the rendered partition name, mirroring TablePartitionValues.toListPartitionItem so
-            // that `col IS NULL` prunes to the null partition instead of pruning it away.
-            values.add(new PartitionValue(partitionValue,
-                    TablePartitionValues.HIVE_DEFAULT_PARTITION.equals(partitionValue)));
+            // Master parity (PaimonUtil.toListPartitionItem: `new PartitionValue(value, false)`): every
+            // partition value — including a genuine-NULL value the connector rendered via its sentinel
+            // (e.g. paimon's partition.default-name normalized to __HIVE_DEFAULT_PARTITION__) — builds a
+            // NON-null (isNull=false) partition value. So the genuine-null partition is a plain
+            // StringLiteral; an MTMV refresh emits `col IN ('<sentinel>')` which the scan's genuine SQL-NULL
+            // rows never match (the null rows are dropped from the MV, like master), and its MTMV name is
+            // derived from the sentinel (distinct from a literal 'NULL' partition — no p_NULL collision).
+            // `col IS NULL` still returns the genuine-null rows: the paimon scan is predicate-driven and the
+            // connector opts out of the FE prune-to-zero short-circuit (see Connector capability consulted by
+            // PluginDrivenScanNode.resolveRequiredPartitions), so the SDK re-plans with the pushed predicate.
+            values.add(new PartitionValue(partitionValue, false));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         return new ListPartitionItem(Lists.newArrayList(key));
@@ -373,9 +379,48 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         return getLatestSchemaCacheValue();     // latest (B5a pin has pinnedSchema==null, or no pin)
     }
 
-    /** Seam for the LATEST (non-pinned) schema; default delegates to the cached super. Overridable in tests. */
+    /**
+     * The LATEST (non-pinned) schema. For a no-cache catalog (the connector's {@code schemaCacheTtlSecondOverride}
+     * is {@code <= 0}, e.g. {@code meta.cache.paimon.table.ttl-second=0}) the schema is read FRESH via
+     * {@link #initSchema()}, bypassing the generic name-keyed schema cache.
+     *
+     * <p>Why bypass rather than rely on the cache TTL: the SPI routes the latest schema through the generic
+     * {@code DefaultExternalMetaCache} schema entry keyed by table NAME only (no schemaId, unlike master's
+     * {@code PaimonSchemaCacheKey(nameMapping, schemaId)}), and that entry's TTL spec is frozen at first build
+     * ({@code AbstractExternalMetaCache.initCatalog} computeIfAbsent), so a {@code ttl-second=0} cannot reliably
+     * bust it after an external schema change. Reading fresh restores master's single-knob semantics
+     * ({@code meta.cache.paimon.table.ttl-second=0} -> always-fresh schema) and is cheap at ttl=0 by definition;
+     * {@code initSchema()} reloads via the connector's live {@code catalog.getTable} (master parity). The cached
+     * catalog (override absent or {@code > 0}) keeps the cached path; {@code REFRESH TABLE} still busts it.
+     */
     protected Optional<SchemaCacheValue> getLatestSchemaCacheValue() {
+        Connector localConnector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (schemaCacheDisabled(localConnector)) {
+            return initSchema();
+        }
+        return cachedSchemaCacheValue();
+    }
+
+    /**
+     * The generic name-keyed schema cache read ({@code super.getSchemaCacheValue()}). Isolated as a seam so
+     * {@link #getLatestSchemaCacheValue()} can bypass it for a no-cache catalog and so tests can stub it.
+     */
+    protected Optional<SchemaCacheValue> cachedSchemaCacheValue() {
         return super.getSchemaCacheValue();
+    }
+
+    /**
+     * Whether the connector disables its schema cache (its {@code schemaCacheTtlSecondOverride()} is present
+     * and {@code <= 0} — the no-cache catalog, {@code meta.cache.paimon.table.ttl-second=0}). Such a catalog
+     * must serve a FRESH schema on every read, restoring master's single-knob semantics. A null/empty/positive
+     * override keeps the cached path.
+     */
+    static boolean schemaCacheDisabled(Connector connector) {
+        if (connector == null) {
+            return false;
+        }
+        OptionalLong override = connector.schemaCacheTtlSecondOverride();
+        return override != null && override.isPresent() && override.getAsLong() <= 0;
     }
 
     // ──────────────────── partition view (snapshot-aware) ────────────────────

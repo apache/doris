@@ -200,6 +200,25 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * </ul>
      */
     static List<String> resolveRequiredPartitions(SelectedPartitions selectedPartitions) {
+        return resolveRequiredPartitions(selectedPartitions, false);
+    }
+
+    /**
+     * Overload that lets a PREDICATE-DRIVEN connector opt out of the genuine prune-to-zero short-circuit.
+     *
+     * <p>A connector whose {@link ConnectorScanPlanProvider#ignorePartitionPruneShortCircuit()} is {@code
+     * true} (e.g. paimon, whose {@code planScan} ignores {@code requiredPartitions} and re-plans through the
+     * SDK with the pushed predicate) must NOT be short-circuited to zero rows when FE pruning empties the
+     * partition set: with master-parity {@code isNull=false} a genuine-null partition renders as a non-null
+     * sentinel, so {@code col IS NULL} prunes every partition away, yet the genuine-null rows must still be
+     * returned via the pushed predicate (regression {@code qt_null_partition_4}). For such a connector a
+     * prune-to-zero maps to {@code null} (scan-all) instead of the empty list, exactly as the legacy
+     * {@code PaimonScanNode} (which never consults {@code selectedPartitions}). A non-empty pruned set is
+     * still forwarded unchanged. For every other connector ({@code ignorePartitionPruneShortCircuit=false})
+     * the behavior is identical to {@link #resolveRequiredPartitions(SelectedPartitions)}.</p>
+     */
+    static List<String> resolveRequiredPartitions(SelectedPartitions selectedPartitions,
+            boolean ignorePartitionPruneShortCircuit) {
         if (selectedPartitions == null || !selectedPartitions.isPruned) {
             return null;
         }
@@ -216,6 +235,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // unconditional empty short-circuit — MaxComputeScanPlanProvider.planScan returns no splits when
         // getFileNum() <= 0, still zero rows.
         if (selectedPartitions.selectedPartitions.isEmpty() && selectedPartitions.totalPartitionNum == 0) {
+            return null;
+        }
+        // A predicate-driven connector re-plans through its SDK with the pushed predicate (its planScan
+        // ignores requiredPartitions), so a GENUINE prune-to-zero must NOT short-circuit the scan — return
+        // scan-all (null) and let planScan answer from the predicate (e.g. paimon `col IS NULL` over a
+        // genuine-null partition the FE pruner rendered as a non-null sentinel). Master PaimonScanNode parity.
+        if (ignorePartitionPruneShortCircuit && selectedPartitions.selectedPartitions.isEmpty()) {
             return null;
         }
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
@@ -624,8 +650,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
-        // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit.
-        List<String> requiredPartitions = resolveRequiredPartitions(selectedPartitions);
+        // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit — UNLESS the
+        // connector is predicate-driven (ignorePartitionPruneShortCircuit), in which case a prune-to-zero
+        // maps to scan-all and planScan re-plans from the pushed predicate (paimon `col IS NULL` parity).
+        List<String> requiredPartitions = resolveRequiredPartitions(
+                selectedPartitions, scanProvider.ignorePartitionPruneShortCircuit());
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE

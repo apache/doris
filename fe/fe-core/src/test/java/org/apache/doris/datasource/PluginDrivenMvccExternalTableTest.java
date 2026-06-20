@@ -56,6 +56,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Tests for {@link PluginDrivenMvccExternalTable}, the generic MVCC/MTMV-capable plugin table.
@@ -136,24 +137,109 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testHiveDefaultSentinelBuildsNullPartitionKey() {
-        // The connector normalizes a genuine NULL partition value (e.g. paimon's partition.default-name
-        // "__DEFAULT_PARTITION__") to the Doris-canonical sentinel in the rendered partition name.
+    public void testHiveDefaultSentinelBuildsNonNullStringKey() {
+        // Master parity (PaimonUtil.toListPartitionItem uses `new PartitionValue(value, false)`
+        // unconditionally): a genuine-NULL partition value — which the connector renders via the
+        // __HIVE_DEFAULT_PARTITION__ sentinel — builds a NON-null partition key (isNull=false), i.e. the
+        // literal sentinel string, NOT a NullLiteral. An MTMV refresh therefore emits
+        // `region IN ('__HIVE_DEFAULT_PARTITION__')`, which the scan's genuine SQL-NULL rows never match, so
+        // the null rows are dropped from the MV exactly like master ("Will lose null data", regression
+        // test_paimon_mtmv). `WHERE region IS NULL` still returns the genuine-null rows because the paimon
+        // scan is predicate-driven and does NOT short-circuit on an FE prune-to-zero (the connector's
+        // ignorePartitionPruningShortCircuit capability), NOT because the partition key is a NullLiteral.
+        // VARCHAR column: the sentinel parses to a plain StringLiteral (a DATE column can't parse it, so the
+        // bridge logs+skips that partition — also master parity, generatePartitionInfo's per-partition catch).
         Fixture f = Fixture.with(Collections.singletonList(
-                cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)));
+                cpi("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION, TS_2024_01_01)), Type.VARCHAR);
         Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
 
         Assertions.assertEquals(1, items.size());
         PartitionItem item = items.get("dt=" + TablePartitionValues.HIVE_DEFAULT_PARTITION);
         Assertions.assertTrue(item instanceof ListPartitionItem, "expected a ListPartitionItem");
         PartitionKey key = ((ListPartitionItem) item).getItems().get(0);
-        // WHY: a value equal to the canonical null sentinel must build a NULL partition key (isNull) so
-        // `dt IS NULL` prunes TO this partition. Before the fix toListPartitionItem hardcoded isNull=false,
-        // so the key was a non-null literal "__HIVE_DEFAULT_PARTITION__", IS NULL matched nothing, and the
-        // null partition was pruned away (empty result — the bug this fixes). MUTATION: reverting to
-        // new PartitionValue(value, false) -> the key is a non-null literal -> isNullLiteral() false -> red.
-        Assertions.assertTrue(key.getKeys().get(0).isNullLiteral(),
-                "a __HIVE_DEFAULT_PARTITION__ partition value must build a NULL (isNull) partition key");
+        // MUTATION: marking the sentinel isNull=true -> the key is a NullLiteral -> red.
+        Assertions.assertFalse(key.getKeys().get(0).isNullLiteral(),
+                "master parity: a __HIVE_DEFAULT_PARTITION__ value must build a NON-null literal key (isNull=false)");
+        Assertions.assertEquals(TablePartitionValues.HIVE_DEFAULT_PARTITION,
+                key.getKeys().get(0).getStringValue(),
+                "the genuine-null partition key must carry the sentinel string verbatim (a plain StringLiteral)");
+    }
+
+    // ==================== no-cache schema: bypass the name-keyed cache and read fresh ====================
+
+    @Test
+    public void testSchemaCacheDisabledByConnectorTtl() {
+        // ttl-second <= 0 (the no-cache catalog) -> the generic name-keyed schema cache (no schemaId) must be
+        // bypassed and the schema read fresh; an absent/positive override keeps the cached path.
+        Connector noCache = Mockito.mock(Connector.class);
+        Mockito.when(noCache.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.of(0));
+        Assertions.assertTrue(PluginDrivenMvccExternalTable.schemaCacheDisabled(noCache),
+                "ttl-second=0 (no-cache catalog) must disable the schema cache");
+
+        Connector negative = Mockito.mock(Connector.class);
+        Mockito.when(negative.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.of(-1));
+        Assertions.assertTrue(PluginDrivenMvccExternalTable.schemaCacheDisabled(negative),
+                "a negative ttl-second also disables the schema cache");
+
+        Connector withCache = Mockito.mock(Connector.class);
+        Mockito.when(withCache.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.empty());
+        Assertions.assertFalse(PluginDrivenMvccExternalTable.schemaCacheDisabled(withCache),
+                "an absent override (the cached catalog) keeps the schema cache");
+
+        Connector positive = Mockito.mock(Connector.class);
+        Mockito.when(positive.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.of(3600));
+        Assertions.assertFalse(PluginDrivenMvccExternalTable.schemaCacheDisabled(positive),
+                "a positive ttl-second keeps the schema cache");
+
+        Assertions.assertFalse(PluginDrivenMvccExternalTable.schemaCacheDisabled(null),
+                "a null connector (uninitialized) keeps the engine default");
+    }
+
+    @Test
+    public void testNoCacheReadsFreshSchemaElseCached() {
+        // The no-cache catalog must serve the FRESH (initSchema) schema, bypassing the cached (super) path;
+        // the cached catalog serves the cached value. This restores master's meta.cache.paimon.table
+        // .ttl-second=0 -> always-fresh-schema after an external ALTER (regression test_paimon_table_meta_cache
+        // line 112, no-cache desc expected 3 cols but got the stale 2).
+        SchemaCacheValue cached = new PluginDrivenSchemaCacheValue(
+                Collections.singletonList(new Column("c", Type.INT)),
+                Collections.emptyList(), Collections.emptyList());
+        SchemaCacheValue fresh = new PluginDrivenSchemaCacheValue(
+                Arrays.asList(new Column("c", Type.INT), new Column("c2", Type.INT)),
+                Collections.emptyList(), Collections.emptyList());
+
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
+        Connector connector = catalog.getConnector();
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
+
+        PluginDrivenMvccExternalTable table =
+                new PluginDrivenMvccExternalTable(1L, "tbl", "REMOTE_TBL", catalog, db) {
+                    @Override
+                    protected synchronized void makeSureInitialized() {
+                    }
+
+                    @Override
+                    public Optional<SchemaCacheValue> initSchema() {
+                        return Optional.of(fresh);
+                    }
+
+                    @Override
+                    protected Optional<SchemaCacheValue> cachedSchemaCacheValue() {
+                        return Optional.of(cached);
+                    }
+                };
+
+        // no-cache (ttl=0): bypass the cache -> fresh
+        Mockito.when(connector.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.of(0));
+        Assertions.assertSame(fresh, table.getLatestSchemaCacheValue().orElse(null),
+                "no-cache catalog must read the fresh schema (initSchema), not the cached value");
+
+        // with-cache (override absent): cached
+        Mockito.when(connector.schemaCacheTtlSecondOverride()).thenReturn(OptionalLong.empty());
+        Assertions.assertSame(cached, table.getLatestSchemaCacheValue().orElse(null),
+                "cached catalog must read the cached schema value");
     }
 
     // ==================== single-pin invariant: no re-query when pin supplied ====================
@@ -740,6 +826,10 @@ public class PluginDrivenMvccExternalTableTest {
             return build(partitions, false);
         }
 
+        static Fixture with(List<ConnectorPartitionInfo> partitions, Type partitionColType) {
+            return build(partitions, false, partitionColType);
+        }
+
         /** Adds time-travel SPI stubs on top of the base fixture. */
         static Fixture timeTravel() {
             return build(Arrays.asList(
@@ -760,6 +850,11 @@ public class PluginDrivenMvccExternalTableTest {
         }
 
         private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel) {
+            return build(partitions, timeTravel, Type.DATEV2);
+        }
+
+        private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel,
+                Type partitionColType) {
             ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
             ConnectorSession session = Mockito.mock(ConnectorSession.class);
             ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
@@ -775,8 +870,9 @@ public class PluginDrivenMvccExternalTableTest {
             Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
                     .thenReturn(partitions);
 
-            // Single DATE partition column "dt" — the LATEST schema.
-            List<Column> schema = Collections.singletonList(new Column("dt", Type.DATEV2));
+            // Single partition column "dt" (DATE by default; VARCHAR variant exercises the genuine-null
+            // string-key path) — the LATEST schema.
+            List<Column> schema = Collections.singletonList(new Column("dt", partitionColType));
             PluginDrivenSchemaCacheValue latestCacheValue = new PluginDrivenSchemaCacheValue(
                     schema, schema, Collections.singletonList("dt"));
 

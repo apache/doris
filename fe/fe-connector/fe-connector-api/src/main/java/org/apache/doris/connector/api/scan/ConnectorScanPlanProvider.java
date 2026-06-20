@@ -52,6 +52,27 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether this connector is PREDICATE-DRIVEN and therefore opts out of the FE prune-to-zero
+     * short-circuit.
+     *
+     * <p>A connector whose {@link #planScan} re-plans through its own SDK from the pushed predicate and
+     * does NOT consume {@code requiredPartitions} (e.g. paimon) must return {@code true}. The engine then
+     * maps a GENUINE prune-to-zero (FE pruning emptied the partition set over a non-empty universe) to
+     * scan-all instead of short-circuiting to zero rows. This is required for master parity once a
+     * genuine-null partition is rendered as a NON-null sentinel ({@code isNull=false}): {@code col IS NULL}
+     * prunes every partition away, yet the genuine-null rows must still be returned via the pushed
+     * predicate (the legacy {@code PaimonScanNode} never consults the FE partition selection).</p>
+     *
+     * <p>Default {@code false}: connectors that genuinely restrict the read to the pruned partitions
+     * (e.g. MaxCompute, whose read session spans only {@code requiredPartitions}) keep the short-circuit.</p>
+     *
+     * @return {@code true} to disable the prune-to-zero short-circuit for this connector
+     */
+    default boolean ignorePartitionPruneShortCircuit() {
+        return false;
+    }
+
+    /**
      * Plans the scan for the given table, returning a list of scan ranges.
      *
      * @param session the current session

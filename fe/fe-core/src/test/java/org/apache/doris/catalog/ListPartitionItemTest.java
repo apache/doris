@@ -30,49 +30,40 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Tests for {@link ListPartitionItem#toPartitionKeyDesc} null-partition display handling (FIX-3, CI 973411).
+ * Tests for {@link ListPartitionItem#toPartitionKeyDesc} null-partition display handling.
+ *
+ * <p>Guards the master-parity rendering of a genuine-NULL partition: its MTMV partition NAME must be the bare
+ * {@code p_NULL}, the same as on master ({@link PartitionInfo#toPartitionValue} renders a {@code NullLiteral}
+ * key as the keyword {@code NULL}). FIX-3 (CI 973411, reverted) substituted the {@code originHiveKeys} sentinel
+ * for the display value, renaming the hive default-partition MV to {@code p_HIVEDEFAULTPARTITION} and breaking
+ * regression test_hive_default_mtmv (asserts {@code p_NULL}) and test_upgrade_downgrade_mtmv (the related-desc
+ * vs MV-OLAP-desc partition-mapping join, which only matches when both sides render symmetrically).
  */
 public class ListPartitionItemTest {
 
     /**
-     * A genuine-NULL partition (connector renders it via the {@code __HIVE_DEFAULT_PARTITION__} sentinel and
-     * marks the key isNull) and a literal string {@code 'NULL'} partition must produce DISTINCT MTMV partition
-     * names. Before FIX-3 both rendered to the bare {@code NULL} keyword -> both named {@code p_NULL} ->
-     * "Duplicated named partition: p_NULL" (CI 973411 test_paimon_mtmv on the paimon null_partition table,
-     * which has rows for genuine NULL, 'null' and 'NULL'). The genuine-null key must keep isNull=true so
-     * {@code region IS NULL} still prunes to it (the IS-NULL-prune fix is preserved); only the DISPLAY name
-     * changes.
+     * A genuine-NULL partition (e.g. a hive {@code __HIVE_DEFAULT_PARTITION__} default partition, built isNull
+     * with the sentinel preserved as originHiveKeys) must render its MTMV partition name as the bare
+     * {@code p_NULL} — identical to master — so that (a) test_hive_default_mtmv:93 finds p_NULL and (b) the
+     * MTMV-OLAP partition (which has no originHiveKeys) renders the SAME name, keeping the sync-compare join
+     * symmetric. The value must still resolve to a NULL literal so {@code col IS NULL} pruning is unaffected.
      */
     @Test
-    public void testNullPartitionGetsDistinctNameButStaysNull() throws AnalysisException {
+    public void testGenuineNullPartitionRendersAsPNull() throws AnalysisException {
         List<Type> types = Collections.singletonList(Type.VARCHAR);
 
-        // Genuine NULL partition as a paimon/hive connector builds it: a NULL literal whose origin-hive key
+        // Genuine NULL partition as a hive/paimon connector builds it: a NULL literal whose origin-hive key
         // preserves the canonical sentinel string.
         PartitionKey nullKey = PartitionKey.createListPartitionKeyWithTypes(
                 Collections.singletonList(new PartitionValue(TablePartitionValues.HIVE_DEFAULT_PARTITION, true)),
                 types, true);
-        // A literal string 'NULL' partition value (NOT a genuine null).
-        PartitionKey stringNullKey = PartitionKey.createListPartitionKeyWithTypes(
-                Collections.singletonList(new PartitionValue("NULL", false)), types, true);
-
         ListPartitionItem nullItem = new ListPartitionItem(Lists.newArrayList(nullKey));
-        ListPartitionItem stringNullItem = new ListPartitionItem(Lists.newArrayList(stringNullKey));
 
-        String nullName = MTMVPartitionUtil.generatePartitionName(nullItem.toPartitionKeyDesc(0));
-        String stringNullName = MTMVPartitionUtil.generatePartitionName(stringNullItem.toPartitionKeyDesc(0));
-
-        // MUTATION: reverting toPartitionKeyDesc to render the null value as the bare "NULL" keyword makes
-        // both names "p_NULL" -> this assertion (and the CREATE MTMV) red.
-        Assertions.assertNotEquals(nullName, stringNullName,
-                "genuine-null and string-'NULL' partitions must produce distinct MTMV names");
-        Assertions.assertEquals("p_NULL", stringNullName,
-                "the literal string 'NULL' partition must stay p_NULL");
-        Assertions.assertEquals("p_HIVEDEFAULTPARTITION", nullName,
-                "the genuine-null partition must be named from the sentinel, not the bare NULL keyword");
+        Assertions.assertEquals("p_NULL",
+                MTMVPartitionUtil.generatePartitionName(nullItem.toPartitionKeyDesc(0)),
+                "a genuine-null partition must render as p_NULL (master parity), not p_HIVEDEFAULTPARTITION");
 
         // The null partition's desc value must still resolve to a NULL literal so `col IS NULL` prunes to it.
-        // MUTATION: dropping isNull on the substituted display value -> getValue is a non-null literal -> red.
         PartitionValue nullDescValue = nullItem.toPartitionKeyDesc(0).getInValues().get(0).get(0);
         Assertions.assertTrue(nullDescValue.isNullPartition(),
                 "the null partition desc value must stay isNull");
@@ -81,20 +72,18 @@ public class ListPartitionItemTest {
     }
 
     /**
-     * Internal OLAP list partitions carry NO originHiveKeys, so the FIX-3 display substitution is a no-op:
-     * a genuine NULL OLAP partition value keeps rendering as the bare {@code NULL} keyword (p_NULL).
+     * An internal OLAP null partition (no originHiveKeys) renders as {@code p_NULL} — unchanged by, and after,
+     * the FIX-3 revert. Kept as a symmetry anchor for {@link #testGenuineNullPartitionRendersAsPNull}: both the
+     * connector-side genuine-null item and the MV-OLAP item must produce the SAME p_NULL name.
      */
     @Test
-    public void testOlapNullPartitionUnchanged() throws AnalysisException {
+    public void testOlapNullPartitionRendersAsPNull() throws AnalysisException {
         List<Type> types = Collections.singletonList(Type.VARCHAR);
-        // isHive=false -> originHiveKeys stays empty -> guard skips -> legacy behavior.
         PartitionKey olapNullKey = PartitionKey.createListPartitionKeyWithTypes(
                 Collections.singletonList(new PartitionValue("NULL", true)), types, false);
         ListPartitionItem item = new ListPartitionItem(Lists.newArrayList(olapNullKey));
-        // MUTATION: applying the sentinel substitution unconditionally (ignoring the originHiveKeys guard)
-        // would change this to p_HIVEDEFAULTPARTITION -> red.
         Assertions.assertEquals("p_NULL",
                 MTMVPartitionUtil.generatePartitionName(item.toPartitionKeyDesc(0)),
-                "an OLAP null partition (no originHiveKeys) must be unaffected by the FIX-3 substitution");
+                "an OLAP null partition (no originHiveKeys) must render as p_NULL");
     }
 }

@@ -118,11 +118,15 @@ import java.util.stream.Collectors;
  * default chain (6-arg &rarr; 5-arg &rarr; 4-arg) routes correctly with {@code requiredPartitions}
  * dropped. As of B5 the connector emits {@code partition_columns} (see
  * {@code PaimonConnectorMetadata.buildTableSchema}), so FE now treats Paimon tables as partitioned and
- * the Nereids-pruned set feeds FE EXPLAIN ({@code partition=N/M}) and the generic scan node's
- * pruned-empty short-circuit only &mdash; never {@code planScan}. For an explicit time-travel pin the
- * connector deliberately reports an empty partition-item map and defers pruning to this predicate
- * pushdown; {@code PluginDrivenScanNode.resolveRequiredPartitions} is guarded so that empty-universe
- * pin scans-all rather than short-circuiting to zero splits. None of this affects read-row correctness.
+ * the Nereids-pruned set feeds FE EXPLAIN ({@code partition=N/M}) only. Because Paimon is fully
+ * predicate-driven, this provider returns {@code true} from {@link #ignorePartitionPruneShortCircuit()}:
+ * a GENUINE prune-to-zero (FE pruning emptied the partition set) is NOT short-circuited to zero rows but
+ * mapped to scan-all, so {@code planScan} re-plans from the pushed predicate. This is load-bearing once a
+ * genuine-null partition is rendered as a NON-null sentinel ({@code isNull=false}, master parity): {@code
+ * col IS NULL} prunes every partition away at FE, yet the genuine-null rows must still be returned via the
+ * pushed predicate (the legacy {@code PaimonScanNode} never consults the FE partition selection). The
+ * time-travel pin (empty partition-item map over an empty universe) was already guarded the same way in
+ * {@code PluginDrivenScanNode.resolveRequiredPartitions}. None of this affects read-row correctness.
  */
 public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -303,6 +307,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
         return planScanInternal(session, handle, columns, filter, false);
+    }
+
+    /**
+     * Paimon is predicate-driven: {@code planScan} ignores {@code requiredPartitions} and re-plans through
+     * the SDK with the pushed predicate, so a FE prune-to-zero must scan-all rather than short-circuit to
+     * zero rows (required for {@code col IS NULL} parity once a genuine-null partition renders as a NON-null
+     * sentinel). See the class-level partition-pruning note.
+     */
+    @Override
+    public boolean ignorePartitionPruneShortCircuit() {
+        return true;
     }
 
     /**
