@@ -19,7 +19,6 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -38,7 +37,7 @@ import java.util.Set;
  * {@code hdfs}/{@code viewfs} are claimed here; the {@code _STORAGE_TYPE_} "HDFS" marker is only a
  * fallback when there is no uri scheme.</p>
  */
-public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
+public class HdfsFileSystemProvider implements FileSystemProvider<HdfsFileSystemProperties> {
 
     public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs");
 
@@ -69,6 +68,18 @@ public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProp
         }
         return properties.containsKey("dfs.nameservices")
                 || properties.containsKey("hadoop.kerberos.principal");
+    }
+
+    @Override
+    public HdfsFileSystemProperties bind(Map<String, String> properties) {
+        return HdfsFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(HdfsFileSystemProperties properties) throws IOException {
+        // DFSFileSystem builds its own Configuration (incl. the create()-side Kerberos authenticator)
+        // from the raw map via HdfsConfigBuilder; route through the unchanged create(Map) path.
+        return create(properties.rawProperties());
     }
 
     @Override
