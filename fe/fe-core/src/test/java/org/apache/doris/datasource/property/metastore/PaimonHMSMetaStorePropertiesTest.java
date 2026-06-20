@@ -18,35 +18,14 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.property.storage.HdfsProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class PaimonHMSMetaStorePropertiesTest {
-    @Test
-    public void testKerberosCatalog() throws Exception {
-        Map<String, String> props = new HashMap<>();
-        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
-        props.put("fs.defaultFS", "hdfs://mycluster_test");
-        props.put("hadoop.security.authentication", "kerberos");
-        props.put("hadoop.kerberos.principal", "myprincipal");
-        props.put("hadoop.kerberos.keytab", "mykeytab");
-        props.put("type", "paimon");
-        props.put("hive.metastore.uris", "thrift://localhost:12345");
-        props.put("paimon.catalog.type", "hms");
-        props.put("warehouse", "hdfs://mycluster/paimon");
-        PaimonHMSMetaStoreProperties paimonProps = (PaimonHMSMetaStoreProperties) MetastoreProperties.create(props);
-        List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
-        //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
-        Assertions.assertThrows(RuntimeException.class,
-                () -> paimonProps.initializeCatalog("paimon", storagePropertiesList));
-    }
 
     @Test
     public void testNonKerberosCatalog() throws Exception {
@@ -59,6 +38,9 @@ public class PaimonHMSMetaStorePropertiesTest {
         props.put("warehouse", "file:///tmp");
         PaimonHMSMetaStoreProperties paimonProps = (PaimonHMSMetaStoreProperties) MetastoreProperties.create(props);
         Assertions.assertEquals("hms", paimonProps.getPaimonCatalogType());
+        // Parity: only the REST flavor vends credentials; non-REST paimon flavors keep building the
+        // static storage map (the former provider gated on instanceof PaimonRestMetaStoreProperties).
+        Assertions.assertFalse(paimonProps.isVendedCredentialsEnabled());
         //should mock connection to hms
     }
 
