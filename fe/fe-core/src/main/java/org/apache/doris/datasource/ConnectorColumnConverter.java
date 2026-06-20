@@ -64,9 +64,17 @@ public final class ConnectorColumnConverter {
      */
     public static Column convertColumn(ConnectorColumn cc) {
         Type dorisType = convertType(cc.getType());
-        return new Column(cc.getName(), dorisType, cc.isKey(), null,
+        Column column = new Column(cc.getName(), dorisType, cc.isKey(), null,
                 cc.isNullable(), cc.getDefaultValue(),
                 cc.getComment() != null ? cc.getComment() : "");
+        // Re-apply the WITH_TIMEZONE "Extra" marker the connector carried across the SPI boundary
+        // (ConnectorColumn.withTimeZone()), matching legacy PaimonExternalTable/IcebergUtils which set it
+        // via setWithTZExtraInfo() from the source TZ type. Independent of the mapped Doris type, so it is
+        // shown even when the column was mapped to a plain DATETIME (timestamp_tz mapping off).
+        if (cc.isWithTimeZone()) {
+            column.setWithTZExtraInfo();
+        }
+        return column;
     }
 
     /**

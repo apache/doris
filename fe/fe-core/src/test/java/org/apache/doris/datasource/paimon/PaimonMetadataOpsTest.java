@@ -19,9 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -70,9 +68,14 @@ public class PaimonMetadataOpsTest {
         param.put("type", "paimon");
         param.put("paimon.catalog.type", "filesystem");
         param.put("warehouse", warehouse);
-        // create catalog
-        CreateCatalogCommand createCatalogCommand = new CreateCatalogCommand("paimon", true, "", "comment", param);
-        paimonCatalog = (PaimonExternalCatalog) CatalogFactory.createFromCommand(1, createCatalogCommand);
+        // Construct the legacy filesystem catalog directly. NOTE: "paimon" is in
+        // CatalogFactory.SPI_READY_TYPES, so CatalogFactory.createFromCommand now routes paimon through
+        // the connector-plugin SPI and returns a PluginDrivenExternalCatalog — it throws "No connector
+        // plugin loaded" when the plugin is not installed in connector_plugin_root (the case in a plain
+        // fe-core UT) and, even when loaded, is not castable to the legacy PaimonExternalCatalog. This
+        // test exercises the still-live legacy PaimonMetadataOps, so build the legacy catalog directly
+        // here rather than through the SPI-routed factory.
+        paimonCatalog = new PaimonFileExternalCatalog(1, "paimon", null, param, "comment");
         paimonCatalog.makeSureInitialized();
         // create db
         ops = new PaimonMetadataOps(paimonCatalog, paimonCatalog.catalog);
