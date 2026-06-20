@@ -298,6 +298,93 @@ public class PaimonConnectorMetadataTest {
     }
 
     // ---------------------------------------------------------------------
+    // no-cache meta-cache: the LATEST schema must be read fresh via schemaManager().latest(),
+    // not the CachingCatalog-frozen rowType() (test_paimon_table_meta_cache line 112)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void getTableSchemaReadsLatestSchemaNotCachedRowType() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        // The handle's transient Table is the CachingCatalog-cached instance whose rowType() is
+        // FROZEN at load time (2 columns) — this is what the connector used to read.
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id", "name"), Collections.emptyList(), Collections.emptyList());
+        // After an external ALTER ADD COLUMNS, the schema manager's latest() advances to 3 fields
+        // (a NEW schema file, with NO new snapshot). This is the live read the latest path must use.
+        ops.latestSchema = Optional.of(new PaimonCatalogOps.PaimonSchemaSnapshot(
+                Arrays.asList(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "name", DataTypes.INT()),
+                        new DataField(2, "new_col", DataTypes.INT())),
+                Collections.emptyList(),
+                Collections.emptyList()));
+
+        ConnectorTableHandle handle = metadataWith(ops).getTableHandle(null, "db1", "t1").get();
+        ConnectorTableSchema schema = metadataWith(ops).getTableSchema(null, handle);
+
+        // WHY: a paimon CachingCatalog caches the Table object; its rowType() is frozen at load time
+        // while schemaManager().latest() reads the schema directory fresh. An external ALTER ADD
+        // COLUMNS bumps the schema file (new id) WITHOUT a new snapshot, so the latest snapshot's
+        // schemaId stays behind and only schemaManager().latest() sees the 3rd column. The latest
+        // path MUST read schemaManager().latest() (legacy PaimonExternalTable parity), not the cached
+        // rowType(). This is the no-cache meta-cache regression (test_paimon_table_meta_cache line
+        // 112: expected 3 but was 2). MUTATION: reading table.rowType() (the cached 2-col schema) -> red.
+        Assertions.assertEquals(3, schema.getColumns().size(),
+                "the latest schema path must read schemaManager().latest() (3 cols after external "
+                        + "ALTER), not the CachingCatalog-frozen rowType() (2 cols)");
+        Assertions.assertEquals("new_col", schema.getColumns().get(2).getName(),
+                "the externally-added column must surface via schemaManager().latest()");
+    }
+
+    @Test
+    public void getTableSchemaKeepsSyntheticRowTypeForSystemTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        // A system table ($snapshots-like) whose synthetic rowType() is its OWN 2-col schema.
+        FakePaimonTable sysTbl = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id", "schema_id"),
+                Collections.emptyList(), Collections.emptyList());
+        // latestSchema would return a DIFFERENT (base-table) 3-col schema; it MUST be ignored for a sys table.
+        ops.latestSchema = Optional.of(new PaimonCatalogOps.PaimonSchemaSnapshot(
+                Arrays.asList(
+                        new DataField(0, "id", DataTypes.INT()),
+                        new DataField(1, "name", DataTypes.INT()),
+                        new DataField(2, "new_col", DataTypes.INT())),
+                Collections.emptyList(), Collections.emptyList()));
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db1", "t1", "snapshots", false);
+        handle.setPaimonTable(sysTbl);
+
+        ConnectorTableSchema schema = metadataWith(ops).getTableSchema(null, handle);
+
+        // WHY: system tables ($snapshots/$manifests are NOT DataTable; $ro/$audit_log/$binlog ARE
+        // DataTable but their correct DESC is the SYNTHETIC sys rowType(), not the base schema). The
+        // latest path MUST keep table.rowType() for ALL sys handles, guarded by isSystemTable().
+        // MUTATION: dropping the isSystemTable() guard (always reading latestSchema) -> 3 cols (and
+        // a ClassCastException for the non-DataTable sys tables in production) -> red.
+        Assertions.assertEquals(2, schema.getColumns().size(),
+                "a system table must keep its synthetic rowType(), never schemaManager().latest()");
+        Assertions.assertFalse(ops.log.contains("latestSchema"),
+                "the latest-schema read must be skipped for a system table");
+    }
+
+    @Test
+    public void getTableSchemaFallsBackToRowTypeWhenLatestSchemaAbsent() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id", "name"), Collections.emptyList(), Collections.emptyList());
+        // latestSchema empty: a non-DataTable (FormatTable) backend or a schema-less table.
+        ops.latestSchema = Optional.empty();
+
+        ConnectorTableHandle handle = metadataWith(ops).getTableHandle(null, "db1", "t1").get();
+        ConnectorTableSchema schema = metadataWith(ops).getTableSchema(null, handle);
+
+        // WHY: when schemaManager().latest() is unavailable (non-DataTable backend / empty table),
+        // the latest path must fall back to table.rowType() rather than crash. MUTATION:
+        // unconditionally dereferencing latestSchema().get() -> NoSuchElementException -> red.
+        Assertions.assertEquals(2, schema.getColumns().size(),
+                "an absent latest schema must fall back to the table's rowType()");
+    }
+
+    // ---------------------------------------------------------------------
     // FIX-MAPPING-FLAG-KEYS — type-mapping toggles read the canonical dotted
     // CREATE-CATALOG keys (enable.mapping.varbinary / enable.mapping.timestamp_tz)
     // ---------------------------------------------------------------------

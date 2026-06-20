@@ -134,6 +134,21 @@ public interface PaimonCatalogOps {
      */
     PaimonSchemaSnapshot schemaAt(Table table, long schemaId);
 
+    /**
+     * Returns the LATEST schema read FRESH via the table's schema manager
+     * ({@code ((DataTable) table).schemaManager().latest()}), reduced to the fields + partition keys +
+     * primary keys the metadata layer needs. Unlike {@code table.rowType()} — which a paimon
+     * {@code CachingCatalog} freezes at the cached {@code Table}'s load time — {@code schemaManager().latest()}
+     * is a LIVE read of the schema directory, so it reflects an external {@code ALTER} (which bumps the
+     * schema file/id WITHOUT creating a new snapshot, so the latest snapshot's schemaId stays behind).
+     * Mirrors legacy {@code PaimonExternalTable}, which read {@code schemaManager().latest()} for the
+     * latest schema (never {@code rowType()}).
+     *
+     * <p>Returns {@link Optional#empty()} when {@code table} is not a {@code DataTable} (e.g. a
+     * {@code FormatTable} backend) or has no schema yet, so the caller falls back to {@code table.rowType()}.
+     */
+    Optional<PaimonSchemaSnapshot> latestSchema(Table table);
+
     // ---- B5b-2c: branch time-travel resolution ----
 
     /**
@@ -324,6 +339,19 @@ public interface PaimonCatalogOps {
             TableSchema tableSchema = ((DataTable) table).schemaManager().schema(schemaId);
             return new PaimonSchemaSnapshot(
                     tableSchema.fields(), tableSchema.partitionKeys(), tableSchema.primaryKeys());
+        }
+
+        @Override
+        public Optional<PaimonSchemaSnapshot> latestSchema(Table table) {
+            // schemaManager() is only on DataTable (same cast schemaAt uses). latest() is a LIVE read
+            // of the schema directory, so it returns the post-ALTER schema even off a CachingCatalog-
+            // cached Table whose rowType() is frozen at load time. A non-DataTable backend (e.g. a
+            // FormatTable) has no schema history -> empty -> the caller falls back to table.rowType().
+            if (!(table instanceof DataTable)) {
+                return Optional.empty();
+            }
+            return ((DataTable) table).schemaManager().latest()
+                    .map(s -> new PaimonSchemaSnapshot(s.fields(), s.partitionKeys(), s.primaryKeys()));
         }
 
         @Override

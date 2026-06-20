@@ -103,6 +103,10 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     PaimonCatalogOps.TagSnapshot tagSnapshot;
     /** schema returned by schemaAt (set per-test to drive the at-schemaId column mapping). */
     PaimonCatalogOps.PaimonSchemaSnapshot schemaAt;
+    /** latest schema returned by latestSchema (default empty => caller falls back to table.rowType()). */
+    java.util.Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latestSchema = java.util.Optional.empty();
+    /** The table the metadata layer passed to the most recent latestSchema call. */
+    Table lastLatestSchemaTable;
     /** The arguments the metadata layer passed to the most recent time-travel seam call. */
     long lastSnapshotSchemaIdArg;
     String lastTagNameArg;
@@ -277,6 +281,13 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         lastMvccTable = table;
         lastSchemaAtArg = schemaId;
         return schemaAt;
+    }
+
+    @Override
+    public java.util.Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latestSchema(Table table) {
+        log.add("latestSchema");
+        lastLatestSchemaTable = table;
+        return latestSchema;
     }
 
     @Override

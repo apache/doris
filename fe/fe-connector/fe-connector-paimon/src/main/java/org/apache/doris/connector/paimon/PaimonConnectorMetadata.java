@@ -208,9 +208,30 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // resolveTable branches on isSystemTable() to pick the 4-arg sys Identifier vs the 2-arg
         // base Identifier on a transient-table-null reload, so a sys handle reads its OWN rowType.
         Table table = resolveTable(paimonHandle);
-        // The LATEST path keys partition_columns off the HANDLE's partitionKeys (the handle was
-        // built from the latest table.partitionKeys()); fields + primaryKeys come from the live
-        // table. Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
+        // For a non-system data table, read the LATEST schema FRESH via the connector's schema manager
+        // (schemaManager().latest()), NOT the cached Table's rowType(): paimon's CachingCatalog returns a
+        // Table instance whose rowType() is FROZEN at load time, while an external ALTER ADD COLUMNS bumps
+        // the schema file (new schema id) WITHOUT a new snapshot — so rowType() (and the latest snapshot's
+        // schemaId) stay behind while schemaManager().latest() advances. Reading latest restores legacy
+        // PaimonExternalTable parity so a no-cache catalog (meta.cache.paimon.table.ttl-second=0) — and a
+        // with-cache catalog after REFRESH busts the FE schema cache — reflects the external schema change.
+        // partitionKeys/primaryKeys also come from the resolved latest schema (parity with the at-snapshot
+        // path; the handle's keys were built from the stale cached table). latestSchema() is empty for a
+        // non-DataTable backend (e.g. FormatTable) or a schema-less table -> fall back to rowType(). System
+        // tables (isSystemTable()) always keep their synthetic rowType() (no schema-version history; some
+        // are not DataTable). Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
+        if (!paimonHandle.isSystemTable()) {
+            Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest = catalogOps.latestSchema(table);
+            if (latest.isPresent()) {
+                PaimonCatalogOps.PaimonSchemaSnapshot schema = latest.get();
+                return buildTableSchema(
+                        paimonHandle.getTableName(),
+                        table,
+                        schema.fields(),
+                        schema.partitionKeys(),
+                        schema.primaryKeys());
+            }
+        }
         return buildTableSchema(
                 paimonHandle.getTableName(),
                 table,
