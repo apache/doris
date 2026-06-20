@@ -1095,6 +1095,23 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
 
+    # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
+    # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
+    # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
+    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
+    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
+    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
+    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
+    # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
+    # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
+    # fe/lib/jindofs in the same FE process.
+    PAIMON_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/paimon/lib"
+    if [[ -d "${PAIMON_CONN_LIB}" && -d "${DORIS_OUTPUT}/fe/lib/jindofs" ]]; then
+        cp -p "${DORIS_OUTPUT}/fe/lib/jindofs/"*.jar "${PAIMON_CONN_LIB}/" 2>/dev/null || true
+    fi
+    unset PAIMON_CONN_LIB
+
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
       rm -rf "${DORIS_OUTPUT}/fe/arthas/*"
