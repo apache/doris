@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 
@@ -92,13 +93,14 @@ public class FakeConnectorPluginTest {
     @Test
     void mvccSnapshotMethodsDefaultToEmpty() {
         ConnectorTableHandle handle = new ConnectorTableHandle() { };
-        // T08: all three mvcc defaults return Optional.empty() — connector opts out of MVCC.
+        // T08: the mvcc defaults return Optional.empty() — connector opts out of MVCC. The old
+        // getSnapshotAt/getSnapshotById defaults were retired in B5b-2a and replaced by the unified
+        // resolveTimeTravel seam, which also defaults to Optional.empty for non-time-travel connectors.
         Assertions.assertEquals(Optional.empty(),
                 metadata.beginQuerySnapshot(session, handle));
         Assertions.assertEquals(Optional.empty(),
-                metadata.getSnapshotAt(session, handle, 0L));
-        Assertions.assertEquals(Optional.empty(),
-                metadata.getSnapshotById(session, handle, 0L));
+                metadata.resolveTimeTravel(session, handle,
+                        ConnectorTimeTravelSpec.snapshotId("1")));
     }
 
     // ──────────────────── ConnectorSchemaOps defaults ────────────────────

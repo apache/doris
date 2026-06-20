@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -59,6 +60,13 @@ public class UserAuthentication {
             authColumns = Collections.emptySet();
         } else if (table instanceof IcebergSysExternalTable) {
             authTable = ((IcebergSysExternalTable) table).getSourceTable();
+            authColumns = Collections.emptySet();
+        } else if (table instanceof PluginDrivenSysExternalTable) {
+            // After the SPI cutover a paimon sys-table ($snapshots/$files/...) is a
+            // PluginDrivenSysExternalTable; authorize against its source table (mirrors the
+            // legacy PaimonSysExternalTable branch above), so a user holding SELECT on db.tbl
+            // can query db.tbl$snapshots.
+            authTable = ((PluginDrivenSysExternalTable) table).getSourceTable();
             authColumns = Collections.emptySet();
         }
         String tableName = authTable.getName();

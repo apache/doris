@@ -307,13 +307,13 @@ suite("paimon_time_travel", "p0,external") {
             sql """set force_jni_scanner=true; set time_zone='+10:00';"""
             test {
                 sql """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
-                exception ("There is currently no snapshot earlier than or equal to timestamp")
+                exception ("snapshot earlier than or equal to")
             }
 
             sql """set force_jni_scanner=false;"""
             test {
                 sql """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
-                exception ("There is currently no snapshot earlier than or equal to timestamp")
+                exception ("snapshot earlier than or equal to")
             }
 
         } finally {

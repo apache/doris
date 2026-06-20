@@ -36,12 +36,16 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -293,26 +297,48 @@ public class ShowPartitionsCommand extends ShowCommand {
         ExternalTable dorisTable = pluginCatalog.getDbOrAnalysisException(dbName)
                 .getTableOrAnalysisException(tableName.getTbl());
 
-        // Route partition listing through the connector SPI. The SPI's
-        // listPartitionNames has no offset/limit, so paging is applied FE-side below.
+        // Route partition listing through the connector SPI.
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
         ConnectorTableHandle handle = metadata
                 .getTableHandle(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
                         "table not found: " + dbName + "." + tableName.getTbl()));
-        List<String> partitionNames = metadata.listPartitionNames(session, handle);
 
         List<List<String>> rows = new ArrayList<>();
-        for (String partition : partitionNames) {
-            if (filterMap != null && !filterMap.isEmpty()) {
-                if (!PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partition, filterMap)) {
+        if (hasPartitionStatsCapability()) {
+            // Rich 5-column result (Partition / PartitionKey / RecordCount / FileSizeInBytes /
+            // FileCount), matching the legacy paimon SHOW PARTITIONS (D-045). PartitionKey is the
+            // table's partition-column names comma-joined, identical on every row (legacy semantics).
+            String partitionColumnsStr = ((PluginDrivenExternalTable) dorisTable).getPartitionColumns()
+                    .stream().map(Column::getName).collect(Collectors.joining(","));
+            for (ConnectorPartitionInfo partition
+                    : metadata.listPartitions(session, handle, Optional.empty())) {
+                String partitionName = partition.getPartitionName();
+                if (filterMap != null && !filterMap.isEmpty()
+                        && !PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partitionName, filterMap)) {
                     continue;
                 }
+                List<String> row = new ArrayList<>(5);
+                row.add(partitionName);
+                row.add(partitionColumnsStr);
+                row.add(String.valueOf(partition.getRowCount()));
+                row.add(String.valueOf(partition.getSizeBytes()));
+                row.add(String.valueOf(partition.getFileCount()));
+                rows.add(row);
             }
-            List<String> list = new ArrayList<>();
-            list.add(partition);
-            rows.add(list);
+        } else {
+            // Single-column result (partition name only). The SPI's listPartitionNames has no
+            // offset/limit, so paging is applied FE-side below.
+            for (String partition : metadata.listPartitionNames(session, handle)) {
+                if (filterMap != null && !filterMap.isEmpty()
+                        && !PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partition, filterMap)) {
+                    continue;
+                }
+                List<String> row = new ArrayList<>(1);
+                row.add(partition);
+                rows.add(row);
+            }
         }
         // sort by partition name
         if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
@@ -322,6 +348,22 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
         rows = applyLimit(limit, offset, rows);
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    /**
+     * Whether the current (plugin) catalog's connector exposes per-partition statistics
+     * ({@link ConnectorCapability#SUPPORTS_PARTITION_STATS}). Drives the 5-column SHOW PARTITIONS
+     * result for paimon while non-declaring connectors (e.g. MaxCompute) stay single-column. Both
+     * {@link #handleShowPluginDrivenTablePartitions()} and {@link #getMetaData()} consult this so the
+     * column headers and the row width never disagree.
+     */
+    private boolean hasPartitionStatsCapability() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARTITION_STATS);
     }
 
     private ShowResultSet handleShowPaimonTablePartitions() throws AnalysisException {
@@ -460,7 +502,10 @@ public class ShowPartitionsCommand extends ShowCommand {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
             builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
             builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
-        } else if (catalog instanceof PaimonExternalCatalog) {
+        } else if (catalog instanceof PaimonExternalCatalog || hasPartitionStatsCapability()) {
+            // Legacy paimon catalog (pre-cutover) OR a plugin connector that declares
+            // SUPPORTS_PARTITION_STATS (paimon-after-cutover): 5-column rich result. Must match the
+            // row width built in handleShowPluginDrivenTablePartitions().
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(300)))
                     .addColumn(new Column("PartitionKey", ScalarType.createVarchar(300)))
                     .addColumn(new Column("RecordCount", ScalarType.createVarchar(300)))
