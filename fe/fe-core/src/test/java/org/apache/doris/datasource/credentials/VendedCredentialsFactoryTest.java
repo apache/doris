@@ -19,7 +19,6 @@ package org.apache.doris.datasource.credentials;
 
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.metastore.PaimonRestMetaStoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties.Type;
 
@@ -59,25 +58,6 @@ public class VendedCredentialsFactoryTest {
                 .getStoragePropertiesMapWithVendedCredentials(icebergProperties, baseStorageMap, table);
 
         // Should return the result from IcebergVendedCredentialsProvider or fall back to base map
-        Assertions.assertNotNull(result);
-    }
-
-    @Test
-    public void testGetStoragePropertiesMapWithVendedCredentialsForPaimon() {
-        // Mock Paimon REST properties
-        PaimonRestMetaStoreProperties paimonProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
-        Mockito.when(paimonProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
-        Mockito.when(paimonProperties.getTokenProvider()).thenReturn("dlf");
-
-        // Mock Paimon table
-        org.apache.paimon.table.Table paimonTable = Mockito.mock(org.apache.paimon.table.Table.class);
-
-        Map<Type, StorageProperties> baseStorageMap = new HashMap<>();
-
-        Map<Type, StorageProperties> result = VendedCredentialsFactory
-                .getStoragePropertiesMapWithVendedCredentials(paimonProperties, baseStorageMap, paimonTable);
-
-        // Should return the result from PaimonVendedCredentialsProvider or fall back to base map
         Assertions.assertNotNull(result);
     }
 
@@ -197,17 +177,5 @@ public class VendedCredentialsFactoryTest {
 
         // Should use IcebergVendedCredentialsProvider
         Assertions.assertNotNull(result1);
-
-        // Test Paimon type
-        PaimonRestMetaStoreProperties paimonProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
-        Mockito.when(paimonProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
-
-        org.apache.paimon.table.Table paimonTable = Mockito.mock(org.apache.paimon.table.Table.class);
-
-        Map<Type, StorageProperties> result2 = VendedCredentialsFactory
-                .getStoragePropertiesMapWithVendedCredentials(paimonProperties, new HashMap<>(), paimonTable);
-
-        // Should use PaimonVendedCredentialsProvider
-        Assertions.assertNotNull(result2);
     }
 }

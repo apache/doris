@@ -24,7 +24,7 @@ import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 /**
  * Generic {@link NativeSysTable} for plugin-driven connectors.
  *
- * <p>Unlike {@link PaimonSysTable} (which enumerates a fixed connector-specific set), instances of this
+ * <p>Unlike {@code PaimonSysTable} (which enumerates a fixed connector-specific set), instances of this
  * class are created on demand by {@link PluginDrivenExternalTable#getSupportedSysTables()} from the
  * names the connector SPI reports. {@link #createSysExternalTable(ExternalTable)} builds the transient
  * {@link PluginDrivenSysExternalTable} that the planner executes through the native table path.</p>
