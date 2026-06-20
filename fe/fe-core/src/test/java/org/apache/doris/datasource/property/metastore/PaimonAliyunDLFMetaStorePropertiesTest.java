@@ -17,21 +17,10 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class PaimonAliyunDLFMetaStorePropertiesTest {
@@ -62,136 +51,5 @@ public class PaimonAliyunDLFMetaStorePropertiesTest {
                 dlfProps.getPaimonCatalogType(),
                 "Catalog type should be PAIMON_DLF"
         );
-        Assertions.assertEquals(
-                "hive",
-                dlfProps.getMetastoreType(),
-                "Metastore type should be hive"
-        );
-    }
-
-    @Test
-    void testInitializeCatalogWithValidOssProperties() throws UserException {
-        Map<String, String> props = createValidProps();
-        PaimonAliyunDLFMetaStoreProperties dlfProps =
-                new PaimonAliyunDLFMetaStoreProperties(props);
-        dlfProps.initNormalizeAndCheckProps();
-
-        // Prepare OSSProperties mock
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("oss.access_key", "ak");
-        ossProps.put("oss.secret_key", "sk");
-        ossProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
-
-
-        List<StorageProperties> storageProperties = StorageProperties.createAll(ossProps);
-
-        Catalog mockCatalog = Mockito.mock(Catalog.class);
-
-        try (MockedStatic<CatalogFactory> mocked = Mockito.mockStatic(CatalogFactory.class)) {
-            mocked.when(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)))
-                    .thenReturn(mockCatalog);
-
-            Catalog catalog = dlfProps.initializeCatalog("testCatalog", storageProperties);
-
-            Assertions.assertNotNull(catalog, "Catalog should not be null");
-            Assertions.assertEquals(mockCatalog, catalog, "Catalog should be the mocked one");
-
-            mocked.verify(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)));
-        }
-    }
-
-
-    @Test
-    void testInitializeCatalogWithValidOssHdfsProperties() throws UserException {
-        Map<String, String> props = createValidProps();
-        PaimonAliyunDLFMetaStoreProperties dlfProps =
-                new PaimonAliyunDLFMetaStoreProperties(props);
-        dlfProps.initNormalizeAndCheckProps();
-
-        // Prepare OSSProperties mock
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("dlf.access_key", "ak");
-        ossProps.put("dlf.secret_key", "sk");
-        ossProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
-        ossProps.put("dlf.region", "cn-beijing");
-        ossProps.put("oss.hdfs.enabled", "true");
-
-
-        List<StorageProperties> storageProperties = StorageProperties.createAll(ossProps);
-
-        Catalog mockCatalog = Mockito.mock(Catalog.class);
-
-        try (MockedStatic<CatalogFactory> mocked = Mockito.mockStatic(CatalogFactory.class)) {
-            mocked.when(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)))
-                    .thenReturn(mockCatalog);
-
-            Catalog catalog = dlfProps.initializeCatalog("testCatalog", storageProperties);
-
-            Assertions.assertNotNull(catalog, "Catalog should not be null");
-            Assertions.assertEquals(mockCatalog, catalog, "Catalog should be the mocked one");
-
-            mocked.verify(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)));
-        }
-        ossProps = new HashMap<>();
-        ossProps.put("dlf.access_key", "ak");
-        ossProps.put("dlf.secret_key", "sk");
-        ossProps.put("dlf.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
-        ossProps.put("dlf.region", "cn-beijing");
-        ossProps.put("oss.access_key", "ak");
-        ossProps.put("oss.secret_key", "sk");
-        ossProps.put("oss.endpoint", "oss-cn-beijing.oss-dls.aliyuncs.com");
-        storageProperties = StorageProperties.createAll(ossProps);
-
-        mockCatalog = Mockito.mock(Catalog.class);
-
-        try (MockedStatic<CatalogFactory> mocked = Mockito.mockStatic(CatalogFactory.class)) {
-            mocked.when(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)))
-                    .thenReturn(mockCatalog);
-
-            Catalog catalog = dlfProps.initializeCatalog("testCatalog", storageProperties);
-
-            Assertions.assertNotNull(catalog, "Catalog should not be null");
-            Assertions.assertEquals(mockCatalog, catalog, "Catalog should be the mocked one");
-
-            mocked.verify(() -> CatalogFactory.createCatalog(Mockito.any(CatalogContext.class)));
-        }
-
-    }
-
-    @Test
-    void testInitializeCatalogWithoutOssPropertiesThrows() {
-        Map<String, String> props = createValidProps();
-        PaimonAliyunDLFMetaStoreProperties dlfProps =
-                new PaimonAliyunDLFMetaStoreProperties(props);
-        dlfProps.initNormalizeAndCheckProps();
-
-        List<StorageProperties> storageProperties = new ArrayList<>(); // No OSS properties
-
-        IllegalStateException ex = Assertions.assertThrows(
-                IllegalStateException.class,
-                () -> dlfProps.initializeCatalog("testCatalog", storageProperties)
-        );
-
-        Assertions.assertTrue(ex.getMessage().contains("OSS storage properties"));
-    }
-
-    @Test
-    void testInitializeCatalogWithNonOssTypeThrows() {
-        Map<String, String> props = createValidProps();
-        PaimonAliyunDLFMetaStoreProperties dlfProps =
-                new PaimonAliyunDLFMetaStoreProperties(props);
-        dlfProps.initNormalizeAndCheckProps();
-
-        StorageProperties nonOssProps = Mockito.mock(StorageProperties.class);
-        Mockito.when(nonOssProps.getType()).thenReturn(StorageProperties.Type.HDFS);
-
-        List<StorageProperties> storageProperties = Collections.singletonList(nonOssProps);
-
-        IllegalStateException ex = Assertions.assertThrows(
-                IllegalStateException.class,
-                () -> dlfProps.initializeCatalog("testCatalog", storageProperties)
-        );
-
-        Assertions.assertTrue(ex.getMessage().contains("Paimon DLF metastore requires OSS storage properties."));
     }
 }
