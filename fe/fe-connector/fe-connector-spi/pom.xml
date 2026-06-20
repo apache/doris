@@ -50,6 +50,14 @@ under the License.
             <artifactId>fe-extension-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-filesystem-api: the connector storage contract (StorageProperties) that fe-core binds
+             and hands down via ConnectorContext.getStorageProperties(). This is the load-bearing
+             "fe-connector depends ONLY on fe-filesystem-api" edge (Doris-internal API, no third-party). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

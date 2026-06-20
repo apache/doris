@@ -774,6 +774,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
 ## 10. 扩展 E7：Sys Tables
 
+> ⚠️ **本节 §10.2/§10.3 的「`$`-后缀普通表 + 连接器 `getTableHandle` 内解析后缀 + `listSysTableSuffixes`」设计已被 D-039 / DV-023 取代（superseded 2026-06-10，P5-B4 实现时）。** 该设计**从未落地**；live fe-core 实际用 `SysTableResolver` + `NativeSysTable` + `TableIf.getSupportedSysTables/findSysTable`（iceberg + legacy-paimon 共用）。P5-B4 复用该 live 机制：连接器 SPI 加 `ConnectorTableOps.listSupportedSysTables` + `getSysTableHandle`（default no-op），fe-core 加通用 `PluginDrivenSysTable extends NativeSysTable` + `PluginDrivenSysExternalTable`（报 `PLUGIN_EXTERNAL_TABLE`，经 `SysTableResolver` 路由到 `PluginDrivenScanNode`）。§10.1 现状仍准确；下方 §10.2/§10.3 仅作历史设计追溯，**勿据其实现**。详见 [decisions-log D-039](./decisions-log.md) / [deviations-log DV-023](./deviations-log.md) / `tasks/P5-paimon-migration.md` §批次 B4。
+
 ### 10.1 现状
 
 - `IcebergSysExternalTable.SysTableType` 枚举（`HISTORY`、`SNAPSHOTS`、`FILES`、`MANIFESTS`、`PARTITIONS`、`POSITION_DELETES`、`ALL_DATA_FILES`、`ALL_MANIFESTS`、`ENTRIES`）。
@@ -1266,3 +1268,86 @@ fi
 **三处 seam**：B1 commit 载荷 opaque bytes（`TBinaryProtocol` 序列化，单点 `CommitDataSerializer`，连接器反序列化）；C1 maxcompute block-id 窄 callback；E 写-plan-provider 产 opaque `TDataSink`。
 
 **W-phase 落地**（behind gate、零行为变更、golden 等价）：W1+W2（SPI 面 + `Transaction` 泛化）`be945476ba7`；W3+W6（解耦 3 热路径 + golden 测）`9ad2bbe40ec`；W4（`PluginDrivenTransaction` 委派）`759cc0874c8`；W5（`planWrite` layer 进 `visitPhysicalConnectorTableSink`，见 [DV-009]）`9ebe5e27fa4`；W7（本节 + [D-021]/[D-022]）。逐连接器 adopter（搬类 + impl 写 SPI + 翻闸）= P4 / P6 / P7。
+
+---
+
+## 21. 扩展 E13：存储 URI 归一化（`ConnectorContext.normalizeStorageUri`）
+
+> 后补节（2026-06-11，P5-fix-FIX-URI-NORMALIZE）。findings B-7DF（native 数据文件）+ B-7DV（deletion vector）—— 见 [task-list #1](./task-list-P5-rereview2-fixes.md) / [设计](./tasks/designs/P5-fix-URI-NORMALIZE-design.md)。
+
+**问题**：paimon 连接器把 native ORC/Parquet **数据文件路径**和 **deletion-vector 路径**裸传 BE，未做 scheme 归一化。paimon SDK 发的是 warehouse 原生 scheme（`oss://`/`cos://`/`obs://`/`s3a://`，或 OSS `bucket.endpoint` authority 形）；BE 文件工厂按 scheme 分派、S3 reader 只认 `s3://`。后果：S3-兼容（非 AWS）warehouse 上 native 数据文件读直接挂（B-7DF），或 DV 静默丢→被删行重现（B-7DV，merge-on-read 错行，更危险）。纯 `s3://`/`hdfs://` 不受影响；JNI 路不受影响（序列化 paimon `Table` 自带 `FileIO`）。
+
+**根因**：legacy `PaimonScanNode` 两路径都经 **2-arg 归一化** `LocationPath.of(path, storagePropertiesMap)` → `StorageProperties.validateAndNormalizeUri()`（`PaimonScanNode.java:443` 数据文件 / `:296-297` DV）；翻闸丢了。连接器禁 import fe-core `LocationPath`/`StorageProperties`，故须经 SPI 缝。两路径机制不同：数据文件经 `PluginDrivenSplit.buildPath` 的**单-arg 非归一化** `LocationPath.of(pathStr)` → `FileQueryScanNode:568` 写 thrift；DV 由连接器在 `PaimonScanRange.populateRangeParams` **直接烤进 thrift**，fe-core 永不经手 → bridge-only 修不到 DV。故唯一统一缝 = 连接器侧 SPI 调用。
+
+**SPI 面（default no-op，零它连接器影响）**：
+- `ConnectorContext.normalizeStorageUri(String rawUri) → String`（`fe-connector-spi`）：default 返回原值（恒等），故 es/jdbc/maxcompute/trino 及任何已规范 URI 不受影响。
+- fe-core `DefaultConnectorContext` override：`LocationPath.of(rawUri, storagePropertiesSupplier.get()).toStorageLocation().toString()`——复用引擎/legacy/iceberg 同一 `LocationPath` 归一化，单一真相源、无漂移。**fail-loud**（`StoragePropertiesException` 传播）：路径归一化不了宁可显式炸，不可静默送裸路（DV 错行）。null/blank 短路返回原值。
+- `DefaultConnectorContext` 加 `Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier`（4-arg ctor；既有 2/3-arg ctor 委派空 map supplier——它们不被 paimon 用、该法仅 paimon 调）。`PluginDrivenExternalCatalog:150` 接线 `() -> catalogProperty.getStoragePropertiesMap()`（lazy，scan 时调，catalog 已初始化）。
+
+**连接器侧**：`PaimonScanPlanProvider.buildNativeRange`（B7 抽出的可测 seam）对**数据文件路径 + DV 路径**各调 `normalizeUri()`（= `context != null ? context.normalizeStorageUri(raw) : raw`，null-guard 同 `vendStorageCredentials`，offline 单测保留裸路）。JNI 路 + `getScanNodeProperties` 不动。
+
+**作用域/偏差**：归一化用 catalog **静态** `getStoragePropertiesMap()`，非 legacy 的 vended-overlay 版（`VendedCredentialsFactory`）——scheme 归一化与 vended 凭据正交（vended 改 `AWS_*` 键非 scheme），仅 *纯-vended-无静态存储配* REST catalog 的边角会缺 entry→fail-loud；该边角归凭据缝（#2 `FIX-STATIC-CREDS-BE` / `FIX-REST-VENDED`），见 [DV-025](./deviations-log.md)。
+
+**测**：fe-core `DefaultConnectorContextNormalizeUriTest`（真 OSS map，oss://→s3://、s3:// 恒等、null/blank、空 map fail-loud）；连接器 `PaimonScanPlanProviderTest` 3 测（`buildNativeRange` 数据文件+DV 双归一化、无-DV 仅数据、无-context 裸路）。live-e2e（OSS warehouse + DV）CI-gated。
+
+## 22. 扩展 E14：静态存储凭据归一化（`ConnectorContext.getBackendStorageProperties`）
+
+> 后补节（2026-06-11，P5-fix-FIX-STATIC-CREDS-BE）。finding B-9（BLOCKER，3/3 confirmed）—— 见 [task-list #2](./task-list-P5-rereview2-fixes.md) / [设计](./tasks/designs/P5-fix-STATIC-CREDS-BE-design.md) / [D-048](./decisions-log.md)。凭据三道缝之第三道（static→BE-scan），review §9.3 两轮均漏。
+
+**问题**：paimon 连接器把**静态 catalog 级存储凭据/配置裸传 BE**。`PaimonScanPlanProvider.getScanNodeProperties:372-381` 遍历裸 catalog `properties`，对 `s3.`/`cos.`/`oss.`/`obs.`/`hadoop.`/`fs.`/`dfs.`/`hive.` 前缀的键发 `location.<rawkey>=<value>`；fe-core bridge `PluginDrivenScanNode.getLocationProperties:307-317` 只**剥** `location.` 前缀、从不归一化。BE native ORC/Parquet（FILE_S3）reader 只解析 canonical `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`/`AWS_ENDPOINT`/`AWS_REGION`/`AWS_TOKEN`（`s3_util.cpp:146-150`）→ 私有 object-store 桶 native 读拿不到凭据 → **403/AccessDenied**。公有桶 + JNI 路不受影响（序列化 paimon `Table` 自带 `FileIO`）。裸 `AWS_*`/`access_key`（无 `s3.` 前缀）被前缀过滤整个丢弃。区别于已修两缝：FIX-STORAGE-CREDS 修 *catalog FileIO* 缝、FIX-REST-VENDED 修 *vended(REST) scan→BE* 缝。
+
+**根因**：legacy `PaimonScanNode.getLocationProperties:650-652` **仅**返回 `backendStorageProperties`（`:176` = `CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap)`，catalog 已解析的 `StorageProperties` map）。`getBackendPropertiesFromStorageMap` 逐 `StorageProperties` 调 `getBackendConfigProperties()` → canonical 键（`AbstractS3CompatibleProperties:106-120` 发 `AWS_*`；`HdfsProperties:163-200` 发已解析 `hadoop.`/`dfs.` + legacy 默认）。翻闸把这一归一化调用换成裸前缀拷贝循环。连接器禁 import fe-core `StorageProperties`/`CredentialUtils`（`tools/check-connector-imports.sh`）→ 须经 SPI 缝。
+
+**SPI 面（default 空，零它连接器影响）**：
+- `ConnectorContext.getBackendStorageProperties() → Map<String,String>`（`fe-connector-spi`）：default 返回 `Collections.emptyMap()`，故 es/jdbc/maxcompute/trino 及无凭据（local-FS）warehouse 不受影响。
+- fe-core `DefaultConnectorContext` override：`CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesSupplier.get())`——复用 #1（FIX-URI-NORMALIZE）已接线的 `storagePropertiesSupplier`（= `catalogProperty.getStoragePropertiesMap()`）+ 已 import 的 `CredentialUtils`。**无 ctor 改**。map 在 catalog 创建时已校验故不抛；空 map（非-plugin ctor / local-FS）→ 空结果（无 overlay），parity——异于 `normalizeStorageUri` 须对坏路径 fail-loud。
+
+**连接器侧**：`PaimonScanPlanProvider.getScanNodeProperties` **整段**替换裸前缀拷贝循环为 `context.getBackendStorageProperties()` overlay（`context != null` 闸，同 vended overlay；offline 单测无 context → 不发存储键，绝不发坏的裸别名）。vended overlay（`vendStorageCredentials`）仍紧随其后 → vended overlay static、collision 胜（legacy 优先序）。无连接器新 import（`Map`/`LinkedHashMap` 已 import）→ import-gate 净。
+
+**作用域（D-048 用户签字 = full legacy-parity，非窄 object-store-only）**：`getBackendPropertiesFromStorageMap` 即 legacy `getLocationProperties()` 精确值。HDFS catalog 下 full 替换**严格 ≥** 旧裸拷（保留用户 `hadoop.`/`dfs.`/`fs.`/`juicefs.` override + 补 legacy 默认 → 顺修 review §211 MINOR）；丢的 `hive.*` 键 legacy 本不发 scan location → 丢之即**恢复** parity。
+
+**ANONYMOUS-leak 边角（调查→非问题）**：连接器分两步归一化（static 经本缝、vended 经 `vendStorageCredentials`），异于 legacy 的 merge-then-normalize-once。故带静态 object-store endpoint 但**无静态 keys** 的 REST catalog，static overlay 可能发 `AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS`（`AbstractS3CompatibleProperties:124-128` blank-key 支）而 vended overlay（有 keys→无 provider-type）不清它。**BE 证伪无回归**：`s3_util.cpp` 两 provider（`_v1:383-389`/`_v2:448-455`）均**先**查显式 ak/sk 返回 `SimpleAWSCredentialsProvider`，keys 在则永不达 `Anonymous` 支 → vended keys 恒胜。primary B-9 路（静态 catalog **有** keys）provider-type 为 null 不发。
+
+**测**：fe-core `DefaultConnectorContextBackendStoragePropsTest`（真 OSS map → `AWS_*` 存在 + 裸 `oss.access_key` 不存在；无 supplier ctor → 空）；连接器 `PaimonScanPlanProviderTest` 3 测（静态裸别名→canonical AWS_*、裸别名不达 BE；vended overlay static collision 胜；无-context 不发存储键）。red-check 反转产线码 2/3 向红。模块 217/0/0（1 CI-gated skip）。live-e2e（私有 S3/OSS 静态凭据 native 读）CI-gated。
+
+---
+
+## 23. FIX-SCHEMA-EVOLUTION（B-1a）：**无新 SPI**（Design C，记录在案）
+
+> task-list #3 原标「SPI?=yes」（预期穿 `ConnectorColumn`/`ConnectorType` field-id channel + 新 history-schema SPI）；**用户签 Design C（[D-049](./decisions-log.md)）后修正为 `no`** —— 本 fix **零新 SPI surface**，纯连接器侧。记录于此以闭合 RFC「SPI 改动登记」约定（结论：无改动）。
+
+**为何无需新 SPI**：BE native field-id 匹配（`be/src/format/table/table_schema_change_helper.cpp:312-430`）每个 `TField` **只**消费 `id` / `name` / `type.type`（且 `type.type` 仅作 nested-vs-scalar 判别——`==MAP/ARRAY/STRUCT` 否则 scalar），**从不读 Doris `Type`/precision/scale，也不读 tuple/slot descriptor**。故连接器可只用 paimon `DataField.{id,name}` + 一个 primitive tag **直建** `TSchema`——`org.apache.doris.thrift.*`（含 `…thrift.schema.external.*`）对连接器 **import-legal**（import-gate 仅禁 `catalog|common|datasource|qe|analysis|nereids|planner`）。
+
+**复用既有缝**：`current_schema_id`+`history_schema_info` 经**既有** `ConnectorScanPlanProvider.populateScanLevelParams(TFileScanRangeParams, props)` hook 落 params（连接器在 `getScanNodeProperties` 从 live 表建好、base64 thrift carrier prop 传递、`populateScanLevelParams` 解码套用）。这正是 [DV-006](./deviations-log.md) 为 hudi 同类 schema_id/history 缺口预判的缝（「经现有 SPI hook `populateScanLevelParams`…**无需 fe-core 改动**」）—— paimon 是该模式首个落地者。per-split `TPaimonFileDesc.schema_id` 早已由 `PaimonScanRange` 发出（不改）。
+
+**M-10 deferred**：`Column.uniqueId=-1` 不影响 B-1a（history 直接从 paimon field-id 建，不经 Doris 列）→ 不穿 `ConnectorColumn.fieldId`/`ConnectorType` 嵌套 id。详 [DV-026](./deviations-log.md)。
+
+**测**：连接器 `PaimonScanPlanProviderTest` +5 测（field-id/name carriage、嵌套 ARRAY/MAP/STRUCT 形 + struct child id、scalar tag、rename round-trip、**-1 entry 顶层 lowercase 而嵌套保 paimon-case**、非-FileStoreTable 跳过）。模块 222/0/0。真值闸=`test_paimon_full_schema_change.groovy`（CI-gated）。
+
+## 24. FIX-JDBC-DRIVER-URL（B-8a + B-8b）：**无新 SPI**（复用既有 validation hooks，记录在案）
+
+> task-list #4 原标「SPI?=maybe」；**修正为 `no`** —— 本 fix **零新 SPI surface**，纯连接器侧，复用两个**既有**未改的 hook。记录于此以闭合 RFC「SPI 改动登记」约定（结论：无改动）。[D-050](./decisions-log.md)。
+
+**复用既有缝（无改动）**：① **B-8b 安全**——`Connector.preCreateValidation(ConnectorValidationContext)`（既有 default no-op、CREATE CATALOG 时由 `PluginDrivenExternalCatalog.checkWhenCreating` 调）+ `ConnectorValidationContext.validateAndResolveDriverPath(driverUrl)`（既有、`DefaultConnectorValidationContext`→`JdbcResource.getFullDriverUrl` 做 format/whitelist/secure-path）；paimon override `preCreateValidation` 对 jdbc flavor 调之，**与 JDBC 参考连接器 `JdbcDorisConnector` 同模式**。② **B-8a 功能**——driver_url 的 BE 传输经**既有** `paimon.options_json`（`getScanNodeProperties` 建、`populateScanLevelParams`→`setPaimonOptions`→BE `params`）；本 fix 只改其中 `jdbc.driver_url` 的**值**（resolved 而非裸）+ 认 `paimon.jdbc.*` 别名，传输管道不动。
+
+**已知 SPI gap（不在本 fix close）**：scan-time driver-path 校验**无** `ConnectorContext` hook（连接器 scan-time 拿不到 `ConnectorValidationContext`）→ 校验仅 CREATE-time（FE-restart/ALTER 不复校），是 pre-existing fe-core 缝、全 plugin 连接器共有。用户定接受（CREATE-time parity），跨连接器 follow-up 须新 `ConnectorContext` 校验 hook + fe-core ALTER 路接 `preCreateValidation`。详 [DV-028](./deviations-log.md)。
+
+**测**：连接器 `PaimonScanPlanProviderTest` +5（resolve 裸名、认 paimon.jdbc.* 别名、双别名优先序+override、保 scheme-bearing、非-jdbc 空）+ 新 `PaimonConnectorPreCreateValidationTest` +5（jdbc/别名 调校验、非-jdbc/无 driver_url 不调、reject 传播）。模块 232/0/0、fail-before 5/9 向红。真值闸=`test_paimon_jdbc_catalog`（CI-gated）。
+
+## 25. 扩展 E15：COUNT(\*) 下推信号 / `planScan(...,boolean countPushdown)` overload
+
+> 后补节（2026-06-12，P5-fix#8 FIX-COUNT-PUSHDOWN）。finding M-2（round-2 MAJOR/round-1 MINOR，perf-parity）—— 见 [task-list #8](./task-list-P5-rereview2-fixes.md) / [设计](./tasks/designs/P5-fix-COUNT-PUSHDOWN-design.md) / [D-054](./decisions-log.md) / [DV-032](./deviations-log.md)。**E14 之后首个新 connector-SPI（planScan 扩展链续 limit/requiredPartitions）。**
+
+**问题**：翻闸后 plugin-driven paimon `COUNT(*)` 结果正确但慢——BE 已在 count 模式（`PhysicalPlanTranslator:873` 在 `PluginDrivenScanNode` 设 `pushDownAggNoGroupingOp=COUNT`，`FileScanNode.toThrift:90` 发出）且 per-range emit 缝**已建全**（`PaimonScanRange.Builder.rowCount`→`paimon.row_count`→`populateRangeParams.setTableLevelRowCount`，与 legacy `PaimonScanNode:303-308` byte-一致），但 COUNT **信号** `getPushDownAggNoGroupingOp()==COUNT` 只在 fe-core 节点、不在任何 `planScan`/`ConnectorSession`/`ConnectorContext`/handle → 连接器从不算 merged count、每 split 发 `table_level_row_count=-1` → BE 物化全 post-merge 行去 count（`file_scanner.cpp:1298-1326`）。merged count `DataSplit.mergedRowCount()` 是 paimon-SDK-only 须连接器算，故信号**必须**过 SPI 边界（否决经 `ConnectorSession` 穿——agg-op 是 per-query planner 输出非 SET-var、会成静默无类型通道，[D-054]）。
+
+**SPI 面（default 委托，零它连接器影响）**：
+- `ConnectorScanPlanProvider.planScan(session, handle, columns, filter, limit, requiredPartitions, boolean countPushdown) → List<ConnectorScanRange>`（`fe-connector-api`）：新 **default** 方法，委托回 6 参 `planScan`（镜像既有 5 参 limit / 6 参 requiredPartitions 扩展链）→ 不 override 的连接器（es/jdbc/hive/iceberg/maxcompute/trino/hudi）忽略 flag、行为不变。
+- `countPushdown` 语义：engine 判定查询为 no-grouping `COUNT(*)`（`getPushDownAggNoGroupingOp()==TPushAggOp.COUNT`）时为 true。选 **boolean** 而非 `TPushAggOp`：BE 文件格式 count 只需 COUNT-vs-not；`MIX`/`COUNT_ON_INDEX` 不在文件格式 count 范围，`TPushAggOp` 会把 thrift 枚举拉进 SPI 签名、过度泛化。
+
+**fe-core 侧**：`PluginDrivenScanNode.getSplits` 读 `getPushDownAggNoGroupingOp()==TPushAggOp.COUNT` 传入新 overload。**无 post-loop 数学**（collapse 在连接器内做，见 [D-054]/[DV-032]）。
+
+**连接器侧（paimon-only）**：`PaimonScanPlanProvider` 抽 `planScanInternal(...,countPushdown)`（4 参委托 false、新 7 参委托 flag），加 count 短路第一臂 + 纯静态 `isCountPushdownSplit(boolean,DataSplit)` + `buildCountRange`，**collapse-to-one** 发一个 JNI count range 携 `mergedRowCount` 之和。emit 用既有 `paimon.row_count` 缝，**无新 thrift / 无 BE 改**。
+
+**作用域**：paimon-only（default no-op overload 利好将来 hive/iceberg/hudi full-adopter，各自 override 即可）。`ConnectorProvider.apiVersion()` 保持 `1`（仅新增 default，[D-009]）。
+
+**测**：连接器 `PaimonScanPlanProviderTest` +2（纯静态 `isCountPushdownSplit` 真 split=true/2、disabled=false；end-to-end `planScan(countPushdown=true)` 真 local PK 表 collapse-to-one 携 total=2、`false`→无 `paimon.row_count`）。模块 252/0/0（1 CI-gated skip）、fail-before 恰 2 新测红（neuter helper→false）。真值闸=live-e2e BE CountReader 选择/EXPLAIN（既有 legacy paimon count regression 覆盖 BE 契约）。

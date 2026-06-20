@@ -36,12 +36,14 @@ public final class ConnectorMvccSnapshot {
     private final long snapshotId;
     private final long timestampMillis;
     private final String description;
+    private final long schemaId;
     private final Map<String, String> properties;
 
     private ConnectorMvccSnapshot(Builder b) {
         this.snapshotId = b.snapshotId;
         this.timestampMillis = b.timestampMillis;
         this.description = b.description;
+        this.schemaId = b.schemaId;
         this.properties = b.properties.isEmpty()
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new HashMap<>(b.properties));
@@ -62,6 +64,14 @@ public final class ConnectorMvccSnapshot {
         return description;
     }
 
+    /**
+     * Schema version of this snapshot (e.g. paimon schemaId). {@code -1} = unknown
+     * &rArr; schema-aware reads fall back to the latest schema.
+     */
+    public long getSchemaId() {
+        return schemaId;
+    }
+
     /** Connector-specific metadata propagated to BE. Unmodifiable, never null. */
     public Map<String, String> getProperties() {
         return properties;
@@ -76,6 +86,7 @@ public final class ConnectorMvccSnapshot {
         private long snapshotId;
         private long timestampMillis;
         private String description = "";
+        private long schemaId = -1;
         private final Map<String, String> properties = new HashMap<>();
 
         public Builder snapshotId(long snapshotId) {
@@ -85,6 +96,11 @@ public final class ConnectorMvccSnapshot {
 
         public Builder timestampMillis(long timestampMillis) {
             this.timestampMillis = timestampMillis;
+            return this;
+        }
+
+        public Builder schemaId(long schemaId) {
+            this.schemaId = schemaId;
             return this;
         }
 
