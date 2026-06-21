@@ -114,15 +114,13 @@
 - **验收**：paimon 全模块 UT 全绿；adapter 不再含手抄连接逻辑（行数显著降）；`tools/check-connector-imports.sh` 不破。⚠️ docker 真闸留 P2-T05（HMS/DLF live metastore=hive + 插件 zip ServiceLoader 发现 5 provider 未离线验）。
 - **依赖**：P2-T02。设计 §4 P2-3 / §3.3。
 
-### P2-T04 ⬜ paimon pom + gate 核对
-- **做什么**：paimon pom 增 `fe-connector-metastore-api/spi`；`grep` 确认 paimon 无 fe-core import；CI gate 通过。
-- **验收**：`tools/check-connector-imports.sh` PASS；paimon 仅依赖 `fe-connector-{api,spi,metastore-api,metastore-spi}` + `fe-filesystem-api` + `fe-thrift(provided)` + SDK。
-- **依赖**：P2-T03。设计 §4 P2-4。
+### P2-T04 ✅ paimon pom + gate 核对（2026-06-21）
+- **完成态**：`MetaStoreProviders` 改 **2-arg 显式 loader** `ServiceLoader.load(MetaStoreProvider.class, MetaStoreProviders.class.getClassLoader())`（commit `2612af5e88f`，解 P2-T03 recon 揪出的 child-first 插件 loader 下 TCCL 发现失败风险）+ paimon pom 依赖集 + `tools/check-connector-imports.sh` 核对。
+- **依赖**：P2-T03 ✅。设计 §4 P2-4。
 
-### P2-T05 ⬜ P2 验证
-- **做什么**：paimon UT + docker 5 flavor + T2 等价性 + vended(REST/DLF) + Kerberos HMS。
-- **验收**：见 WORKFLOW §5；不跑 docker 则标注"未跑 e2e"。
-- **依赖**：P2-T03, P2-T04。设计 §4 P2-5 / §5 T2,T4。
+### P2-T05 ✅ P2 验证（2026-06-21，用户手动 docker 验证）
+- **完成态**：用户手动跑 docker（`enablePaimonTest=true`）验证 **paimon 5-flavor 读 + vended(REST/DLF) + Kerberos HMS** 通过——即 plugin-zip ServiceLoader 发现（child-first loader）+ HMS/DLF live `metastore=hive` 跨 loader + storage 等价 + D-014 更严 CREATE 行为 的真闸。**这也覆盖主线 B9/P5-T30 的 live-e2e 内容。**
+- **依赖**：P2-T03 ✅, P2-T04 ✅。设计 §4 P2-5 / §5 T2,T4。
 
 ---
 
@@ -145,10 +143,22 @@
 - **验收**：模块编译、零 fe-core/fe-connector/fe-filesystem import（纯叶子，gate）；paimon HMS kerberos facts 经 fe-kerberos 类型表达；真正 `UGI.doAs` 仍走 `ctx.executeAuthenticated`（§5 不变量 4）；fe-common/fe-filesystem-hdfs 既有 kerberos 路径**零改动**（§6 零改动核对）。
 - **依赖**：P2-T02（facts 消费方）。设计 §3.5 / **D-007 步骤 a**。**✅ 纳入本次（用户 2026-06-17 确认）。**
 
-### P3b-T01 ⬜（follow-up，本次不做）全量去重：fe-common + fe-filesystem-hdfs 收口到 fe-kerberos
-- **做什么**：把 fe-common `security.authentication.*` 整套搬入 fe-kerberos 作唯一真相源（fe-common 重指向）；删 fe-filesystem-hdfs 自有 `KerberosHadoopAuthenticator`、改依赖 fe-kerberos；统一两个 `HadoopAuthenticator` 接口（`PrivilegedExceptionAction` vs `IOCallable`）。
-- **验收**：三处实现合一；全 FE 编译 + kerberos e2e（HMS/HDFS）。
-- **依赖**：P3a-T01 + hive/iceberg 迁移批次。设计 §3.5 / **D-007 步骤 b**。**范围外（与 D-005 张力），独立任务。**
+### P3b-T01 🚧 active（下一任务，D-017：提前到 P6 iceberg 之前单独做）全量去重：fe-common authentication.* 机制收口到 fe-kerberos
+- **决策**：**D-017（用户 2026-06-21）**——P3b 提前、单独做，排在 **P6 iceberg SPI 迁移之前**（原「与 hive/iceberg 同批」取消）。理由：纯机制收口、不依赖 iceberg、**先做反而服务 P6**（iceberg metastore-props 迁移可直接复用收口后的干净 `fe-kerberos` authenticator）。
+- **scope 粒度已定（用户 2026-06-21 AskUserQuestion）**：**Phased（独立 commit）+ Repackage 到 `org.apache.doris.kerberos.*`**（重指向全部 import、合并重复 AuthType）。recon `wf_c14cb816-ed9` 实证修正：真 import-retarget 面 = **24 fe-core main + 3 be-java-extensions main = 27 main**（+14 fe-core test + 1 fe-common test = 15 test）；文档原「12 fe-common」是**被搬的类自身**（按 `package` 行误计），非外部消费方→外部 fe-common main 消费方 = 0。两个 `HadoopAuthenticator` 接口**结构不兼容**（fe-common 版多 `getUGI()`+静态工厂）→须 adapter 非 overload 合并。
+- **三步 commit 计划（DV-009 重排：trino 先做，避免 fe-kerberos 沾 trino）**：
+  - **commit 1 ✅（2026-06-21）trino→JDK 原地替换**（still in fe-common，1 文件改 import + 新 `KerberosTicketUtils` JDK 副本 + 新测试）。`HadoopKerberosAuthenticator` 调用点字节不变（同包 `KerberosTicketUtils.getTicketGrantingTicket/getRefreshTime`）。javap 反编译 trino `KerberosTicketUtils` 逐字节复刻（refresh=`start+(long)((end-start)*0.8f)`、TGT=私有凭据里 server==`krbtgt/REALM@REALM`，否则 IAE）。验证：fe-common `-am` BUILD SUCCESS + `KerberosTicketUtilsTest` 4/0 + checkstyle 0 + mutation `0.8f→0.5f` 证测试有效（`9000≠6000`）。**fe-common pom 不动**（trinoconnector 等仍用 trino-main）。⬜ 未 push、docker 未跑。
+  - **commit 2 ⬜ relocate**：全 12 类（现 trino-free）搬到 `fe-kerberos` 的 `org.apache.doris.kerberos.*` + 重指向 27 main+15 test import + 合并 AuthType（fe-common 版 mutable+getCode/setCode/isSupportedAuthType vs fe-kerberos facts enum，须定 API）+ fe-kerberos pom 加 hadoop-auth/hadoop-common(provided) + 新 fe-common→fe-kerberos 边 + java-common→fe-kerberos 边（3 scanner 透传）+ 删 fe-common 旧包。
+  - **commit 3 ⬜ 统一接口**：合并 fe-filesystem-spi `HadoopAuthenticator`(IOCallable) 与 fe-kerberos `HadoopAuthenticator`(PrivilegedExceptionAction) 为单接口 + 消费侧 adapter + 删 fe-filesystem-hdfs 的 `KerberosHadoopAuthenticator`/`SimpleHadoopAuthenticator` 副本（涉 DFSFileSystem/HdfsFileIterator/HdfsInputFile/HdfsOutputFile）。
+- **现码 scope（2026-06-21 firsthand 核实；design §3.5 / D-007 步骤 b 的现状落地）**：
+  1. **搬机制**：`fe-common/.../security/authentication/` 的 **12 类** → `fe-kerberos`：`AuthenticationConfig` / `AuthType` / `ExecutionAuthenticator` / `HadoopAuthenticator` / `Hadoop{Execution,Kerberos,Simple}Authenticator` / `ImpersonatingHadoopAuthenticator` / `KerberosAuthenticationConfig` / `PreExecutionAuthenticator` / `PreExecutionAuthenticatorCache` / `SimpleAuthenticationConfig`。`fe-kerberos` pom 加 hadoop-auth/hadoop-common（今 facts-only 零 hadoop）。⚠️ fe-common 已有的 `AuthType` 与 fe-kerberos facts 的 `AuthType` **重复** → 收口时合一。
+  2. **去 trino**：trino `KerberosTicketUtils` **仅 `HadoopKerberosAuthenticator` 一处**用 → JDK `javax.security.auth.kerberos` 等价替换（contained，1 文件）。
+  3. **删 hdfs 副本 + 统一接口**：`fe-filesystem-hdfs` 自有 `KerberosHadoopAuthenticator`/`SimpleHadoopAuthenticator`（实现 fe-filesystem-spi 的 `HadoopAuthenticator`，`IOCallable` 变体）→ 删、改依赖 fe-kerberos；统一**两个打架的 `HadoopAuthenticator` 接口**（fe-common `PrivilegedExceptionAction` vs fe-filesystem-spi `IOCallable`）为单接口 + 消费侧 adapter（涉 6 hdfs 文件：DFSFileSystem/HdfsFileIterator/HdfsOutputFile/HdfsInputFile + 两副本）。
+  4. **重指向消费方**：**40 个非测试文件** import `org.apache.doris.common.security.authentication.*` = **24 fe-core + 12 fe-common + 3 be-java-extensions** scanner（paimon/iceberg/hudi JNI）。⚠️ **be-java-extensions 也受影响——非纯 FE 改动。**
+- **scope 粒度（执行 session 先 AskUserQuestion 定）**：(A) 一次全搬（40 处 import 全改 + 删 fe-common 包）；(B) 分步——先把机制搬进 fe-kerberos + fe-common 留**薄 re-export 桥**（import 不动），后续单独统一接口/清桥（回归面小、可分 commit）。
+- **验收**：三处实现合一（fe-common + fe-filesystem-hdfs 副本消除）；`fe-kerberos` 仍是顶层中立叶子（无环；零 fe-core/fe-connector/fe-filesystem import）；**全 FE reactor `test-compile` BUILD SUCCESS** + checkstyle 0 + import-gate exit 0；**docker kerberos e2e（HDFS kerberized + HMS kerberos）真验 `doAs` 不回归**（安全敏感，UGI 登录 UT 抓不到）。
+- **依赖**：P3a-T01 ✅ + P2-T05 ✅。**前置于 P6 iceberg（D-017）**。设计 §3.5 / **D-007 步骤 b**。
+- **风险**：authentication = 安全敏感 + 40 消费方 + 跨 FE/BE-java + 双接口统一 → 回归面大；务必 docker kerberos e2e 把关。这是「把 paimon/iceberg/hive metastore-props 搬出 fe-core」的**前置**（见主线 [`../HANDOFF.md`](../HANDOFF.md) 关于 metastore-props 迁移可行性的讨论）。
 
 ---
 
@@ -180,5 +190,6 @@
 - 2026-06-17：创建任务清单（P0×2 / P1×6 / P2×5），状态全 ⬜，待用户批准后开始 P1。
 - 2026-06-17：3 设计点定稿（D-006 provider 取代 MetaStoreType 枚举 / D-007 fe-kerberos 叶子 / D-008 vended 边界）；P2-T01/T02 改写（去枚举、加 MetaStoreProvider）；新增 P3a/P3b（Kerberos）。
 - 2026-06-17：用户确认 **P3a 纳入本次** + 模块名 **`fe-kerberos`**。核心任务计数 13 → **14**（+P3a-T01）；P3b 仍 follow-up（范围外占位）。
+- 2026-06-21：**P2-T04 ✅ + P2-T05 ✅（用户手动 docker 验证）→ P2 全 5/5、子线 docker 真闸通过**；主线 P5-T29(B8) 亦完成。**D-017：P3b 提前到 P6 iceberg 之前单独做**（P3b-T01 `⬜ 范围外` → `🚧 active`，补现码 scope：12 类机制 + 40 消费方 blast radius + 双接口统一 + trino→JDK）。仅文档更新。
 - 2026-06-18：**P1-T07 ✅**（彻底删除 fe-property 孤儿模块，D-016）：删目录（27 文件）+ fe/pom.xml 两声明 + 清 5 处 stale 注释（一并清理，用户选）；全 FE reactor test-compile BUILD SUCCESS（fe-core 实编译，0 ERROR）+ paimon 278/0/1skip + hdfs 78/0/0 + grep fe-property 归零。任务计数 11→**12/15**。commit `13d3876d25d`，已 push `catalog-spi-07-paimon`+`master-catalog-spi-07-paimon`，PR #64445 评论 `run buildall`。
 - 2026-06-18：**RV-T01（全连接器 clean-room review）提升到主线**：初排为本子线下一步，后经用户澄清（`metastore-storage-refactor/` 是 metastore-refactor 专属子线，全连接器 review 属 catalog-spi 主线）→ spec 移到主线 `../HANDOFF.md`（6 维度 + 不注入开发历史先验），先于 B8 legacy 删除（legacy=对照基线）。本目录仅留指针；本子线自身剩余 = P2-T04/T05（主线 review 后）。

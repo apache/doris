@@ -6,6 +6,12 @@
 
 ---
 
+## DV-009 — P3b-T01 commit 排序：trino→JDK 先做（原地 in fe-common），不放最后；relocate 是 commit 2
+- **日期**：2026-06-21 ｜ **原计划位置**：D-017 / tasks `P3b-T01` scope 粒度 (B) 分步——AskUserQuestion「Phased」选项文案把三步列为 (1) relocate (2) 统一接口 (3) trino→JDK（trino 最后）。
+- **为何偏差（对照真实代码确认）**：12 类机制**必须一起搬**（`HadoopAuthenticator.getHadoopAuthenticator(AuthenticationConfig)` 工厂耦合 `HadoopKerberosAuthenticator`/`HadoopSimpleAuthenticator`，拆分会造成跨模块 split-package）。若把 trino→JDK 放在 relocate **之后**，则 relocate 那一步会把 `HadoopKerberosAuthenticator` 的 `io.trino...KerberosTicketUtils` 依赖**带进 fe-kerberos**（干净叶子），迫使 fe-kerberos 临时声明 `trino-main` 依赖——违背「fe-kerberos 是中立轻叶子」。
+- **新方案**：重排为 **commit 1 = trino→JDK 原地替换（仍在 fe-common，1 文件 + 新 `KerberosTicketUtils` JDK 副本 + 测试）→ commit 2 = relocate 全 12 类到 `org.apache.doris.kerberos.*` + 重指向 import + 合并 AuthType + 接 hadoop 依赖 → commit 3 = 统一两个 `HadoopAuthenticator` 接口 + 删 hdfs 副本**。三步仍各自独立 commit（满足用户「Phased」本意），且 fe-kerberos 全程不沾 trino。
+- **影响范围**：不改最终态（仍是 D-017 的收口）；commit 1 仅碰 `fe/fe-common/.../security/authentication/{HadoopKerberosAuthenticator.java(改 import),KerberosTicketUtils.java(新),KerberosTicketUtilsTest.java(新)}`，**fe-common pom 不动**（trinoconnector + IndexedPriorityQueue/UpdateablePriorityQueue/Queue 仍用 trino-main，移此 import 不能让 fe-common 弃 trino）。recon `wf_c14cb816-ed9` 实证 + javap 反编译 trino `KerberosTicketUtils`（`getRefreshTime`=`start+(long)((end-start)*0.8f)`、`getTicketGrantingTicket`=私有凭据里 server==`krbtgt/REALM@REALM` 的票，否则 IAE）逐字节复刻；mutation `0.8f→0.5f` 证测试有效（`expected:<9000> but was:<6000>`）。
+
 ## DV-008 — P2-T03 cutover 三处对设计/任务字面的细化（别名数组只能部分删、`*MetastoreBackend.parse`→`MetaStoreProviders.bind`、新增 `assembleHiveConf` 助手）
 - **日期**：2026-06-18 ｜ **原计划位置**：tasks `P2-T03`（「删 `PaimonConnectorProperties` 别名数组」「调共享 `*MetastoreBackend.parse`」）/ 设计 §3.3（adapter 内联 `new HiveConf()+base+overrides.forEach`）。
 - **为何偏差（对照真实代码 + recon `wf_9437dd4e-06d` verify 确认）**：

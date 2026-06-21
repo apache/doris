@@ -11,6 +11,8 @@
 **更新人**：Claude（Opus 4.8）
 
 > **本 session 进度补注（最新在最前）**：
+> - **2026-06-21 — P3b-T01 commit 1 ✅（trino→JDK 原地替换；Phased + Repackage scope 已定）**：按强制流程读全套文档 + recon `wf_c14cb816-ed9`（6 reader 对照真实代码）核实并**修正** scope（真 import-retarget 面 = **27 main**[24 fe-core + 3 be-java-extensions]，非文档「40」——旧「12 fe-common」是**被搬的 12 类自身**按 `package` 行误计、外部 fe-common 消费方=0；两个 `HadoopAuthenticator` 接口**结构不兼容**[fe-common 版多 `getUGI()`+静态工厂]须 adapter）→ **AskUserQuestion 定 Phased（独立 commit）+ Repackage 到 `org.apache.doris.kerberos.*`**（重指向全部 import、合并重复 AuthType）→ **DV-009 重排**（trino→JDK 先做，避免 relocate 把 trino 带进 fe-kerberos 干净叶子）。**commit 1 改动**（仅 `fe/fe-common/.../security/authentication/**`）：新 JDK-only `KerberosTicketUtils`（javap 反编译 trino 版逐字节复刻：`getRefreshTime`=`start+(long)((end-start)*0.8f)`、`getTicketGrantingTicket`=私有凭据里 server==`krbtgt/REALM@REALM` 否则 IAE）+ `HadoopKerberosAuthenticator` 删 `io.trino` import（同包调用点字节不变）+ `KerberosTicketUtilsTest` 4/0。**验证**：fe-common `-am` BUILD SUCCESS + checkstyle 0 + mutation `0.8f→0.5f`→RED(`9000≠6000`)。**fe-common pom 不动**（trinoconnector + IndexedPriorityQueue/UpdateablePriorityQueue/Queue 仍用 trino-main）。⚠️ 未 push、**docker kerberos e2e 未跑**（真闸）。**下一步 = commit 2（relocate 12 类 → `org.apache.doris.kerberos.*`）**。
+> - **2026-06-21 — P2-T04 ✅ + P2-T05 ✅ → P2 全 5/5；下一任务改 P3b（D-017，先于 P6 iceberg）**：用户 2026-06-21 **手动 docker 验证 P2-T05**（paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）通过；P2-T04（`MetaStoreProviders` 2-arg loader `2612af5e88f` + pom/import-gate）随之收口 → **子线 docker 真闸通过**。主线 P5-T29(B8) paimon legacy 删除亦已完成（fe-core 完全 paimon-SDK-free）。**用户定：在 P6 iceberg SPI 迁移之前先做 P3b（kerberos authenticator 机制收口到 fe-kerberos）** — 见 **D-017** + tasks **P3b-T01** 现码 scope（12 类机制 + 40 消费方 blast radius[24 fe-core+12 fe-common+3 be-java-extensions] + 双 `HadoopAuthenticator` 接口统一 + trino`KerberosTicketUtils`→JDK）。**仅文档更新。**
 > - **P1-T07 ✅（commit `13d3876d25d`，已 push `catalog-spi-07-paimon`+`master-catalog-spi-07-paimon`，PR #64445 评论 `run buildall`，D-016）**：彻底删除 fe-property 孤儿模块（**覆盖 D-005「不删 fe-property」条款**；fe-core `datasource.property.{storage,metastore}` 两包仍禁碰、仍服务 hive/hudi/iceberg）。执行前按强制流程复核（读全套文档 + 对照真实代码 recon）+ 1 边界经 AskUserQuestion 定（5 处 stale 注释「一并清理」）。**改动**（白名单内）：`git rm -r fe/fe-property/`（27 文件 = 26 java + pom）+ `rm` stale `target/`（目录全消）；`fe/pom.xml` 删 `<module>fe-property</module>` + dependencyManagement 条目；5 处注释「fe-property」→「legacy」（paimon `PaimonCatalogFactory`×2/`PaimonConnector`×2/`PaimonCatalogFactoryTest`×1 + fe-filesystem-hdfs `HdfsConfigFileLoader`/`HdfsFileSystemProperties`——保历史语义非改逻辑）。**RED/GREEN = 构建闸**（无 UT 可写，同 P1-T05 模式）：whole-repo `grep fe-property`（排 plan-doc）=**0**、`grep org.apache.doris.property`=**0**；**全 FE reactor `test-compile` BUILD SUCCESS**（`-Dmaven.build.cache.enabled=false`，fe-core `compile`+`testCompile` 实跑，54 模块 **0 ERROR**，1:53min）；paimon 全模块 **278/0/1skip**、fe-filesystem-hdfs **78/0/0**、checkstyle 0、`tools/check-connector-imports.sh` exit 0、`git diff --name-only` 白名单干净。⚠️ **docker e2e 未跑**（D-012，留 P2-T05）。
 > - **决策**：无新决策（D-016 已预定本任务）；唯一边界 = AskUserQuestion「5 处注释一并清理」（保历史语义、白名单内）。
 >
@@ -60,25 +62,23 @@
 </details>
 
 ## 当前状态
-- 阶段：Research ✅ / Design ✅（**16 决策 D-001..D-016**）/ **Implement 🚧（P1 storage 6/7 = P1-T07 ✅ + P1-T06 docker 推迟[D-012]；P2: 3/5 = P2-T01 + P2-T02 + P2-T03 ✅；P3a facts-carrier ✅）**。
-- 任务计数 **12/15**（P0: 2/2 ✅ ｜ P1: 6/7，**P1-T07 ✅** + **P1-T06 推迟** ｜ **P2: 3/5** ｜ P3a: 0/1，facts 切片 ✅ 机制待续[DV-006→P3b]）｜ follow-up FU-T01/02/03 ✅｜ P3b 占位。
+- 阶段：Research ✅ / Design ✅（**17 决策 D-001..D-017**）/ **Implement 🚧（P1 storage 6/7[P1-T06 折进 P2-T05]；P2: 5/5 ✅[P2-T04/T05 2026-06-21 用户手动 docker 验证收口]；P3a facts-carrier ✅；P3b 🚧 active=下一任务[D-017，先于 P6 iceberg]）**。
+- 任务计数 **14/15**（P0: 2/2 ✅ ｜ P1: 6/7 ｜ **P2: 5/5 ✅** ｜ P3a: ✅ facts｜**P3b: 🚧 active**）｜ follow-up FU-T01/02/03 ✅。
+- ⚠️ docker：paimon 路 P2-T05 已由用户手动验证；**P3b 须新跑 docker kerberos e2e（HDFS/HMS）**验 `doAs` 不回归。
 - **新增 3 模块**：顶层叶子 `fe-kerberos`（facts 切片）+ `fe-connector-metastore-api`（5 子接口）+ `fe-connector-metastore-spi`（5 解析器 + Provider SPI，22 文件）。**paimon 连接器已 cutover 到共享 spi**（P2-T03）。**fe-property 已物理删除**（P1-T07 ✅，0 消费者孤儿移除；fe-core `datasource.property.{storage,metastore}` 两包仍在、仍服务 hive/hudi/iceberg）。**R-006/R-007/R-008 已闭环**（UT/mutation 层）。
 - ⚠️ **e2e/docker 全程未跑**（P1 storage 等价 T1 + P2 metastore T2/5-flavor 闸 一并留 P2-T05 docker 跑；D-012）。
 
-## 下一步（明确）：**主线全连接器 clean-room review（已提升到主线，见 [`../HANDOFF.md`](../HANDOFF.md)）**；本子线自身剩余 = P2-T04 → P2-T05（主线 review 之后）
-> **务必先按顶部流程读全套文档做流程定向；本子线实施前 WORKFLOW §2 单任务 + 一句话复述。**
+## 下一步（明确）：**P3b-T01（kerberos authenticator 机制收口到 `fe-kerberos`）— D-017，先于 P6 iceberg**
+> **务必先按顶部流程读全套文档做流程定向；实施前 WORKFLOW §2 单任务 + 一句话复述 + AskUserQuestion 定 scope 粒度（一次全搬 vs 分步 re-export 桥）。**
 
-**RV-T01（paimon connector 全功能路径 clean-room 对抗 review）— 已提升到主线**：
-- 用户 2026-06-18 定的「paimon connector 全功能路径 6 维度（读取 / 写入 / DDL / 元数据回放 / 元数据 cache / 残留旧逻辑·fallback）clean-room 对抗 review，**⚠️ 不注入开发历史先验**」审的是**整条 paimon connector**（＝ catalog-spi **主线**范围，非 metastore/storage 子线），故归 **主线** [`../HANDOFF.md`](../HANDOFF.md)「下一个 session 的任务」，**本子目录不再复述其 spec**（避免在 metastore 子目录里放全连接器 review 的 scope 错配）。
-- 与本子线的关系：该 review **先于** B8 legacy 删除（legacy ＝ 对照基线）；**本子线自身的剩余工作 = P2-T04 → P2-T05**，排在主线 review 之后。
+**✅ 已收口（不再是本子线的下一步）**：RV-T01（主线全连接器 clean-room review）+ B8（主线 P5-T29 paimon legacy 删除）均已在**主线**完成（见 [`../HANDOFF.md`](../HANDOFF.md)）；**P2-T04 ✅**（`MetaStoreProviders` 2-arg 显式 loader `2612af5e88f` + paimon pom/import-gate）+ **P2-T05 ✅**（用户 2026-06-21 手动 docker 验证：paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）。
 
-**P2-T04（paimon pom + gate 核对）— 主线 review 之后**：
-- **做什么**：核 `fe-connector-paimon/pom.xml` 依赖集 = `fe-connector-{api,spi}` + `fe-connector-metastore-spi`（transitively 带 metastore-api + fe-kerberos）+ `fe-filesystem-api` + `fe-thrift(provided)` + paimon SDK + hadoop/aws/…；`tools/check-connector-imports.sh` PASS（P2-T03 已验 exit 0，复核即可）。
-- **⚠️ P2-T03 recon 揪出的真正 substance（不只是 packaging 复核——可能要 1 行改 metastore-spi，白名单内）**：`MetaStoreProviders.load()` 用 **1-arg `ServiceLoader.load(MetaStoreProvider.class)`（TCCL-based）**；static `PROVIDERS` 在首次 `bind()`（= `validateProperties` 在 CREATE CATALOG）初始化，而该路径**不 pin TCCL 到插件 loader**（仅 `createCatalogFromContext` pin）。metastore-spi 在插件 zip **child-first lib/**（assembly 已确认 bundle、不在 excludes），**不在 fe-core classpath**。若 class-init 时 TCCL≠插件 loader → ServiceLoader 找不到 child-first 的 `META-INF/services` → **0 provider → `bind` 抛「No MetaStoreProvider supports」→ 所有 paimon CREATE/读 挂**。UT（单 flat loader）结构上抓不到。**建议 fix**：改 **2-arg `ServiceLoader.load(MetaStoreProvider.class, MetaStoreProviders.class.getClassLoader())`**（用模块自身 loader 发现，与 TCCL 无关；对标 `FileSystemPluginManager:99` 对插件 provider 用显式 loader）。执行前先读 fe-core 插件调用路确认 TCCL 是否被 pin，但 2-arg 形式无论如何更稳。
-- **依赖**：P1-T07, P2-T03 ✅。设计 §4 P2-4。
-
-**P2-T05（docker 真闸，合并 P1-T06 的 T1 + P2 的 T2）**：paimon 5 flavor + vended(REST/DLF) + Kerberos HMS，`enablePaimonTest=true`。真验 UT 抓不到的：①上面 P2-T04 的 plugin-zip ServiceLoader 发现（child-first loader）；②HMS/DLF live `metastore=hive`（IMetaStoreClient 从 host hive-catalog-shade + 跨 loader Configuration/HiveConf identity，见 `PaimonConnector` HMS/DLF NOTE）；③T1 storage 等价（S3/OSS/COS/OBS/HDFS + 无凭据对象存储 + 调优默认）；④D-014 CREATE 更严行为。
-- **依赖**：P2-T03 ✅, P2-T04。设计 §4 P2-5 / §5 T2,T4。
+**P3b-T01（下一任务）**：现码 scope + 验收 + scope 粒度选项见 [`tasks.md`](./tasks.md) **P3b-T01 块** + **D-017**。一句话：把 fe-common `security.authentication.*`（**12 类机制**）收口到 `fe-kerberos` 作唯一真相源 + 删 `fe-filesystem-hdfs` 自有 `KerberosHadoopAuthenticator`/`SimpleHadoopAuthenticator` 副本 + 统一两个打架的 `HadoopAuthenticator` 接口（fe-common `PrivilegedExceptionAction` vs fe-filesystem-spi `IOCallable`）+ trino `KerberosTicketUtils`→JDK。
+- **blast radius = 40 非测试消费方**（24 fe-core + 12 fe-common + **3 be-java-extensions** scanner[paimon/iceberg/hudi JNI]——⚠️ 跨 FE/BE-java，非纯 FE）。
+- **真闸 = docker kerberos e2e（HDFS kerberized + HMS kerberos）** 验 `doAs` 不回归（安全敏感，UGI 登录 UT 抓不到）。
+- **白名单将扩**（执行前 AskUserQuestion 后定）：`fe/fe-kerberos/**`（加机制+hadoop 依赖）、`fe/fe-common/.../security/authentication/**`、`fe/fe-filesystem/fe-filesystem-hdfs/**`、+ 40 消费方重指向。
+- **价值**：这是「把 paimon/iceberg/hive metastore-props 搬出 fe-core」的**前置**（本 session 已分析）；**先做反而服务 P6 iceberg**（iceberg 迁移可复用干净的 `fe-kerberos` authenticator）。
+- **依赖**：P3a-T01 ✅ + P2-T05 ✅。设计 §3.5 / **D-007 步骤 b** / **D-017**。
 
 ## 未决 / 需注意
 - ✅ 已闭环：R-006（FU-T03）、R-007（FU-T01）、R-008（FU-T02）。
