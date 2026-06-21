@@ -100,20 +100,12 @@ suite("test_colocate_join_of_column_order") {
     sql """insert into test_colocate_join_of_column_order_tb values(1,1);"""
     sql """insert into test_colocate_join_of_column_order_tc values(1,1);"""
 
-    // Pin column statistics so the cost-based COLOCATE-vs-PARTITIONED choice is deterministic.
-    // Freshly-created tables have rowCountReported=false (only the async CloudTabletStatMgr sets it,
-    // up to a full tick after INSERT); with unreliable stats the optimizer can fall back to a
-    // PARTITIONED shuffle join, which makes the COLOCATE assertion below flaky. Injecting stats
-    // (userInjected) bypasses the async-report dependency. See nereids_p0/join/initial_join_order.
-    sql """alter table test_colocate_join_of_column_order_ta modify column c1 set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='1', 'max_value'='1')"""
-    sql """alter table test_colocate_join_of_column_order_ta modify column c2 set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='1', 'max_value'='1')"""
-    sql """alter table test_colocate_join_of_column_order_tb modify column c1 set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='1', 'max_value'='1')"""
-    sql """alter table test_colocate_join_of_column_order_tb modify column c2 set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='1', 'max_value'='1')"""
-    sql """alter table test_colocate_join_of_column_order_tc modify column c1 set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='1', 'max_value'='1')"""
-    sql """alter table test_colocate_join_of_column_order_tc modify column c2 set stats ('row_count'='1', 'ndv'='1', 'num_nulls'='0', 'min_value'='1', 'max_value'='1')"""
-
+    // parallel_pipeline_task_num=1 keeps the bucket-shuffle downgrade from firing: with the default
+    // fuzzed value (0 -> auto ~cores/2) the heuristic totalBucketNum(10) < backEndNum*paraNum*0.8 can
+    // trip on a single-BE cloud cluster, turning ta's NATURAL distribution into EXECUTION_BUCKETED and
+    // forbidding the downstream COLOCATE. Pinning paraNum=1 makes the condition always false.
     explain {
-        sql("""select /*+ set_var(disable_join_reorder=true) */ * from test_colocate_join_of_column_order_ta join [shuffle] (select cast((c2 + 1) as bigint) c2 from test_colocate_join_of_column_order_tb) test_colocate_join_of_column_order_tb  on test_colocate_join_of_column_order_ta.c1 = test_colocate_join_of_column_order_tb.c2 join [shuffle] test_colocate_join_of_column_order_tc on test_colocate_join_of_column_order_tb.c2 = test_colocate_join_of_column_order_tc.c1;""");
+        sql("""select /*+ set_var(disable_join_reorder=true,parallel_pipeline_task_num=1) */ * from test_colocate_join_of_column_order_ta join [shuffle] (select cast((c2 + 1) as bigint) c2 from test_colocate_join_of_column_order_tb) test_colocate_join_of_column_order_tb  on test_colocate_join_of_column_order_ta.c1 = test_colocate_join_of_column_order_tb.c2 join [shuffle] test_colocate_join_of_column_order_tc on test_colocate_join_of_column_order_tb.c2 = test_colocate_join_of_column_order_tc.c1;""");
         contains "COLOCATE"
     }
 
