@@ -1,6 +1,6 @@
 # 📊 项目进度仪表盘
 
-> 最后更新：**2026-06-21** | 当前阶段：**P6 iceberg 迁移启动**（阶段拆分完成 [D-058]，下一 = P6.1 recon）；**P5 paimon 全完成 ✅**——P5 全量（B0–B7 = 测基建/flavor/normal-read/DDL/sys-tables+MVCC/MTMV桥/时间旅行/**翻闸** + P6 全路径 clean-room review 的全部 deviation fix）squash-合入 `branch-catalog-spi`：**#64446 / `38e7140ce56`**（"migrate to catalog SPI + cutover"，+ `e9c5b3e70ce` 修编译）。paimon 现已在 `SPI_READY_TYPES`，FE 走 SPI 路径。**P5-T29（删 legacy + 5 maven 依赖）已合入 #64653 / `d59ed2f96d9`（fe-core 完全 paimon-SDK-free）；P3b kerberos 收口已合入 #64655 / `e5959e1b53d`。下一 = P6.1 iceberg 元数据 recon**（阶段拆分 spec [tasks/P6](./tasks/P6-iceberg-migration.md)，[D-058]）。前序 P0/P1/P2（#63582/#63641/#64096）+ P3 hybrid（#64143）+ P4（#64253/#64300）+ P5（#64446/#64653）+ P3b（#64655）均已合入。| 项目总进度：**~44%**（按 §一 进度条加权：P0+P1+P2+P4+P5 满 + P3 hybrid 45%，约 10.9/25 周）
+> 最后更新：**2026-06-22** | 当前阶段：**P6.1 iceberg 进行中**（T01-T03 + T08 + T04 完成；下一 = T05 5-flavor，须先 metastore-spi mini-recon）；**P5 paimon 全完成 ✅**——P5 全量（B0–B7 = 测基建/flavor/normal-read/DDL/sys-tables+MVCC/MTMV桥/时间旅行/**翻闸** + P6 全路径 clean-room review 的全部 deviation fix）squash-合入 `branch-catalog-spi`：**#64446 / `38e7140ce56`**（"migrate to catalog SPI + cutover"，+ `e9c5b3e70ce` 修编译）。paimon 现已在 `SPI_READY_TYPES`，FE 走 SPI 路径。**P5-T29（删 legacy + 5 maven 依赖）已合入 #64653 / `d59ed2f96d9`（fe-core 完全 paimon-SDK-free）；P3b kerberos 收口已合入 #64655 / `e5959e1b53d`。下一 = P6.1 iceberg 元数据 recon**（阶段拆分 spec [tasks/P6](./tasks/P6-iceberg-migration.md)，[D-058]）。前序 P0/P1/P2（#63582/#63641/#64096）+ P3 hybrid（#64143）+ P4（#64253/#64300）+ P5（#64446/#64653）+ P3b（#64655）均已合入。| 项目总进度：**~44%**（按 §一 进度条加权：P0+P1+P2+P4+P5 满 + P3 hybrid 45%，约 10.9/25 周）
 > [README](./README.md) · [Master Plan](./00-connector-migration-master-plan.md) · [SPI RFC](./01-spi-extensions-rfc.md) · [Decisions](./decisions-log.md) · [Deviations](./deviations-log.md) · [Risks](./risks.md) · [Agent Playbook](./AGENT-PLAYBOOK.md) · [Handoff](./HANDOFF.md)
 
 ---
@@ -15,7 +15,7 @@
 | P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | ✅ hybrid（D-019）批 A–D 已合入 `branch-catalog-spi`（**#64143** squash `5c240dc7a34`）；批 E（live cutover）并入 P7 | [tasks/P3](./tasks/P3-hudi-migration.md) |
 | **P4** | maxcompute 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成并合入 `branch-catalog-spi`（**#64253** T01–T06 适配+翻闸 + **#64300** T07–T09 删 legacy/odps-free；含 #64119 校验迁移）| [tasks/P4](./tasks/P4-maxcompute-migration.md) |
 | **P5** | paimon 迁移 | 3 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成并合入 `branch-catalog-spi`（迁移+翻闸 **#64446** + 删 legacy/maven **#64653** `d59ed2f96d9`；B9 回归用户 docker 覆盖）| [tasks/P5](./tasks/P5-paimon-migration.md) |
-| **P6** | iceberg 迁移 | 5 周 | ▰▱▱▱▱▱▱▱▱▱ ~7% | 🚧 **P6.1 进行中**：recon + 10-task 拆解 + [D-059] 完成；**T01/T02/T03 已实现+验证**（27 UT，commit `ae54a2174ff`）+ **T08 type-mapping parity 已实现+验证**（36 UT 绿，**未 commit**）；下一 = T04/T05 | [tasks/P6](./tasks/P6-iceberg-migration.md) |
+| **P6** | iceberg 迁移 | 5 周 | ▰▱▱▱▱▱▱▱▱▱ ~9% | 🚧 **P6.1 进行中**：recon + 10-task + [D-059]/[D-060] 完成；**T01-T03 ✅ `ae54a2174ff`** + **T08 ✅ `d41fa4faf3e`**（type-mapping parity）+ **T04 ✅**（pom 7-flavor 闭包，[D-060]）；36 UT 绿；下一 = T05（5-flavor，须先 metastore-spi mini-recon）| [tasks/P6](./tasks/P6-iceberg-migration.md) |
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P8 | 收尾清理 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 
@@ -35,7 +35,7 @@
 | hudi | 🟡（D-005 区分符 + D-020 模型 dispatch 已设计；实现批 E）| 🟨 55%（读路径 dormant + 批 C 测试基线）| ❌（gate 关）| ❌ | 0/0（寄生 hms）| **25%** | [详情](./connectors/hudi.md) |
 | maxcompute | ✅ | ✅ 100% | ✅ **已合入 #64253** | ✅ **#64300 已删** | ✅ 0/0 | **100%** | [详情](./connectors/maxcompute.md) |
 | paimon | ✅ | ✅ 100% | ✅ **已入 SPI_READY_TYPES** | ✅ **#64653 已删** | ✅ 热区已清 | **100%** | [详情](./connectors/paimon.md) |
-| iceberg | 🟡（P6.1 recon+10-task+[D-059]）| 🟨 22%（+ CatalogFactory/CatalogOps seam + type-mapping parity + 36 UT；T01-T03 ✅ `ae54a2174ff` + T08 ✅ 未 commit）| ❌（翻闸在 P6.6）| ❌ | 0/49 | **16%** | [详情](./connectors/iceberg.md) |
+| iceberg | 🟡（P6.1 recon+10-task+[D-059]/[D-060]）| 🟨 25%（+ CatalogFactory/CatalogOps seam + type-mapping parity + 7-flavor pom 闭包 + 36 UT；T01-T03 ✅ `ae54a2174ff` + T08 ✅ `d41fa4faf3e` + T04 ✅）| ❌（翻闸在 P6.6）| ❌ | 0/49 | **18%** | [详情](./connectors/iceberg.md) |
 | hive (+hms) | 🟡 | 🟥 20% | ❌ | ❌ | 0/31 | **10%** | [详情](./connectors/hive.md) |
 
 ---
@@ -44,11 +44,11 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P6 — iceberg 迁移（🚧 P6.1 进行中 [D-058]/[D-059]；recon+10-task 完成，**T01-T03 ✅ commit `ae54a2174ff`** + **T08 ✅ type-mapping parity 未 commit**；🎯 下一 = **T04 pom 依赖 + T05 5-flavor**）
+### P6 — iceberg 迁移（🚧 P6.1 进行中 [D-058]/[D-059]/[D-060]；recon+10-task 完成，**T01-T03 ✅ `ae54a2174ff`** + **T08 ✅ `d41fa4faf3e`** + **T04 ✅ pom 7-flavor 闭包 [D-060]**；🎯 下一 = **T05 5-flavor**〔须先 `MetaStoreProviders.bind` mini-recon〕）
 
 > 策略 = **先在 `fe-connector-iceberg` 实现完整能力（P6.1–P6.5）→ P6.6 一次性翻闸 → P6.7 删 legacy → P6.8 回归**（用户 2026-06-21 签 方案 A / 8 阶段，[D-058]）。翻闸**全有或全无**（`CatalogFactory:104-113`：加入 `SPI_READY_TYPES` 后 scan/write/MVCC/sys-table 全走连接器、seam 无 legacy 回退）⇒ **切忌在 P6.1–P6.5 任何阶段把 iceberg 加进 `SPI_READY_TYPES`**。3 缺失 SPI 各折进首消费阶段：`ConnectorCredentials`(P6.2) / 写路径 RFC(P6.3) / `ConnectorProcedureOps`(P6.4)。
 >
-> **🎯 P6.1 = 连接器地基 + 普通读元数据 + 7 flavor**（含 port DLF 4-file 子树 + wire S3Tables SDK）。recon（`research/p6.1-iceberg-metadata-recon.md`）+ 10-task 拆解（`tasks/P6` §P6.1）+ [D-059]（Q1 DLF port-now / Q2 扩 metastore-spi）完成；**T01（`IcebergCatalogFactory`+`IcebergCatalogOps` seam）/ T02（测试基建）/ T03（metadata rewire）已实现+验证**（27 UT 绿，commit `ae54a2174ff`）；**T08（type-mapping parity，决策无关）已实现+验证**（`TIMESTAMPTZ` 名 + 点分 mapping-flag key + BINARY 无界长度 3 修；36 UT 绿，**未 commit**）。下一 = **T04（pom 依赖闭包）+ T05（5 CatalogUtil flavor）**；T05-T07 前须 `MetaStoreProviders.bind` mini-recon（Q2=B 跨 metastore 子线）。
+> **🎯 P6.1 = 连接器地基 + 普通读元数据 + 7 flavor**（含 port DLF 4-file 子树 + wire S3Tables SDK）。recon（`research/p6.1-iceberg-metadata-recon.md`）+ 10-task 拆解（`tasks/P6` §P6.1）+ [D-059]（Q1 DLF port-now / Q2 扩 metastore-spi）完成；**T01（`IcebergCatalogFactory`+`IcebergCatalogOps` seam）/ T02（测试基建）/ T03（metadata rewire）已实现+验证**（27 UT 绿，commit `ae54a2174ff`）；**T08（type-mapping parity，决策无关）已实现+验证 + commit `d41fa4faf3e`**（`TIMESTAMPTZ` 名 + 点分 mapping-flag key + BINARY 无界长度 3 修；36 UT 绿）；**T04（pom 7-flavor 依赖闭包，[D-060]）已实现+验证**（HMS/DLF=复用 `hive-catalog-shade`〔修正 D-059「iceberg-hive-metastore」误述：该 artifact 不存在〕+ AWS SDK v2 child-first + s3tables + metastore-spi + fe/pom.xml dM + plugin-zip thrift 排除；plugin-zip 实查 143 jar、iceberg 全 1.10.1、libthrift 缺席）。下一 = **T05（5 CatalogUtil flavor）**；T05-T07 前须 `MetaStoreProviders.bind` mini-recon（Q2=B 跨 metastore 子线）。
 
 ### P5 — paimon 迁移（✅ 全完成并合入：迁移+翻闸 #64446 + 删 legacy/maven #64653；B9 回归用户 docker 覆盖）
 

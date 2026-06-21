@@ -90,6 +90,10 @@
 
 ## 进度日志
 
+### 2026-06-22（T08 commit + T04 pom 依赖闭包）
+- **T08 已 commit `d41fa4faf3e`**（type-mapping read parity：TIMESTAMPTZ 名 + 点分 mapping-flag key + BINARY 无界长度 3 修；36 UT 绿）。
+- **T04（pom 依赖闭包，[D-060]，本 session）**：`fe-connector-iceberg/pom.xml` 补 7-flavor 闭包——HMS/DLF=**复用 `hive-catalog-shade`**（用户签字 vs 专建 iceberg-hive-shade；**修正 D-059「iceberg-hive-metastore」误述——该 artifact 不存在**，HiveCatalog + DLF ProxyMetaStoreClient + aliyun SDK 均捆在 hive-catalog-shade 内）+ AWS SDK v2 child-first（glue/sts/s3tables/s3/s3-transfer-manager/sdk-core/...）+ `s3-tables-catalog-for-iceberg` + `fe-connector-metastore-spi`（Q2=B）；`fe/pom.xml` + s3tables dM；`plugin-zip.xml` + `fe-thrift`/`libthrift` 排除。**无 Java 改**（flavor 由 CatalogUtil 按名反射加载）。验证：36 UT + checkstyle 0 + import-gate 0 + `dependency:tree` iceberg-core 恰 1 + **plugin-zip 实查**（143 jar：iceberg 全 1.10.1 无 skew、libthrift 缺席、hadoop 仅 3.4.2）+ `SPI_READY_TYPES` iceberg 缺席。残留→P6.6 docker：shade 内 iceberg 与直接 iceberg-core child-first 共存（版本同→预期 benign）；glue 显式-AK provider 类来源待 T05 核。
+
 ### 2026-06-21（P6.1 recon + T01-T03）
 - **recon**（7-agent，`research/p6.1-iceberg-metadata-recon.md`）+ **10-task 拆解**（`tasks/P6-iceberg-migration.md` §P6.1）+ **[D-059]**（Q1 DLF port-now read-only / Q2 扩 metastore-spi 加 iceberg provider）。
 - **T01-T03 实现+验证（commit `ae54a2174ff`）**：新建 `IcebergCatalogFactory`（纯静态）+ `IcebergCatalogOps`（注入 seam）+ rewire `IcebergConnectorMetadata`（behavior frozen）+ 测试基建从无到有（`RecordingIcebergCatalogOps`/`FakeIcebergTable`/`RecordingConnectorContext` + 2 test class）。`mvn test`（cache off）= 27 run/0F/0E/0skip + checkstyle 0 + import-gate 净。连接器主文件 6→8。
