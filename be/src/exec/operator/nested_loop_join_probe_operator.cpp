@@ -722,9 +722,9 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeSta
 Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeState* state,
                                                                       Block* probe_block) {
     DCHECK(use_generate_block_base_build());
-    const auto& build_block = _shared_state->build_blocks[0];
-    const size_t build_rows = build_block.rows();
+    auto& build_blocks = _shared_state->build_blocks;
     const auto probe_rows = static_cast<int>(probe_block->rows());
+    _need_more_build_data = false;
 
     if (probe_rows == 0) {
         if (_shared_state->probe_side_eos) {
@@ -737,19 +737,28 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeSta
 
     size_t processed_rows = 0;
     while (processed_rows + probe_rows <= state->batch_size()) {
-        if (_probe_block_pos == probe_rows) {
-            _current_build_row_pos++;
-            _probe_block_pos = 0;
-
-            if (_current_build_row_pos >= build_rows) {
+        if (_current_build_pos >= build_blocks.size()) {
+            if (_shared_state->build_side_eos) {
                 if (_shared_state->probe_side_eos) {
                     _matched_rows_done = true;
                 } else {
                     _need_more_input_data = true;
+                    _current_build_pos = 0;
                     _current_build_row_pos = 0;
+                    _probe_block_pos = 0;
                 }
-                break;
+            } else {
+                _need_more_build_data = true;
             }
+            break;
+        }
+
+        const auto& build_block = build_blocks[_current_build_pos];
+        if (_current_build_row_pos >= build_block.rows()) {
+            _current_build_pos++;
+            _current_build_row_pos = 0;
+            _probe_block_pos = 0;
+            continue;
         }
 
         if (_matched_rows_done || _need_more_input_data) {
@@ -780,6 +789,7 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_build(RuntimeSta
                                               *probe_block, build_block));
         }
         _probe_block_pos = probe_rows;
+        _current_build_row_pos++;
     }
     return Status::OK();
 }
@@ -851,10 +861,14 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
             << " build blocks size:" << published_build_blocks;
 }
 
-// When the build side is small, generate data based on the build side.
-// Currently a simple heuristic is used: check whether build_blocks.size() == 1
+// Generate based on build side when the existing small-build heuristic applies, or while the
+// current probe block is consuming incrementally published build blocks.
 bool NestedLoopJoinProbeLocalState::use_generate_block_base_build() const {
-    return _shared_state->build_side_eos && _shared_state->build_blocks.size() == 1;
+    const bool in_incremental_probe_block = _can_output_from_partial_build() &&
+                                            (!_shared_state->build_side_eos ||
+                                             _need_more_build_data || _current_build_row_pos != 0);
+    return in_incremental_probe_block ||
+           (_shared_state->build_side_eos && _shared_state->build_blocks.size() == 1);
 }
 
 // for inner join only
@@ -866,9 +880,9 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
                                                                Block* probe_block) {
     DCHECK(use_generate_block_base_build());
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    const auto& build_block = _shared_state->build_blocks[0];
-    const size_t build_rows = build_block.rows();
+    auto& build_blocks = _shared_state->build_blocks;
     const auto probe_rows = static_cast<int>(probe_block->rows());
+    _need_more_build_data = false;
 
     // If the probe block is empty, return directly
     /// TODO: Reconsider this logic; it may need to be handled outside
@@ -882,26 +896,30 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
     }
 
     while (_join_block.rows() + probe_rows <= state->batch_size()) {
-        // The current build row has processed the entire probe block; move to the next build row
-        if (_probe_block_pos == probe_rows) {
-            // Move to the next build row and reset the probe position
-            _current_build_row_pos++;
-            _probe_block_pos = 0;
-
-            // All build rows have finished processing the current probe block
-            if (_current_build_row_pos >= build_rows) {
+        if (_current_build_pos >= build_blocks.size()) {
+            if (_shared_state->build_side_eos) {
                 if (_shared_state->probe_side_eos) {
                     _matched_rows_done = true;
                 } else {
                     _need_more_input_data = true;
-                    // Reset build row position to prepare for the next probe block
+                    _current_build_pos = 0;
                     _current_build_row_pos = 0;
+                    _probe_block_pos = 0;
                 }
-                break;
+            } else {
+                _need_more_build_data = true;
             }
+            break;
         }
 
-        // No data needs to be processed
+        const auto& build_block = build_blocks[_current_build_pos];
+        if (_current_build_row_pos >= build_block.rows()) {
+            _current_build_pos++;
+            _current_build_row_pos = 0;
+            _probe_block_pos = 0;
+            continue;
+        }
+
         if (_matched_rows_done || _need_more_input_data) {
             break;
         }
@@ -913,13 +931,14 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
 
         // Mark the current probe block as processed; the next loop will move to the next build row
         _probe_block_pos = probe_rows;
+        _current_build_row_pos++;
     }
 
     DCHECK_LE(_join_block.rows(), state->batch_size())
             << "join block rows:" << _join_block.rows()
             << ", state batch size:" << state->batch_size()
             << "probe_block rows:" << probe_block->rows()
-            << "build block rows:" << build_block.rows();
+            << " build blocks size:" << build_blocks.size();
 }
 
 // for inner join only
