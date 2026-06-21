@@ -20,7 +20,7 @@ package org.apache.doris.filesystem.hdfs;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
