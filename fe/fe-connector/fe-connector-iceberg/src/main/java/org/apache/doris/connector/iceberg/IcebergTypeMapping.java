@@ -43,7 +43,7 @@ public final class IcebergTypeMapping {
      *
      * @param icebergType the Iceberg type
      * @param enableMappingVarbinary if true, map BINARY/UUID/FIXED to VARBINARY; otherwise STRING/CHAR
-     * @param enableMappingTimestampTz if true, map TIMESTAMP with TZ to TIMESTAMPTV2; otherwise DATETIMEV2
+     * @param enableMappingTimestampTz if true, map TIMESTAMP with TZ to TIMESTAMPTZ; otherwise DATETIMEV2
      */
     public static ConnectorType fromIcebergType(Type icebergType,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
@@ -98,8 +98,12 @@ public final class IcebergTypeMapping {
                 return enableMappingVarbinary
                         ? ConnectorType.of("VARBINARY", 16, 0) : ConnectorType.of("STRING");
             case BINARY:
+                // Iceberg BINARY is unbounded. Emit VARBINARY with NO explicit length so
+                // ConnectorColumnConverter applies ScalarType.MAX_VARBINARY_LENGTH — byte-identical to
+                // legacy IcebergUtils createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH). A
+                // concrete length (e.g. 65535) would render a different DESCRIBE / SHOW CREATE type.
                 return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY", 65535, 0) : ConnectorType.of("STRING");
+                        ? ConnectorType.of("VARBINARY") : ConnectorType.of("STRING");
             case FIXED:
                 int fixedLen = ((Types.FixedType) primitive).length();
                 return enableMappingVarbinary
@@ -113,7 +117,11 @@ public final class IcebergTypeMapping {
             case TIMESTAMP:
                 if (enableMappingTimestampTz
                         && ((Types.TimestampType) primitive).shouldAdjustToUTC()) {
-                    return ConnectorType.of("TIMESTAMPTZV2", ICEBERG_DATETIME_SCALE_MS, 0);
+                    // Must be "TIMESTAMPTZ" (not "TIMESTAMPTZV2"): ConnectorColumnConverter only
+                    // recognizes TIMESTAMPTZ -> ScalarType.createTimeStampTzType(precision); an
+                    // unrecognized name degrades the column to UNSUPPORTED. Legacy
+                    // IcebergUtils maps this to createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS).
+                    return ConnectorType.of("TIMESTAMPTZ", ICEBERG_DATETIME_SCALE_MS, 0);
                 }
                 return ConnectorType.of("DATETIMEV2", ICEBERG_DATETIME_SCALE_MS, 0);
             case TIME:

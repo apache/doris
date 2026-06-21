@@ -43,8 +43,11 @@ public final class IcebergConnectorProperties {
     public static final String WAREHOUSE = "warehouse";
 
     // -- Type mapping options --
-    public static final String ENABLE_MAPPING_VARBINARY = "enable_mapping_varbinary";
-    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
+    // Dotted keys matching CatalogProperty.ENABLE_MAPPING_* — the exact spelling that real catalog
+    // property maps carry. The underscore spelling never matches a live catalog map and reads
+    // default-false (silent loss of the BINARY->VARBINARY / TIMESTAMP_TZ->TIMESTAMPTZ mapping).
+    public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
+    public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
 
     // -- REST catalog options --
     public static final String REST_NESTED_NAMESPACE_ENABLED = "iceberg.rest.nested-namespace-enabled";

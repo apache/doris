@@ -15,7 +15,7 @@
 | P3 | hudi 迁移 | 2 周 | ▰▰▰▰▰▱▱▱▱▱ 45% | ✅ hybrid（D-019）批 A–D 已合入 `branch-catalog-spi`（**#64143** squash `5c240dc7a34`）；批 E（live cutover）并入 P7 | [tasks/P3](./tasks/P3-hudi-migration.md) |
 | **P4** | maxcompute 迁移 | 2 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成并合入 `branch-catalog-spi`（**#64253** T01–T06 适配+翻闸 + **#64300** T07–T09 删 legacy/odps-free；含 #64119 校验迁移）| [tasks/P4](./tasks/P4-maxcompute-migration.md) |
 | **P5** | paimon 迁移 | 3 周 | ▰▰▰▰▰▰▰▰▰▰ 100% | ✅ 完成并合入 `branch-catalog-spi`（迁移+翻闸 **#64446** + 删 legacy/maven **#64653** `d59ed2f96d9`；B9 回归用户 docker 覆盖）| [tasks/P5](./tasks/P5-paimon-migration.md) |
-| **P6** | iceberg 迁移 | 5 周 | ▰▱▱▱▱▱▱▱▱▱ ~6% | 🚧 **P6.1 进行中**：recon + 10-task 拆解 + [D-059] 完成；**T01/T02/T03 已实现+验证**（27 UT 绿，commit `ae54a2174ff`）；下一 = T08/T04 | [tasks/P6](./tasks/P6-iceberg-migration.md) |
+| **P6** | iceberg 迁移 | 5 周 | ▰▱▱▱▱▱▱▱▱▱ ~7% | 🚧 **P6.1 进行中**：recon + 10-task 拆解 + [D-059] 完成；**T01/T02/T03 已实现+验证**（27 UT，commit `ae54a2174ff`）+ **T08 type-mapping parity 已实现+验证**（36 UT 绿，**未 commit**）；下一 = T04/T05 | [tasks/P6](./tasks/P6-iceberg-migration.md) |
 | P7 | hive (+HMS) 迁移 | 6 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 | P8 | 收尾清理 | 2 周 | ▱▱▱▱▱▱▱▱▱▱ 0% | ⏸ 待启动 | — |
 
@@ -35,7 +35,7 @@
 | hudi | 🟡（D-005 区分符 + D-020 模型 dispatch 已设计；实现批 E）| 🟨 55%（读路径 dormant + 批 C 测试基线）| ❌（gate 关）| ❌ | 0/0（寄生 hms）| **25%** | [详情](./connectors/hudi.md) |
 | maxcompute | ✅ | ✅ 100% | ✅ **已合入 #64253** | ✅ **#64300 已删** | ✅ 0/0 | **100%** | [详情](./connectors/maxcompute.md) |
 | paimon | ✅ | ✅ 100% | ✅ **已入 SPI_READY_TYPES** | ✅ **#64653 已删** | ✅ 热区已清 | **100%** | [详情](./connectors/paimon.md) |
-| iceberg | 🟡（P6.1 recon+10-task+[D-059]）| 🟨 18%（+ CatalogFactory/CatalogOps seam + 27 UT；T01-T03 ✅ commit `ae54a2174ff`）| ❌（翻闸在 P6.6）| ❌ | 0/49 | **14%** | [详情](./connectors/iceberg.md) |
+| iceberg | 🟡（P6.1 recon+10-task+[D-059]）| 🟨 22%（+ CatalogFactory/CatalogOps seam + type-mapping parity + 36 UT；T01-T03 ✅ `ae54a2174ff` + T08 ✅ 未 commit）| ❌（翻闸在 P6.6）| ❌ | 0/49 | **16%** | [详情](./connectors/iceberg.md) |
 | hive (+hms) | 🟡 | 🟥 20% | ❌ | ❌ | 0/31 | **10%** | [详情](./connectors/hive.md) |
 
 ---
@@ -44,11 +44,11 @@
 
 > 状态非 ✅ 的项，按阶段聚合。详细见各阶段 task 文件。
 
-### P6 — iceberg 迁移（🚧 P6.1 进行中 [D-058]/[D-059]；recon+10-task 完成，**T01-T03 ✅ commit `ae54a2174ff`**；🎯 下一 = **T08 type-mapping parity + T04 pom 依赖**）
+### P6 — iceberg 迁移（🚧 P6.1 进行中 [D-058]/[D-059]；recon+10-task 完成，**T01-T03 ✅ commit `ae54a2174ff`** + **T08 ✅ type-mapping parity 未 commit**；🎯 下一 = **T04 pom 依赖 + T05 5-flavor**）
 
 > 策略 = **先在 `fe-connector-iceberg` 实现完整能力（P6.1–P6.5）→ P6.6 一次性翻闸 → P6.7 删 legacy → P6.8 回归**（用户 2026-06-21 签 方案 A / 8 阶段，[D-058]）。翻闸**全有或全无**（`CatalogFactory:104-113`：加入 `SPI_READY_TYPES` 后 scan/write/MVCC/sys-table 全走连接器、seam 无 legacy 回退）⇒ **切忌在 P6.1–P6.5 任何阶段把 iceberg 加进 `SPI_READY_TYPES`**。3 缺失 SPI 各折进首消费阶段：`ConnectorCredentials`(P6.2) / 写路径 RFC(P6.3) / `ConnectorProcedureOps`(P6.4)。
 >
-> **🎯 P6.1 = 连接器地基 + 普通读元数据 + 7 flavor**（含 port DLF 4-file 子树 + wire S3Tables SDK）。recon（`research/p6.1-iceberg-metadata-recon.md`）+ 10-task 拆解（`tasks/P6` §P6.1）+ [D-059]（Q1 DLF port-now / Q2 扩 metastore-spi）完成；**T01（`IcebergCatalogFactory`+`IcebergCatalogOps` seam）/ T02（测试基建）/ T03（metadata rewire）已实现+验证**（27 UT 绿，commit `ae54a2174ff`）。下一 = **T08（type-mapping parity，决策无关）+ T04（pom 依赖）**；T05-T07 前须 `MetaStoreProviders.bind` mini-recon（Q2=B 跨 metastore 子线）。
+> **🎯 P6.1 = 连接器地基 + 普通读元数据 + 7 flavor**（含 port DLF 4-file 子树 + wire S3Tables SDK）。recon（`research/p6.1-iceberg-metadata-recon.md`）+ 10-task 拆解（`tasks/P6` §P6.1）+ [D-059]（Q1 DLF port-now / Q2 扩 metastore-spi）完成；**T01（`IcebergCatalogFactory`+`IcebergCatalogOps` seam）/ T02（测试基建）/ T03（metadata rewire）已实现+验证**（27 UT 绿，commit `ae54a2174ff`）；**T08（type-mapping parity，决策无关）已实现+验证**（`TIMESTAMPTZ` 名 + 点分 mapping-flag key + BINARY 无界长度 3 修；36 UT 绿，**未 commit**）。下一 = **T04（pom 依赖闭包）+ T05（5 CatalogUtil flavor）**；T05-T07 前须 `MetaStoreProviders.bind` mini-recon（Q2=B 跨 metastore 子线）。
 
 ### P5 — paimon 迁移（✅ 全完成并合入：迁移+翻闸 #64446 + 删 legacy/maven #64653；B9 回归用户 docker 覆盖）
 

@@ -311,8 +311,8 @@ public class IcebergConnectorMetadataTest {
     }
 
     // ---------------------------------------------------------------------
-    // type-mapping toggles — enable_mapping_varbinary / enable_mapping_timestamp_tz
-    // (current underscore-spelled keys; the dotted-key parity question is a later task)
+    // type-mapping toggles — enable.mapping.varbinary / enable.mapping.timestamp_tz
+    // (dotted keys matching CatalogProperty.ENABLE_MAPPING_* — the spelling real catalog maps carry)
     // ---------------------------------------------------------------------
 
     @Test
@@ -325,22 +325,26 @@ public class IcebergConnectorMetadataTest {
                 "t1", binTsSchema, PartitionSpec.unpartitioned(),
                 "s3://bucket/db1/t1", Collections.emptyMap());
 
+        // Feed the LITERAL dotted keys that real catalog maps carry (CatalogProperty.ENABLE_MAPPING_*),
+        // NOT the connector constants — so this test pins the exact wire spelling and goes red if the
+        // connector ever reverts to the underscore key (which would silently read default-false).
         Map<String, String> props = new HashMap<>();
-        props.put("enable_mapping_varbinary", "true");
-        props.put("enable_mapping_timestamp_tz", "true");
+        props.put("enable.mapping.varbinary", "true");
+        props.put("enable.mapping.timestamp_tz", "true");
 
         ConnectorTableSchema schema =
                 metadataWith(ops, props).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
         // WHY: with the mapping flags on, an Iceberg BINARY column maps to VARBINARY and a
-        // TIMESTAMP-with-zone column maps to TIMESTAMPTZV2 (via IcebergTypeMapping). The metadata layer
-        // must read these flags from the catalog props with the current underscore key spelling and
-        // thread them to the type mapper. MUTATION: not reading the flags (always default false) ->
-        // STRING / DATETIMEV2 -> red.
+        // TIMESTAMP-with-zone column maps to TIMESTAMPTZ (via IcebergTypeMapping). The metadata layer
+        // must read these flags from the catalog props using the DOTTED key spelling that real catalog
+        // maps carry (CatalogProperty.ENABLE_MAPPING_*) and thread them to the type mapper. MUTATION:
+        // reading the underscore key, or not reading the flags (always default false) -> STRING /
+        // DATETIMEV2 -> red.
         Assertions.assertEquals("VARBINARY", schema.getColumns().get(0).getType().getTypeName(),
-                "enable_mapping_varbinary=true must map Iceberg BINARY to VARBINARY");
-        Assertions.assertEquals("TIMESTAMPTZV2", schema.getColumns().get(1).getType().getTypeName(),
-                "enable_mapping_timestamp_tz=true must map Iceberg TIMESTAMP-with-zone to TIMESTAMPTZV2");
+                "enable.mapping.varbinary=true must map Iceberg BINARY to VARBINARY");
+        Assertions.assertEquals("TIMESTAMPTZ", schema.getColumns().get(1).getType().getTypeName(),
+                "enable.mapping.timestamp_tz=true must map Iceberg TIMESTAMP-with-zone to TIMESTAMPTZ");
     }
 
     @Test
@@ -359,10 +363,10 @@ public class IcebergConnectorMetadataTest {
 
         // WHY: with the toggles absent, BINARY must map to STRING and TIMESTAMP-with-zone to DATETIMEV2
         // (default false). This guards against a fix that accidentally flips the defaults on. MUTATION:
-        // defaulting either flag to true -> VARBINARY / TIMESTAMPTZV2 -> red.
+        // defaulting either flag to true -> VARBINARY / TIMESTAMPTZ -> red.
         Assertions.assertEquals("STRING", schema.getColumns().get(0).getType().getTypeName(),
-                "absent enable_mapping_varbinary must leave Iceberg BINARY as STRING (default off)");
+                "absent enable.mapping.varbinary must leave Iceberg BINARY as STRING (default off)");
         Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
-                "absent enable_mapping_timestamp_tz must leave Iceberg TIMESTAMP-with-zone as DATETIMEV2");
+                "absent enable.mapping.timestamp_tz must leave Iceberg TIMESTAMP-with-zone as DATETIMEV2");
     }
 }
