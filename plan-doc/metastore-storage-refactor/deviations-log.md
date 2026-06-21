@@ -6,6 +6,16 @@
 
 ---
 
+## DV-010 — P3b-T01 commit 3 接口统一 = 「pure consolidation」（直接换 fe-kerberos impl，无 IOCallable adapter）+ empty-`hadoop.username` 规整
+- **日期**：2026-06-21 ｜ **原计划位置**：D-007 / tasks `P3b-T01` commit 3「统一两个 `HadoopAuthenticator` 接口为单接口 **+ 消费侧 adapter**」。
+- **为何偏差（对照真实代码 + 用户 AskUserQuestion 确认）**：
+  1. **无显式 adapter**：scope 文案预期消费侧 `IOCallable→PrivilegedExceptionAction` adapter。实测 4 消费方调用点皆 `authenticator.doAs(() -> ioStuff)`，lambda 抛 `IOException ⊆ Exception` → **自然绑定** fe-kerberos `doAs(PrivilegedExceptionAction)`，且 fe-filesystem-spi `HadoopAuthenticator`(IOCallable)+`IOCallable` 经 grep 实证**仅 fe-filesystem-hdfs 消费、0 外部** → 直接删 spi 接口 + 换 fe-kerberos 单接口即「单接口」，无需 adapter 层（Rule 2）。"单接口" = fe-kerberos 版胜出（27+ 消费方真相源），fe-filesystem-spi 版删除。
+  2. **pure consolidation（用户 AskUserQuestion 选）**：两 kerberos impl 行为不等价（fe-kerberos=LoginContext+80%-refresh+unconditional setConfiguration；hdfs 副本=`loginUserFromKeytabAndReturnUGI`+per-call relogin+first-writer-wins guard）。定**采纳 fe-kerberos 行为**（恢复与 legacy fe-common/HMS HDFS 路 parity；真闸 docker kerberos e2e），非保留 hdfs 副本行为。接受变更：simple/无 username→remote user "hadoop"（旧=FE 进程用户直跑）。
+  3. **gating 决策保不变**：`DFSFileSystem.buildAuthenticator` 仍用 `isKerberosEnabled`（principal+keytab 在）选 kerberos-vs-simple，**不**改用 fe-kerberos `getHadoopAuthenticator(conf)` 的 `hadoop.security.authentication==kerberos` gate（否则缺该键的 kerberos catalog 被误判 simple = 额外回归）。
+  4. **empty-string 规整（对抗 review `wf_b1a4e7e4-b51` 揪出，confirmed-bytecode）**：fe-kerberos `HadoopSimpleAuthenticator` 仅 `username==null` 才默认 "hadoop"，`""` 透传到 `UserGroupInformation.createRemoteUser("")` → 抛 `IllegalArgumentException("Null user")`（hadoop-common 3.4.2 bytecode 实证）→ FS 构造崩。旧副本有 `!isEmpty()` 守。**buildAuthenticator 现统一 absent/empty→默认 "hadoop"**（`if (username != null && !username.isEmpty())` 才 setUsername）。RED 实证（neuter guard → `IllegalArgumentException: Null user`）→ GREEN。
+- **新方案**：见 tasks `P3b-T01` commit 3 完成态。
+- **影响范围**：仅 `fe-filesystem-hdfs/**` + `fe-filesystem-spi/**`（删 2 spi 文件 + pom description scrub）+ 透明 doc-scrub `fe/fe-filesystem/README.md`（聚合层，spi 删 HadoopAuthenticator 的直接后果，mirror P1-T07 stale-comment 先例）。最终态仍是 D-007 收口（三处 kerberos 实现合一）。⚠️ docker kerberos e2e 真闸 NOT run。
+
 ## DV-009 — P3b-T01 commit 排序：trino→JDK 先做（原地 in fe-common），不放最后；relocate 是 commit 2
 - **日期**：2026-06-21 ｜ **原计划位置**：D-017 / tasks `P3b-T01` scope 粒度 (B) 分步——AskUserQuestion「Phased」选项文案把三步列为 (1) relocate (2) 统一接口 (3) trino→JDK（trino 最后）。
 - **为何偏差（对照真实代码确认）**：12 类机制**必须一起搬**（`HadoopAuthenticator.getHadoopAuthenticator(AuthenticationConfig)` 工厂耦合 `HadoopKerberosAuthenticator`/`HadoopSimpleAuthenticator`，拆分会造成跨模块 split-package）。若把 trino→JDK 放在 relocate **之后**，则 relocate 那一步会把 `HadoopKerberosAuthenticator` 的 `io.trino...KerberosTicketUtils` 依赖**带进 fe-kerberos**（干净叶子），迫使 fe-kerberos 临时声明 `trino-main` 依赖——违背「fe-kerberos 是中立轻叶子」。
