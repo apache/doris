@@ -130,3 +130,42 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 - **写路径 RFC 须先于 P6.3 实现**（PMC 评审有外部阻塞，P6.3 第一件事即启动 RFC 让评审并行）。
 - **连接器禁 import fe-core**：DLF 子树、profile、IO plumbing 均须自包含或 drop（参 paimon profile drop 先例）。
 - **元存储子线**细节见 [`metastore-storage-refactor/HANDOFF.md`](../metastore-storage-refactor/HANDOFF.md)。
+
+---
+
+## P6.1 逐 task 拆解（P6-Tnn）—— 2026-06-21 code-grounded recon 产出
+
+> recon 详情 + 已验断言 + 跨切面风险见 [`research/p6.1-iceberg-metadata-recon.md`](../research/p6.1-iceberg-metadata-recon.md)。
+> **关键认知**：连接器 6-file 骨架是「编译通过但误导性的近-no-op」——真正的 per-flavor catalog 装配在 metastore-props（`AbstractIcebergProperties.initializeCatalog:133`，非 `datasource/iceberg/*`），骨架把它坍缩成裸类名 switch，且含 4 个 silent 读路径 bug（mapping-flag key 下划线-vs-点分恒 false / `TIMESTAMPTZV2` 名 vs converter 只认 `TIMESTAMPTZ` / nullable·isKey·小写·WITH_TZ marker / format-version 算错）。模板 = paimon（`PaimonCatalogFactory` 纯静态 + `PaimonCatalogOps` 可注入 seam + `Recording*`/`Fake*` 测试基建）。
+> **顺序原则**：seam + 测试基建先（让下游 offline 可测）→ pom 依赖闭包 → 5 个 CatalogUtil flavor → s3tables（bespoke）→ DLF port → 读元数据 rewire + type-mapping parity 修。**全程不碰 `SPI_READY_TYPES`，零行为变更**（对齐 legacy 行为，非对齐骨架）。
+> **新建连接器类清单**（mirror paimon）：`IcebergCatalogFactory`（纯静态）/ `IcebergCatalogOps`（interface + nested `CatalogBackedIcebergCatalogOps`）/ ported `HiveCompatibleCatalog` + `dlf/{DLFCatalog,DLFTableOperations,client/DLFClientPool,client/DLFCachedClientPool}` + vendored `ProxyMetaStoreClient`；test：`RecordingIcebergCatalogOps` / `FakeIcebergTable` / `RecordingConnectorContext`(copy) / `IcebergCatalogFactoryTest` / `IcebergConnectorMetadataTest` / `IcebergTypeMappingReadTest` / `IcebergConnectorValidatePropertiesTest` / `IcebergLiveConnectivityTest`(env-gated)。
+
+| ID | 标题 | 依赖 | 估 | 状态 |
+|---|---|---|---|---|
+| **P6-T01** | 抽纯 `IcebergCatalogFactory` + 引入 `IcebergCatalogOps` seam（纯结构倒置，无行为变更、不加新 flavor）| — | M | ✅ 2026-06-21（commit `ae54a2174ff`）|
+| **P6-T02** | 建 offline 测试基建（`RecordingIcebergCatalogOps`/`FakeIcebergTable`/`RecordingConnectorContext`/`IcebergCatalogFactoryTest`）| T01 | M | ✅ 2026-06-21（commit `ae54a2174ff`）|
+| **P6-T03** | `IcebergConnectorMetadata` rewire 到 seam + `IcebergConnectorMetadataTest`（behavior frozen）| T02 | M | ✅ 2026-06-21（commit `ae54a2174ff`）|
+| **P6-T04** | 补 7-flavor SDK 依赖闭包到连接器 pom（HMS/glue/s3tables/sts/aliyun-DLF）+ `fe/pom.xml` dM 条目 | T01 | M | ⬜ |
+| **P6-T05** | port 5 个 CatalogUtil flavor（REST/HMS/GLUE/HADOOP/JDBC）完整 per-flavor 属性装配（含 manifest-cache + warehouse + JDBC DriverShim + `iceberg.jdbc.catalog_name`）| T02,T04 | L | ⬜ |
+| **P6-T06** | port S3TABLES flavor 的 bespoke（非 CatalogUtil）`new S3TablesCatalog().initialize(name,props,client)` 路径 | T04,T05 | M | ⬜ |
+| **P6-T07** | port DLF 子树（`DLFCatalog`+`HiveCompatibleCatalog`+`DLFTableOperations`+2 client pool + vendored `ProxyMetaStoreClient`）+ 断 3 fe-core import + wire dlf flavor（复用 `DlfMetaStorePropertiesImpl.toDlfCatalogConf`）| T04,T05 | L | ⬜ |
+| **P6-T08** | 修 Iceberg→Doris type-mapping 读 parity（`TIMESTAMPTZ` 名 + 点分 mapping-flag key）+ `IcebergTypeMappingReadTest` | T02 | M | ⬜ |
+| **P6-T09** | 修 `parseSchema` column 构造 parity（小写 / nullable=true / isKey=true / WITH_TIMEZONE marker / format-version）+ nested-namespace + view 过滤 | T03,T08 | L | ⬜ |
+| **P6-T10** | `IcebergConnector` 创建走 `executeAuthenticated` + thread-context-CL pin；`IcebergConnectorProvider.validateProperties`；env-gated `IcebergLiveConnectivityTest` | T05,T06,T07,T09 | M | ⬜ |
+
+**通用验收门（每 task）**：连接器 UT 绿（无 Mockito，fail-loud fake）+ checkstyle 0 + `tools/check-connector-imports.sh` 净 + **断言 assembled prop map / Hadoop conf / column flag vs legacy 期望值**（不能只断类名——parity-by-omission 风险）+ `grep` 确认 iceberg **不在** `SPI_READY_TYPES`。
+
+**待用户签字（实现 T04–T07 前）**：
+- **Q1 DLF scope**：P6.1 是否 port-now read-only（write 方法 dormant、`IcebergDLFExternalCatalog` DDL-policy 留 fe-core）vs 整 flavor 推迟。
+- **Q2 metastore-binding**：metastore-spi 仅复用 HMS HiveConf + DLF conf，REST/glue/jdbc/s3tables 在连接器内 re-derive（vs 扩 metastore-spi）。影响 metastore 子线。
+- （已采推荐默认，未单列问）s3tables/glue dep → 加 `fe/pom.xml` dM；结构 seam（executeAuthenticated+CL-pin）P6.1 即纳入（虽 P6.6 docker 前不可 live-test）。
+
+> **T01/T02/T03/T08 与上述决策无关**（纯结构倒置 + 测试基建 + type-mapping 修），可在签字前先行实现。T04–T07/T09/T10 待 Q1/Q2。
+
+### P6-T01..T03 实现记录（2026-06-21，✅ 已实现 + 验证，commit `ae54a2174ff`）
+
+- **新建**：`IcebergCatalogFactory`（纯静态 `resolveFlavor`/`resolveCatalogImpl`，verbatim lift 自 `IcebergConnector`）+ `IcebergCatalogOps`（interface + nested `CatalogBackedIcebergCatalogOps`，read 子集 `listDatabaseNames/databaseExists/listTableNames/tableExists/loadTable/close`，`SupportsNamespaces` 分支内化）。
+- **rewire**：`IcebergConnector.getMetadata` 注入 `new CatalogBackedIcebergCatalogOps(catalog)`；`createCatalog` 用 `IcebergCatalogFactory.resolveCatalogImpl`（删私有副本）；`IcebergConnectorMetadata` ctor 改吃 `IcebergCatalogOps`，5 read 方法走 seam（behavior frozen，parseSchema 原样保留待 T08/T09）。
+- **测试基建**（连接器首批测试，src/test 从无到有）：`RecordingIcebergCatalogOps`（手写 no-Mockito fake + call log）/ `FakeIcebergTable`（fail-loud，仅 schema/spec/location/properties，余 30 法 throw）/ `RecordingConnectorContext`（copy paimon）/ `IcebergCatalogFactoryTest`（13）/ `IcebergConnectorMetadataTest`（14）。
+- **验证**：`mvn -pl :fe-connector-iceberg -am test`（cache off）BUILD SUCCESS，surefire 实证 **27 run / 0 fail / 0 error / 0 skip**；checkstyle 0；import-gate 净。
+- **🔴 测试独立确证 2 个 T08/T09 parity bug（已 pin frozen，NOTE 标注，待修）**：① `format-version` = `spec().specId()>=0?2:1` **恒 stamp "2"**（含 unpartitioned，specId==0），应读 table `format-version` 元数据（T09）；② mapping-flag 仍读**下划线** key `enable_mapping_varbinary`/`enable_mapping_timestamp_tz`（`IcebergConnectorMetadataTest` 喂下划线 key 故测绿；生产 catalog map 携**点分** key→恒 false，T08 改常量为点分后须同步改该测）；另 `TIMESTAMPTZV2` 名（converter 只认 `TIMESTAMPTZ`，T08）。

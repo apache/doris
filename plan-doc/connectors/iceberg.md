@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/` |
 | **共享依赖** | `fe-connector-hms`（iceberg-HMS-flavor 用） |
 | **计划迁移阶段** | **P6**（最大阶段，5 周）|
-| **当前状态** | 🚧 阶段拆分完成（方案 A / 8 阶段 / 单一翻闸，[D-058]）；下一 = P6.1 recon |
-| **完成度** | 8% |
+| **当前状态** | 🚧 P6.1 进行中：recon + 10-task 拆解 + [D-059]；T01-T03（seam + 测试基建）已实现+验证（27 UT 绿，commit `ae54a2174ff`）；下一 = T08/T04 |
+| **完成度** | 14% |
 | **阶段拆分 spec** | [`tasks/P6-iceberg-migration.md`](../tasks/P6-iceberg-migration.md) |
 | **主 owner** | TBD |
 
@@ -89,6 +89,11 @@
 ---
 
 ## 进度日志
+
+### 2026-06-21（P6.1 recon + T01-T03）
+- **recon**（7-agent，`research/p6.1-iceberg-metadata-recon.md`）+ **10-task 拆解**（`tasks/P6-iceberg-migration.md` §P6.1）+ **[D-059]**（Q1 DLF port-now read-only / Q2 扩 metastore-spi 加 iceberg provider）。
+- **T01-T03 实现+验证（commit `ae54a2174ff`）**：新建 `IcebergCatalogFactory`（纯静态）+ `IcebergCatalogOps`（注入 seam）+ rewire `IcebergConnectorMetadata`（behavior frozen）+ 测试基建从无到有（`RecordingIcebergCatalogOps`/`FakeIcebergTable`/`RecordingConnectorContext` + 2 test class）。`mvn test`（cache off）= 27 run/0F/0E/0skip + checkstyle 0 + import-gate 净。连接器主文件 6→8。
+- 测试独立确证 2 个 silent parity bug（format-version 恒 2 / mapping-flag 下划线 key）已 pin frozen 待 T08/T09。
 
 ### 2026-05-24
 - 跟踪文件建立。当前 fe-connector 仅 6 个文件骨架，是所有连接器中 **fe-connector 端最不完整** 的——P6 工作量巨大（5 周）。
