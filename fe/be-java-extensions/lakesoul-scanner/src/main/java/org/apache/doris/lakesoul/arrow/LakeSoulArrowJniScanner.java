@@ -62,6 +62,7 @@ public class LakeSoulArrowJniScanner extends JniScanner {
 
     protected BufferAllocator allocator;
     private long metaAddress = 0;
+    private long beMetaAddress = 0;
     private ArrayList<Long> extraOffHeap = new ArrayList<>();
 
     protected Schema requiredSchema;
@@ -94,8 +95,55 @@ public class LakeSoulArrowJniScanner extends JniScanner {
             ColumnType columnType = types[i];
             idx = fillMetaAddressVector(batchSize, columnType, metaAddress, idx, batch.getVector(i));
         }
+        beMetaAddress = buildBeMetaAddress(types, metaAddress, batchSize);
 
         return VectorTable.createReadableTable(types, fields, metaAddress);
+    }
+
+    protected long getBeMetaAddress() {
+        return beMetaAddress;
+    }
+
+    static long buildBeMetaAddress(ColumnType[] types, long javaMetaAddress, int batchSize) {
+        int metaSize = 1;
+        for (ColumnType type : types) {
+            metaSize += type.metaSize();
+        }
+        long address = OffHeap.allocateMemory((long) metaSize << 3);
+        OffHeap.putLong(null, address, batchSize);
+
+        int[] offsets = new int[] {1, 1};
+        for (ColumnType type : types) {
+            copyBeMeta(type, javaMetaAddress, address, offsets);
+        }
+        return address;
+    }
+
+    private static void copyBeMeta(ColumnType columnType, long javaMetaAddress, long beMetaAddress, int[] offsets) {
+        offsets[0]++; // skip Java-readable const flag
+        copyMetaSlot(javaMetaAddress, beMetaAddress, offsets);
+        if (columnType.isUnsupported()) {
+            return;
+        }
+
+        if (columnType.isComplexType()) {
+            if (!columnType.isStruct()) {
+                copyMetaSlot(javaMetaAddress, beMetaAddress, offsets);
+            }
+            for (ColumnType childType : columnType.getChildTypes()) {
+                copyBeMeta(childType, javaMetaAddress, beMetaAddress, offsets);
+            }
+        } else if (columnType.isStringType()) {
+            copyMetaSlot(javaMetaAddress, beMetaAddress, offsets);
+            copyMetaSlot(javaMetaAddress, beMetaAddress, offsets);
+        } else {
+            copyMetaSlot(javaMetaAddress, beMetaAddress, offsets);
+        }
+    }
+
+    private static void copyMetaSlot(long javaMetaAddress, long beMetaAddress, int[] offsets) {
+        OffHeap.putLong(null, beMetaAddress + (offsets[1]++) * 8,
+                OffHeap.getLong(null, javaMetaAddress + (offsets[0]++) * 8));
     }
 
     protected void initTableInfo(Schema schema, int batchSize) {
@@ -232,10 +280,7 @@ public class LakeSoulArrowJniScanner extends JniScanner {
 
     @Override
     public void close() {
-        if (metaAddress != 0) {
-            OffHeap.freeMemory(metaAddress);
-            metaAddress = 0;
-        }
+        releaseMetaAddresses();
         for (long address : extraOffHeap) {
             OffHeap.freeMemory(address);
         }
@@ -258,14 +303,22 @@ public class LakeSoulArrowJniScanner extends JniScanner {
 
     @Override
     public void releaseTable() {
-        if (metaAddress != 0) {
-            OffHeap.freeMemory(metaAddress);
-            metaAddress = 0;
-        }
+        releaseMetaAddresses();
         for (long address : extraOffHeap) {
             OffHeap.freeMemory(address);
         }
         extraOffHeap.clear();
         vectorTable = null;
+    }
+
+    private void releaseMetaAddresses() {
+        if (metaAddress != 0) {
+            OffHeap.freeMemory(metaAddress);
+            metaAddress = 0;
+        }
+        if (beMetaAddress != 0) {
+            OffHeap.freeMemory(beMetaAddress);
+            beMetaAddress = 0;
+        }
     }
 }
