@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;

@@ -18,12 +18,13 @@
 package org.apache.doris.kerberos;
 
 /**
- * Neutral Hadoop authentication type for external metastore/storage connections.
+ * Hadoop authentication type for external table/metastore/storage connections
+ * (e.g. hive/iceberg/paimon), so that BE can run secured under the file storage
+ * system when Kerberos is enabled.
  *
- * <p>Mirrors the closed {SIMPLE, KERBEROS} set of fe-common
- * {@code org.apache.doris.common.security.authentication.AuthType}, but lives in this
- * leaf module so connectors (which cannot depend on fe-common) can express the auth
- * type as a neutral fact.
+ * <p>Lives in this neutral leaf module as the single source of truth, so both
+ * fe-common consumers and connectors (which cannot depend on fe-common) can
+ * express the auth type as a neutral fact.
  */
 public enum AuthType {
     SIMPLE("simple"),
@@ -33,6 +34,15 @@ public enum AuthType {
 
     AuthType(String desc) {
         this.desc = desc;
+    }
+
+    public static boolean isSupportedAuthType(String authType) {
+        for (AuthType auth : values()) {
+            if (auth.getDesc().equals(authType)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Returns the lowercase wire name ("simple" / "kerberos"). */

@@ -56,7 +56,7 @@ fe-filesystem/                        (aggregator POM — no Java code)
   dependencies). Defines `FileSystem`, `Location`, `FileEntry`, `DorisInputFile`,
   `DorisOutputFile`, etc.
 * **SPI** — The `FileSystemProvider` interface (extends `PluginFactory` from `fe-extension-spi`)
-  plus the object-storage layer (`ObjStorage`, `ObjFileSystem`, `HadoopAuthenticator`). Also
+  plus the object-storage layer (`ObjStorage`, `ObjFileSystem`). Also
   compiled into `fe-core`.
 * **IMPL** — Concrete backends. Each one depends on `fe-filesystem-spi` (and transitively on
   `fe-filesystem-api`). S3-delegating backends (OSS, COS, OBS) also depend on `fe-filesystem-s3`
