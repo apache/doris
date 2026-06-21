@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -26,6 +25,7 @@ import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;

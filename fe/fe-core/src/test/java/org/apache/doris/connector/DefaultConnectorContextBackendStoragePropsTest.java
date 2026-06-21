@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

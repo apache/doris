@@ -5,6 +5,13 @@
 
 ---
 
+## D-017 — P2-T04/T05 ✅ 收口；P3b（kerberos 机制收口到 fe-kerberos）提前到 P6 iceberg 之前单独做
+- **日期**：2026-06-21 ｜ **决策者**：用户（「在开始 P6 iceberg spi 迁移之前，先做 P3b」）
+- **背景**：① **P2-T04 ✅**（`MetaStoreProviders` 改 2-arg 显式 loader `2612af5e88f` + paimon pom/import-gate 核对）+ **P2-T05 ✅**（用户 2026-06-21 **手动 docker 验证**：paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）→ **P2 全 5/5、元存储子线 docker 真闸通过**。② 主线 **P5-T29（B8）已完成**（fe-core 完全 paimon-SDK-free，见 [`../HANDOFF.md`](../HANDOFF.md)）。③ P3b 原计划「与 hive/iceberg 迁移同批」（D-007 步骤 b / tasks P3b-T01「范围外占位」）。
+- **内容**：**P3b 提前、单独做，排在 P6 iceberg SPI 迁移之前**（不再「与 hive/iceberg 同批」）。P3b ＝ 把 fe-common `security.authentication.*`（**12 类机制**）收口到 `fe-kerberos` 作唯一真相源 + 删 `fe-filesystem-hdfs` 自有 `KerberosHadoopAuthenticator`/`SimpleHadoopAuthenticator` 副本 + 统一两个打架的 `HadoopAuthenticator` 接口（fe-common `PrivilegedExceptionAction` vs fe-filesystem-spi `IOCallable`）+ trino `KerberosTicketUtils`→JDK（现码 scope 见 tasks P3b-T01）。
+- **理由**：P3b 是**纯机制收口**，不依赖 iceberg 迁移即可独立完成；且**先做 P3b 反而服务 P6**——iceberg metastore-props 迁移届时直接复用收口后的干净 `fe-kerberos` authenticator（与 paimon 将来同），避免 P6 同时扛「iceberg 迁移 + kerberos 收口」两件大事。先打地基再迁 iceberg。**被否**：原「与 hive/iceberg 同批」（回归面叠加）。
+- **影响**：tasks P3b-T01 `⬜ 范围外` → `🚧 active（下一任务）`；主线 [`../HANDOFF.md`](../HANDOFF.md) 头条 = P3b（先于 P6）；PROGRESS/HANDOFF「下一步」改 P3b。**白名单将扩**（执行 session 前定，先 AskUserQuestion 定 scope 粒度）：`fe/fe-kerberos/**`（加机制 + hadoop-auth/common 依赖）、`fe/fe-common/.../security/authentication/**`（搬出/重指向）、`fe/fe-filesystem/fe-filesystem-hdfs/**`（删副本+统一接口）、+ 40 处 import 重指向的消费方（**24 fe-core + 12 fe-common + 3 be-java-extensions scanner**[paimon/iceberg/hudi JNI]——⚠️ 跨 FE/BE-java）。
+
 ## D-016 — 授权彻底删除 fe-property 模块（超 D-005，定为下一阶段 P1-T07）
 - **日期**：2026-06-18 ｜ **决策者**：用户（「下一阶段，彻底删除 fe-property 模块」）
 - **背景**：P1-T05 断开 paimon→fe-property 依赖边后，fe-property 成 **0 消费者孤儿**（whole-repo 核实：除 `fe/pom.xml` 的 `<module>`+dependencyManagement 外，无任何 pom `<dependency>` 它、无任何源 `import org.apache.doris.property.*`、无 BE/docker/脚本/regression 引用；仅 5 处 stale **注释**在 paimon+fe-filesystem-hdfs 提到「移植源/replaces fe-property…」）。D-005/设计 P1-5 当初把物理删除「留待后续任务」，WORKFLOW §4.1 把 `fe/fe-property/**` 的删除列为**禁止**。
