@@ -17,10 +17,11 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
 
 import lombok.Getter;
 

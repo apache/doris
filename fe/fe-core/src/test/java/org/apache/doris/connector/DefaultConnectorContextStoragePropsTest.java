@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
@@ -26,6 +25,7 @@ import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.FileSystemPluginManager;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;

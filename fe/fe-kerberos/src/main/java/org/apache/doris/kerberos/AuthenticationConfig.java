@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.security.authentication;
+package org.apache.doris.kerberos;
 
 import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
