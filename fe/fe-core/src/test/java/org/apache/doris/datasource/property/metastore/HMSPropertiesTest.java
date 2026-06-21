@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
+import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
