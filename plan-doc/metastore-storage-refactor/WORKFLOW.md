@@ -61,13 +61,18 @@ fe/fe-filesystem/fe-filesystem-hdfs/**                 (FU-T01：HDFS typed BE m
 fe/fe-filesystem/fe-filesystem-{s3,oss,cos,obs}/**     (FU-T02 R-008 / FU-T03 R-006；D-011 授权；main+test；其它 fe-filesystem 模块[api,spi,azure,broker,local]仍禁碰)
 fe/fe-kerberos/**                                       (新建；P3a-T01 fe-kerberos 叶子；D-007/D-013)
 fe/fe-property/**                                       (P1-T07：彻底删除该孤儿模块；D-016 授权，覆盖 D-005 不删条款)
+fe/fe-common/src/{main,test}/java/org/apache/doris/common/security/authentication/**  (P3b-T01：trino→JDK + 整包 relocate 出 fe-common；D-017)
+fe/fe-common/pom.xml                                   (P3b-T01：加 fe-common→fe-kerberos 依赖边；D-017 已预定，commit 2 登记)
+fe/fe-filesystem/fe-filesystem-spi/**                  (P3b-T01：统一 HadoopAuthenticator 接口/IOCallable；D-017)
+fe/be-java-extensions/**                               (P3b-T01：3 scanner auth import 重指向 + java-common/pom.xml 加 fe-kerberos 依赖；D-017)
+fe/fe-core/src/{main,test}/java/**                      (P3b-T01：24 main+14 test 消费方 **仅 import 行重指向**；含 datasource.property.{storage,metastore} 下的文件——D-017 显式授权对这些「禁碰」包做 import-only 修改，不改逻辑)
 fe/fe-connector/pom.xml                                (仅新增模块声明)
 fe/pom.xml                                             (新增模块声明；P1-T07 额外允许删除 fe-property 的 <module>+dependencyManagement 条目，D-016)
 plan-doc/metastore-storage-refactor/**                 (本跟踪目录)
 ```
 **禁止**出现的路径（出现即停、回滚或记偏差）：
-- `fe/fe-core/src/main/java/.../datasource/property/storage/**`（fe-core 旧 storage 包，保持不动）
-- `fe/fe-core/src/main/java/.../datasource/property/metastore/**`（fe-core 旧 metastore 包，保持不动）
+- `fe/fe-core/src/main/java/.../datasource/property/storage/**`（fe-core 旧 storage 包，保持不动；**P3b-T01 例外**：仅允许 auth import 行重指向，D-017）
+- `fe/fe-core/src/main/java/.../datasource/property/metastore/**`（fe-core 旧 metastore 包，保持不动；**P3b-T01 例外**：仅允许 auth import 行重指向，D-017）
 - `fe/fe-connector/fe-connector-{hive,hudi,iceberg,es,jdbc,maxcompute,trino}/**`（其它连接器，不动）
 - ~~`fe/fe-property/**` 的删除~~ → **P1-T07 已授权删除（D-016）**，移入上方允许区（fe-core 两包仍禁碰）
 

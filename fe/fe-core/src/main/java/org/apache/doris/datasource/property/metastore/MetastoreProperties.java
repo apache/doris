@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectionProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;

@@ -19,9 +19,9 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
+import org.apache.doris.kerberos.HadoopSimpleAuthenticator;
 
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;

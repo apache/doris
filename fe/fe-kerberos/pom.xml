@@ -32,13 +32,44 @@ under the License.
     <description>
         Neutral, top-level leaf module for Hadoop Kerberos authentication facts and
         machinery shared by fe-common, fe-filesystem-*, and fe-connector-* (D-007).
-        This initial slice carries only the neutral, dependency-free facts types
-        (AuthType, KerberosAuthSpec) consumed by the metastore connector API; the
-        hadoop-dependent authenticator machinery is added incrementally as consumers
-        land (D-013).
+        Carries the neutral facts types (AuthType, KerberosAuthSpec) consumed by the
+        metastore connector API plus the Hadoop authenticator machinery (authentication
+        config + UGI doAs authenticators) relocated here as the single source of truth
+        (P3b-T01 / D-017). Depends only on Hadoop and JDK — no FE module dependency.
     </description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-collections</groupId>
+                    <artifactId>commons-collections</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>commons-compress</artifactId>
+                </exclusion>
+            </exclusions>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
