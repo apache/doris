@@ -297,7 +297,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                     long originIndexId = indexIdMap.get(shadowIdxId);
                     int originSchemaHash = tbl.getSchemaHashByIndexId(originIndexId);
                     KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
-
                     List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
 
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {

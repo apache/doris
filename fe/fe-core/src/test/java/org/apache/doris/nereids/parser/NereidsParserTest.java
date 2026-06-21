@@ -20,6 +20,7 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
@@ -47,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -58,6 +60,9 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -1443,6 +1448,81 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
         CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
         Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateIndexUsingBloomFilter() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE INDEX idx_content ON docs(content) USING BLOOMFILTER";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
+        AlterTableCommand alterTableCommand = (AlterTableCommand) plan;
+        Assertions.assertEquals(1, alterTableCommand.getOps().size());
+        Assertions.assertInstanceOf(CreateIndexOp.class, alterTableCommand.getOps().get(0));
+        CreateIndexOp createIndexOp = (CreateIndexOp) alterTableCommand.getOps().get(0);
+        IndexDefinition indexDefinition = createIndexOp.getIndexDef();
+        Assertions.assertEquals("idx_content", indexDefinition.getIndexName());
+        Assertions.assertEquals(Lists.newArrayList("content"), indexDefinition.getColumnNames());
+        Assertions.assertEquals(IndexType.BLOOMFILTER, indexDefinition.getIndexType());
+        Assertions.assertEquals("docs", createIndexOp.getTableName().getTbl());
+    }
+
+    @Test
+    public void testCreateIndexUsingBloomFilterWithPropertiesThrows() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE INDEX idx_content ON docs(content) USING BLOOMFILTER "
+                + "PROPERTIES (\"bloom_filter_fpp\" = \"0.05\")";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(AlterTableCommand.class, plan);
+        AlterTableCommand alterTableCommand = (AlterTableCommand) plan;
+        Assertions.assertEquals(1, alterTableCommand.getOps().size());
+        Assertions.assertInstanceOf(CreateIndexOp.class, alterTableCommand.getOps().get(0));
+        CreateIndexOp createIndexOp = (CreateIndexOp) alterTableCommand.getOps().get(0);
+        IndexDefinition indexDefinition = createIndexOp.getIndexDef();
+        Assertions.assertDoesNotThrow(indexDefinition::validate);
+        Assertions.assertEquals("0.05", indexDefinition.getProperties().get("bloom_filter_fpp"));
+    }
+
+    @Test
+    public void testCreateTableInlineBloomFilterIndex() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE docs ("
+                + "id BIGINT, "
+                + "content TEXT, "
+                + "INDEX idx_content (content) USING BLOOMFILTER COMMENT \"this is a simple bloomfilter index\""
+                + ") DISTRIBUTED BY HASH(id) BUCKETS 1";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, plan);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        Field indexesField = CreateTableInfo.class.getDeclaredField("indexes");
+        indexesField.setAccessible(true);
+        List<IndexDefinition> indexDefinitions = (List<IndexDefinition>) indexesField.get(createTableInfo);
+        Assertions.assertEquals(1, indexDefinitions.size());
+        IndexDefinition indexDefinition = indexDefinitions.get(0);
+        Assertions.assertEquals("idx_content", indexDefinition.getIndexName());
+        Assertions.assertEquals(Lists.newArrayList("content"), indexDefinition.getColumnNames());
+        Assertions.assertEquals(IndexType.BLOOMFILTER, indexDefinition.getIndexType());
+        Assertions.assertEquals("this is a simple bloomfilter index", indexDefinition.getComment());
+    }
+
+    @Test
+    public void testCreateTableInlineBloomFilterIndexWithFppProperty() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE docs ("
+                + "id BIGINT, "
+                + "content TEXT, "
+                + "INDEX idx_content (content) USING BLOOMFILTER "
+                + "PROPERTIES (\"bloom_filter_fpp\" = \"0.05\")"
+                + ") DISTRIBUTED BY HASH(id) BUCKETS 1";
+        Plan plan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, plan);
+        CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
+        Field indexesField = CreateTableInfo.class.getDeclaredField("indexes");
+        indexesField.setAccessible(true);
+        List<IndexDefinition> indexDefinitions = (List<IndexDefinition>) indexesField.get(createTableInfo);
+        Assertions.assertEquals(1, indexDefinitions.size());
+        Assertions.assertDoesNotThrow(() -> indexDefinitions.get(0).validate());
+        Assertions.assertEquals("0.05", indexDefinitions.get(0).getProperties().get("bloom_filter_fpp"));
     }
 
     @Test

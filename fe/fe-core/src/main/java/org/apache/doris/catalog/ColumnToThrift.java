@@ -30,8 +30,10 @@ import java.util.Set;
 public class ColumnToThrift {
 
     public static void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
+        String columnName = tColumn.getColumnName();
         Set<String> bfColumns = olapTable.getCopiedBfColumns();
-        if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
+        if ((bfColumns != null && bfColumns.contains(columnName))
+                || Index.hasBloomFilterIndex(olapTable.getIndexes(), columnName)) {
             tColumn.setIsBloomFilterColumn(true);
         }
     }

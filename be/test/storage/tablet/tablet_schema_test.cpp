@@ -318,6 +318,184 @@ TEST_F(TabletSchemaTest, test_tablet_schema_update_indexes_from_thrift) {
     EXPECT_TRUE(found_varchar_idx);
 }
 
+TEST_F(TabletSchemaTest, test_get_bloom_filter_fpp_prefers_index_property) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_bf_fpp(0.11);
+
+    auto* value_column = schema_pb.add_column();
+    value_column->set_unique_id(1001);
+    value_column->set_name("v1");
+    value_column->set_type("INT");
+    value_column->set_is_key(false);
+    value_column->set_is_nullable(true);
+    value_column->set_length(4);
+    value_column->set_aggregation("NONE");
+    value_column->set_is_bf_column(true);
+
+    auto* bf_index = schema_pb.add_index();
+    bf_index->set_index_id(1);
+    bf_index->set_index_name("idx_v1");
+    bf_index->set_index_type(IndexType::BLOOMFILTER);
+    bf_index->add_col_unique_id(1001);
+    (*bf_index->mutable_properties())["bloom_filter_fpp"] = "0.03";
+
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(1001), 0.03);
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(schema.column_by_uid(1001)), 0.03);
+}
+
+TEST_F(TabletSchemaTest, test_get_bloom_filter_fpp_named_index_without_property_uses_default) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_bf_fpp(0.07);
+
+    auto* value_column = schema_pb.add_column();
+    value_column->set_unique_id(1002);
+    value_column->set_name("v2");
+    value_column->set_type("INT");
+    value_column->set_is_key(false);
+    value_column->set_is_nullable(true);
+    value_column->set_length(4);
+    value_column->set_aggregation("NONE");
+    value_column->set_is_bf_column(true);
+
+    auto* bf_index = schema_pb.add_index();
+    bf_index->set_index_id(2);
+    bf_index->set_index_name("idx_v2");
+    bf_index->set_index_type(IndexType::BLOOMFILTER);
+    bf_index->add_col_unique_id(1002);
+
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(1002), BLOOM_FILTER_DEFAULT_FPP);
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(schema.column_by_uid(1002)),
+                     BLOOM_FILTER_DEFAULT_FPP);
+}
+
+TEST_F(TabletSchemaTest,
+       test_get_bloom_filter_fpp_named_index_without_property_ignores_table_level_fpp) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_bf_fpp(0.07);
+
+    auto* legacy_bf_column = schema_pb.add_column();
+    legacy_bf_column->set_unique_id(1003);
+    legacy_bf_column->set_name("legacy_bf_col");
+    legacy_bf_column->set_type("INT");
+    legacy_bf_column->set_is_key(false);
+    legacy_bf_column->set_is_nullable(true);
+    legacy_bf_column->set_length(4);
+    legacy_bf_column->set_aggregation("NONE");
+    legacy_bf_column->set_is_bf_column(true);
+
+    auto* named_bf_column = schema_pb.add_column();
+    named_bf_column->set_unique_id(1004);
+    named_bf_column->set_name("named_bf_col");
+    named_bf_column->set_type("INT");
+    named_bf_column->set_is_key(false);
+    named_bf_column->set_is_nullable(true);
+    named_bf_column->set_length(4);
+    named_bf_column->set_aggregation("NONE");
+    named_bf_column->set_is_bf_column(true);
+
+    auto* bf_index = schema_pb.add_index();
+    bf_index->set_index_id(4);
+    bf_index->set_index_name("idx_named_bf_col");
+    bf_index->set_index_type(IndexType::BLOOMFILTER);
+    bf_index->add_col_unique_id(1004);
+
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(1003), 0.07);
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(1004), BLOOM_FILTER_DEFAULT_FPP);
+}
+
+TEST_F(TabletSchemaTest, test_get_bloom_filter_fpp_legacy_column_uses_table_property) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_bf_fpp(0.07);
+
+    auto* value_column = schema_pb.add_column();
+    value_column->set_unique_id(1004);
+    value_column->set_name("v4");
+    value_column->set_type("INT");
+    value_column->set_is_key(false);
+    value_column->set_is_nullable(true);
+    value_column->set_length(4);
+    value_column->set_aggregation("NONE");
+    value_column->set_is_bf_column(true);
+
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(1004), 0.07);
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(schema.column_by_uid(1004)), 0.07);
+}
+
+TEST_F(TabletSchemaTest, test_get_bloom_filter_fpp_uses_default_without_table_property) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+
+    auto* value_column = schema_pb.add_column();
+    value_column->set_unique_id(1003);
+    value_column->set_name("v3");
+    value_column->set_type("INT");
+    value_column->set_is_key(false);
+    value_column->set_is_nullable(true);
+    value_column->set_length(4);
+    value_column->set_aggregation("NONE");
+    value_column->set_is_bf_column(true);
+
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(1003), BLOOM_FILTER_DEFAULT_FPP);
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(schema.column_by_uid(1003)),
+                     BLOOM_FILTER_DEFAULT_FPP);
+}
+
+TEST_F(TabletSchemaTest, test_get_bloom_filter_fpp_for_extracted_column_uses_parent_index) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_bf_fpp(0.09);
+
+    auto* variant_column = schema_pb.add_column();
+    variant_column->set_unique_id(2001);
+    variant_column->set_name("v");
+    variant_column->set_type("VARIANT");
+    variant_column->set_is_key(false);
+    variant_column->set_is_nullable(true);
+    variant_column->set_length(4);
+    variant_column->set_aggregation("NONE");
+    variant_column->set_is_bf_column(true);
+    variant_column->set_variant_max_subcolumns_count(8);
+
+    auto* bf_index = schema_pb.add_index();
+    bf_index->set_index_id(3);
+    bf_index->set_index_name("idx_v");
+    bf_index->set_index_type(IndexType::BLOOMFILTER);
+    bf_index->add_col_unique_id(2001);
+    (*bf_index->mutable_properties())["bloom_filter_fpp"] = "0.02";
+
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+
+    TabletColumn extracted;
+    extracted.set_name("v.a");
+    extracted.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    extracted.set_parent_unique_id(2001);
+    extracted.set_path_info(PathInData("v.a"));
+    extracted.set_is_nullable(true);
+
+    EXPECT_TRUE(extracted.is_extracted_column());
+    EXPECT_DOUBLE_EQ(schema.get_bloom_filter_fpp(extracted), 0.02);
+}
+
 TEST_F(TabletSchemaTest, test_tablet_schema_append_index) {
     TabletSchema schema;
 

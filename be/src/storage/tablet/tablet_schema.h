@@ -598,6 +598,8 @@ public:
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(int32_t col_unique_id) const;
+    double get_bloom_filter_fpp(const TabletColumn& column) const;
     const TabletIndex* get_index(int32_t col_unique_id, IndexType index_type,
                                  const std::string& suffix_path) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);

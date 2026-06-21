@@ -17,14 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     private static String runningDir = "fe/mocked/CreateTableWithBloomFilterIndexTest/"
@@ -33,6 +39,41 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
+    }
+
+    private void expectFailureContains(String expectedMessage, ExceptionChecker.ThrowingRunnable runnable) {
+        Throwable throwable = Assertions.assertThrows(Throwable.class, runnable::run);
+        Assertions.assertTrue(throwable.getMessage().contains(expectedMessage),
+                "expected msg: " + expectedMessage + ", actual: " + throwable.getMessage());
+    }
+
+    private OlapTable getOlapTable(String tableName) throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        return (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+    }
+
+    private void waitForSchemaChangeDone(String tableName) throws Exception {
+        long deadlineMs = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(30);
+        while (System.currentTimeMillis() < deadlineMs) {
+            OlapTable table = getOlapTable(tableName);
+            boolean allJobsFinished = true;
+            for (AlterJobV2 job : Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().values()) {
+                if (job.getTableId() == table.getId() && !job.getJobState().isFinalState()) {
+                    allJobsFinished = false;
+                    break;
+                }
+            }
+            if (table.getState() == OlapTable.OlapTableState.NORMAL && allJobsFinished) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        Assertions.fail("schema change job did not finish for table " + tableName);
+    }
+
+    private void alterTableSyncAndWait(String sql, String tableName) throws Exception {
+        alterTableSync(sql);
+        waitForSchemaChangeDone(tableName);
     }
 
     @Test
@@ -901,5 +942,432 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                         + "\"bloom_filter_columns\" = \" , \",\n"
                         + "\"replication_num\" = \"1\"\n"
                         + ");"));
+    }
+
+    @Test
+    public void testCreateTableRejectsLegacyAndNamedBloomFilterOnSameColumn() {
+        expectFailureContains("k1 should have only one ngram bloom filter index or bloom filter index",
+                () -> createTable("CREATE TABLE test.tbl_bf_conflict_create (\n"
+                        + "k1 INT,\n"
+                        + "v1 STRING,\n"
+                        + "INDEX idx_k1 (k1) USING BLOOMFILTER\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k1\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testCreateTableWithNamedBloomFilterUsesDefaultFpp() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_default_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        OlapTable table = getOlapTable("tbl_bf_named_default_fpp");
+        Assertions.assertNull(table.getCopiedBfColumns());
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("v1"));
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertTrue(table.getIndexes().stream()
+                .filter(index -> "idx_v1".equalsIgnoreCase(index.getIndexName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("named bloom filter index not found"))
+                .getProperties()
+                .isEmpty());
+    }
+
+    @Test
+    public void testCreateTableWithNamedBloomFilterUsesIndexLevelFppProperty() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_index_level_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER PROPERTIES (\"bloom_filter_fpp\" = \"0.02\")\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        OlapTable table = getOlapTable("tbl_bf_named_index_level_fpp");
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertEquals("0.02", table.getIndexes().stream()
+                .filter(index -> "idx_v1".equalsIgnoreCase(index.getIndexName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("named bloom filter index not found"))
+                .getProperties()
+                .get("bloom_filter_fpp"));
+    }
+
+    @Test
+    public void testCreateTableWithNamedBloomFilterDoesNotUseTableLevelFpp() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_custom_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_fpp\" = \"0.01\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        OlapTable table = getOlapTable("tbl_bf_named_custom_fpp");
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("v1"));
+        Assertions.assertTrue(table.getIndexes().stream()
+                .filter(index -> "idx_v1".equalsIgnoreCase(index.getIndexName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("named bloom filter index not found"))
+                .getProperties()
+                .isEmpty());
+    }
+
+    @Test
+    public void testCreateIndexRejectsLegacyBloomFilterColumn() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_conflict_add_index (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains("k1 should have only one ngram bloom filter index or bloom filter index",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_conflict_add_index "
+                        + "ADD INDEX idx_k1(k1) USING BLOOMFILTER"));
+    }
+
+    @Test
+    public void testCreateFirstNamedBloomFilterIndexViaAlterUsesDefaultFpp() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_add_first_named (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        alterTableSyncAndWait("ALTER TABLE test.tbl_bf_add_first_named "
+                + "ADD INDEX idx_v1(v1) USING BLOOMFILTER", "tbl_bf_add_first_named");
+
+        OlapTable table = getOlapTable("tbl_bf_add_first_named");
+        Assertions.assertNull(table.getCopiedBfColumns());
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("v1"));
+        Assertions.assertTrue(table.getIndexes().stream()
+                .filter(index -> "idx_v1".equalsIgnoreCase(index.getIndexName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("named bloom filter index not found"))
+                .getProperties()
+                .isEmpty());
+    }
+
+    @Test
+    public void testCreateFirstNamedBloomFilterIndexViaAlterKeepsIndexLevelFppProperty() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_add_first_named_index_level_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        alterTableSyncAndWait("ALTER TABLE test.tbl_bf_add_first_named_index_level_fpp "
+                + "ADD INDEX idx_v1(v1) USING BLOOMFILTER PROPERTIES (\"bloom_filter_fpp\" = \"0.02\")",
+                "tbl_bf_add_first_named_index_level_fpp");
+
+        OlapTable table = getOlapTable("tbl_bf_add_first_named_index_level_fpp");
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertEquals("0.02", table.getIndexes().stream()
+                .filter(index -> "idx_v1".equalsIgnoreCase(index.getIndexName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("named bloom filter index not found"))
+                .getProperties()
+                .get("bloom_filter_fpp"));
+    }
+
+    @Test
+    public void testAddSecondNamedBloomFilterIndexSucceeds() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_add_second_named (\n"
+                + "k1 INT,\n"
+                + "k2 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        alterTableSyncAndWait("ALTER TABLE test.tbl_bf_add_second_named "
+                + "ADD INDEX idx_k2(k2) USING BLOOMFILTER", "tbl_bf_add_second_named");
+
+        OlapTable table = getOlapTable("tbl_bf_add_second_named");
+        Assertions.assertNull(table.getCopiedBfColumns());
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("v1"));
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("k2"));
+        Assertions.assertEquals(2, Index.extractBloomFilterColumns(table.getIndexes()).size());
+    }
+
+    @Test
+    public void testAlterTableSetBloomFilterColumnsRejectsNamedBloomFilterColumn() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_alter_conflict (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains(
+                "ALTER TABLE failed, expected to create bloom filter index on column v1",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_named_alter_conflict "
+                        + "SET (\"bloom_filter_columns\" = \"k1,v1\")"));
+    }
+
+    @Test
+    public void testAlterTableSetBloomFilterColumnsRejectsNamedBloomFilterColumn2() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_alter_conflict2 (\n"
+                + "k1 INT,\n"
+                + "k2 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER,\n"
+                + "INDEX idx_k2 (k2) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains(
+                "ALTER TABLE failed, expected to create bloom filter index on column k2",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_named_alter_conflict2 "
+                        + "SET (\"bloom_filter_columns\" = \"k2\")"));
+    }
+
+    @Test
+    public void testAlterTableSetBloomFilterFppOnNamedBloomFilterOnlyTableThrowsNoChange() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_alter_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        OlapTable table = getOlapTable("tbl_bf_named_alter_fpp");
+        Assertions.assertNull(table.getCopiedBfColumns());
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("v1"));
+        expectFailureContains("Bloom filter index has no change",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_named_alter_fpp "
+                        + "SET (\"bloom_filter_fpp\" = \"0.01\")"));
+        Assertions.assertTrue(getOlapTable("tbl_bf_named_alter_fpp").getIndexes().stream()
+                .filter(index -> "idx_v1".equalsIgnoreCase(index.getIndexName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("named bloom filter index not found"))
+                .getProperties()
+                .isEmpty());
+    }
+
+    @Test
+    public void testAlterTableSetSameBloomFilterFppOnNamedBloomFilterOnlyTableThrowsNoChange() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_named_same_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains("Bloom filter index has no change",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_named_same_fpp "
+                        + "SET (\"bloom_filter_fpp\" = \"" + FeConstants.default_bloom_filter_fpp + "\")"));
+    }
+
+    @Test
+    public void testAlterTableSetBloomFilterFppWithoutAnyBloomFilterThrowsNoChange() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_no_index_alter_fpp (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains("Bloom filter index has no change",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_no_index_alter_fpp "
+                        + "SET (\"bloom_filter_fpp\" = \"0.01\")"));
+    }
+
+    @Test
+    public void testAlterTableSetSameLegacyBloomFilterColumnsThrowsNoChange() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_same_legacy_columns (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains("Bloom filter index has no change",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_same_legacy_columns "
+                        + "SET (\"bloom_filter_columns\" = \"k1\")"));
+    }
+
+    @Test
+    public void testDropIndexRejectsLegacyBloomFilterColumn() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_drop_legacy (\n"
+                + "k1 INT,\n"
+                + "v1 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        expectFailureContains("index k1 does not exist",
+                () -> alterTableSync("ALTER TABLE test.tbl_bf_drop_legacy DROP INDEX k1"));
+    }
+
+    @Test
+    public void testDropLastNamedBloomFilterClearsBfFpp() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_drop_last_named (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        alterTableSyncAndWait("ALTER TABLE test.tbl_bf_drop_last_named DROP INDEX idx_v1",
+                "tbl_bf_drop_last_named");
+
+        OlapTable table = getOlapTable("tbl_bf_drop_last_named");
+        Assertions.assertNull(table.getCopiedBfColumns());
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).isEmpty());
+        Assertions.assertNull(table.getCopiedBfColumns());
+        Assertions.assertEquals(0, table.getBfFpp(), 0);
+        Assertions.assertTrue(table.getIndexes().isEmpty());
+    }
+
+    @Test
+    public void testShowCreateTableKeepsNamedBloomFilterOutOfLegacyProperties() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_show_create (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING BLOOMFILTER\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl_bf_show_create", Table.TableType.OLAP);
+        List<String> createTableStmt = Lists.newArrayList();
+        List<String> addRollupStmt = Lists.newArrayList();
+        Env.getDdlStmt(table, createTableStmt, null, addRollupStmt, false, true, -1L);
+
+        String ddl = createTableStmt.get(0);
+        Assertions.assertTrue(ddl.contains("\"bloom_filter_columns\" = \"k1\""));
+        Assertions.assertFalse(ddl.contains("\"bloom_filter_columns\" = \"k1, v1\""));
+        Assertions.assertFalse(ddl.contains("\"bloom_filter_columns\" = \"v1\""));
+        Assertions.assertTrue(ddl.contains("INDEX idx_v1 (`v1`) USING BLOOMFILTER"));
+        Assertions.assertTrue(table.getCopiedBfColumns().contains("k1"));
+        Assertions.assertTrue(Index.extractBloomFilterColumns(table.getIndexes()).contains("v1"));
+        Assertions.assertEquals(1, table.getCopiedBfColumns().size());
+    }
+
+    @Test
+    public void testRenameLegacyBloomFilterColumnUpdatesMetadata() throws Exception {
+        // Keep one untouched legacy BF column so renameColumn() has to rewrite the renamed entry
+        // and preserve the other one in the same metadata set.
+        createTable("CREATE TABLE test.tbl_bf_rename_legacy (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "v2 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1,v1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        alterTableSyncAndWait("ALTER TABLE test.tbl_bf_rename_legacy RENAME COLUMN v1 v1_new",
+                "tbl_bf_rename_legacy");
+
+        OlapTable table = getOlapTable("tbl_bf_rename_legacy");
+        Assertions.assertTrue(table.getCopiedBfColumns().contains("k1"));
+        Assertions.assertFalse(table.getCopiedBfColumns().contains("v1"));
+        Assertions.assertTrue(table.getCopiedBfColumns().contains("v1_new"));
+    }
+
+    @Test
+    public void testDropLegacyBloomFilterColumnUpdatesMetadata() throws Exception {
+        createTable("CREATE TABLE test.tbl_bf_drop_legacy_column (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "v2 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1,v1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
+
+        alterTableSyncAndWait("ALTER TABLE test.tbl_bf_drop_legacy_column DROP COLUMN v1",
+                "tbl_bf_drop_legacy_column");
+
+        OlapTable table = getOlapTable("tbl_bf_drop_legacy_column");
+        Assertions.assertTrue(table.getCopiedBfColumns().contains("k1"));
+        Assertions.assertFalse(table.getCopiedBfColumns().contains("v1"));
+        Assertions.assertEquals(1, table.getCopiedBfColumns().size());
     }
 }

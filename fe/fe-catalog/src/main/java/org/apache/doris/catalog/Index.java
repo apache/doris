@@ -43,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
@@ -270,6 +271,31 @@ public class Index implements Writable {
             }
         }
         return columnUniqueIds;
+    }
+
+    public boolean isBloomFilterIndex() {
+        return indexType == IndexType.BLOOMFILTER;
+    }
+
+    public static Set<String> extractBloomFilterColumns(Collection<Index> indexes) {
+        Set<String> bloomFilterColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (indexes == null) {
+            return bloomFilterColumns;
+        }
+        for (Index index : indexes) {
+            if (!index.isBloomFilterIndex()) {
+                continue;
+            }
+            bloomFilterColumns.addAll(index.getColumns());
+        }
+        return bloomFilterColumns;
+    }
+
+    public static boolean hasBloomFilterIndex(Collection<Index> indexes, String columnName) {
+        if (columnName == null) {
+            return false;
+        }
+        return extractBloomFilterColumns(indexes).contains(columnName);
     }
 
     public static void checkConflict(Collection<Index> indices, Set<String> bloomFilters) throws AnalysisException {

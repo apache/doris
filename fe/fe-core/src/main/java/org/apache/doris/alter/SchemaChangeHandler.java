@@ -741,18 +741,18 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             // drop bloom filter column
-            Set<String> bfCols = olapTable.getCopiedBfColumns();
-            if (bfCols != null) {
-                Set<String> newBfCols = null;
-                for (String bfCol : bfCols) {
-                    if (!bfCol.equalsIgnoreCase(dropColName)) {
-                        if (newBfCols == null) {
-                            newBfCols = Sets.newHashSet();
+            Set<String> legacyBloomFilterColumns = olapTable.getCopiedBfColumns();
+            if (legacyBloomFilterColumns != null) {
+                Set<String> updatedLegacyBloomFilterColumns = null;
+                for (String legacyBloomFilterColumn : legacyBloomFilterColumns) {
+                    if (!legacyBloomFilterColumn.equalsIgnoreCase(dropColName)) {
+                        if (updatedLegacyBloomFilterColumns == null) {
+                            updatedLegacyBloomFilterColumns = Sets.newHashSet();
                         }
-                        newBfCols.add(bfCol);
+                        updatedLegacyBloomFilterColumns.add(legacyBloomFilterColumn);
                     }
                 }
-                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+                olapTable.setBloomFilterInfo(updatedLegacyBloomFilterColumns, olapTable.getBfFpp());
             }
 
             for (int i = 1; i < indexIds.size(); i++) {
@@ -1699,6 +1699,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // property 2. bloom filter
         // eg. "bloom_filter_columns" = "k1,k2", "bloom_filter_fpp" = "0.05"
+        boolean hasBfColumnsProperty = propertyMap.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS);
         Set<String> bfColumns = null;
         double bfFpp = 0;
         try {
@@ -1711,27 +1712,38 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // check bloom filter has been changed
         boolean hasBfChange = false;
-        Set<String> oriBfColumns = olapTable.getCopiedBfColumns();
+        Set<String> oriLegacyBfCols = olapTable.getCopiedBfColumns();
+        Set<String> oriNamedBfCols = Index.extractBloomFilterColumns(olapTable.getIndexes());
+        if (oriNamedBfCols.isEmpty()) {
+            oriNamedBfCols = null;
+        }
+        Set<String> namedBfCols = Index.extractBloomFilterColumns(indexes);
+        if (namedBfCols.isEmpty()) {
+            namedBfCols = null;
+        }
+        boolean hasNamedBfChange = !Objects.equals(oriNamedBfCols, namedBfCols);
+        if (hasBfColumnsProperty) {
+            checkLegacyBloomFilterColumnsManagedByNamedIndexes(oriLegacyBfCols, bfColumns, namedBfCols);
+        }
         double oriBfFpp = olapTable.getBfFpp();
+        boolean originalHasLegacyBloomFilter = oriLegacyBfCols != null;
         if (bfColumns != null) {
             if (bfFpp == 0) {
                 // columns: yes, fpp: no
-                if (bfColumns.equals(oriBfColumns)) {
+                if (bfColumns.equals(oriLegacyBfCols)) {
                     throw new DdlException("Bloom filter index has no change");
                 }
-
-                if (oriBfColumns == null) {
+                if (!originalHasLegacyBloomFilter) {
                     bfFpp = FeConstants.default_bloom_filter_fpp;
                 } else {
                     bfFpp = oriBfFpp;
                 }
             } else {
                 // columns: yes, fpp: yes
-                if (bfColumns.equals(oriBfColumns) && bfFpp == oriBfFpp) {
+                if (bfColumns.equals(oriLegacyBfCols) && bfFpp == oriBfFpp) {
                     throw new DdlException("Bloom filter index has no change");
                 }
             }
-
             hasBfChange = true;
         } else {
             if (bfFpp == 0) {
@@ -1742,24 +1754,34 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (bfFpp == oriBfFpp) {
                     throw new DdlException("Bloom filter index has no change");
                 }
-                if (oriBfColumns == null) {
+                if (!originalHasLegacyBloomFilter) {
                     throw new DdlException("Bloom filter index has no change");
                 }
-
                 hasBfChange = true;
             }
-
-            bfColumns = oriBfColumns;
+            bfColumns = oriLegacyBfCols;
         }
 
         if (bfColumns != null && bfColumns.isEmpty()) {
             bfColumns = null;
         }
-        if (bfColumns == null) {
-            bfFpp = 0;
-        }
 
         Index.checkConflict(newSet, bfColumns);
+
+        boolean newHasLegacyBloomFilter = bfColumns != null;
+        // Handle the last DROP legacy bloom filter case, if no legacy bloom filter column,
+        // then table-level fpp should be 0.
+        if (!newHasLegacyBloomFilter) {
+            bfFpp = 0;
+        } else if (bfFpp == 0) {
+            // Handle the first ADD legacy bloom filter case, if no legacy bloom filter column before,
+            // then table-level fpp should be default value.
+            if (!originalHasLegacyBloomFilter) {
+                bfFpp = FeConstants.default_bloom_filter_fpp;
+            } else {
+                bfFpp = oriBfFpp;
+            }
+        }
 
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
@@ -1848,25 +1870,23 @@ public class SchemaChangeHandler extends AlterHandler {
             boolean needAlter = false;
             if (hasColumnChange) {
                 needAlter = true;
-            } else if (hasBfChange) {
+            } else if (hasBfChange || hasNamedBfChange) {
                 for (Column alterColumn : alterSchema) {
                     String columnName = alterColumn.getName();
 
-                    boolean isOldBfColumn = false;
-                    if (oriBfColumns != null && oriBfColumns.contains(columnName)) {
-                        isOldBfColumn = true;
-                    }
+                    boolean isOldLegacyBfColumn = containsIgnoreCase(oriLegacyBfCols, columnName);
+                    boolean isNewLegacyBfColumn = containsIgnoreCase(bfColumns, columnName);
+                    boolean isOldNamedBfColumn = containsIgnoreCase(oriNamedBfCols, columnName);
+                    boolean isNewNamedBfColumn = containsIgnoreCase(namedBfCols, columnName);
 
-                    boolean isNewBfColumn = false;
-                    if (bfColumns != null && bfColumns.contains(columnName)) {
-                        isNewBfColumn = true;
-                    }
-
-                    if (isOldBfColumn != isNewBfColumn) {
-                        // bf column change
+                    if (isOldLegacyBfColumn != isNewLegacyBfColumn
+                            || isOldNamedBfColumn != isNewNamedBfColumn) {
+                        // bloom filter column change
                         needAlter = true;
-                    } else if (isOldBfColumn && isNewBfColumn && oriBfFpp != bfFpp) {
-                        // bf fpp change
+                    } else if (((isOldLegacyBfColumn && isNewLegacyBfColumn)
+                            || (isOldNamedBfColumn && isNewNamedBfColumn))
+                            && oriBfFpp != bfFpp) {
+                        // bloom filter fpp change
                         needAlter = true;
                     }
 
@@ -3297,6 +3317,13 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable instead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumnNames());
+        List<Index> conflictIndexes = new ArrayList<>(newIndexes);
+        conflictIndexes.add(alterIndex);
+        try {
+            Index.checkConflict(conflictIndexes, olapTable.getCopiedBfColumns());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
         newIndexes.add(alterIndex);
         return false;
     }
@@ -3390,6 +3417,61 @@ public class SchemaChangeHandler extends AlterHandler {
             if (idx.getIndexName().equalsIgnoreCase(dropIndexOp.getIndexName())) {
                 itr.remove();
                 break;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks if legacy bloom filter columns are managed by named indexes.
+     */
+    private void checkLegacyBloomFilterColumnsManagedByNamedIndexes(
+            Set<String> oldLegacyBfColumns, Set<String> newLegacyBfColumns, Set<String> namedBfColumns)
+            throws DdlException {
+        if (namedBfColumns == null || namedBfColumns.isEmpty()) {
+            return;
+        }
+
+        Set<String> overlappingLegacyAndNamedBfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        if (oldLegacyBfColumns != null) {
+            for (String legacyBfColumn : oldLegacyBfColumns) {
+                if (containsIgnoreCase(namedBfColumns, legacyBfColumn)) {
+                    overlappingLegacyAndNamedBfColumns.add(legacyBfColumn);
+                }
+            }
+        }
+        Preconditions.checkState(overlappingLegacyAndNamedBfColumns.isEmpty(),
+                "legacy bloom filter columns overlap named BLOOMFILTER columns: %s",
+                Joiner.on(",").join(overlappingLegacyAndNamedBfColumns));
+
+        // legacy bloom filter columns are not changed
+        if (Objects.equals(newLegacyBfColumns, oldLegacyBfColumns)) {
+            return;
+        }
+
+        Set<String> addedLegacyBfColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        if (newLegacyBfColumns != null) {
+            addedLegacyBfColumns.addAll(newLegacyBfColumns);
+        }
+        if (oldLegacyBfColumns != null) {
+            addedLegacyBfColumns.removeAll(oldLegacyBfColumns);
+        }
+        for (String column : addedLegacyBfColumns) {
+            if (namedBfColumns.contains(column)) {
+                throw new DdlException("ALTER TABLE failed, expected to create bloom filter index on column "
+                        + column + ", but this column is already defined by named BLOOMFILTER index");
+            }
+        }
+
+    }
+
+    private boolean containsIgnoreCase(Collection<String> values, String target) {
+        if (values == null || target == null) {
+            return false;
+        }
+        for (String value : values) {
+            if (target.equalsIgnoreCase(value)) {
+                return true;
             }
         }
         return false;
@@ -3563,21 +3645,21 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         // for bloom filter, rebuild bloom filter info by table schema in replay
         if (isReplay) {
-            Set<String> bfCols = olapTable.getCopiedBfColumns();
-            if (bfCols != null) {
+            Set<String> legacyBloomFilterColumns = olapTable.getCopiedBfColumns();
+            if (legacyBloomFilterColumns != null) {
                 List<Column> columns = olapTable.getBaseSchema();
-                Set<String> newBfCols = null;
-                for (String bfCol : bfCols) {
+                Set<String> normalizedLegacyBloomFilterColumns = null;
+                for (String legacyBloomFilterColumn : legacyBloomFilterColumns) {
                     for (Column column : columns) {
-                        if (column.getName().equalsIgnoreCase(bfCol)) {
-                            if (newBfCols == null) {
-                                newBfCols = Sets.newHashSet();
+                        if (column.getName().equalsIgnoreCase(legacyBloomFilterColumn)) {
+                            if (normalizedLegacyBloomFilterColumns == null) {
+                                normalizedLegacyBloomFilterColumns = Sets.newHashSet();
                             }
-                            newBfCols.add(column.getName());
+                            normalizedLegacyBloomFilterColumns.add(column.getName());
                         }
                     }
                 }
-                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+                olapTable.setBloomFilterInfo(normalizedLegacyBloomFilterColumns, olapTable.getBfFpp());
             }
         }
 
