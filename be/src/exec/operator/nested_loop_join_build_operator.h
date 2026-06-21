@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
 
 #include "exec/operator/join_build_sink_operator.h"
@@ -48,6 +49,7 @@ private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
     VExprContextSPtrs _filter_src_expr_ctxs;
+    std::atomic_bool _build_side_finished = false;
     std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 

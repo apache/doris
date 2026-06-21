@@ -70,8 +70,7 @@ Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec
 }
 
 bool NestedLoopJoinBuildSinkLocalState::is_finished() const {
-    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
-    return p._enable_partial_build_output && _shared_state->should_stop_build();
+    return _build_side_finished;
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
@@ -113,6 +112,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (_enable_partial_build_output && local_state._shared_state->should_stop_build()) {
+        local_state._build_side_finished = true;
         return Status::OK();
     }
 

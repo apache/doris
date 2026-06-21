@@ -117,6 +117,7 @@ private:
     void _update_additional_flags(Block* block);
     void _request_more_build_data();
     void _finish_probe_side_for_incremental_build();
+    bool _can_output_from_partial_build() const;
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(Block& block, size_t batch_size);
     void _reset_with_next_probe_row();
@@ -302,7 +303,6 @@ private:
     VExprContextSPtrs _mark_join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
-    const bool _enable_partial_build_output;
     bool _has_materialized_slot_ids = false;
     std::vector<SlotId> _materialized_slot_ids;
     bool _enable_lazy_materialize = false;

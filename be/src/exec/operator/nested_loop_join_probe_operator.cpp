@@ -141,8 +141,7 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
     _update_visited_flags_timer = ADD_TIMER(custom_profile(), "UpdateVisitedFlagsTime");
     _join_conjuncts_evaluation_timer = ADD_TIMER(custom_profile(), "JoinConjunctsEvaluationTime");
     _filtered_by_join_conjuncts_timer = ADD_TIMER(custom_profile(), "FilteredByJoinConjunctsTime");
-    auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    if (p._enable_partial_build_output) {
+    if (_can_output_from_partial_build()) {
         _dependency->set_ready();
     }
     return Status::OK();
@@ -217,11 +216,15 @@ void NestedLoopJoinProbeLocalState::_request_more_build_data() {
 }
 
 void NestedLoopJoinProbeLocalState::_finish_probe_side_for_incremental_build() {
-    auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    if (!p._enable_partial_build_output) {
+    if (!_can_output_from_partial_build()) {
         return;
     }
     _shared_state->build_side_no_more_required = true;
+}
+
+bool NestedLoopJoinProbeLocalState::_can_output_from_partial_build() const {
+    auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
+    return NestedLoopJoinSharedState::can_output_from_partial_build(p._join_op, p._is_mark_join);
 }
 
 // process_probe_block and process_build_block are similar.
@@ -926,13 +929,14 @@ Status NestedLoopJoinProbeLocalState::generate_inner_join_block_data(RuntimeStat
     DCHECK(!_need_more_input_data || !_matched_rows_done);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto* probe_block = _child_block.get();
+    const bool can_output_from_partial_build = _can_output_from_partial_build();
 
-    if (p._enable_partial_build_output && probe_block->rows() == 0 &&
+    if (can_output_from_partial_build && probe_block->rows() == 0 &&
         _shared_state->probe_side_eos) {
         _matched_rows_done = true;
         return Status::OK();
     }
-    if (!p._enable_partial_build_output) {
+    if (!can_output_from_partial_build) {
         if (!_shared_state->build_side_eos) {
             _need_more_build_data = true;
             return Status::OK();
@@ -1155,8 +1159,6 @@ NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, con
                                                            int operator_id,
                                                            const DescriptorTbl& descs)
         : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, operator_id, descs),
-          _enable_partial_build_output(NestedLoopJoinSharedState::can_output_from_partial_build(
-                  _join_op, _is_mark_join)),
           _has_materialized_slot_ids(tnode.__isset.nested_loop_join_node &&
                                      tnode.nested_loop_join_node.__isset.materialized_slot_ids),
           _materialized_slot_ids(_has_materialized_slot_ids
