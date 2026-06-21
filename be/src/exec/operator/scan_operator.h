@@ -100,6 +100,7 @@ public:
     Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
 
     std::shared_ptr<ScanFilterProfile> scan_filter_profile() const { return _scan_filter_profile; }
+    bool enable_scan_filter_profile() const { return _scan_filter_profile != nullptr; }
 
 protected:
     friend class ScannerContext;

@@ -34,14 +34,14 @@ template <typename EvaluateFunc>
 bool evaluate_and_with_scan_filter(
         const std::vector<std::unique_ptr<BlockColumnPredicate>>& predicates, ScanFilterStage stage,
         int64_t input_rows, EvaluateFunc&& evaluate_func) {
-    bool all_matched = true;
     for (const auto& predicate : predicates) {
-        // Keep scan filter attribution independent from AND short-circuiting.
         const bool matched = evaluate_func(*predicate);
         predicate->record_scan_filter(stage, input_rows, matched ? input_rows : 0);
-        all_matched &= matched;
+        if (!matched) {
+            return false;
+        }
     }
-    return all_matched;
+    return true;
 }
 
 } // namespace

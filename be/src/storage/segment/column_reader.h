@@ -270,8 +270,7 @@ private:
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
             bool collect_scan_filter_stats, int64_t page_input_rows, bool* should_read) const;
 
-    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
-                                 const ColumnIteratorOptions& iter_opts);
+    RowRanges _row_ranges_by_page_indexes(const std::vector<uint32_t>& page_indexes) const;
 
     int64_t _meta_length;
     FieldType _meta_type;

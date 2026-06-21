@@ -61,9 +61,7 @@ public:
 
     std::string debug_string() override {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
-        return fmt::format("Consumer: ({}, state: {}, reached_timeout: {}, timeout_limit: {}ms)",
-                           _debug_string(), to_string(_rf_state),
-                           _reached_timeout ? "true" : "false", std::to_string(_rf_wait_time_ms));
+        return _debug_string_internal();
     }
 
     bool is_applied() const { return _rf_state == State::APPLIED; }
@@ -107,6 +105,11 @@ private:
     Status _apply_ready_expr(std::vector<RuntimeFilterExprPtr>& push_exprs);
 
     Status _get_push_exprs(std::vector<RuntimeFilterExprPtr>& container, const TExpr& probe_expr);
+    std::string _debug_string_internal() const {
+        return fmt::format("Consumer: ({}, state: {}, reached_timeout: {}, timeout_limit: {}ms)",
+                           _debug_string(), to_string(_rf_state),
+                           _reached_timeout ? "true" : "false", std::to_string(_rf_wait_time_ms));
+    }
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,

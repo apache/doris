@@ -448,12 +448,12 @@ Status ColumnReader::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
         RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts) {
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(_get_filtered_pages(col_predicates, delete_predicates, *row_ranges,
                                         &page_indexes, iter_opts));
-    RowRanges zone_map_row_ranges;
-    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, &zone_map_row_ranges, iter_opts));
-    RowRanges::ranges_intersection(*row_ranges, zone_map_row_ranges, row_ranges);
+    RowRanges column_zone_map_row_ranges = _row_ranges_by_page_indexes(page_indexes);
+    RowRanges::ranges_intersection(*row_ranges, column_zone_map_row_ranges, row_ranges);
     return Status::OK();
 }
 
@@ -552,10 +552,6 @@ Status ColumnReader::_get_filtered_pages(
         const ColumnIteratorOptions& iter_opts) {
     RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     const bool collect_scan_filter_stats = col_predicates->has_scan_filter();
-    if (collect_scan_filter_stats) {
-        RETURN_IF_ERROR(
-                _load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-    }
 
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int page_size = cast_set<int>(_zone_map_index->num_pages());
@@ -626,18 +622,16 @@ Status ColumnReader::_zone_map_page_should_read(
     return Status::OK();
 }
 
-Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes,
-                                           RowRanges* row_ranges,
-                                           const ColumnIteratorOptions& iter_opts) {
-    row_ranges->clear();
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+RowRanges ColumnReader::_row_ranges_by_page_indexes(
+        const std::vector<uint32_t>& page_indexes) const {
+    RowRanges row_ranges;
     for (auto i : page_indexes) {
         ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
         ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i);
-        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
-        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
+        row_ranges.add(
+                RowRange(cast_set<int64_t>(page_first_id), cast_set<int64_t>(page_last_id + 1)));
     }
-    return Status::OK();
+    return row_ranges;
 }
 
 Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,

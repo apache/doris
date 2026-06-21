@@ -247,7 +247,7 @@ void RuntimeFilterConsumer::collect_scan_filter_profile(ScanFilterProfile* scan_
              .filtered_rows = _rf_filter->value(),
              .wait_time_ns = _wait_timer->value(),
              .always_true_filter_rows = _always_true_counter->value(),
-             .debug_string = debug_string()});
+             .debug_string = _debug_string_internal()});
 }
 
 } // namespace doris

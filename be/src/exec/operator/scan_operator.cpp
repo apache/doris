@@ -78,7 +78,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
-    if (_scan_filter_profile != nullptr) {
+    if (enable_scan_filter_profile()) {
         for (size_t i = conjuncts_before; i < _conjuncts.size(); ++i) {
             DCHECK(_conjuncts[i]->root() != nullptr);
             if (!_conjuncts[i]->scan_filter_handle()) {
@@ -209,23 +209,6 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     return Status::OK();
 }
 
-static std::string predicates_to_string(
-        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates) {
-    fmt::memory_buffer debug_string_buffer;
-    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
-        if (predicates.empty()) {
-            continue;
-        }
-        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
-        for (const auto& predicate : predicates) {
-            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
-        }
-        fmt::format_to(debug_string_buffer, "] ");
-    }
-    return fmt::to_string(debug_string_buffer);
-}
-
 ScanFilterHandle ScanLocalStateBase::_register_scan_filter(const VExprSPtr& root,
                                                            const SlotDescriptor* slot,
                                                            int profile_level) {
@@ -295,11 +278,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_process_conjuncts(state));
-
-    if (state->enable_profile() && _scan_filter_profile == nullptr) {
-        custom_profile()->add_info_string("PushDownPredicates",
-                                          predicates_to_string(_slot_id_to_predicates));
-    }
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
@@ -399,7 +377,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_scan_filter_profile != nullptr && !conjunct->scan_filter_handle()) {
+                if (enable_scan_filter_profile() && !conjunct->scan_filter_handle()) {
                     conjunct->attach_scan_filter(_register_scan_filter(conjunct->root(), nullptr,
                                                                        state->profile_level()));
                 }
@@ -416,19 +394,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             }
         }
         ++it;
-    }
-
-    if (state->enable_profile() && _scan_filter_profile == nullptr) {
-        std::string message;
-        for (auto& conjunct : _conjuncts) {
-            if (conjunct->root()) {
-                if (!message.empty()) {
-                    message += ", ";
-                }
-                message += conjunct->root()->debug_string();
-            }
-        }
-        custom_profile()->add_info_string("RemainedPredicates", message);
     }
 
     for (auto& it : _slot_id_to_value_range) {
@@ -532,7 +497,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
                 },
                 *range);
         RETURN_IF_ERROR(status);
-        if (pdt != PushDownType::UNACCEPTABLE && _scan_filter_profile != nullptr) {
+        if (pdt != PushDownType::UNACCEPTABLE && enable_scan_filter_profile()) {
             auto handle = context->scan_filter_handle();
             if (!handle) {
                 handle = _register_scan_filter(root, slot, state()->profile_level());
@@ -637,7 +602,7 @@ Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, S
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
             ScanFilterHandle handle;
-            if (_scan_filter_profile != nullptr) {
+            if (enable_scan_filter_profile()) {
                 handle = expr_ctx->scan_filter_handle();
                 if (!handle) {
                     handle =
@@ -1376,7 +1341,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
     _helper.collect_realtime_profile(custom_profile(), _scan_filter_profile.get());
-    if (_scan_filter_profile != nullptr) {
+    if (enable_scan_filter_profile()) {
         _scan_filter_profile->set_runtime_filter_partition_pruning_stats(
                 _runtime_filter_partition_pruning_stats());
         _scan_filter_profile->materialize(custom_profile(), state->profile_level());
