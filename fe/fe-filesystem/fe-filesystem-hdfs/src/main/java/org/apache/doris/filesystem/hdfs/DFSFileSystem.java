@@ -23,7 +23,12 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
+import org.apache.doris.kerberos.AuthenticationConfig;
+import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
+import org.apache.doris.kerberos.HadoopSimpleAuthenticator;
+import org.apache.doris.kerberos.KerberosAuthenticationConfig;
+import org.apache.doris.kerberos.SimpleAuthenticationConfig;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -64,15 +69,38 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
     public DFSFileSystem(Map<String, String> properties) {
         this.properties = Collections.unmodifiableMap(new HashMap<>(properties));
         this.conf = HdfsConfigBuilder.build(properties);
+        this.authenticator = buildAuthenticator(properties, conf);
+    }
+
+    /**
+     * Builds the {@link HadoopAuthenticator} for the given HDFS catalog properties using the
+     * shared {@code fe-kerberos} authenticators (single source of truth; P3b consolidation —
+     * the former fe-filesystem-hdfs copies were removed). The kerberos-vs-simple decision is
+     * unchanged: principal + keytab present selects {@link HadoopKerberosAuthenticator},
+     * otherwise {@link HadoopSimpleAuthenticator}. Kerberos login happens lazily on first
+     * {@code getUGI()}; the simple path executes as {@code hadoop.username} (defaulting to
+     * remote user {@code "hadoop"}).
+     */
+    static HadoopAuthenticator buildAuthenticator(Map<String, String> properties, Configuration conf) {
         if (HdfsConfigBuilder.isKerberosEnabled(properties)) {
-            this.authenticator = new KerberosHadoopAuthenticator(
+            boolean debug = Boolean.parseBoolean(
+                    properties.getOrDefault(AuthenticationConfig.DORIS_KRB5_DEBUG, "false"));
+            return new HadoopKerberosAuthenticator(new KerberosAuthenticationConfig(
                     properties.get(HdfsConfigBuilder.KEY_PRINCIPAL),
                     properties.get(HdfsConfigBuilder.KEY_KEYTAB),
-                    conf);
-        } else {
-            this.authenticator = new SimpleHadoopAuthenticator(
-                    properties.get("hadoop.username"));
+                    conf,
+                    debug));
         }
+        SimpleAuthenticationConfig simpleConfig = new SimpleAuthenticationConfig();
+        // Treat absent OR empty hadoop.username uniformly: leave it null so the shared
+        // authenticator defaults to remote user "hadoop". Passing "" straight through would
+        // reach UserGroupInformation.createRemoteUser(""), which rejects an empty user with
+        // IllegalArgumentException (the removed hdfs copy guarded this with !isEmpty()).
+        String hadoopUsername = properties.get("hadoop.username");
+        if (hadoopUsername != null && !hadoopUsername.isEmpty()) {
+            simpleConfig.setUsername(hadoopUsername);
+        }
+        return new HadoopSimpleAuthenticator(simpleConfig);
     }
 
     private org.apache.hadoop.fs.FileSystem getHadoopFs(Path path) throws IOException {

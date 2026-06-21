@@ -48,6 +48,13 @@ under the License.
             <version>${revision}</version>
         </dependency>
 
+        <!-- Shared Kerberos/Simple HadoopAuthenticator (single source of truth; P3b consolidation). -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-kerberos</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>

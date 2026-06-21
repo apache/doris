@@ -28,8 +28,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
@@ -51,6 +49,8 @@ import org.apache.doris.filesystem.RemoteIterator;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.kerberos.AuthenticationConfig;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 
 import com.google.common.annotations.VisibleForTesting;

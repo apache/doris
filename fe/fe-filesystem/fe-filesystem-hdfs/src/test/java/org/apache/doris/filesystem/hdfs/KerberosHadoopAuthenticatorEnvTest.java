@@ -18,6 +18,8 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
+import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
@@ -30,8 +32,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Environment-dependent integration tests for {@link KerberosHadoopAuthenticator}.
- * Requires a Kerberos KDC and a Kerberized HDFS cluster.
+ * Environment-dependent integration tests for the shared {@link HadoopKerberosAuthenticator}
+ * as wired through {@link DFSFileSystem}. Requires a Kerberos KDC and a Kerberized HDFS cluster.
  */
 @Tag("environment")
 @Tag("kerberos")
@@ -58,13 +60,15 @@ class KerberosHadoopAuthenticatorEnvTest {
     }
 
     @Test
-    void loginSucceeds() {
+    void loginSucceeds() throws IOException {
         String principal = requireEnv("DORIS_FS_TEST_KDC_PRINCIPAL");
         String keytab = requireEnv("DORIS_FS_TEST_KDC_KEYTAB");
 
-        KerberosHadoopAuthenticator auth =
-                new KerberosHadoopAuthenticator(principal, keytab, kerberosConf());
-        Assertions.assertNotNull(auth);
+        HadoopKerberosAuthenticator auth =
+                new HadoopKerberosAuthenticator(new KerberosAuthenticationConfig(
+                        principal, keytab, kerberosConf(), false));
+        // Login is lazy in the shared authenticator: getUGI() triggers the keytab login.
+        Assertions.assertNotNull(auth.getUGI());
     }
 
     @Test
@@ -72,8 +76,9 @@ class KerberosHadoopAuthenticatorEnvTest {
         String principal = requireEnv("DORIS_FS_TEST_KDC_PRINCIPAL");
         String keytab = requireEnv("DORIS_FS_TEST_KDC_KEYTAB");
 
-        KerberosHadoopAuthenticator auth =
-                new KerberosHadoopAuthenticator(principal, keytab, kerberosConf());
+        HadoopKerberosAuthenticator auth =
+                new HadoopKerberosAuthenticator(new KerberosAuthenticationConfig(
+                        principal, keytab, kerberosConf(), false));
         String result = auth.doAs(() -> "hello-from-kerberos");
         Assertions.assertEquals("hello-from-kerberos", result);
     }
@@ -83,8 +88,9 @@ class KerberosHadoopAuthenticatorEnvTest {
         String principal = requireEnv("DORIS_FS_TEST_KDC_PRINCIPAL");
         String keytab = requireEnv("DORIS_FS_TEST_KDC_KEYTAB");
 
-        KerberosHadoopAuthenticator auth =
-                new KerberosHadoopAuthenticator(principal, keytab, kerberosConf());
+        HadoopKerberosAuthenticator auth =
+                new HadoopKerberosAuthenticator(new KerberosAuthenticationConfig(
+                        principal, keytab, kerberosConf(), false));
         Assertions.assertThrows(IOException.class, () -> auth.doAs(() -> {
             throw new IOException("intentional");
         }));
