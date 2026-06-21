@@ -63,7 +63,8 @@ public class IcebergConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new IcebergConnectorMetadata(getOrCreateCatalog(), properties);
+        return new IcebergConnectorMetadata(
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), properties);
     }
 
     private Catalog getOrCreateCatalog() {
@@ -85,7 +86,7 @@ public class IcebergConnector implements Connector {
         }
 
         Map<String, String> catalogProps = new HashMap<>(properties);
-        String catalogImpl = resolveCatalogImpl(catalogType);
+        String catalogImpl = IcebergCatalogFactory.resolveCatalogImpl(catalogType);
         catalogProps.put(CatalogProperties.CATALOG_IMPL, catalogImpl);
         // Iceberg SDK does not allow both "type" and "catalog-impl"
         catalogProps.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
@@ -97,32 +98,6 @@ public class IcebergConnector implements Connector {
                 catalogName, catalogType, catalogImpl);
 
         return CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, conf);
-    }
-
-    /**
-     * Resolve the Iceberg catalog implementation class from the catalog type string.
-     */
-    private static String resolveCatalogImpl(String catalogType) {
-        switch (catalogType.toLowerCase()) {
-            case "rest":
-                return "org.apache.iceberg.rest.RESTCatalog";
-            case "hms":
-                return "org.apache.iceberg.hive.HiveCatalog";
-            case "glue":
-                return "org.apache.iceberg.aws.glue.GlueCatalog";
-            case "hadoop":
-                return "org.apache.iceberg.hadoop.HadoopCatalog";
-            case "jdbc":
-                return "org.apache.iceberg.jdbc.JdbcCatalog";
-            case "s3tables":
-                return "software.amazon.s3tables.iceberg.S3TablesCatalog";
-            case "dlf":
-                return "org.apache.doris.connector.iceberg.dlf.DLFCatalog";
-            default:
-                throw new DorisConnectorException(
-                        "Unknown iceberg.catalog.type: " + catalogType
-                                + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables, dlf");
-        }
     }
 
     private static Configuration buildHadoopConf(Map<String, String> props) {

@@ -25,21 +25,13 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.SupportsNamespaces;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorMetadata} implementation for Iceberg catalogs.
@@ -51,18 +43,17 @@ import java.util.stream.Collectors;
  *   <li>Partition spec info in table properties</li>
  * </ul>
  *
- * <p>Uses the Iceberg SDK Catalog API directly. All catalog backends (REST, HMS,
- * Glue, etc.) are transparent — the Iceberg Catalog interface abstracts them.</p>
+ * <p>Depends on the {@link IcebergCatalogOps} seam rather than a raw Iceberg {@code Catalog}, so it is
+ * unit-testable offline with a recording fake (no live REST/HMS/Glue/... catalog). All catalog
+ * backends are transparent behind the seam — the Iceberg {@code Catalog} interface abstracts them.
  */
 public class IcebergConnectorMetadata implements ConnectorMetadata {
 
-    private static final Logger LOG = LogManager.getLogger(IcebergConnectorMetadata.class);
-
-    private final Catalog catalog;
+    private final IcebergCatalogOps catalogOps;
     private final Map<String, String> properties;
 
-    public IcebergConnectorMetadata(Catalog catalog, Map<String, String> properties) {
-        this.catalog = catalog;
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties) {
+        this.catalogOps = catalogOps;
         this.properties = properties;
     }
 
@@ -70,39 +61,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
-        if (!(catalog instanceof SupportsNamespaces)) {
-            LOG.warn("Iceberg catalog does not support namespaces");
-            return Collections.emptyList();
-        }
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-        return nsCatalog.listNamespaces(Namespace.empty()).stream()
-                .map(ns -> ns.level(ns.length() - 1))
-                .collect(Collectors.toList());
+        return catalogOps.listDatabaseNames();
     }
 
     @Override
     public boolean databaseExists(ConnectorSession session, String dbName) {
-        if (!(catalog instanceof SupportsNamespaces)) {
-            return false;
-        }
-        return ((SupportsNamespaces) catalog).namespaceExists(Namespace.of(dbName));
+        return catalogOps.databaseExists(dbName);
     }
 
     // ========== ConnectorTableOps ==========
 
     @Override
     public List<String> listTableNames(ConnectorSession session, String dbName) {
-        Namespace ns = Namespace.of(dbName);
-        return catalog.listTables(ns).stream()
-                .map(TableIdentifier::name)
-                .collect(Collectors.toList());
+        return catalogOps.listTableNames(dbName);
     }
 
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
-        TableIdentifier tableId = TableIdentifier.of(dbName, tableName);
-        if (!catalog.tableExists(tableId)) {
+        if (!catalogOps.tableExists(dbName, tableName)) {
             return Optional.empty();
         }
         return Optional.of(new IcebergTableHandle(dbName, tableName));
@@ -115,7 +92,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         String dbName = iceHandle.getDbName();
         String tableName = iceHandle.getTableName();
 
-        Table table = catalog.loadTable(TableIdentifier.of(dbName, tableName));
+        Table table = catalogOps.loadTable(dbName, tableName);
         Schema icebergSchema = table.schema();
         List<ConnectorColumn> columns = parseSchema(icebergSchema);
 
