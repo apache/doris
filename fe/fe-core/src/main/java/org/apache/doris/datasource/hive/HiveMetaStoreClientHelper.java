@@ -38,9 +38,9 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.kerberos.AuthenticationConfig;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.nereids.types.VarBinaryType;
 
 import com.google.common.base.Strings;

@@ -6,26 +6,27 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P5-T30（B9）post-cutover 回归（live-e2e，用户跑）+ accepted-deviation 签字**
+# 🎯 下一个 session 的任务 — **docker kerberos e2e 真闸（HDFS kerberized + HMS）→ 然后 P6 iceberg**
 
-> **✅ P5-T29（B8）Batch 1 + Batch 2 全部完成 — fe-core 现已完全 paimon-SDK-free（`grep org.apache.paimon
-> fe/fe-core/src/{main,test}` = ∅，5 个 paimon maven 依赖已删）。** 仅剩 **B9（P5-T30）post-cutover live-e2e
-> 回归**（docker-gated，`enablePaimonTest=true`，用户跑）+ deviations 签字。**P5 阶段主体工作至此收尾。**
+> **✅ P3b 已完成（2026-06-21）**：kerberos authenticator 机制已收口到 `fe-kerberos` 单一真相源。P3b-T01 三步全完成（local-commit `4a740e1387f` trino→JDK + `8898e15134c` relocate 13 类 + `5e3e8963023` 统一 HadoopAuthenticator 接口+删 fe-filesystem-hdfs 副本，**均未 push**）。三处 kerberos 实现合一（fe-common 包移除、fe-filesystem-hdfs 副本删除、双 `HadoopAuthenticator` 接口统一为 fe-kerberos 单接口、trino→JDK）。`fe-kerberos` 仍是顶层中立叶子（no-cycle）。详见元存储子线 [`metastore-storage-refactor/HANDOFF.md`](./metastore-storage-refactor/HANDOFF.md)「下一步」+ tasks `P3b-T01` + `DV-010`。
 >
-> **Batch 2 已完成（local-commit 见 git log，未 push）**：详见
-> [`tasks/designs/P5-T29-paimon-legacy-removal-design.md`](./tasks/designs/P5-T29-paimon-legacy-removal-design.md) §5「Batch 2 DONE」+ §6 gates。
-> **关键偏离（用户 2026-06-20 改签 GAMMA）**：recon（`wf_12d67943-eeb`）+ 对抗 review（`wf_ef1fd738-3b9`）证实
-> `PaimonVendedCredentialsProvider` 的 SDK 方法**早已死**（extract* 仅 iceberg 路调用；真 paimon vended 路在连接器
-> `PaimonScanPlanProvider.extractVendedToken`，cutover FIX-1 已搬走），唯一 LIVE 是 SDK-free 的
-> `isVendedCredentialsEnabled` gate。故**不做** design 原设想的「迁出 + cross-loader seam」，改 **GAMMA**：
-> **整删 provider**（+ 其 test）+ 删 `VendedCredentialsFactory` `case PAIMON` + gate 下放到新 SDK-free
-> `MetastoreProperties.isVendedCredentialsEnabled()`（base=false，`PaimonRestMetaStoreProperties`→true）。
-> iceberg gate 路径 byte-identical（review 6-path 真值表核实），LIVE Kerberos auth 装配未动。
-> 顺手：删 Jdbc `getBackendPaimonOptions`（SDK-free 但 0 live caller）、删 `PaimonDlfRestCatalogTest`（§3 漏列的 SDK importer）、
-> 修 `s3-transfer-manager` 注释（真消费者 = hadoop-aws 非 paimon-s3）。**fe/pom.xml `paimon.version` 保留（R-007）。**
+> **🟢 下一步 = docker kerberos e2e（唯一未跑的真闸）**：P3b 改的是 `doAs`/UGI 登录路径（安全敏感，UT 抓不到），须部署 docker 验 **HDFS kerberized**（DFSFileSystem 经 fe-kerberos authenticator 读写）+ **HMS kerberos**（`enablePaimonTest=true` 覆盖 paimon-HMS；hive/iceberg-on-kerberized-HDFS 另需 KDC env）不回归。**接受的行为变更须确认**：simple/无 `hadoop.username` 的 HDFS catalog 现以 remote user "hadoop" 跑（旧=FE 进程用户直跑）。如回归 → 回退 DV-010 pure-consolidation 选择。**然后 = P6 iceberg**（复用收口后干净的 `fe-kerberos` authenticator）。
 >
-> 下文 §「P5-T29 scope ledger」是旧框架（Batch 1 视角），已被 design doc §5/§6 **取代**，仅作历史参考。
-> 样板 = **P4 #64300**（`73832991962`）。
+> 下文是 P3b 的**历史 scope 记录**（已完成），仅作参考。
+
+<details><summary>（历史）P3b scope — 已完成</summary>
+
+### P3b：kerberos authenticator 机制收口到 `fe-kerberos`（元存储子线，先于 P6 iceberg）
+
+> **🔱 完整 scope + 启动流程见元存储子线**：[`metastore-storage-refactor/HANDOFF.md`](./metastore-storage-refactor/HANDOFF.md)「下一步」+ [`metastore-storage-refactor/tasks.md`](./metastore-storage-refactor/tasks.md) **P3b-T01 块**（现码 scope）+ [`decisions-log.md` D-017](./metastore-storage-refactor/decisions-log.md)。启动按子线顶部强制流程：读 PROGRESS→HANDOFF→WORKFLOW→tasks P3b 块→decisions，**对照真实代码 review**，实施前 **AskUserQuestion 定 scope 粒度**（一次全搬 vs 分步 re-export 桥）。
+>
+> **为什么现在做 P3b（用户 2026-06-21 定，D-017）**：① **P5-T29（B8）✅** paimon legacy 删除完成，fe-core 完全 paimon-SDK-free（local-commit `32de7d16702`+`895e214b2bd`，未 push）。② **P2-T05 ✅** 用户手动 docker 验证（paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）——**B9/P5-T30 的 live-e2e 内容即此，视为已覆盖**（如需正式 deviations 签字另议）。③ **P3b 提前到 P6 iceberg 之前单独做**：P3b 是纯 kerberos 机制收口，不依赖 iceberg 即可完成，且**先做反而服务 P6**——iceberg metastore-props 迁移届时可直接复用收口后的干净 `fe-kerberos` authenticator。
+>
+> **P3b 一句话**：把 fe-common `security.authentication.*`（**12 类机制**）收口到 `fe-kerberos` 作唯一真相源 + 删 fe-filesystem-hdfs 自有 `KerberosHadoopAuthenticator`/`SimpleHadoopAuthenticator` 副本 + 统一两个打架的 `HadoopAuthenticator` 接口（fe-common `PrivilegedExceptionAction` vs fe-filesystem-spi `IOCallable`）+ trino `KerberosTicketUtils`→JDK。**blast radius = 40 非测试消费方（24 fe-core + 12 fe-common + 3 be-java-extensions scanner）**——跨 FE/BE-java、安全敏感、**须 docker kerberos e2e（HDFS/HMS）把关**（UGI 登录 UT 抓不到）。**这是 P3b 之后才能把 paimon/iceberg/hive metastore-props 搬出 fe-core 的前置**（见本 session 关于 metastore-props 迁移可行性的讨论）。
+>
+> 下文 §「P5-T29 …」是**已完成**条目（local-commit，详见 design doc §5/§6），仅作历史参考。样板 = **P4 #64300**（`73832991962`）。
+
+</details>
 
 **✅ Batch 1（C1）已完成 + local-commit `7632a074e4b`（未 push）**：删 **33 dead 文件**（`datasource/paimon/*` 除 LIVE `PaimonVendedCredentialsProvider`、`metacache/paimon/*`、`systable/PaimonSysTable`）+ 清 **6 处 live reverse-ref**（`ExternalCatalog`/`ExternalMetaCacheMgr`/`ExternalMetaCacheRouteResolver`/`Env`[保 LIVE D-046 PLUGIN 分支]/`UserAuthentication`/`ShowPartitionsCommand`[保 `hasPartitionStatsCapability`+live `PAIMON_EXTERNAL_TABLE` 枚举]）+ **3 javadoc scrub** + **5 dead test 删** + 2 generic fixture test 修（`StatementContextTest` mock→`PluginDrivenMvccExternalTable`、`ExternalMetaCacheRouteResolverTest`）+ metastore-props `getPaimonCatalogType` 内联字面量（脱钩已删的 `PaimonExternalCatalog`，免「常量搬家」前置）。**fe-core test-compile BUILD SUCCESS + checkstyle 0 + 49 改动测试绿**；`datasource/paimon/` 现仅剩 `PaimonVendedCredentialsProvider`。`reverse-ref + 删文件须同一 commit`（P4 precedent：`PaimonUtils:57`→已删的 `ExternalMetaCacheMgr.paimon()`）。
 
@@ -79,12 +80,12 @@
 
 # 🔭 主线 backlog（按优先级）
 
-1. **P5-T29（B8）删 legacy + maven 依赖** —— 见上 §头条。**这是 P5 阶段最后一块主体工作。**
-2. **P5-T30（B9）post-cutover 回归**：SHOW PARTITIONS + partitions TVF / DROP·CREATE DB·TABLE / no-ENGINE CREATE / edit-log replay / MTMV 增量刷 / sys-table / session-TZ 谓词不丢行。大部分是 live-e2e（B7 翻闸前置的硬门，随 #64446 合入即应已由用户跑过 5-flavor live-e2e；删 legacy 后须再跑一遍确认无回归）。可与 P5-T29 的 E 项验证合并。
-3. **元存储子线收尾**（[`metastore-storage-refactor/`](./metastore-storage-refactor/)）：P2-T04（剩 paimon pom + gate；`MetaStoreProviders` 已改 2-arg 显式 loader `2612af5e88f`）→ P2-T05（docker 5-flavor 真闸 + vended(REST/DLF) + Kerberos HMS + storage 等价，`enablePaimonTest=true`）。**与 P5-T29 的 C 项（STILL-CONSUMED metastore-props）领域重叠**——若 P5-T29 取方案 B，须与本子线协调。
-4. **accepted-deviation 用户签字残项**：P6 review 未转 fix 的剩余 MINOR/NIT 刻意偏离 + `PluginDrivenExternalCatalog:140` 吞 authenticator-wiring 异常 + uncheckedFallbacks（REFRESH cache invalidation / partitions-TVF auth / split-plan RPC 在 `executeAuthenticated` 外）。逐条记入 `deviations-log.md` accept-as-deviation（含用户签字）。可与 P5-T29 穿插。
+1. **✅ P5-T29（B8）删 legacy + maven 依赖 — 已完成**（local-commit `32de7d16702`+`895e214b2bd`，未 push）。fe-core 完全 paimon-SDK-free。
+2. **✅ P5-T30（B9）post-cutover 回归 — 已由用户手动 docker 覆盖**（即元存储子线 P2-T05：paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）。原列项（SHOW PARTITIONS / partitions TVF / DROP·CREATE / no-ENGINE CREATE / edit-log replay / MTMV / sys-table / session-TZ）如需逐项正式签字可另起，但主体已覆盖。
+3. **✅ P3b（kerberos authenticator 机制收口到 `fe-kerberos`）= 已完成**（commit 1/2/3：`4a740e1387f`+`8898e15134c`+`5e3e8963023`，均未 push）。三处 kerberos 实现合一到 `fe-kerberos` 单一真相源。**🟢 NEXT = docker kerberos e2e 真闸（HDFS kerberized + HMS）验 `doAs` 不回归 → 然后 P6 iceberg**（见上 §头条 + 子线 [`metastore-storage-refactor/HANDOFF.md`](./metastore-storage-refactor/HANDOFF.md)「下一步」+ tasks P3b-T01 + D-017/DV-010）。元存储子线 **P2 全 5/5 ✅** + **P3b ✅** → 核心 15/15 完成。
+4. **accepted-deviation 用户签字残项**：P6 review 未转 fix 的剩余 MINOR/NIT 刻意偏离 + `PluginDrivenExternalCatalog:140` 吞 authenticator-wiring 异常 + uncheckedFallbacks（REFRESH cache invalidation / partitions-TVF auth / split-plan RPC 在 `executeAuthenticated` 外）。逐条记入 `deviations-log.md` accept-as-deviation（含用户签字）。
 5. **D-057 re-scope**：deferred `TablePartitionValues:162` prune-path sentinel residue **不影响 paimon**（MVCC override 绕过）→ re-scope 到非-MVCC 插件连接器（maxcompute/es/jdbc）。
-6. **后续阶段**：P6 iceberg / P7 hive(+HMS) / P8 收尾（删 SPI_READY_TYPES、删 instanceof）——见 master plan §3.7–3.9。
+6. **后续阶段**：**P6 iceberg（在 P3b 之后）** / P7 hive(+HMS) / P8 收尾（删 SPI_READY_TYPES、删 instanceof）——见 master plan §3.7–3.9。P6 起可复用 P3b 收口后的 `fe-kerberos` authenticator + 评估把 iceberg(/hive/paimon) metastore-props 搬出 fe-core（本 session 已分析：P3b 是其前置）。
 
 ---
 

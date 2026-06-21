@@ -21,7 +21,6 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -29,6 +28,7 @@ import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import com.google.common.base.Strings;
 import org.apache.hadoop.hive.conf.HiveConf;

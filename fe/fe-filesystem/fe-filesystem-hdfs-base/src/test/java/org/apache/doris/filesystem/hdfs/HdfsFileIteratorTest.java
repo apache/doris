@@ -17,16 +17,17 @@
 
 package org.apache.doris.filesystem.hdfs;
 
-import org.apache.doris.filesystem.spi.HadoopAuthenticator;
-import org.apache.doris.filesystem.spi.IOCallable;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
 /**
  * Unit tests for {@link HdfsFileIterator#close()} (Finding #9):
@@ -36,8 +37,19 @@ class HdfsFileIteratorTest {
 
     private static final HadoopAuthenticator PASSTHROUGH = new HadoopAuthenticator() {
         @Override
-        public <T> T doAs(IOCallable<T> action) throws IOException {
-            return action.call();
+        public UserGroupInformation getUGI() {
+            return null;
+        }
+
+        @Override
+        public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
+            try {
+                return action.run();
+            } catch (IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
         }
     };
 
