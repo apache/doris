@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

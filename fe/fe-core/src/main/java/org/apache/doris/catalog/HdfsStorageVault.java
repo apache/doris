@@ -19,12 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.kerberos.AuthenticationConfig;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;

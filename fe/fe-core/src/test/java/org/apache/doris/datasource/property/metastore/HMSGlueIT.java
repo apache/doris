@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import com.google.common.collect.ImmutableMap;
 
