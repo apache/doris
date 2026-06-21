@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
@@ -50,6 +49,7 @@ import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.Equali
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
