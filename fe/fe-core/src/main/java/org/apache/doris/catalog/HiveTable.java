@@ -18,10 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.security.authentication.AuthType;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;

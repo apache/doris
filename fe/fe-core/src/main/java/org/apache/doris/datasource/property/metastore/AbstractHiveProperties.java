@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import lombok.Getter;
 import org.apache.hadoop.hive.conf.HiveConf;

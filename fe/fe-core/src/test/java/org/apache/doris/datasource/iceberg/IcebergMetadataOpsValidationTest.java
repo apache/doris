@@ -22,8 +22,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
