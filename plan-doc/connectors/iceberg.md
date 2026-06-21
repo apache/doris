@@ -11,8 +11,9 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/` |
 | **共享依赖** | `fe-connector-hms`（iceberg-HMS-flavor 用） |
 | **计划迁移阶段** | **P6**（最大阶段，5 周）|
-| **当前状态** | ⏸ 未启动 |
-| **完成度** | 5% |
+| **当前状态** | 🚧 阶段拆分完成（方案 A / 8 阶段 / 单一翻闸，[D-058]）；下一 = P6.1 recon |
+| **完成度** | 8% |
+| **阶段拆分 spec** | [`tasks/P6-iceberg-migration.md`](../tasks/P6-iceberg-migration.md) |
 | **主 owner** | TBD |
 
 ---
@@ -23,13 +24,13 @@
 |---|---|---|
 | 1 | 🟥 | fe-core 34 个顶层 + `source/`(7) + `action/`(10) + `cache/`(2) + `broker/`(3) + `dlf/`(3) + `fileio/`(4) + `helper/`(3) + `profile/`(1) + `rewrite/`(6) = **73 个文件** |
 | 2 | 🟥 | fe-connector 只有 6 个文件（Provider/Metadata/Properties/TableHandle/TypeMapping）—— **骨架**|
-| 3 | ⏳ | 反向 instanceof：19 处 |
+| 3 | ⏳ | 反向 instanceof：~49 处（写命令层最密，P6.7 清理）|
 | 4 | ⏳ | ConnectorMetadata 仅基础 list/get 实现；分子阶段 P6.1-P6.6 全面补 |
 | 5 | ⏳ | |
 | 6 | ✅ | META-INF/services 已注册 |
 | 7 | ⏳ | |
 | 8-9 | ⏳ | |
-| 10 | ⏳ | 清理 19 处反向 instanceof |
+| 10 | ⏳ | 清理 ~49 处反向 instanceof（P6.7）|
 | 11 | ⏳ | PhysicalPlanTranslator 删 `IcebergExternalTable / IcebergSysExternalTable` 分支 |
 | 12 | ⏳ | 0 个测试 |
 | 13 | ⏳ | 删 `datasource/iceberg/` |

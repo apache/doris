@@ -6,13 +6,26 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **docker kerberos e2e 真闸（HDFS kerberized + HMS）→ 然后 P6 iceberg**
+# 🎯 下一个 session 的任务 — **P6.1 iceberg 元数据 recon（阶段拆分已完成 → 逐 task 拆解 + 实现）**
 
-> **✅ P3b 已完成（2026-06-21）**：kerberos authenticator 机制已收口到 `fe-kerberos` 单一真相源。P3b-T01 三步全完成（local-commit `4a740e1387f` trino→JDK + `8898e15134c` relocate 13 类 + `5e3e8963023` 统一 HadoopAuthenticator 接口+删 fe-filesystem-hdfs 副本，**均未 push**）。三处 kerberos 实现合一（fe-common 包移除、fe-filesystem-hdfs 副本删除、双 `HadoopAuthenticator` 接口统一为 fe-kerberos 单接口、trino→JDK）。`fe-kerberos` 仍是顶层中立叶子（no-cycle）。详见元存储子线 [`metastore-storage-refactor/HANDOFF.md`](./metastore-storage-refactor/HANDOFF.md)「下一步」+ tasks `P3b-T01` + `DV-010`。
+> **✅ 所有前置已清除（2026-06-21，已合入 + push）**：P3b（kerberos 收口到 `fe-kerberos`）+ docker kerberos e2e 真闸 + P5-T29（fe-core 完全 paimon-SDK-free）+ P5 迁移+翻闸 全部完成。**注意：先前所有「未 push 的 local-commit `4a740e1387f`/`32de7d16702`/… 」框架已过时** —— 这些 granular 提交已被 **squash** 进 PR 合并提交，不再是 HEAD 祖先。真实合入提交：
+> - **P3b** = `#64655` / `e5959e1b53d`（kerberos: trino→JDK + relocate 13 类到 `fe-kerberos` + 统一 `HadoopAuthenticator` 接口 + 删 fe-filesystem-hdfs 副本；`fe-kerberos` 仍是顶层中立叶子 no-cycle）
+> - **P5-T29** = `#64653` / `d59ed2f96d9`（删 legacy 子系统 + 5 paimon maven 依赖；`grep org.apache.paimon fe/fe-core/src` = ∅）
+> - **P5 迁移+翻闸** = `#64446` / `38e7140ce56`
+> - `branch-catalog-spi`（= `upstream-apache/branch-catalog-spi`）@ `e5959e1b53d`；**当前工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi`，HEAD 同点，P6 尚未分叉）。docker kerberos e2e 已由用户跑过（HDFS kerberized + HMS，`doAs` 不回归）。
 >
-> **🟢 下一步 = docker kerberos e2e（唯一未跑的真闸）**：P3b 改的是 `doAs`/UGI 登录路径（安全敏感，UT 抓不到），须部署 docker 验 **HDFS kerberized**（DFSFileSystem 经 fe-kerberos authenticator 读写）+ **HMS kerberos**（`enablePaimonTest=true` 覆盖 paimon-HMS；hive/iceberg-on-kerberized-HDFS 另需 KDC env）不回归。**接受的行为变更须确认**：simple/无 `hadoop.username` 的 HDFS catalog 现以 remote user "hadoop" 跑（旧=FE 进程用户直跑）。如回归 → 回退 DV-010 pure-consolidation 选择。**然后 = P6 iceberg**（复用收口后干净的 `fe-kerberos` authenticator）。
+> **🟢 本 session 产出（2026-06-21）= P6 阶段拆分 spec [`tasks/P6-iceberg-migration.md`](./tasks/P6-iceberg-migration.md) + 决策 [D-058]**：用户签 **方案 A / 8 阶段 / 单一翻闸在末**——P6.1–P6.5 在 `fe-connector-iceberg` 建完整能力 → **P6.6 一次性翻闸** → P6.7 删 legacy → P6.8 回归。翻闸**全有或全无**（`CatalogFactory:104-113`，加入 `SPI_READY_TYPES` 后 scan/write/MVCC/sys-table 全走连接器、seam 无 legacy 回退）⇒ **切忌在 P6.1–P6.5 任何阶段把 iceberg 加进 `SPI_READY_TYPES`**（会立刻让未实现的 scan/write 全断）。3 缺失 SPI（`ConnectorCredentials` P6.2 / 写路径 RFC P6.3 / `ConnectorProcedureOps` P6.4）各折进其首消费阶段。
 >
-> 下文是 P3b 的**历史 scope 记录**（已完成），仅作参考。
+> **🟢 下一步 = P6.1（元数据读 + 7 flavor，含 port DLF 4-file 子树 + wire S3Tables SDK）的 code-grounded recon + 逐 task 拆解（P6-Tnn）+ 实现，复用收口后干净的 `fe-kerberos` authenticator。起步无硬前置。** P6.1 现状 = **greenfield**：`fe-connector-iceberg` 仅 6 个 skeleton 文件（只读 metadata Phase 1）+ 7 个 backend placeholder pom（connector 引用了不存在的 `DLFCatalog`，DLF flavor 尚未 runtime-wire）；fe-core 仍是完整 legacy（`datasource/iceberg/` 74 文件 / ~14.4K 行，49 文件 import `org.apache.iceberg.*`）；iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:51` 仅 jdbc/es/trino-connector/max_compute/paimon），仍走 switch-case。
+>
+> **⚠️ P6 内部前置（旧 HANDOFF 漏记，本 session 核出；不挡 P6.1 起步，但卡后续子阶段）**：
+> 1. **`plan-doc/06-iceberg-write-path-rfc.md`**（iceberg 写路径 SPI 化 RFC + PMC 评审，master plan §7-#4 + §3.7:259）—— **尚未编写**，卡 **P6.3 写路径**。
+> 2. **`ConnectorProcedureOps` SPI**（承接 10 个 `IcebergXxxAction`，master plan E2）—— `fe-connector-api` 里 **MISSING**，卡 **P6.4 actions**。
+> 3. **扫描期 vended-credentials SPI（`ConnectorCredentials`，E6）** —— **MISSING**，卡 **P6.2 scan**（paimon 当前走另一套 `isVendedCredentialsEnabled` 网关，非此 SPI）。
+> - 已就绪 SPI（P6.1 够用）：`ConnectorMetadata` / `ConnectorMvccSnapshot` / `ConnectorWriteOps` / `ConnectorTransactionHandle` ✅。
+> - 反向 `instanceof IcebergExternal*` ≈ **38–49 处**（文档旧记 13/19 低估），P6.6 清理面更大。
+>
+> **P6 完整阶段计划（8 阶段 + old→new 映射 + 验收门 + 开放决策 O1–O5）见 [`tasks/P6-iceberg-migration.md`](./tasks/P6-iceberg-migration.md)（本 session 落盘）。** 另见 master plan §3.7 + 子线 [`metastore-storage-refactor/HANDOFF.md`](./metastore-storage-refactor/HANDOFF.md)。下文 §「P3b scope」`<details>` 为已完成历史。
 
 <details><summary>（历史）P3b scope — 已完成</summary>
 
@@ -80,19 +93,18 @@
 
 # 🔭 主线 backlog（按优先级）
 
-1. **✅ P5-T29（B8）删 legacy + maven 依赖 — 已完成**（local-commit `32de7d16702`+`895e214b2bd`，未 push）。fe-core 完全 paimon-SDK-free。
-2. **✅ P5-T30（B9）post-cutover 回归 — 已由用户手动 docker 覆盖**（即元存储子线 P2-T05：paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）。原列项（SHOW PARTITIONS / partitions TVF / DROP·CREATE / no-ENGINE CREATE / edit-log replay / MTMV / sys-table / session-TZ）如需逐项正式签字可另起，但主体已覆盖。
-3. **✅ P3b（kerberos authenticator 机制收口到 `fe-kerberos`）= 已完成**（commit 1/2/3：`4a740e1387f`+`8898e15134c`+`5e3e8963023`，均未 push）。三处 kerberos 实现合一到 `fe-kerberos` 单一真相源。**🟢 NEXT = docker kerberos e2e 真闸（HDFS kerberized + HMS）验 `doAs` 不回归 → 然后 P6 iceberg**（见上 §头条 + 子线 [`metastore-storage-refactor/HANDOFF.md`](./metastore-storage-refactor/HANDOFF.md)「下一步」+ tasks P3b-T01 + D-017/DV-010）。元存储子线 **P2 全 5/5 ✅** + **P3b ✅** → 核心 15/15 完成。
-4. **accepted-deviation 用户签字残项**：P6 review 未转 fix 的剩余 MINOR/NIT 刻意偏离 + `PluginDrivenExternalCatalog:140` 吞 authenticator-wiring 异常 + uncheckedFallbacks（REFRESH cache invalidation / partitions-TVF auth / split-plan RPC 在 `executeAuthenticated` 外）。逐条记入 `deviations-log.md` accept-as-deviation（含用户签字）。
-5. **D-057 re-scope**：deferred `TablePartitionValues:162` prune-path sentinel residue **不影响 paimon**（MVCC override 绕过）→ re-scope 到非-MVCC 插件连接器（maxcompute/es/jdbc）。
-6. **后续阶段**：**P6 iceberg（在 P3b 之后）** / P7 hive(+HMS) / P8 收尾（删 SPI_READY_TYPES、删 instanceof）——见 master plan §3.7–3.9。P6 起可复用 P3b 收口后的 `fe-kerberos` authenticator + 评估把 iceberg(/hive/paimon) metastore-props 搬出 fe-core（本 session 已分析：P3b 是其前置）。
+1. **🟢 P6 iceberg 迁移 — 当前活跃任务**（master plan §3.7，P6.1–P6.6 ~5 周）。**起步无硬前置**（P3b + docker e2e 已清）。子阶段内前置见上 §头条（write-path RFC 卡 P6.3、`ConnectorProcedureOps` 卡 P6.4、scan vended-credentials SPI 卡 P6.2）。P7 hive(+HMS) / P8 收尾（删 `SPI_READY_TYPES`、删 ~38–49 处 instanceof）随后——见 master plan §3.7–3.9。
+2. **metastore-props 搬出 fe-core（与 P6/P7 协同评估）**：本 session 分析确认 fe-core `datasource/property/metastore/Paimon*`（`AbstractPaimonProperties` + 5 子类 + `PaimonPropertiesFactory`）**现在还不能删** —— 虽已 SDK-free 空壳，但仍是 paimon catalog 唯一 live `MetastoreProperties`，驱动三条运行时路径：①`Type.PAIMON` 工厂派发（`MetastoreProperties:90` + `CatalogProperty:225/250`，`warehouse` `@ConnectorProperty`/校验/SHOW CREATE）②Kerberos `executionAuthenticator`（`PluginDrivenExternalCatalog:131-138` → `AbstractPaimonProperties.initHdfsExecutionAuthenticator:55-66`）③vended-credentials 网关（`CatalogProperty:192` → `PaimonRestMetaStoreProperties:77`）。删除阻力**纯在 fe-core 内部**（连接器用独立的 `fe-connector-metastore-spi`，对 fe-core 类仅 javadoc 引用，零真实依赖）。删除 = 把这三条行为搬出 fe-core，**与 iceberg(`IcebergExternalCatalog:75`)/hive(`HMSExternalCatalog:138`) 共用同一条通用 seam**（`MetastoreProperties` 注册表 + `CatalogProperty` + `PluginDrivenExternalCatalog`），故应在 P6/P7 一并设计，非单删 paimon。**附带**：`getPaimonCatalogType()` 是 fe-core 侧死代码（0 生产调用，3 test）可独立清。Plan A 已 defer 此迁移到 P3b 之后（现已满足前置）。
+3. **accepted-deviation 用户签字残项**：P6 review 未转 fix 的剩余 MINOR/NIT 刻意偏离 + `PluginDrivenExternalCatalog:140` 吞 authenticator-wiring 异常 + uncheckedFallbacks（REFRESH cache invalidation / partitions-TVF auth / split-plan RPC 在 `executeAuthenticated` 外）。逐条记入 `deviations-log.md` accept-as-deviation（含用户签字）。**非阻塞 P6。**
+4. **D-057 re-scope**：deferred `TablePartitionValues:162` prune-path sentinel residue **不影响 paimon**（MVCC override 绕过）→ re-scope 到非-MVCC 插件连接器（maxcompute/es/jdbc）。**非阻塞 P6。**
+
+> **✅ 已完成（历史，已合入 + push）**：P5-T29（B8，删 legacy + maven 依赖，`#64653`/`d59ed2f96d9`，fe-core 完全 paimon-SDK-free）｜P5-T30（B9，post-cutover 回归，用户手动 docker 覆盖 = 元存储子线 P2-T05：paimon 5-flavor 读 + vended REST/DLF + Kerberos HMS，`enablePaimonTest=true`）｜P3b（kerberos 收口到 `fe-kerberos`，`#64655`/`e5959e1b53d`）+ docker kerberos e2e 真闸（用户已跑）。元存储子线 **P2 全 5/5 ✅** + **P3b ✅** → 核心 15/15 完成。
 
 ---
 
 # 📦 仓库 / 进度状态
-- **当前分支 = `branch-catalog-spi`**（开发主分支）。HEAD 近端：`38e7140ce56`（#64446 P5 迁移+翻闸）← `e9c5b3e70ce`（修编译）。
-  P0–P5(迁移+翻闸) + P3 hybrid + P4 全部已合入本分支。
-- **P5 状态**：B0–B7 合入 #64446；**B8（P5-T29 删 legacy）= Batch 1 + Batch 2 全完成**（local-commit，未 push）；**仅剩 B9（P5-T30 live-e2e 回归，用户跑）**。
+- **工作分支 = `catalog-spi-10-iceberg`**（P6 起步，off `branch-catalog-spi`，HEAD 同点未分叉）；**开发主分支 = `branch-catalog-spi`** = `upstream-apache/branch-catalog-spi` @ `e5959e1b53d`（已 push）。HEAD 近端：`e5959e1b53d`（#64655 P3b）← `d59ed2f96d9`（#64653 P5-T29 删 legacy）← `38e7140ce56`（#64446 P5 迁移+翻闸）。P0–P5 + P3 hybrid + P4 + P3b 全部已合入。**先前所有 granular local-commit 哈希已被 squash 进上述 PR 合并提交，不再是 HEAD 祖先。**
+- **P5 状态 = 全完成**：B0–B7 合入 #64446；**B8（P5-T29 删 legacy + 5 maven 依赖）合入 #64653**；**B9（P5-T30 live-e2e 回归）由用户 docker 覆盖**。
 - **fe-core 现已完全 paimon-SDK-free**：`datasource/paimon/` 整目录已删；6 个 `property/metastore/Paimon*` 已 strip 成 SDK-free 描述符（保 LIVE auth/validation/@ConnectorProperty/type）；5 个 paimon maven 依赖已删。`grep org.apache.paimon fe/fe-core/src/{main,test}` = ∅。**fe/pom.xml `paimon.version` 保留**（R-007：fe-connector-paimon + BE 仍用）。
 - ⚠️ `regression-test/conf/regression-conf.groovy` 若仍 modified 且含**明文 Aliyun key** → commit 前继续 path-whitelist，**严禁 `git add -A`**；`regression-conf.groovy.bak` 同理排除。
 - 未跟踪 scratch：`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak` 等——commit 前清，勿 add。
@@ -108,9 +120,9 @@
 
 ## ⚠️ Commit 须知（任何 `git add` 前必读）
 - **硬前置**：scrub `regression-test/conf/regression-conf.groovy`（明文 key）+ 清 scratch（`.audit-scratch/` `conf.cmy/` `META-INF/` `*.bak`）。**path-whitelist `git add`，严禁 `git add -A`。**
-- 每个 fix/删除批独立 commit；message = `[P5-T29] <subj>` + 根因 + 解法 + 测试，末尾带
-  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。删除 PR 带其 design doc（repo 惯例，参 P4 #64300 的 `P4-batchD-maxcompute-removal-design.md`）。
-- **PR 流程**：P5-T29 在 `branch-catalog-spi` 上做（或开 feature 分支 off 它），走**新 PR**（mirror P4 #64300，base = `branch-catalog-spi`）。
+- 每个 task/批独立 commit；message = `[P6] <subj>`（或 `[refactor](catalog) P6 ...`，mirror `#64653`/`#64655` 已合入提交的 subject 风格）+ 根因 + 解法 + 测试，末尾带
+  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`。删除/迁移 PR 带其 design doc（repo 惯例，参 P4 #64300 的 `P4-batchD-maxcompute-removal-design.md`）。
+- **PR 流程**：P6 在 `catalog-spi-10-iceberg`（或新 feature 分支 off `branch-catalog-spi`）上做，走**新 PR**（mirror P4 #64300 / P5-T29 #64653，base = `branch-catalog-spi`），squash 合并。
   ⚠️ 历史的 `catalog-spi-07-paimon` 分支 + PR #64445 force-push 流程**已作废**（那条线已并入 #64446）。memory `catalog-spi-07-paimon-branch-pr-workflow` 据此过时，勿再 force-push 那两个分支。
 
 ## ⚙️ 操作须知（复用）
