@@ -244,6 +244,10 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
+    if (!column_schema.type_descriptor.unsupported_reason.empty()) {
+        return Status::NotSupported("Unsupported parquet column '{}': {}", column_schema.name,
+                                    column_schema.type_descriptor.unsupported_reason);
+    }
     if (is_nested && column_schema.kind != ParquetColumnSchemaKind::PRIMITIVE) {
         return Status::InvalidArgument("Parquet nested scalar reader requires primitive column {}",
                                        column_schema.name);

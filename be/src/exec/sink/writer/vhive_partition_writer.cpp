@@ -88,6 +88,8 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
                                          to_string(_hive_compress_type));
         }
         }
+        // TODO: INT96 is kept for Hive 2/3 compatibility. Add an explicit option before
+        // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, true};
         _file_format_transformer = std::make_unique<VParquetTransformer>(

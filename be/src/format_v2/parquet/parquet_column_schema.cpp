@@ -359,6 +359,10 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
         column_schema->type_descriptor = resolve_parquet_type(column_schema->descriptor);
         column_schema->type = column_schema->type_descriptor.doris_type;
         if (column_schema->type == nullptr) {
+            if (!column_schema->type_descriptor.unsupported_reason.empty()) {
+                return Status::NotSupported("Unsupported parquet column '{}': {}", node.name(),
+                                            column_schema->type_descriptor.unsupported_reason);
+            }
             return Status::NotSupported("Unsupported parquet column type for column {}",
                                         node.name());
         }

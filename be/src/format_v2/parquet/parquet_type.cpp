@@ -82,13 +82,13 @@ DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* colu
     case ::parquet::ConvertedType::DATE:
         return create_type(TYPE_DATEV2, nullable);
     case ::parquet::ConvertedType::TIME_MILLIS:
-        result->time_unit = ParquetTimeUnit::MILLIS;
-        result->extra_type_info = ParquetExtraTypeInfo::UNIT_MS;
-        return create_type(TYPE_TIMEV2, nullable, 0, 3);
+        result->unsupported_reason =
+                "Parquet TIME with isAdjustedToUTC=true is not supported";
+        return nullptr;
     case ::parquet::ConvertedType::TIME_MICROS:
-        result->time_unit = ParquetTimeUnit::MICROS;
-        result->extra_type_info = ParquetExtraTypeInfo::UNIT_MICROS;
-        return create_type(TYPE_TIMEV2, nullable, 0, 6);
+        result->unsupported_reason =
+                "Parquet TIME with isAdjustedToUTC=true is not supported";
+        return nullptr;
     case ::parquet::ConvertedType::TIMESTAMP_MILLIS:
         result->is_timestamp = true;
         result->timestamp_is_adjusted_to_utc = true;
@@ -157,6 +157,11 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
     }
     if (logical_type->is_time()) {
         const auto& time_type = static_cast<const ::parquet::TimeLogicalType&>(*logical_type);
+        if (time_type.is_adjusted_to_utc()) {
+            result->unsupported_reason =
+                    "Parquet TIME with isAdjustedToUTC=true is not supported";
+            return nullptr;
+        }
         int scale = 0;
         if (time_type.time_unit() == ::parquet::LogicalType::TimeUnit::MILLIS) {
             scale = 3;
@@ -294,9 +299,15 @@ ParquetTypeDescriptor resolve_parquet_type(const ::parquet::ColumnDescriptor* co
 
     if (auto logical_type = logical_type_to_doris_type(column, &result); logical_type != nullptr) {
         result.doris_type = logical_type;
+    } else if (!result.unsupported_reason.empty()) {
+        result.doris_type = nullptr;
+        result.supports_record_reader = false;
     } else if (auto converted_type = converted_type_to_doris_type(column, &result);
                converted_type != nullptr) {
         result.doris_type = converted_type;
+    } else if (!result.unsupported_reason.empty()) {
+        result.doris_type = nullptr;
+        result.supports_record_reader = false;
     } else {
         result.doris_type = physical_type_to_doris_type(column);
         if (result.physical_type == ::parquet::Type::INT96) {

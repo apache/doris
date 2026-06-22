@@ -88,6 +88,7 @@ struct ParquetTypeDescriptor {
     bool timestamp_is_adjusted_to_utc = false; // timestamp 是否已 UTC 归一化
     bool is_string_like = false;               // binary 但不是 decimal/FLOAT16
     bool supports_record_reader = true;        // 能否通过 Arrow RecordReader 读取
+    std::string unsupported_reason;            // 非空表示该 Parquet 逻辑类型暂不支持
 };
 
 // 返回 Parquet leaf column 的 file-local 展示名（如 "a.b.c"）。
