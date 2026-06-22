@@ -118,7 +118,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     }
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
-        auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
+        // delete the actual created file, otherwise an orphan file is left behind
+        auto path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
