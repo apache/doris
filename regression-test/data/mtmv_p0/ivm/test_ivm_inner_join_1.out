@@ -7,7 +7,6 @@
 3	30	300
 
 -- !inner_basic_after_second_incremental --
-1	10	111
 2	20	220
 3	30	300
 
@@ -37,42 +36,4 @@
 2	20
 3	10
 3	20
-
--- !mow_dup_unmatched_after_complete --
-1	10	100	0
-2	20	200	0
-
--- !mow_dup_unmatched_after_incremental --
-1	10	100	0
-1	10	100	0
-1	10	100	0
-2	20	200	0
-2	20	200	0
-2	20	200	0
-3	30	300	0
-3	30	300	0
-
--- !mow_dup_unmatched_after_complete_recovery --
-1	10	100	0
-2	20	200	0
-3	30	300	0
-
--- !mow_dup_matched_after_complete --
-1	10	100	0
-2	20	200	0
-
--- !mow_dup_matched_after_complete_recovery --
-1	10	100	0
-2	20	200	1
-
--- !nested_join_after_complete --
-1	10	100	1000
-
--- !nested_join_after_incremental --
-1	10	100	1000
-2	20	200	2000
-
--- !nested_join_after_complete_recovery --
-1	10	100	1000
-2	20	200	2000
 

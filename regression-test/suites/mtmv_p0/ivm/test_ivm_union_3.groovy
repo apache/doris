@@ -39,7 +39,7 @@ suite("test_ivm_union_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -54,7 +54,7 @@ suite("test_ivm_union_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -69,7 +69,7 @@ suite("test_ivm_union_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -134,24 +134,23 @@ suite("test_ivm_union_3") {
     sql """
         CREATE TABLE test_ivm_union_3_self_del_t (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """
         INSERT INTO test_ivm_union_3_self_del_t VALUES
-            (1, 10, 0),
-            (2, 20, 0),
-            (3, 30, 0);
+            (1, 10),
+            (2, 20),
+            (3, 30);
     """
 
     sql """
@@ -174,9 +173,9 @@ suite("test_ivm_union_3") {
     // Delete row k1=2 (binlog_op=1) and insert k1=4 (binlog_op=0)
     sql """
         INSERT INTO test_ivm_union_3_self_del_t VALUES
-            (2, 20, 1),
-            (4, 40, 0);
+            (4, 40);
     """
+    sql """DELETE FROM test_ivm_union_3_self_del_t WHERE k1 = 2;"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_union_3_self_del_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_union_3_self_del_mv")
     order_qt_self_del_after_inc """
@@ -206,7 +205,7 @@ suite("test_ivm_union_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -221,7 +220,7 @@ suite("test_ivm_union_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -257,7 +256,7 @@ suite("test_ivm_union_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

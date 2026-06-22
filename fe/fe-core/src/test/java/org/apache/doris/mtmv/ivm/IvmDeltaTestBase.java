@@ -32,6 +32,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -79,16 +81,40 @@ import java.util.stream.Collectors;
 
 abstract class IvmDeltaTestBase {
 
+    static {
+        FeConstants.runningUnitTest = true;
+    }
+
     protected LogicalOlapScan buildScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
-        return (LogicalOlapScan) scan.withIsDelta(true);
+        return scan;
     }
 
-    /** Builds a scan with isDelta=false for the given table id and name (for delta plan generator tests). */
+    /** Builds an incremental delta scan (LogicalOlapTableStreamScan with isIncrementalScan=true). */
+    protected LogicalOlapTableStreamScan buildDeltaScan() {
+        OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
+        enableRowBinlog(table);
+        table.setQualifiedDbName("test_db");
+        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), ImmutableList.of()).withIncrementalScan(true);
+    }
+
+    /** Builds an incremental delta scan for the given table id and name. */
+    protected LogicalOlapTableStreamScan buildDeltaScanForTable(long tableId, String tableName) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        enableRowBinlog(table);
+        table.setQualifiedDbName("test_db");
+        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), ImmutableList.of()).withIncrementalScan(true);
+    }
+
+    /** Builds a scan for the given table id and name (for delta plan generator tests). */
     protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
         enableRowBinlog(table);
@@ -101,22 +127,8 @@ abstract class IvmDeltaTestBase {
      * Builds a scan over a DUP_KEYS table that contains an additional {@code binlog_op}
      * column (TinyInt). Schema: id (INT key), name (STRING key), binlog_op (TINYINT).
      */
-    protected LogicalOlapScan buildScanWithOpColumn() {
-        List<Column> columns = ImmutableList.of(
-                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                new Column(Column.IVM_MOCK_BINLOG_OPERATION_COL, Type.TINYINT, false, AggregateType.NONE, "0", ""));
-        OlapTable table = new OlapTable(1L, "t_op", columns,
-                KeysType.DUP_KEYS, new SinglePartitionInfo(),
-                new RandomDistributionInfo(3));
-        table.setIndexMeta(-1, "t_op", table.getFullSchema(),
-                0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
-        enableRowBinlog(table);
-        table.setQualifiedDbName("test_db");
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
-                ImmutableList.of("test_db"));
-        return (LogicalOlapScan) scan.withIsDelta(true);
-    }
+    // buildScanWithOpColumn removed — mock binlog_op column (IVM_MOCK_BINLOG_OPERATION_COL)
+    // is no longer used; delta scans use real __DORIS_BINLOG_OP__ via the stream path.
 
     protected LogicalResultSink<LogicalProject<LogicalOlapScan>> buildScanPlan(LogicalOlapScan scan) {
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());

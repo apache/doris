@@ -17,15 +17,13 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.mtmv.BaseTableInfo;
-
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
-import java.util.Map;
 
 /**
  * Thin persistent IVM metadata stored on MTMV.
+ *
+ * <p>Consumption positions are managed by {@code OlapTableStream} per-partition offsets.
+ * The old {@code IvmStreamRef}-based tracking has been removed.
  */
 public class IvmInfo {
 
@@ -39,28 +37,18 @@ public class IvmInfo {
     @SerializedName("rr")
     private boolean runningIvmRefresh = false;
 
-    @SerializedName("bs")
-    private Map<BaseTableInfo, IvmStreamRef> baseTableStreams;
-
     /** Compact persisted SHA-256 layout signature; see IvmPlanSignature#canonicalString for details. */
     @SerializedName("ps")
     private String planSignature;
 
     public IvmInfo() {
-        this.baseTableStreams = Maps.newHashMap();
     }
 
-    /** Deep-copy persisted IVM metadata before publishing an updated edit-log entry. */
     public IvmInfo(IvmInfo other) {
         this.enableIvm = other.enableIvm;
         this.binlogBroken = other.binlogBroken;
         this.runningIvmRefresh = other.runningIvmRefresh;
-        this.baseTableStreams = Maps.newHashMap();
-        if (other.baseTableStreams != null) {
-            for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : other.baseTableStreams.entrySet()) {
-                this.baseTableStreams.put(entry.getKey(), new IvmStreamRef(entry.getValue()));
-            }
-        }
+        this.planSignature = other.planSignature;
     }
 
     public boolean isEnableIvm() {
@@ -87,14 +75,6 @@ public class IvmInfo {
         this.runningIvmRefresh = runningIvmRefresh;
     }
 
-    public Map<BaseTableInfo, IvmStreamRef> getBaseTableStreams() {
-        return baseTableStreams;
-    }
-
-    public void setBaseTableStreams(Map<BaseTableInfo, IvmStreamRef> baseTableStreams) {
-        this.baseTableStreams = baseTableStreams;
-    }
-
     public String getPlanSignature() {
         return planSignature;
     }
@@ -109,7 +89,6 @@ public class IvmInfo {
                 + "enableIvm=" + enableIvm
                 + ", binlogBroken=" + binlogBroken
                 + ", runningIvmRefresh=" + runningIvmRefresh
-                + ", baseTableStreams=" + baseTableStreams
                 + ", planSignature='" + planSignature + '\''
                 + '}';
     }
