@@ -16,7 +16,7 @@
 // under the License.
 
 suite("create_tbl_with_ann_index_test") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "drop table if exists ann_tbl1"
     test {
         sql """

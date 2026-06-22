@@ -28,10 +28,9 @@ import java.util.Optional;
  * <p>The API layer exposes this interface so framework code can pass typed
  * configuration between filesystem modules without depending on provider
  * implementations. Each provider is responsible for binding raw key-value
- * properties, validating them, and converting them to the formats required by
- * runtime clients, BE RPC adapters, or Hadoop clients.</p>
+ * properties, validating them, and creating runtime clients from typed accessors.</p>
  */
-public interface FileSystemProperties {
+public interface FileSystemProperties extends StorageProperties {
 
     /**
      * Returns the provider name, such as S3, OSS, COS, or OBS.
@@ -66,15 +65,6 @@ public interface FileSystemProperties {
      * implementation details.</p>
      */
     Map<String, String> matchedProperties();
-
-    /**
-     * Converts to the legacy key-value format used by existing FileSystem implementations.
-     *
-     * <p>This method exists as a migration bridge. New provider code should use
-     * typed accessors internally, while callers that still depend on the old map
-     * contract can continue to consume this representation.</p>
-     */
-    Map<String, String> toFileSystemKv();
 
     /**
      * Converts to backend storage properties if this provider supports BE access.

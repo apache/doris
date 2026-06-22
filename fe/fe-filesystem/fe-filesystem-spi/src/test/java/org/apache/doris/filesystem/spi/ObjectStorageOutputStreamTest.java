@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.s3;
+package org.apache.doris.filesystem.spi;
 
-import org.apache.doris.filesystem.spi.RequestBody;
+import org.apache.doris.filesystem.UploadPartResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,21 +25,18 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 
 /**
- * Unit tests for {@link S3OutputStream}.
+ * Unit tests for {@link ObjectStorageOutputStream}.
  *
  * <p>Covers the M3 fix: size-guard and idempotent close behaviour.
  *
- * <p>{@link S3OutputStream} is package-private; this test lives in the same package.
- * Because the class is small and self-contained, all tests are purely in-memory —
- * no AWS SDK calls are made.
+ * <p>Because the class is small and self-contained, all tests are purely in-memory.
  */
-class S3OutputStreamTest {
+class ObjectStorageOutputStreamTest {
 
     // ------------------------------------------------------------------
     // M3-A: write() size guard
@@ -54,7 +51,7 @@ class S3OutputStreamTest {
     @Test
     void testWriteAtLimitSucceeds() throws Exception {
         // null objStorage is safe because close() is never called in this test.
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", null);
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", null);
 
         // Fill the buffer to MAX - 1 bytes via reflection so we don't allocate 256 MB.
         long max = getMaxSingleUploadBytes();
@@ -71,7 +68,7 @@ class S3OutputStreamTest {
      */
     @Test
     void testWriteExceedingLimitThrowsIOException() throws Exception {
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", null);
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", null);
 
         // Pre-fill the buffer to MAX bytes.
         long max = getMaxSingleUploadBytes();
@@ -90,7 +87,7 @@ class S3OutputStreamTest {
      */
     @Test
     void testSingleByteWriteExceedingLimitThrowsIOException() throws Exception {
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", null);
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", null);
 
         long max = getMaxSingleUploadBytes();
         setBufferCount(stream, (int) max);
@@ -113,7 +110,7 @@ class S3OutputStreamTest {
     @Test
     void testWriteAfterCloseThrowsIOException() throws Exception {
         // Provide a no-op ObjStorage so close() can complete successfully.
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", new CapturingStorage());
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", new CapturingStorage());
         stream.close();
 
         IOException ex = Assertions.assertThrows(IOException.class,
@@ -144,7 +141,7 @@ class S3OutputStreamTest {
             }
         };
 
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", storage);
         stream.write(new byte[]{0}, 0, 1); // ensure write happened so close uploads (#22)
         stream.close(); // first close — must call putObject once
         stream.close(); // second close — must be a no-op (no second putObject call)
@@ -170,8 +167,8 @@ class S3OutputStreamTest {
             }
         };
 
-        byte[] payload = "hello-s3".getBytes();
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        byte[] payload = "hello-object".getBytes();
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", storage);
         stream.write(payload, 0, payload.length);
         stream.close();
 
@@ -194,7 +191,7 @@ class S3OutputStreamTest {
             }
         };
 
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", storage);
         stream.close(); // no write(...) ever called
 
         Assertions.assertFalse(putObjectCalled.get(),
@@ -218,7 +215,7 @@ class S3OutputStreamTest {
             }
         };
 
-        S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        ObjectStorageOutputStream stream = new ObjectStorageOutputStream("obj://bucket/key", storage);
         stream.write(new byte[0], 0, 0); // explicit empty write
         stream.close();
 
@@ -235,19 +232,19 @@ class S3OutputStreamTest {
      * Reads the {@code MAX_SINGLE_UPLOAD_BYTES} static field via reflection.
      */
     private static long getMaxSingleUploadBytes() throws Exception {
-        Field f = S3OutputStream.class.getDeclaredField("MAX_SINGLE_UPLOAD_BYTES");
+        Field f = ObjectStorageOutputStream.class.getDeclaredField("MAX_SINGLE_UPLOAD_BYTES");
         f.setAccessible(true);
         return (long) f.get(null);
     }
 
     /**
      * Sets the internal {@code count} of the {@link ByteArrayOutputStream} buffer inside an
-     * {@link S3OutputStream} to {@code count} bytes, faking that data has already been written.
+     * {@link ObjectStorageOutputStream} to {@code count} bytes, faking that data has already been written.
      * This avoids allocating hundreds of MB in unit tests.
      */
-    private static void setBufferCount(S3OutputStream stream, int count) throws Exception {
-        // Get the S3OutputStream.buffer (ByteArrayOutputStream) field.
-        Field bufferField = S3OutputStream.class.getDeclaredField("buffer");
+    private static void setBufferCount(ObjectStorageOutputStream stream, int count) throws Exception {
+        // Get the ObjectStorageOutputStream.buffer (ByteArrayOutputStream) field.
+        Field bufferField = ObjectStorageOutputStream.class.getDeclaredField("buffer");
         bufferField.setAccessible(true);
         ByteArrayOutputStream buf = (ByteArrayOutputStream) bufferField.get(stream);
 
@@ -257,22 +254,63 @@ class S3OutputStreamTest {
         countField.set(buf, count);
     }
 
-    /**
-     * Subclass (via the {@link ObjStorage} interface route) that records {@code putObject()} calls.
-     * Because {@link S3ObjStorage} has a concrete constructor (requires {@code Map<String,String>})
-     * we subclass {@link S3ObjStorage} with a minimal property map that never builds a client.
-     */
-    private static class CapturingStorage extends S3ObjStorage {
+    private static class CapturingStorage implements ObjStorage<Object> {
 
-        CapturingStorage() {
-            super(Map.of(
-                    "s3.endpoint", "https://minio.local",
-                    "s3.region", "us-east-1"));
+        @Override
+        public Object getClient() {
+            return null;
+        }
+
+        @Override
+        public RemoteObjects listObjects(String remotePath, String continuationToken) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public RemoteObject headObject(String remotePath) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
         public void putObject(String remotePath, RequestBody body) throws IOException {
             // default no-op; subclass overrides as needed
+        }
+
+        @Override
+        public void deleteObject(String remotePath) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void copyObject(String srcPath, String dstPath) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String initiateMultipartUpload(String remotePath) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
+                RequestBody body) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void completeMultipartUpload(String remotePath, String uploadId,
+                java.util.List<UploadPartResult> parts) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void abortMultipartUpload(String remotePath, String uploadId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
+            // no-op
         }
     }
 }

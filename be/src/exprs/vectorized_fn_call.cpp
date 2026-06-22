@@ -556,8 +556,9 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, AnnRangeSearchEvaluationResult& evaluation_result) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        AnnRangeSearchEvaluationResult& evaluation_result) {
     evaluation_result = {};
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
@@ -609,6 +610,20 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         return Status::InvalidArgument(
                 "Ann range search query dimension {} does not match index dimension {}",
                 range_search_runtime.dim, index_dim);
+    }
+
+    const auto& user_params = range_search_runtime.user_params;
+    if (user_params.should_fallback_ann_index_by_small_candidate(origin_num, rows_of_segment)) {
+        VLOG_DEBUG << fmt::format(
+                "Ann range search input rows {} reach small candidate threshold, "
+                "rows_of_segment: {}, absolute_threshold: {}, percent_threshold: {}, "
+                "will not use ann index to filter",
+                origin_num, rows_of_segment, user_params.ann_index_candidate_rows_threshold,
+                user_params.ann_index_candidate_rows_percent_threshold);
+        ann_index_stats.fall_back_brute_force_cnt += 1;
+        ann_index_stats.range_fallback_by_small_candidate_cnt += 1;
+        ann_index_stats.range_fallback_small_candidate_rows += origin_num;
+        return Status::OK();
     }
 
     auto stats = std::make_unique<segment_v2::AnnIndexStats>();

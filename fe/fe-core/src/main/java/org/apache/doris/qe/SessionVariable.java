@@ -968,6 +968,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
     public static final String IVF_NPROBE = "ivf_nprobe";
+    public static final String ANN_INDEX_CANDIDATE_ROWS_THRESHOLD =
+            "ann_index_candidate_rows_threshold";
+    public static final String ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD =
+            "ann_index_candidate_rows_percent_threshold";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -3542,6 +3546,38 @@ public class SessionVariable implements Serializable, Writable {
                     "IVF index nprobe parameter, controls the number of clusters to search"})
     public int ivfNprobe = 32;
 
+    @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexCandidateRowsThreshold",
+            description = {"Skip ANN index when candidate rows before ANN search are less "
+                    + "than this threshold. 0 disables the absolute row threshold",
+                    "Skip ANN index when candidate rows before ANN search are less "
+                            + "than this threshold. 0 disables the absolute row threshold"})
+    public long annIndexCandidateRowsThreshold = 0;
+
+    @VarAttrDef.VarAttr(name = ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD, needForward = true,
+            checker = "checkAnnIndexCandidateRowsPercentThreshold",
+            description = {"Skip ANN index when candidate row ratio before ANN search is less "
+                    + "than this threshold",
+                    "Skip ANN index when candidate row ratio before ANN search is less "
+                            + "than this threshold"})
+    public double annIndexCandidateRowsPercentThreshold = 0.3;
+
+    public void checkAnnIndexCandidateRowsThreshold(String value) {
+        long threshold = Long.parseLong(value);
+        if (threshold < 0) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_CANDIDATE_ROWS_THRESHOLD + " should be greater than or equal to 0");
+        }
+    }
+
+    public void checkAnnIndexCandidateRowsPercentThreshold(String value) {
+        double threshold = Double.parseDouble(value);
+        if (Double.isNaN(threshold) || Double.isInfinite(threshold) || threshold < 0 || threshold > 1) {
+            throw new InvalidParameterException(
+                    ANN_INDEX_CANDIDATE_ROWS_PERCENT_THRESHOLD + " should be between 0 and 1");
+        }
+    }
+
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -3572,6 +3608,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             needForward = true,
+            checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
@@ -3662,8 +3699,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableConditionCache = Config.pull_request_id % 2 == 0;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
-        // enable fuzzy after we clean all case of
-        // this.enableSegmentLimitPushdown = random.nextBoolean();
+        this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
@@ -5586,6 +5622,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setIvfNprobe(ivfNprobe);
+        tResult.setAnnIndexCandidateRowsThreshold(annIndexCandidateRowsThreshold);
+        tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
@@ -6425,6 +6463,14 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
+        if (value < 1 || value > 50000) {
+            throw new UnsupportedOperationException("variant max sparse column statistics size is: "
+                    + variantMaxSparseColumnStatisticsSize + " it must between 1 and 50000");
         }
     }
 
