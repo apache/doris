@@ -52,18 +52,11 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status NestedLoopJoinBuildSinkLocalState::terminate(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    if (_terminated) {
-        return Status::OK();
-    }
-    if (_runtime_filter_producer_helper && !_shared_state->build_side_eos) {
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
-    }
-    return JoinBuildSinkLocalState::terminate(state);
-}
-
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (!state->is_cancelled()) {
+        auto build_blocks = _shared_state->build_blocks.copy();
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(state, build_blocks));
+    }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));
     return Status::OK();
@@ -130,11 +123,6 @@ Status NestedLoopJoinBuildSinkOperatorX::sink_impl(doris::RuntimeState* state, B
     }
 
     if (eos) {
-        if (!state->is_cancelled()) {
-            auto build_blocks = local_state._shared_state->build_blocks.copy();
-            RETURN_IF_ERROR(
-                    local_state._runtime_filter_producer_helper->process(state, build_blocks));
-        }
         local_state._shared_state->build_side_eos = true;
         local_state._dependency->set_ready_to_read();
     } else if (rows != 0 && _enable_partial_build_output) {
