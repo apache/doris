@@ -188,14 +188,14 @@ void KuromojiDictionary::common_prefix_search(const char* text, std::size_t len,
         std::size_t m = _trie.commonPrefixSearch(text, big.data(), n, len);
         std::size_t take = m < n ? m : n;
         for (std::size_t i = 0; i < take; ++i) {
-            out->push_back({static_cast<uint32_t>(big[i].value),
-                            static_cast<uint32_t>(big[i].length)});
+            out->push_back(
+                    {static_cast<uint32_t>(big[i].value), static_cast<uint32_t>(big[i].length)});
         }
         return;
     }
     for (std::size_t i = 0; i < n; ++i) {
-        out->push_back(
-                {static_cast<uint32_t>(results[i].value), static_cast<uint32_t>(results[i].length)});
+        out->push_back({static_cast<uint32_t>(results[i].value),
+                        static_cast<uint32_t>(results[i].length)});
     }
 }
 
