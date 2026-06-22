@@ -64,13 +64,17 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Shared metastore connection-fact parsers + MetaStoreProvider SPI (P2-T03 cutover): the
+        <!-- Paimon per-engine metastore backends + the shared MetaStoreProvider SPI (P2-T03 cutover): the
              adapter calls MetaStoreProviders.bind(raw, storageHadoopConfig) to parse HMS/DLF/REST/JDBC/
              filesystem facts instead of the old hand-rolled buildHmsHiveConf/buildDlfHiveConf/validate.
-             metastore-spi transitively pulls metastore-api + fe-kerberos (facts carriers). Hadoop/fs-free. -->
+             Post P6-T10 the concrete paimon impls + their ServiceLoader providers live in
+             fe-connector-metastore-paimon (mirroring fe-filesystem's per-backend modules); it transitively
+             pulls the extension point + framework + conf bases (metastore-spi), the contracts
+             (metastore-api), and fe-kerberos (facts carriers). All bundled child-first into the plugin-zip,
+             so only paimon's providers are discoverable here. Hadoop/fs-free. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-metastore-spi</artifactId>
+            <artifactId>fe-connector-metastore-paimon</artifactId>
             <version>${project.version}</version>
         </dependency>
 
