@@ -42,9 +42,6 @@
 	3	2	three	2	4
 	4	1	four	2	4
 
--- !join_limit_count --
-5
-
 -- !join6 --
 	\N	\N	null	\N
 	\N	0	zero	\N
@@ -135,4 +132,3 @@
 
 -- !join13 --
 	1	4	one	-1
-

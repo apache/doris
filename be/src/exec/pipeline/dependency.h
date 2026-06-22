@@ -771,9 +771,9 @@ struct PartitionedHashJoinSharedState
 struct NestedLoopJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(NestedLoopJoinSharedState)
     class BuildBlocks {
+    public:
         using BuildBlockPtr = std::shared_ptr<const Block>;
 
-    public:
         void emplace_back(Block&& block) {
             std::lock_guard<std::mutex> lock(_mutex);
             _blocks.emplace_back(std::make_shared<Block>(std::move(block)));
@@ -792,6 +792,8 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
             DCHECK_LT(index, _blocks.size());
             return *_blocks[index];
         }
+
+        const std::vector<BuildBlockPtr>& blocks() const { return _blocks; }
 
     private:
         mutable std::mutex _mutex;

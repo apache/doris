@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/runtime_filter/runtime_filter.h"
@@ -34,17 +37,15 @@ public:
 
     RuntimeFilterProducerHelperCross() : RuntimeFilterProducerHelper(true, false) {}
 
-    template <typename BuildBlocks>
-    Status process(RuntimeState* state, const BuildBlocks& blocks) {
-        for (size_t i = 0; i < blocks.size(); ++i) {
-            Block block = blocks[i];
-            RETURN_IF_ERROR(_process_block(&block));
+    Status process(RuntimeState* state, const std::vector<std::shared_ptr<const Block>>& blocks) {
+        for (const auto& block : blocks) {
+            Block mutable_block = *block;
+            RETURN_IF_ERROR(_process_block(&mutable_block));
         }
-
         for (auto filter : _producers) {
             filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
         }
-        return publish(state);
+        return RuntimeFilterProducerHelper::publish(state);
     }
 
 private:

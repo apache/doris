@@ -75,7 +75,8 @@ TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
     column->insert(Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
 
-    Blocks blocks = {block};
+    std::vector<std::shared_ptr<const Block>> blocks = {
+            std::make_shared<const Block>(std::move(block))};
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.process(_runtime_states[0].get(), blocks));
 }
 

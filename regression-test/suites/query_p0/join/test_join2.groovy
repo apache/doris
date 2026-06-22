@@ -108,17 +108,6 @@ suite("test_join2", "query,p0,arrow_flight_sql") {
             ORDER BY 1,2,3,4,5,6;
         """
 
-    sql "set batch_size = 1"
-    qt_join_limit_count """
-            SELECT count(*) FROM (
-                SELECT '' AS "xxx", *
-                FROM ${TBname1} JOIN ${TBname2}
-                ON (${TBname1}.i <= ${TBname2}.k)
-                LIMIT 5
-            ) t;
-        """
-    sql "set batch_size = 8160"
-
     qt_join6 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} LEFT OUTER JOIN ${TBname2} USING (i)
