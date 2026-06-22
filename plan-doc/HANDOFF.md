@@ -6,7 +6,9 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.2-T02（谓词下推 + `createTableScan` + `planFileScanTask` split 枚举）**（**P6.2-T01 骨架已绿，见下「✅ P6.2-T01 = DONE」；recon + 逐 task 拆解 + 4 决策签字见「✅ P6.2 recon = DONE」；P6.1〔T01–T10〕全绿**）
+# 🎯 下一个 session 的任务 — **P6.2-T03（`FileScanTask`→`IcebergScanRange` typed params + `populateRangeParams`→`TTableFormatFileDesc.icebergParams` + native·vs·JNI fileFormat 判定 + `path_partition_keys` 必发）**（**P6.2-T02 谓词下推+split 枚举已绿，见下「✅ P6.2-T02 = DONE」；P6.2-T01 骨架见「✅ P6.2-T01 = DONE」；P6.1〔T01–T10〕全绿**）
+
+> **T03 scope**（`P6-iceberg-migration.md:206`）：把 T02 产出的最小 range（path/start/length/fileSize）扩成 BE-ready：format-version / partition-data-json / first-row-id / last-updated-seq-num(v3) / identity 分区列→columns-from-path keys/values/isNull；native(parquet/orc)·vs·JNI(系统表) fileFormat；`populateRangeParams`→`TTableFormatFileDesc.icebergParams`；**`path_partition_keys` 必发**（小写，CI #968880 双填 guard）。镜像 `IcebergScanNode.setIcebergParams`(:279-395)/`createIcebergSplit`(:849)。**最高危仍 field-id（T06）+ 分区列双填**。**起步先读** T02 设计 `designs/P6-T02-iceberg-scan-pushdown-design.md` + recon `research/p6.2-iceberg-scan-recon.md` §2 BE scan-range 参数 + paimon `PaimonScanRange.Builder`/`populateRangeParams`。
 
 > **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。**翻闸全有或全无，P6.1–P6.5 切忌动 `SPI_READY_TYPES`**（翻闸只在 P6.6）。
 >
@@ -42,6 +44,19 @@
 - **测试**（无 Mockito，fail-loud fake）：`IcebergScanRangeTest`(2，builder/默认 contract)、`IcebergScanPlanProviderTest`(4：getScanRangeType==FILE_SCAN / ignorePartitionPruneShortCircuit==true / planScan 经 seam 解析表返回空 / planScan 在 auth context 内〔`authCount==1`〕)。复用既有 `RecordingIcebergCatalogOps`/`RecordingConnectorContext`/`FakeIcebergTable`；planScan 测试传 `null` session（骨架不读 session，T02 接）。
 - **未直接单测**：`IcebergConnector.getScanPlanProvider()` 接线（需 `getOrCreateCatalog()` live catalog，同 paimon 不单测其 `getScanPlanProvider`）→ P6.6 e2e 验。
 - **下一步 = P6.2-T02**：谓词下推（自包含移植 `convertToIcebergExpr`，不 import fe-core）+ `createTableScan`（filter add 顺序保真）+ `planFileScanTask` split 枚举（targetSplitSize/batch 阈值）。manifest-cache 集成留 T08。
+
+---
+
+# ✅ P6.2-T02 = DONE（2026-06-22 本 commit，未 push）— 谓词下推 + createTableScan + split 枚举
+
+> 方法：6-reader recon workflow（`wf_a49c72b0-fb9`）抽 legacy `IcebergScanNode`/`IcebergUtils.convertToIcebergExpr`/paimon 模板/SPI 形态 → TDD → 3-reviewer 对抗 parity workflow（`wf_19375f44-74a`，每发现独立 skeptic verify）。设计文档 = `designs/P6-T02-iceberg-scan-pushdown-design.md`。**全绿**：fe-connector-iceberg UT **138/0/0**（1 skip=env-gated live；117→138 = +15 converter +6 scan/tz）、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、**无 pom 改**。
+
+- **新建 `IcebergPredicateConverter`**（自包含，仅 import `connector.api.pushdown` + `org.apache.iceberg`）= 忠实移植 legacy `convertToIcebergExpr`：输入 `ConnectorExpression`（fe-core `ExprToConnectorExpressionConverter` 产）→ iceberg `Expression`。handled set 镜像 legacy（AND keep-arm / OR·NOT all-or-nothing / Comparison 7 ops〔NE→not(equal)、EQ_FOR_NULL+null→isNull〕/ IN·NOT-IN / bare bool→alwaysTrue·False），`extractIcebergLiteral` 逐字移植 `extractDorisLiteral` 类型矩阵（Java 值 × iceberg type，int32·vs·int64 / float·vs·double 经 `ConnectorType.getTypeName()` 区分，timestamp micros + `shouldAdjustToUTC`），`checkConversion` bind-test **折进递归**（关键：nested `(a AND b_bad) OR c` 须先降级再建 OR，否则带 unbindable leaf 进 OR=plan 崩）。metadata-col block + caseInsensitiveFindField。**测试 = 9×13 legacy 网格 oracle 逐 cell 复刻**（vs fe-core `IcebergPredicateTest`）。
+- **`IcebergScanPlanProvider.planScan` 实装**：predicate→`table.newScan()`+per-conjunct `scan.filter`（镜像 createTableScan；**丢** fe-core-only `metricsReporter`〔profile drop〕+ `planWith`〔用 SDK 默认 worker pool〕）→ `splitFiles`（iceberg SDK `TableScanUtil.splitFiles`，**非** fe-core `FileSplitter`）→ 每 `FileScanTask` 出最小 `IcebergScanRange`(path/start/length/fileSize)。`determineTargetFileSplitSize` 移植 legacy（session 变量 `file_split_size`/`max_initial_file_split_size`/`max_file_split_size`/`max_initial_file_split_num`/`max_file_split_num`，键+默认与 SessionVariable·paimon 一致，经 `getSessionProperties()` 读；`ScanTaskUtil.contentSizeInBytes` 1.10.1 缺→用 `DataFile.fileSizeInBytes()`，data-file 等价）。
+- **scan 测试用真 in-memory iceberg 表**（`InMemoryCatalog` + append `DataFile` 元数据，无 Parquet IO，全离线）：枚举计数 / 96MB split-tiling（contiguous 覆盖）/ 分区裁剪（`WHERE p=1` 排除 p=2 文件）/ unpushable→scan-all / 空表→0 range / seam·auth（T01 契约保留，改用真空表）。**`FakeIcebergTable` newScan 抛**故 scan 测试改 InMemoryCatalog。
+- **🔴 对抗复核抓到 1 真 bug（UT 不可见，已修+测）**：`resolveSessionZone` 用裸 `ZoneId.of(tz)`，但 legacy 经 Doris `TimeUtils.timeZoneAliasMap` 解析（`CST`/`PRC`→`Asia/Shanghai`、`UTC`/`GMT`→`UTC`、+`ZoneId.SHORT_IDS`）；Doris session `time_zone` 不规范化存（`SET time_zone='CST'` 留 "CST"）→ 裸 `ZoneId.of("CST")` 抛→UTC 回退→timestamptz 字面量下推偏移 8h→**错裁文件/错结果**。修=连接器内自包含复刻 alias map + `ZoneId.of(tz, aliasMap)`。UT 不可见因网格无 `withZone()` 列；现补 `resolveSessionZoneHonorsDorisTimezoneAliases` + `timestamptzLiteralUsesSessionZone`。**其余复核全 MATCH / 文档化 deviation，0 refuted。**
+- **deviation（UT 不可见，P6.6 docker 验，登记设计文档）**：profile/`planWith` drop；reversed `literal OP col`/col-col drop（legacy 反序有潜伏 bug，Nereids 已规范化故不可达，drop=安全过近似）；`ConnectorIsNull`/`Like`/`Between` drop（legacy `convertToIcebergExpr` 无此 case，IS NULL 仍经 EQ_FOR_NULL+null 下推）；LARGEINT 经 String 路；decimal→STRING·datetime→STRING 字面量串形 best-effort；batch mode 延后。
+- **下一步 = P6.2-T03**（见顶部任务头）：typed range params + `populateRangeParams` + native·vs·JNI + `path_partition_keys` 必发。
 
 ## 🧭 用户裁定（T10 session，按序）
 1. **iceberg CREATE-CATALOG 校验做全量 per-flavor**（非最小/非延迟）。无任何回归测试强制（115 套件无一断言建目录属性校验报错；paimon 同），纯取忠实度。
@@ -181,6 +196,9 @@
   - **已 commit（T10 设计）**：`2043d1f07c2`——`P6-T10-iceberg-validation-design.md` **v2**（metastore 模块拆分 filesystem 式 + iceberg per-flavor 校验下沉；含 §4 逐字规则、§5 目标结构、§8 风险、§10 时序 TODO）。recon workflow `wf_8ae4353f-9a8`。
   - **已 commit（T10 Phase A）**：`f67195fee64`——metastore 模块拆分（行为不变）：新模块 `fe-connector-metastore-paimon`（5 impl + 5 provider + META-INF）、`-spi` 抽 `Abstract{Hms,Dlf}MetaStoreProperties` + 瘦身、reactor + paimon 连接器 pom 重连。A-gate 全绿（metastore UT 4+43、paimon 连接器 318、iceberg 103、plugin-zip 实证、checkstyle 0、import-gate 净）。详见上「✅ T10 Phase A = DONE」。
   - **已 commit（T10 Phase B = 本 HANDOFF commit）**：iceberg per-flavor 校验：新模块 `fe-connector-metastore-iceberg`（7 flavor + 7 provider + META-INF；hms/dlf extend 共享基类、rest/glue/jdbc §4 逐字、hadoop/s3tables no-op）、iceberg 连接器 pom 重连 `-spi`→`-iceberg` + `validateProperties` 接线 + env-gated live test。B-gate 全绿（metastore-iceberg UT 36、iceberg 连接器 UT 111〔1 skip〕、plugin-zip 隔离实证、checkstyle 0、import-gate 净、iceberg 仍不在 SPI_READY_TYPES）；对抗 parity 复核 4 MATCH + 1 nit。详见上「✅ T10 Phase B = DONE」。
+  - **已 commit（P6.2 recon）**：`0df8bf20abd`——recon-only（未改产品码）：`research/p6.2-iceberg-scan-recon.md` + migration P6.2 逐 task 拆解 + 4 决策签字（E6 取消）。
+  - **已 commit（P6.2-T01）**：`78b6f988bc4`——scan provider 骨架：`IcebergScanPlanProvider`+`IcebergScanRange`+`getScanPlanProvider` 接线+`ignorePartitionPruneShortCircuit=true`，planScan resolve 表→空。UT 117/0。
+  - **已 commit（P6.2-T02 = 本 HANDOFF commit）**：谓词下推+createTableScan+split 枚举：新建 `IcebergPredicateConverter`（移植 `convertToIcebergExpr` 矩阵+checkConversion）、`planScan` 实装（`TableScanUtil.splitFiles`+`determineTargetFileSplitSize`）、scan 测试用 `InMemoryCatalog` 真表。对抗复核修 1 真 bug（session tz alias→timestamptz 下推偏移）。UT 138/0（1 skip）、checkstyle 0、import-gate 净、iceberg 仍不在 SPI_READY_TYPES。详见上「✅ P6.2-T02 = DONE」。
   - **metastore 子线 = 已彻底 CLOSED**（8 文档加 CLOSED banner；后续勿读，见顶部范围注）。
 - **stale cruft = 本 session 已清理**：删除 `fe-connector-{iceberg,paimon}-{api,backend-*}` 共 12 个目录（仅含 gitignored 生成物 `.flattened-pom.xml`，0 tracked、不在 reactor = 本地 `phase3-module-split` 旧实验遗留；untracked 故 git 无变更）。当前线用单 `fe-connector-iceberg` + flavor switch。
 - **P0–P5 + P3 hybrid + P4 + P3b 全部已合入**（#63582/#63641/#64096/#64143/#64253/#64300/#64446/#64653/#64655）。iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:50` = {jdbc,es,trino-connector,max_compute,paimon}），仍走 switch-case（`:137 case "iceberg"`）。

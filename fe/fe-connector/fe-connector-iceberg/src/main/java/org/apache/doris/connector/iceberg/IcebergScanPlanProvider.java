@@ -25,14 +25,25 @@ import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -51,6 +62,36 @@ import java.util.Optional;
 public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private static final Logger LOG = LogManager.getLogger(IcebergScanPlanProvider.class);
+
+    // Split-size session variables, read via ConnectorSession.getSessionProperties() (the VariableMgr.toMap
+    // channel) since the connector cannot import fe-core SessionVariable. Keys + defaults are byte-identical to
+    // SessionVariable and to the paimon connector's constants.
+    private static final String FILE_SPLIT_SIZE = "file_split_size";
+    private static final String MAX_INITIAL_FILE_SPLIT_SIZE = "max_initial_file_split_size";
+    private static final String MAX_FILE_SPLIT_SIZE = "max_file_split_size";
+    private static final String MAX_INITIAL_FILE_SPLIT_NUM = "max_initial_file_split_num";
+    private static final String MAX_FILE_SPLIT_NUM = "max_file_split_num";
+    private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE = 32L * 1024 * 1024;
+    private static final long DEFAULT_MAX_FILE_SPLIT_SIZE = 64L * 1024 * 1024;
+    private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
+    private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
+
+    // Self-contained mirror of fe-core TimeUtils.timeZoneAliasMap (cannot import TimeUtils). Doris stores the
+    // session time_zone un-canonicalized (e.g. SET time_zone='CST' keeps "CST"), and legacy resolves it via
+    // ZoneId.of(tz, timeZoneAliasMap). Without these aliases a plain ZoneId.of("CST") throws (CST is a
+    // SHORT_ID) and falls back to UTC, shifting timestamptz literal pushdown by hours -> wrong file pruning.
+    private static final Map<String, String> TIME_ZONE_ALIAS_MAP;
+
+    static {
+        Map<String, String> aliases = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        aliases.putAll(ZoneId.SHORT_IDS);
+        // CST/PRC -> Asia/Shanghai (NOT America/Chicago), UTC/GMT -> UTC (= TimeUtils DEFAULT/UTC_TIME_ZONE).
+        aliases.put("CST", "Asia/Shanghai");
+        aliases.put("PRC", "Asia/Shanghai");
+        aliases.put("UTC", "UTC");
+        aliases.put("GMT", "UTC");
+        TIME_ZONE_ALIAS_MAP = Collections.unmodifiableMap(aliases);
+    }
 
     private final Map<String, String> properties;
     private final IcebergCatalogOps catalogOps;
@@ -89,12 +130,133 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Table table = resolveTable(iceHandle);
-        // SKELETON (P6.2-T01): resolving the table establishes the seam (catalogOps + auth context) that the
-        // real split planning builds on. Predicate pushdown -> FileScanTask enumeration -> IcebergScanRange,
-        // delete files, the field-id history dict, COUNT/batch, and vended credentials land in P6.2-T02..T09
-        // (mirroring PaimonScanPlanProvider). No ranges are produced yet.
-        LOG.debug("Iceberg planScan skeleton resolved table {} (no splits yet)", table.name());
-        return Collections.emptyList();
+
+        // Predicate pushdown: translate the engine-neutral predicate into iceberg Expressions (self-contained,
+        // mirrors legacy IcebergUtils.convertToIcebergExpr); unpushable conjuncts are dropped (BE residual).
+        List<Expression> predicates = Collections.emptyList();
+        if (filter.isPresent()) {
+            predicates = new IcebergPredicateConverter(table.schema(), resolveSessionZone(session))
+                    .convert(filter.get());
+        }
+
+        // Build the TableScan, applying each pushed predicate as a separate filter (iceberg ANDs them
+        // internally), mirroring legacy createTableScan. The fe-core-only metricsReporter (profile) and
+        // planWith(threadPool) are intentionally dropped — the iceberg SDK default worker pool plans, and the
+        // file set is identical (see design deviations). Snapshot pinning (time-travel/MVCC) is P6.2-T07.
+        TableScan scan = table.newScan();
+        for (Expression predicate : predicates) {
+            scan = scan.filter(predicate);
+        }
+
+        // Enumerate FileScanTasks via the iceberg SDK (split byte-offsets come from TableScanUtil.splitFiles)
+        // and emit one minimal IcebergScanRange per task. Delete files, native-vs-JNI fileFormat, the field-id
+        // history dict, COUNT/batch, and vended credentials land in P6.2-T03..T09.
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> tasks = splitFiles(scan, session)) {
+            for (FileScanTask task : tasks) {
+                DataFile dataFile = task.file();
+                ranges.add(new IcebergScanRange.Builder()
+                        .path(dataFile.path().toString())
+                        .start(task.start())
+                        .length(task.length())
+                        .fileSize(dataFile.fileSizeInBytes())
+                        .build());
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to enumerate iceberg file scan tasks, error message is:"
+                    + e.getMessage(), e);
+        }
+        LOG.debug("Iceberg planScan produced {} ranges for table {}", ranges.size(), table.name());
+        return ranges;
+    }
+
+    /**
+     * Enumerate + byte-offset-split the data files of a built scan via the iceberg SDK
+     * {@code TableScanUtil.splitFiles} (the legacy {@code IcebergScanNode.splitFiles} algorithm — NOT fe-core
+     * {@code FileSplitter}). A positive {@code file_split_size} session var forces that granularity directly;
+     * otherwise the tasks are materialized once and split at the {@link #determineTargetFileSplitSize}
+     * heuristic. Batch mode is deferred (paimon parity).
+     */
+    private CloseableIterable<FileScanTask> splitFiles(TableScan scan, ConnectorSession session) {
+        long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
+        if (fileSplitSize > 0) {
+            return TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize);
+        }
+        List<FileScanTask> fileScanTasks = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
+            for (FileScanTask task : planned) {
+                fileScanTasks.add(task);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to materialize iceberg file scan tasks, error message is:"
+                    + e.getMessage(), e);
+        }
+        long targetSplitSize = determineTargetFileSplitSize(fileScanTasks, session);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize);
+    }
+
+    /**
+     * Port of legacy {@code IcebergScanNode.determineTargetFileSplitSize} + {@code applyMaxFileSplitNumLimit}
+     * (non-batch path), reading the split-size knobs from the session-property channel. Start at
+     * {@code max_initial_file_split_size}, escalate to {@code max_file_split_size} once total content exceeds
+     * {@code max_file_split_size * max_initial_file_split_num}, then raise the size so the split count stays
+     * under {@code max_file_split_num}. Uses {@code DataFile.fileSizeInBytes()} (== content size for data
+     * files; T02 is the no-delete path) since iceberg 1.10.1 omits {@code ScanTaskUtil.contentSizeInBytes}.
+     */
+    private long determineTargetFileSplitSize(List<FileScanTask> tasks, ConnectorSession session) {
+        long maxInitialSplitSize = sessionLong(session, MAX_INITIAL_FILE_SPLIT_SIZE,
+                DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE);
+        long maxSplitSize = sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
+        long maxInitialSplitNum = sessionLong(session, MAX_INITIAL_FILE_SPLIT_NUM,
+                DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM);
+        long maxFileSplitNum = sessionLong(session, MAX_FILE_SPLIT_NUM, DEFAULT_MAX_FILE_SPLIT_NUM);
+        long total = 0;
+        boolean exceedInitialThreshold = false;
+        for (FileScanTask task : tasks) {
+            total += task.file().fileSizeInBytes();
+            if (!exceedInitialThreshold && total >= maxSplitSize * maxInitialSplitNum) {
+                exceedInitialThreshold = true;
+            }
+        }
+        long result = exceedInitialThreshold ? maxSplitSize : maxInitialSplitSize;
+        if (maxFileSplitNum > 0 && total > 0) {
+            long minSplitSizeForMaxNum = (total + maxFileSplitNum - 1) / maxFileSplitNum;
+            result = Math.max(result, minSplitSizeForMaxNum);
+        }
+        return result;
+    }
+
+    private static long sessionLong(ConnectorSession session, String key, long defaultValue) {
+        if (session == null) {
+            return defaultValue;
+        }
+        String raw = session.getSessionProperties().get(key);
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Resolved through the Doris
+    // alias map (mirrors fe-core TimeUtils.getTimeZone()) so aliases like CST/PRC/EST match legacy instead of
+    // throwing; null/blank/genuinely-invalid -> UTC. Package-private for direct unit testing.
+    static ZoneId resolveSessionZone(ConnectorSession session) {
+        if (session == null) {
+            return ZoneOffset.UTC;
+        }
+        String tz = session.getTimeZone();
+        if (tz == null || tz.trim().isEmpty()) {
+            return ZoneOffset.UTC;
+        }
+        try {
+            return ZoneId.of(tz.trim(), TIME_ZONE_ALIAS_MAP);
+        } catch (Exception e) {
+            return ZoneOffset.UTC;
+        }
     }
 
     /**
