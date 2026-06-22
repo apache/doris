@@ -427,7 +427,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'time_millis' is not supported"
+                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
             }
 
 
@@ -744,7 +744,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'time_micros' is not supported"
+                exception "Parquet TIME with isAdjustedToUTC=true is not supported"
             }
 
 
