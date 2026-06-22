@@ -16,12 +16,9 @@
 // under the License.
 
 /**
- * Verifies that SummaryProfile.queryFinished() writes the
- * "Is Profile Collection Completed: true" field into the profile text.
- *
- * This field is written after Coordinator.waitForFragmentsDone() returns,
- * guaranteeing all BE pipeline task profiles are merged. It allows pollers
- * to detect profile readiness without fixed sleeps or heuristics.
+ * Verifies that the "Is Profile Collection Completed: true" field
+ * appears in the profile text once all BE fragment profiles have
+ * been collected (or the collection timeout has elapsed).
  */
 suite("test_profile_collection_completed") {
 
@@ -89,6 +86,4 @@ suite("test_profile_collection_completed") {
     )
 
     logger.info("'Is Profile Collection Completed: true' verified in profile for query ${queryId}")
-
-    sql "DROP TABLE IF EXISTS test_profile_complete_t"
 }

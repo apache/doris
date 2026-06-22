@@ -567,6 +567,7 @@ public class Profile {
         }
 
         if (!hasReportingProfile) {
+            summaryProfile.markCollectionCompleted();
             return true;
         } else {
             long currentTimeMillis = System.currentTimeMillis();
@@ -582,6 +583,7 @@ public class Profile {
                                 "This profile is not complete, since its collection does not finish in time."
                                 + " Maybe increase profile_waiting_time_for_spill_secs in fe.conf current val: "
                                 + String.valueOf(Config.profile_waiting_time_for_spill_seconds));
+                summaryProfile.markCollectionCompleted();
                 return true;
             }
         }
