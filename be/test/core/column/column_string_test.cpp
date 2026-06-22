@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/column/common_column_test.h"
@@ -191,15 +192,19 @@ TEST_F(ColumnStringTest, is_variable_length) {
     EXPECT_TRUE(col64->is_variable_length());
 }
 TEST_F(ColumnStringTest, sanity_check) {
+    auto old_enable_column_sanity_check = config::enable_column_sanity_check;
+    config::enable_column_sanity_check = true;
+    Defer defer {[&] { config::enable_column_sanity_check = old_enable_column_sanity_check; }};
+
     auto test_func = [](auto& col) {
         auto& chars = col->get_chars();
         auto& offsets = col->get_offsets();
 
-        col->sanity_check();
+        EXPECT_NO_THROW(col->sanity_check());
 
         std::string data = "123";
         col->insert_data(data.data(), data.size());
-        col->sanity_check();
+        EXPECT_NO_THROW(col->sanity_check());
 
         offsets[0] = 1;
         // chars.size() != offsets[count - 1]

@@ -45,7 +45,11 @@ static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {
-#ifndef NDEBUG
+#ifdef NDEBUG
+    if (!config::enable_column_sanity_check) {
+        return;
+    }
+#endif
     sanity_check_simple();
     auto count = cast_set<int64_t>(offsets.size());
     for (int64_t i = 0; i < count; ++i) {
@@ -54,7 +58,6 @@ void ColumnStr<T>::sanity_check() const {
                                                   count, i, offsets[i], i - 1, offsets[i - 1]));
         }
     }
-#endif
 }
 
 template <typename T>

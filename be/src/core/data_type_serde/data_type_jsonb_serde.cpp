@@ -114,9 +114,10 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
     return Status::OK();
 }
 
-Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                  int64_t start, int64_t end,
-                                                  const cctz::time_zone& ctz) const {
+Status DataTypeJsonbSerDe::read_column_from_arrow_impl(IColumn& column,
+                                                       const arrow::Array* arrow_array,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);

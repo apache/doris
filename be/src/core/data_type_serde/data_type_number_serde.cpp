@@ -230,10 +230,10 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                      const arrow::Array* arrow_array,
-                                                      int64_t start, int64_t end,
-                                                      const cctz::time_zone& ctz) const {
+Status DataTypeNumberSerDe<T>::read_column_from_arrow_impl(IColumn& column,
+                                                           const arrow::Array* arrow_array,
+                                                           int64_t start, int64_t end,
+                                                           const cctz::time_zone& ctz) const {
     auto row_count = end - start;
     auto& col_data = static_cast<ColumnType&>(column).get_data();
 

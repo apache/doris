@@ -254,7 +254,7 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow_impl(
         IColumn& column, const arrow::Array* arrow_array, int64_t start, int64_t end,
         const cctz::time_zone& ctz) const {
     if (arrow_array->type_id() == arrow::Type::STRING ||

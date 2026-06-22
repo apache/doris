@@ -42,6 +42,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
@@ -76,6 +77,7 @@
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/descriptors.cpp"
+#include "util/defer_op.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -527,6 +529,27 @@ TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     };
     block_converter_test(cols, 7, true);
     block_converter_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, ReadColumnFromArrowValidateFullRejectsInvalidStringOffsets) {
+    const bool origin_enable_arrow_validate_full = config::enable_arrow_validate_full;
+    config::enable_arrow_validate_full = true;
+    Defer defer {[&]() { config::enable_arrow_validate_full = origin_enable_arrow_validate_full; }};
+
+    std::vector<int32_t> offsets = {0, 4, 2};
+    std::string values = "abcd";
+    auto offset_buffer = arrow::Buffer::Wrap(offsets);
+    auto value_buffer =
+            arrow::Buffer::Wrap(reinterpret_cast<const uint8_t*>(values.data()), values.size());
+    auto invalid_array = std::make_shared<arrow::StringArray>(2, offset_buffer, value_buffer);
+    ASSERT_FALSE(invalid_array->ValidateFull().ok());
+
+    DataTypePtr data_type = std::make_shared<DataTypeString>();
+    auto column = data_type->create_column();
+    cctz::time_zone default_timezone;
+    Status status = data_type->get_serde()->read_column_from_arrow(
+            *column, invalid_array.get(), 0, invalid_array->length(), default_timezone);
+    EXPECT_FALSE(status.ok());
 }
 
 } // namespace doris

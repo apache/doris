@@ -481,9 +481,12 @@ public:
     virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                          arrow::ArrayBuilder* array_builder, int64_t start,
                                          int64_t end, const cctz::time_zone& ctz) const = 0;
-    virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                          int64_t start, int64_t end,
-                                          const cctz::time_zone& ctz) const = 0;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const;
+
+    virtual Status read_column_from_arrow_impl(IColumn& column, const arrow::Array* arrow_array,
+                                               int64_t start, int64_t end,
+                                               const cctz::time_zone& ctz) const = 0;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,

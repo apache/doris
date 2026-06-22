@@ -317,9 +317,10 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
     return Status::OK();
 }
 
-Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                  int64_t start, int64_t end,
-                                                  const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::read_column_from_arrow_impl(IColumn& column,
+                                                       const arrow::Array* arrow_array,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
@@ -339,7 +340,7 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
         // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
-    return nested_serde->read_column_from_arrow(
+    return nested_serde->read_column_from_arrow_impl(
             column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
             arrow_nested_end_offset, ctz);
 }

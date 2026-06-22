@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -118,7 +119,11 @@ public:
 
     void sanity_check() const override;
     void sanity_check_simple() const {
-#ifndef NDEBUG
+#ifdef NDEBUG
+        if (!config::enable_column_sanity_check) {
+            return;
+        }
+#endif
         auto count = cast_set<int64_t>(offsets.size());
         if (chars.size() != offsets[count - 1]) {
             throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
@@ -128,7 +133,6 @@ public:
         if (offsets[-1] != 0) {
             throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
         }
-#endif
     }
 
     std::string get_name() const override { return "String"; }

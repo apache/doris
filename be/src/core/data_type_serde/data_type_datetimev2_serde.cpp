@@ -393,10 +393,10 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
-                                                       const arrow::Array* arrow_array,
-                                                       int64_t start, int64_t end,
-                                                       const cctz::time_zone& ctz) const {
+Status DataTypeDateTimeV2SerDe::read_column_from_arrow_impl(IColumn& column,
+                                                            const arrow::Array* arrow_array,
+                                                            int64_t start, int64_t end,
+                                                            const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {

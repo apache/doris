@@ -1015,6 +1015,9 @@ Status VExpr::execute_column(VExprContext* context, const Block* block, const Se
             }
         }
     }
+    if (config::enable_column_sanity_check) {
+        result_column->sanity_check();
+    }
     return Status::OK();
 }
 

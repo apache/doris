@@ -336,18 +336,18 @@ Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const
                                                start, end, ctz);
 }
 
-Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int64_t start,
-                                                     int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+Status DataTypeNullableSerDe::read_column_from_arrow_impl(IColumn& column,
+                                                          const arrow::Array* arrow_array,
+                                                          int64_t start, int64_t end,
+                                                          const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
     for (auto i = start; i < end; ++i) {
         auto is_null = arrow_array->IsNull(i);
         map_data.emplace_back(is_null);
     }
-    return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
-                                                ctz);
+    return nested_serde->read_column_from_arrow_impl(col.get_nested_column(), arrow_array, start,
+                                                     end, ctz);
 }
 
 bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,

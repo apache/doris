@@ -1553,6 +1553,8 @@ DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
 DECLARE_mBool(enable_column_type_check);
+DECLARE_mBool(enable_column_sanity_check);
+DECLARE_mBool(enable_arrow_validate_full);
 
 // Tolerance for the number of partition id 0 in rowset, default 0
 DECLARE_Int32(ignore_invalid_partition_id_rowset_num);

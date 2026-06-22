@@ -383,9 +383,10 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                int64_t start, int64_t end,
-                                                const cctz::time_zone& ctz) const {
+Status DataTypeMapSerDe::read_column_from_arrow_impl(IColumn& column,
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& column_map = static_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
     const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
@@ -405,10 +406,10 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
         // convert to doris offset, start from offsets.back()
         offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
     }
-    RETURN_IF_ERROR(key_serde->read_column_from_arrow(
+    RETURN_IF_ERROR(key_serde->read_column_from_arrow_impl(
             column_map.get_keys(), concrete_map->keys().get(), arrow_nested_start_offset,
             arrow_nested_end_offset, ctz));
-    RETURN_IF_ERROR(value_serde->read_column_from_arrow(
+    RETURN_IF_ERROR(value_serde->read_column_from_arrow_impl(
             column_map.get_values(), concrete_map->items().get(), arrow_nested_start_offset,
             arrow_nested_end_offset, ctz));
     return Status::OK();

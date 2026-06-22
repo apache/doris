@@ -110,9 +110,10 @@ Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const Nul
     return Status::OK();
 }
 
-Status DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+Status DataTypeIPv4SerDe::read_column_from_arrow_impl(IColumn& column,
+                                                      const arrow::Array* arrow_array,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
     int64_t row_count = end - start;
     /// buffers[0] is a null bitmap and buffers[1] are actual values

@@ -36,12 +36,14 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/value/vdatetime_value.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -102,8 +104,16 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
+        if (config::enable_arrow_validate_full) {
+            RETURN_IF_ERROR(checkArrowStatus(_arrays[_cur_field_idx]->ValidateFull(),
+                                             _block.get_by_position(idx).name,
+                                             _arrays[_cur_field_idx]->type()->name()));
+        }
     }
     *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));
+    if (config::enable_arrow_validate_full) {
+        RETURN_IF_ERROR(to_doris_status((*out)->ValidateFull()));
+    }
     return Status::OK();
 }
 

@@ -416,14 +416,15 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::read_column_from_arrow_impl(IColumn& column,
+                                                        const arrow::Array* arrow_array,
+                                                        int64_t start, int64_t end,
+                                                        const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
-        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow_impl(
                 struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
     }
     return Status::OK();

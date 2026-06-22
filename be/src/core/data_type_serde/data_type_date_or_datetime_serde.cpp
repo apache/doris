@@ -137,10 +137,10 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     return Status::OK();
 }
 
-Status DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int64_t start,
-                                                     int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+Status DataTypeDateTimeSerDe::read_column_from_arrow_impl(IColumn& column,
+                                                          const arrow::Array* arrow_array,
+                                                          int64_t start, int64_t end,
+                                                          const cctz::time_zone& ctz) const {
     return _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
 }
 
@@ -250,9 +250,10 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                    const arrow::Array* arrow_array, int64_t start,
-                                                    int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeDateSerDe<T>::read_column_from_arrow_impl(IColumn& column,
+                                                         const arrow::Array* arrow_array,
+                                                         int64_t start, int64_t end,
+                                                         const cctz::time_zone& ctz) const {
     return _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }
 

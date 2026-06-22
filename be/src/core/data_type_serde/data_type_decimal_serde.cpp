@@ -327,10 +327,10 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                       const arrow::Array* arrow_array,
-                                                       int64_t start, int64_t end,
-                                                       const cctz::time_zone& ctz) const {
+Status DataTypeDecimalSerDe<T>::read_column_from_arrow_impl(IColumn& column,
+                                                            const arrow::Array* arrow_array,
+                                                            int64_t start, int64_t end,
+                                                            const cctz::time_zone& ctz) const {
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
