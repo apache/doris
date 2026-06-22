@@ -18,7 +18,6 @@
 package org.apache.doris.connector.metastore.spi.dlf;
 
 import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
-import org.apache.doris.connector.metastore.spi.MetaStoreParseUtils;
 import org.apache.doris.connector.metastore.spi.MetaStoreProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -29,8 +28,8 @@ import java.util.Set;
 public final class DlfMetaStoreProvider implements MetaStoreProvider<DlfMetaStoreProperties> {
 
     @Override
-    public boolean supports(Map<String, String> properties) {
-        return "dlf".equalsIgnoreCase(properties.get(MetaStoreParseUtils.CATALOG_TYPE_KEY));
+    public boolean supportsType(String catalogType) {
+        return "dlf".equalsIgnoreCase(catalogType);
     }
 
     @Override

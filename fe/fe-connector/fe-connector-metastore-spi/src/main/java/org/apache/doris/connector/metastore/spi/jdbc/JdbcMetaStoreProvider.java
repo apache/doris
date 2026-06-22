@@ -18,7 +18,6 @@
 package org.apache.doris.connector.metastore.spi.jdbc;
 
 import org.apache.doris.connector.metastore.JdbcMetaStoreProperties;
-import org.apache.doris.connector.metastore.spi.MetaStoreParseUtils;
 import org.apache.doris.connector.metastore.spi.MetaStoreProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -29,8 +28,8 @@ import java.util.Set;
 public final class JdbcMetaStoreProvider implements MetaStoreProvider<JdbcMetaStoreProperties> {
 
     @Override
-    public boolean supports(Map<String, String> properties) {
-        return "jdbc".equalsIgnoreCase(properties.get(MetaStoreParseUtils.CATALOG_TYPE_KEY));
+    public boolean supportsType(String catalogType) {
+        return "jdbc".equalsIgnoreCase(catalogType);
     }
 
     @Override

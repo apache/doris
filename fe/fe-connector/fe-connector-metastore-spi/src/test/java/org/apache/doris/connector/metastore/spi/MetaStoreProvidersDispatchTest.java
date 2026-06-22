@@ -105,6 +105,43 @@ public class MetaStoreProvidersDispatchTest {
     }
 
     @Test
+    public void bindForTypeSelectsByExplicitFlavorNotByPaimonKey() {
+        // WHY: iceberg carries "iceberg.catalog.type", NOT "paimon.catalog.type". The metastore-spi
+        // dispatch cannot sniff the hardcoded paimon key for an iceberg catalog; the caller (which has
+        // already resolved its flavor) passes it explicitly via bindForType. These props deliberately
+        // OMIT paimon.catalog.type to prove selection is driven by the flavor ARG, not the key.
+        // MUTATION: if bindForType read props.get("paimon.catalog.type") instead of the flavor arg, no
+        // provider would match -> IllegalArgumentException -> red.
+        Map<String, String> icebergProps = new HashMap<>();
+        icebergProps.put("iceberg.catalog.type", "hms");
+        icebergProps.put("hive.metastore.uris", "thrift://h:9083");
+        MetaStoreProperties ms = MetaStoreProviders.bindForType("hms", icebergProps, Collections.emptyMap());
+        Assertions.assertTrue(ms instanceof HmsMetaStorePropertiesImpl,
+                "bindForType(\"hms\", ...) must select the HMS backend by the explicit flavor");
+        // the real (iceberg) props reach bind(), not the flavor token:
+        Assertions.assertEquals("thrift://h:9083", ms.rawProperties().get("hive.metastore.uris"));
+    }
+
+    @Test
+    public void bindForTypeIsCaseInsensitive() {
+        // WHY: a user who writes "HMS"/"Hms" in iceberg.catalog.type must still route to the HMS backend,
+        // mirroring supports(Map)'s equalsIgnoreCase. MUTATION: a case-sensitive supportsType -> "HMS"
+        // matches nothing -> throws -> red.
+        Assertions.assertTrue(MetaStoreProviders.bindForType("HMS", typed("hms"), Collections.emptyMap())
+                instanceof HmsMetaStorePropertiesImpl);
+    }
+
+    @Test
+    public void bindForTypeUnknownFlavorThrows() {
+        // WHY: an unrecognized flavor must fail loudly (same contract as bind(Map)), not silently fall
+        // through to the filesystem default. MUTATION: routing an unknown flavor to FILESYSTEM -> no
+        // throw -> red.
+        IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> MetaStoreProviders.bindForType("nessie", new HashMap<>(), Collections.emptyMap()));
+        Assertions.assertTrue(ex.getMessage().startsWith("No MetaStoreProvider supports"), ex.getMessage());
+    }
+
+    @Test
     public void providersExposeTheirSensitiveKeys() {
         // The HMS provider surfaces its sensitive=true keytab keys (for masking when wired in P2-T03);
         // FileSystem has no sensitive fields -> empty (pins the default).

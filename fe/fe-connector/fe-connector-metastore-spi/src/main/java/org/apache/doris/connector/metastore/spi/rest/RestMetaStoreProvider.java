@@ -18,7 +18,6 @@
 package org.apache.doris.connector.metastore.spi.rest;
 
 import org.apache.doris.connector.metastore.RestMetaStoreProperties;
-import org.apache.doris.connector.metastore.spi.MetaStoreParseUtils;
 import org.apache.doris.connector.metastore.spi.MetaStoreProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
@@ -29,8 +28,8 @@ import java.util.Set;
 public final class RestMetaStoreProvider implements MetaStoreProvider<RestMetaStoreProperties> {
 
     @Override
-    public boolean supports(Map<String, String> properties) {
-        return "rest".equalsIgnoreCase(properties.get(MetaStoreParseUtils.CATALOG_TYPE_KEY));
+    public boolean supportsType(String catalogType) {
+        return "rest".equalsIgnoreCase(catalogType);
     }
 
     @Override

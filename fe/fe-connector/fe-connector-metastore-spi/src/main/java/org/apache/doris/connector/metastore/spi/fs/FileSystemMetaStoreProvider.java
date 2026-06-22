@@ -18,7 +18,6 @@
 package org.apache.doris.connector.metastore.spi.fs;
 
 import org.apache.doris.connector.metastore.FileSystemMetaStoreProperties;
-import org.apache.doris.connector.metastore.spi.MetaStoreParseUtils;
 import org.apache.doris.connector.metastore.spi.MetaStoreProvider;
 
 import java.util.Map;
@@ -30,13 +29,12 @@ import java.util.Map;
 public final class FileSystemMetaStoreProvider implements MetaStoreProvider<FileSystemMetaStoreProperties> {
 
     @Override
-    public boolean supports(Map<String, String> properties) {
-        // Default backend: the catalog-type key is ABSENT, or an explicit "filesystem". A present-but-other
-        // value (incl. blank/whitespace) is NOT claimed here so it falls through to the dispatcher's
-        // no-supporter throw, matching legacy's reject-on-unknown (no .trim(), consistent with the other
-        // providers' plain equalsIgnoreCase).
-        String type = properties.get(MetaStoreParseUtils.CATALOG_TYPE_KEY);
-        return type == null || "filesystem".equalsIgnoreCase(type);
+    public boolean supportsType(String catalogType) {
+        // Default backend: the catalog-type token is ABSENT (null), or an explicit "filesystem". A
+        // present-but-other value (incl. blank/whitespace) is NOT claimed here so it falls through to the
+        // dispatcher's no-supporter throw, matching legacy's reject-on-unknown (no .trim(), consistent
+        // with the other providers' plain equalsIgnoreCase).
+        return catalogType == null || "filesystem".equalsIgnoreCase(catalogType);
     }
 
     @Override
