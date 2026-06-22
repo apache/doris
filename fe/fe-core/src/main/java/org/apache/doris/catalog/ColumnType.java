@@ -193,8 +193,9 @@ public abstract class ColumnType {
     // This method checks if a primitive type change is allowed in nested complex types.
     // Supports:
     // 1. VARCHAR length increase
-    // 2. Safe numeric type promotions (INT -> BIGINT, FLOAT -> DOUBLE, etc.)
-    // 3. Exact type match
+    // 2. Decimal precision increase with unchanged scale
+    // 3. Safe numeric type promotions (INT -> BIGINT, FLOAT -> DOUBLE, etc.)
+    // 4. Exact type match
     private static boolean checkSupportSchemaChangeForNestedPrimitive(Type checkType, Type other) throws DdlException {
         // 1. Check VARCHAR length increase
         if (checkType.getPrimitiveType() == PrimitiveType.VARCHAR
@@ -208,7 +209,12 @@ public abstract class ColumnType {
             return true;
         }
 
-        // 3. Check safe numeric type promotions for nested types
+        // 3. Check decimal precision promotion with unchanged scale for nested types
+        if (isSupportedNestedDecimalPromotion(checkType, other)) {
+            return true;
+        }
+
+        // 4. Check safe numeric type promotions for nested types
         // These are safe promotions that don't lose precision:
         // - INT -> BIGINT, LARGEINT
         // - FLOAT -> DOUBLE
@@ -246,6 +252,20 @@ public abstract class ColumnType {
         }
 
         return false;
+    }
+
+    private static boolean isSupportedNestedDecimalPromotion(Type src, Type dst) {
+        if (!(src instanceof ScalarType) || !(dst instanceof ScalarType)) {
+            return false;
+        }
+        if (!(src.isDecimalV2() || src.isDecimalV3()) || !(dst.isDecimalV2() || dst.isDecimalV3())) {
+            return false;
+        }
+
+        ScalarType srcDecimal = (ScalarType) src;
+        ScalarType dstDecimal = (ScalarType) dst;
+        return srcDecimal.getScalarScale() == dstDecimal.getScalarScale()
+                && srcDecimal.getScalarPrecision() <= dstDecimal.getScalarPrecision();
     }
 
     private static void validateStructFieldCompatibility(StructField originalField, StructField newField)
