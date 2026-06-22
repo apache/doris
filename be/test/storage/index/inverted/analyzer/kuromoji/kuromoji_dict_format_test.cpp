@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
+
 #include <gtest/gtest.h>
 
 #include <cstdint>
-
-#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 
 namespace doris::segment_v2::kuromoji {
 

@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/index/inverted/analyzer/kuromoji/kuromoji_normalize.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
-
-#include "storage/index/inverted/analyzer/kuromoji/kuromoji_normalize.h"
 
 namespace doris::segment_v2::kuromoji {
 
@@ -37,12 +37,14 @@ TEST(KuromojiNormalizeTest, IdeographicSpaceToSpace) {
 }
 
 TEST(KuromojiNormalizeTest, PreservesOtherText) {
-    EXPECT_EQ(cjk_width_normalize("ABC123"), "ABC123");                 // already ASCII
+    EXPECT_EQ(cjk_width_normalize("ABC123"), "ABC123"); // already ASCII
     EXPECT_EQ(cjk_width_normalize("\xE6\x9D\xB1\xE4\xBA\xAC"),
-              "\xE6\x9D\xB1\xE4\xBA\xAC");                              // 東京 unchanged
+              "\xE6\x9D\xB1\xE4\xBA\xAC"); // 東京 unchanged
     EXPECT_EQ(cjk_width_normalize(""), "");
     // mixed: Ａ東Ｂ -> A東B
-    EXPECT_EQ(cjk_width_normalize("\xEF\xBC\xA1\xE6\x9D\xB1\xEF\xBC\xA2"), "A\xE6\x9D\xB1" "B");
+    EXPECT_EQ(cjk_width_normalize("\xEF\xBC\xA1\xE6\x9D\xB1\xEF\xBC\xA2"),
+              "A\xE6\x9D\xB1"
+              "B");
 }
 
 } // namespace doris::segment_v2::kuromoji

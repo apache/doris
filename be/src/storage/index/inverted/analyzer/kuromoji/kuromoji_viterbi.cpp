@@ -47,7 +47,8 @@ DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
     if ((b0 >> 4) == 0xE && avail >= 3) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
         auto b2 = static_cast<unsigned char>(text[pos + 2]);
-        return {static_cast<char32_t>(((b0 & 0x0FU) << 12) | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU)), 3};
+        return {static_cast<char32_t>(((b0 & 0x0FU) << 12) | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU)),
+                3};
     }
     if ((b0 >> 3) == 0x1E && avail >= 4) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
@@ -99,8 +100,9 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
             if (pv.total_cost >= KMJ_INF) {
                 continue;
             }
-            const int64_t c = pv.total_cost + _dict.connection_cost(static_cast<uint32_t>(pv.right_id),
-                                                                    static_cast<uint32_t>(lid));
+            const int64_t c =
+                    pv.total_cost + _dict.connection_cost(static_cast<uint32_t>(pv.right_id),
+                                                          static_cast<uint32_t>(lid));
             if (c < best) {
                 best = c;
                 best_prev = pe;

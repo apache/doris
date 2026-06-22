@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/index/inverted/analyzer/kuromoji/kuromoji_viterbi.h"
+
 #include <gtest/gtest.h>
 #include <sys/stat.h>
 
@@ -28,7 +30,6 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
-#include "storage/index/inverted/analyzer/kuromoji/kuromoji_viterbi.h"
 
 namespace doris::segment_v2::kuromoji {
 

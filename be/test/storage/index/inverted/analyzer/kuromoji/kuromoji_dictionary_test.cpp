@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
+
 #include <gtest/gtest.h>
 #include <sys/stat.h>
 
@@ -23,7 +25,6 @@
 #include <vector>
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
-#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
 
 namespace doris::segment_v2::kuromoji {
@@ -91,8 +92,8 @@ TEST_F(KuromojiDictionaryTest, LoadAndQuery) {
 
     EXPECT_EQ(dict->char_category(0x6771), CAT_KANJI);
     EXPECT_EQ(dict->char_category(U'a'), CAT_DEFAULT);
-    EXPECT_TRUE(dict->is_invoke(U'a'));     // DEFAULT invoke=1
-    EXPECT_FALSE(dict->is_invoke(0x6771));  // KANJI invoke=0
+    EXPECT_TRUE(dict->is_invoke(U'a'));    // DEFAULT invoke=1
+    EXPECT_FALSE(dict->is_invoke(0x6771)); // KANJI invoke=0
 
     WordIdRun urun = dict->unknown_run(CAT_DEFAULT);
     ASSERT_EQ(urun.count, 1U);
