@@ -43,7 +43,7 @@ std::unique_ptr<BaseDeltaWriter> CloudTabletsChannel::create_delta_writer(
 
 Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                       PTabletWriterAddBlockResult* response) {
-    if (_schema != nullptr && _schema->row_binlog_index_schema() != nullptr) {
+    if (_schema != nullptr && !_schema->row_binlog_index_schemas().empty()) {
         return Status::NotSupported("cloud mode does not support binlog<row> now");
     }
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`

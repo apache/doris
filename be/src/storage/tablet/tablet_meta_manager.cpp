@@ -235,46 +235,21 @@ void NO_SANITIZE_UNDEFINED TabletMetaManager::decode_delete_bitmap_key(std::stri
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t version) {
-    return save_delete_bitmap(store, tablet_id, std::move(delete_bitmap), nullptr, version);
-}
-
-Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
-                                             DeleteBitmapPtr delete_bitmap,
-                                             DeleteBitmapPtr binlog_delvec, int64_t version) {
     VLOG_NOTICE << "save delete bitmap, tablet_id:" << tablet_id << ", version: " << version;
-    if ((delete_bitmap == nullptr || delete_bitmap->delete_bitmap.empty()) &&
-        (binlog_delvec == nullptr || binlog_delvec->delete_bitmap.empty())) {
+    if (delete_bitmap == nullptr || delete_bitmap->delete_bitmap.empty()) {
         return Status::OK();
     }
     OlapMeta* meta = store->get_meta();
     DeleteBitmapPB delete_bitmap_pb;
 
-    // Normal delete bitmap.
-    if (delete_bitmap != nullptr) {
-        for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
-            auto& rowset_id = std::get<0>(id);
-            auto segment_id = std::get<1>(id);
-            delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
-            delete_bitmap_pb.add_segment_ids(segment_id);
-            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
-            bitmap.write(bitmap_data.data());
-            *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
-            delete_bitmap_pb.add_is_binlog_delvec(false);
-        }
-    }
-
-    // Binlog delvec.
-    if (binlog_delvec != nullptr) {
-        for (auto& [id, bitmap] : binlog_delvec->delete_bitmap) {
-            auto& rowset_id = std::get<0>(id);
-            auto segment_id = std::get<1>(id);
-            delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
-            delete_bitmap_pb.add_segment_ids(segment_id);
-            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
-            bitmap.write(bitmap_data.data());
-            *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
-            delete_bitmap_pb.add_is_binlog_delvec(true);
-        }
+    for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
+        auto& rowset_id = std::get<0>(id);
+        auto segment_id = std::get<1>(id);
+        delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
+        delete_bitmap_pb.add_segment_ids(segment_id);
+        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(bitmap_data.data());
+        *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
     }
 
     std::string key = encode_delete_bitmap_key(tablet_id, version);

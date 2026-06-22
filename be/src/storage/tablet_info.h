@@ -80,7 +80,10 @@ public:
 
     TupleDescriptor* tuple_desc() const { return _tuple_desc; }
     const std::vector<OlapTableIndexSchema*>& indexes() const { return _indexes; }
-    const OlapTableIndexSchema* row_binlog_index_schema() const { return _row_binlog_index_schema; }
+    const OlapTableIndexSchema* row_binlog_index_schema(int64_t index_id) const;
+    const std::vector<OlapTableIndexSchema*>& row_binlog_index_schemas() const {
+        return _row_binlog_index_schemas;
+    }
 
     void to_protobuf(POlapTableSchemaParam* pschema) const;
 
@@ -133,7 +136,7 @@ private:
     TupleDescriptor* _tuple_desc = nullptr;
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
-    OlapTableIndexSchema* _row_binlog_index_schema = nullptr;
+    std::vector<OlapTableIndexSchema*> _row_binlog_index_schemas;
     mutable ObjectPool _obj_pool;
     UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
     PartialUpdateNewRowPolicyPB _partial_update_new_row_policy {
@@ -374,6 +377,7 @@ public:
     OlapTableLocationParam(const TOlapTableLocationParam& t_param) : _t_param(t_param) {
         for (auto& location : _t_param.tablets) {
             _tablets.emplace(location.tablet_id, &location);
+            _update_base_to_binlog_tablet(location);
         }
     }
 
@@ -389,18 +393,38 @@ public:
         return nullptr;
     }
 
+    // used by base tablet on node_id to mark whether to write binlog, 0 means no binlog.
+    int64_t get_binlog_tablet_id(int64_t base_tablet_id, int64_t node_id) const {
+        auto it = _base_to_binlog_tablet.find({base_tablet_id, node_id});
+        return it != _base_to_binlog_tablet.end() ? it->second : 0;
+    }
+
     void add_locations(std::vector<TTabletLocation>& locations) {
         for (auto& location : locations) {
             if (_tablets.find(location.tablet_id) == _tablets.end()) {
                 _tablets[location.tablet_id] = &location;
             }
+            _update_base_to_binlog_tablet(location);
         }
     }
 
 private:
+    void _update_base_to_binlog_tablet(const TTabletLocation& location) {
+        if (!location.__isset.base_tablet_id) {
+            return;
+        }
+        // the binlog tablet is written by its base tablet on the nodes that own both.
+        for (int64_t node_id : location.node_ids) {
+            _base_to_binlog_tablet.emplace(std::make_pair(location.base_tablet_id, node_id),
+                                           location.tablet_id);
+        }
+    }
+
     TOlapTableLocationParam _t_param;
     // [tablet_id, tablet]. tablet has id, also.
     std::unordered_map<int64_t, TabletLocation*> _tablets;
+    // [(base_tablet_id, node_id), row_binlog_tablet_id]
+    std::map<std::pair<int64_t, int64_t>, int64_t> _base_to_binlog_tablet;
 };
 
 struct NodeInfo {

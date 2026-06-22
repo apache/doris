@@ -151,7 +151,7 @@ Status BinlogCompaction::modify_rowsets() {
         std::lock_guard<std::mutex> wrlock_(tablet()->get_rowset_update_lock());
         std::lock_guard wrlock(_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        RETURN_IF_ERROR(tablet()->modify_row_binlog_rowsets(output_rowsets, _input_rowsets));
+        RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets));
     }
     {
         std::shared_lock rlock(_tablet->get_header_lock());

@@ -194,18 +194,19 @@ inline TCreateTabletReq create_tablet_request(
     return request;
 }
 
-inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_schema_hash = 0) {
+inline void enable_row_binlog(TCreateTabletReq* request) {
     DCHECK(request != nullptr);
 
     TBinlogConfig binlog_config;
     binlog_config.__set_enable(true);
     binlog_config.__set_binlog_format(TBinlogFormat::ROW);
     request->__set_binlog_config(binlog_config);
+}
 
-    TTabletSchema row_binlog_schema = request->tablet_schema;
-    row_binlog_schema.schema_hash = row_binlog_schema_hash > 0
-                                            ? row_binlog_schema_hash
-                                            : request->tablet_schema.schema_hash + 1;
+inline TTabletSchema create_row_binlog_tablet_schema(const TTabletSchema& base_schema,
+                                                     int32_t row_binlog_schema_hash) {
+    TTabletSchema row_binlog_schema = base_schema;
+    row_binlog_schema.schema_hash = row_binlog_schema_hash;
     row_binlog_schema.keys_type = TKeysType::DUP_KEYS;
 
     for (auto& col : row_binlog_schema.columns) {
@@ -223,7 +224,7 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
     row_binlog_schema.columns.push_back(create_tablet_column(
             {BINLOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
     row_binlog_schema.__set_binlog_op_idx(row_binlog_schema.columns.size() - 1);
-    request->__set_row_binlog_schema(row_binlog_schema);
+    return row_binlog_schema;
 }
 
 inline TDescriptorTable create_descriptor_table(
@@ -274,7 +275,7 @@ inline std::shared_ptr<OlapTableSchemaParam> create_table_schema_param(
                 row_binlog_index_schema.columns.push_back(col.column_name);
             }
         }
-        tschema.__set_row_binlog_index_schema(row_binlog_index_schema);
+        tschema.__set_row_binlog_index_schemas({row_binlog_index_schema});
     }
     Status st = param->init(tschema);
     EXPECT_TRUE(st.ok()) << st;

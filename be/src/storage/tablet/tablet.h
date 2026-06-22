@@ -119,14 +119,11 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
     std::string tablet_path() const override { return _tablet_path; }
-    std::string row_binlog_path() const {
-        return fmt::format("{}/{}", _tablet_path, FDRowBinlogSuffix);
-    }
     std::string get_rowset_path(const RowsetMetaSharedPtr& rowset_meta) const {
         if (!rowset_meta->is_local()) {
             return "";
         }
-        return rowset_meta->is_row_binlog() ? row_binlog_path() : tablet_path();
+        return tablet_path();
     }
 
     bool set_tablet_schema_into_rowset_meta();
@@ -142,7 +139,7 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                               const std::vector<RowsetSharedPtr>& to_delete,
-                              bool is_incremental_clone, bool copy_row_binlog = false);
+                              bool is_incremental_clone);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -177,19 +174,16 @@ public:
     int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
-    Status add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset = nullptr);
+    Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
-    Status modify_row_binlog_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                                     std::vector<RowsetSharedPtr>& to_delete);
     bool rowset_exists_unlocked(const RowsetSharedPtr& rowset);
 
-    // Add a committed data rowset and its row binlog rowset
-    Status add_inc_rowset(const RowsetSharedPtr& rowset,
-                          const RowsetSharedPtr& row_binlog_rowset = nullptr);
+    // Add a committed rowset.
+    Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
@@ -409,18 +403,14 @@ public:
     Status create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // MUST hold EXCLUSIVE `_meta_lock`
-    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add, bool copy_row_binlog = false);
+    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
     // MUST hold EXCLUSIVE `_meta_lock`
-    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale,
-                          bool copy_row_binlog = false);
+    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
 
     // MUST hold SHARED `_meta_lock`
     const auto& rowset_map() const { return _rs_version_map; }
     // MUST hold SHARED `_meta_lock`
     const auto& stale_rowset_map() const { return _stale_rs_version_map; }
-    // MUST hold SHARED `_meta_lock`
-    const auto& row_binlog_rowset_map() const { return _row_binlog_rs_version_map; }
-
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -520,14 +510,12 @@ public:
         return _tablet_meta->binlog_config().is_enable() &&
                _tablet_meta->binlog_config().is_row_binlog_format();
     }
+    bool is_row_binlog_tablet() const { return _tablet_meta->is_row_binlog_tablet(); }
 
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
     void set_binlog_config(BinlogConfig binlog_config);
-
-    // row_binlog
-    int32_t row_binlog_schema_hash() const { return _tablet_meta->row_binlog_schema_hash(); }
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
@@ -561,9 +549,6 @@ private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
     Status _contains_version(const Version& version);
-    Status _add_row_binlog_rowset_unlocked(const RowsetSharedPtr& rowset,
-                                           const RowsetSharedPtr& row_binlog_rowset);
-
     // Returns:
     // version: the max continuous version from beginning
     // max_version: the max version of this tablet
@@ -836,27 +821,5 @@ inline size_t Tablet::next_unique_id() const {
 inline int64_t Tablet::avg_rs_meta_serialize_size() const {
     return _tablet_meta->avg_rs_meta_serialize_size();
 }
-
-class TabletCopyType {
-public:
-    static constexpr int32_t DEFAULT = TTabletCopyType::DATA | TTabletCopyType::CCR_BINLOG;
-
-    static bool has(int32_t copy_type, TTabletCopyType::type flag) {
-        return (copy_type & static_cast<int32_t>(flag)) != 0;
-    }
-
-    static Status validate(int32_t copy_type) {
-        if (copy_type <= 0 || (copy_type & ~all_types()) != 0) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid copy_type bitmask: {}, valid bits: {}", copy_type, all_types());
-        }
-        return Status::OK();
-    }
-
-private:
-    static constexpr int32_t all_types() {
-        return TTabletCopyType::DATA | TTabletCopyType::ROW_BINLOG | TTabletCopyType::CCR_BINLOG;
-    }
-};
 
 } // namespace doris

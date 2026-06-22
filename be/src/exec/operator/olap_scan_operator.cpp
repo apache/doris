@@ -1019,8 +1019,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 {0, _tablets[i].version},
                 {.skip_missing_versions = _state->skip_missing_version(),
                  .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
-                 .capture_row_binlog = olap_scan_node().__isset.read_row_binlog &&
-                                       olap_scan_node().read_row_binlog,
                  .enable_prefer_cached_rowset =
                          config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
                  .query_freshness_tolerance_ms =

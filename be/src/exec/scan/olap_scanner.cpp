@@ -213,10 +213,7 @@ Status OlapScanner::_prepare_impl() {
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        TabletSchemaSPtr source_tablet_schema =
-                _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                        ? tablet->row_binlog_tablet_schema()
-                        : tablet->tablet_schema();
+        TabletSchemaSPtr source_tablet_schema = tablet->tablet_schema();
 
         tablet_schema = std::make_shared<TabletSchema>();
         tablet_schema->copy_from(*source_tablet_schema);
@@ -252,8 +249,6 @@ Status OlapScanner::_prepare_impl() {
                             .skip_missing_versions = _state->skip_missing_version(),
                             .enable_fetch_rowsets_from_peers =
                                     config::enable_fetch_rowsets_from_peer_replicas,
-                            .capture_row_binlog =
-                                    _tablet_reader_params.reader_type == ReaderType::READER_BINLOG,
                             .enable_prefer_cached_rowset =
                                     config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
                                                             : false,

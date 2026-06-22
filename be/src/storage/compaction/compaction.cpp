@@ -431,9 +431,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     RETURN_IF_ERROR(build_basic_info(true));
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
-    const auto& output_rowset_dir = compaction_type() == ReaderType::READER_BINLOG_COMPACTION
-                                            ? tablet()->row_binlog_path()
-                                            : tablet()->tablet_path();
+    const auto& output_rowset_dir = tablet()->tablet_path();
 
     LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version;
@@ -575,7 +573,7 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         for (const auto& rs : _input_rowsets) {
             input_rowset_ids.insert(rs->rowset_id());
         }
-        if (_tablet->tablet_meta()->binlog_delvec().contain_rowsets(input_rowset_ids)) {
+        if (_tablet->tablet_meta()->delete_bitmap().contain_rowsets(input_rowset_ids)) {
             return false;
         }
     }

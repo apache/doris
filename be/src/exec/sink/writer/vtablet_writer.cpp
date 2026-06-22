@@ -772,6 +772,12 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         auto* ptablet = request->add_tablets();
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
+        // only write binlog on backends that also own the binlog tablet.
+        int64_t binlog_tablet_id =
+                _parent->_location->get_binlog_tablet_id(tablet.tablet_id, _node_id);
+        if (binlog_tablet_id > 0) {
+            ptablet->set_binlog_tablet_id(binlog_tablet_id);
+        }
         deduper.insert(tablet.tablet_id);
         _all_tablets.push_back(std::move(tablet));
     }
