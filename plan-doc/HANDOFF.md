@@ -45,23 +45,24 @@
 - **silent 读路径 bug（骨架，翻闸后才在 regression 暴露）—— T08 已修 #1#1b#2；#3#4 待 T09**：
   3. ⬜ **format-version 算错（T09）**：`spec().specId()>=0?2:1` 恒 stamp "2"（unpartitioned specId==0 也 >=0）。应读 table `format-version` 元数据。`getTableSchemaStampsFormatVersionTwoForAnyValidSpec` 测当前 pin frozen "2"，T09 修时同步翻。
   4. ⬜ **column 构造 parity（T09）**：nullable 应恒 true（现 `field.isOptional()`）；isKey 应恒 true（现 5-arg ctor 默认 false）；缺小写化 + `WITH_TIMEZONE` Extra marker（`ConnectorColumn.withTimeZone()` 字段存在未用）；listing 缺 nested-namespace 递归 + view 过滤。
-- **T05/T06/T07 实现前置 = Q2=B `MetaStoreProviders.bind` mini-recon（直接读代码，metastore 子线规划文档已 CLOSED 勿读）**：metastore-spi 现有 hms/dlf/filesystem/jdbc/rest provider 是 paimon-specific（`paimon.rest.*` key），无 glue/s3tables。HMS/DLF conf 复用点已确认是 `HmsMetaStorePropertiesImpl.toHiveConfOverrides` + `DlfMetaStorePropertiesImpl.toDlfCatalogConf`（SDK-free，已是 paimon dep）。mini-recon 读 **`fe/fe-connector/fe-connector-metastore-spi/`**（`MetaStoreProviders` + 现有 provider impl 形态），扩 iceberg provider。
+- **Q2=B metastore-spi mini-recon + 改造 = ✅ DONE（part1 `562201deb9f`）**：新增 `MetaStoreProvider.supportsType(String)` + `MetaStoreProviders.bindForType(flavor,props,storageConf)`（5 provider 全转，paimon `supports(Map)` 字节不变）。HMS/DLF conf 复用 `HmsMetaStorePropertiesImpl.toHiveConfOverrides` + `DlfMetaStorePropertiesImpl.toDlfCatalogConf`（SDK-free）。**iceberg 只用 `toHiveConfOverrides()`/`toDlfCatalogConf()`，不调 paimon `validate()`**（paimon-ism: requireWarehouse for all flavors；iceberg HMS 不要求 warehouse）。无 glue/s3tables provider（glue/s3tables 在连接器 `IcebergCatalogFactory` 内直接装配，不走 metastore-spi）。
 - **跨切面风险（带入 T05–T07 + P6.6 翻闸门）**：R-004 AWS-SDK `ExecutionAttribute` static 撞（已用 child-first 自包含 awssdk 闭包缓解，待 docker 验）；DLF `ProxyMetaStoreClient` 按类名反射加载须入 plugin-zip 闭包（hive-catalog-shade 已带，T07 决定 vendored-source vs shade-bundled）；hive-catalog-shade relocated thrift vs host（已 exclude fe-thrift/libthrift）；**field-id 丢失**（`ConnectorColumn` 无载体，P6.2+ scan 前须重引，否则同 paimon BE SIGSEGV/DCHECK 类 bug）。**这些 UT 不可见，仅 P6.6 docker plugin-zip e2e 可验**。
 
 ## 🟢 下一步（精确）
 
-- **首选 = P6-T05（5 CatalogUtil flavor）**：REST/HMS/GLUE/HADOOP/JDBC 完整 per-flavor 属性装配（含 manifest-cache + warehouse + JDBC DriverShim + `iceberg.jdbc.catalog_name`），从 fe-core `AbstractIcebergProperties` + 各 `Iceberg*MetaStoreProperties#initCatalog` 移植到连接器 `IcebergCatalogFactory`（现仅 flavor switch + class-name 解析）。**前置 = Q2=B `MetaStoreProviders.bind` mini-recon**（直接读代码 `fe/fe-connector/fe-connector-metastore-spi/`；metastore 子线规划文档已 CLOSED 勿读）。
-- **T05 后 = T06（s3tables bespoke `new S3TablesCatalog().initialize`）→ T07（DLF 子树 port：`DLFCatalog`+`HiveCompatibleCatalog`+`DLFTableOperations`+2 client pool + vendored `ProxyMetaStoreClient`，断 3 fe-core import，复用 `DlfMetaStorePropertiesImpl.toDlfCatalogConf`）**。
-- **T09（column 构造 parity + format-version + nested-namespace + view 过滤）**：依赖 T03+T08，**现可起、与 T05 独立**——可作为 T05 的 metastore-spi mini-recon 阻塞时的并行项。T10 待 T05/T06/T07/T09。
+- **立即 = T05 收尾（纯实现，无需再 recon/读 legacy）**：按上面「🟡 T05 剩余」的逐 flavor 精确映射实现 3 个 appender（`appendRestProperties`/`appendGlueProperties`/`appendJdbcProperties`）+ `IcebergConnector.createCatalog` 实接线（镜像 `PaimonConnector.createCatalogFromContext`）+ JDBC DriverShim + `iceberg.jdbc.catalog_name` 位置参数 + 测试。**Q2=B `bindForType` mini-recon 与 metastore-spi 改造 = 已完成（part1 `562201deb9f`）**，HMS 直接调 `MetaStoreProviders.bindForType("hms",props,storageConf)`。**起步先 re-read 已 commit 的 `IcebergCatalogFactory`（part2 已有 common/S3FileIO 方法）+ `IcebergConnector`（仍 skeleton）+ `PaimonConnector`（接线模板）。**
+- **T05 后 = T06（s3tables bespoke `new S3TablesCatalog().initialize`）→ T07（DLF 子树 port：`DLFCatalog`+`HiveCompatibleCatalog`+`DLFTableOperations`+2 client pool + vendored `ProxyMetaStoreClient`，断 3 fe-core import，复用 `bindForType("dlf",…)`→`DlfMetaStoreProperties.toDlfCatalogConf`）**。
+- **T09（column 构造 parity + format-version + nested-namespace + view 过滤）**：依赖 T03+T08，**与 T05 独立、现可起**——可作并行项。T10 待 T05/T06/T07/T09。
 - 验收门（每 task）：连接器 UT 绿（无 Mockito，fail-loud fake）+ checkstyle 0 + `tools/check-connector-imports.sh` 净 + **断言 assembled prop map / Hadoop conf / column flag vs legacy 期望值**（不能只断类名——parity-by-omission 风险）+ `grep` 确认 iceberg **不在** `SPI_READY_TYPES`。
 
 ---
 
 # 📦 仓库 / 进度状态
 
-- **工作分支 = `catalog-spi-10-iceberg`**（P6.1 起步前 HEAD = `e5959e1b53d` #64655 P3b）。branch off `branch-catalog-spi`，PR 时 squash 合并。
-  - **已 commit**：T01-T03 = **`ae54a2174ff`**（`{IcebergCatalogFactory,IcebergCatalogOps}` + rewire + 测试基建 + docs）；T08 = **`d41fa4faf3e`**（type-mapping read parity 4 改 1 新 + docs）；**T04 = 本 commit**（`fe-connector-iceberg/pom.xml` + `plugin-zip.xml` + `fe/pom.xml` dM + 5 doc）。
-  - **metastore 子线 = 已彻底 CLOSED + 本 session committed**（8 文档加 CLOSED banner；后续勿读，见顶部范围注）。
+- **工作分支 = `catalog-spi-10-iceberg`**（P6.1 起步前 HEAD = `e5959e1b53d` #64655 P3b）。branch off `branch-catalog-spi`，PR 时 squash 合并。**所有 commit 均未 push。**
+  - **已 commit（旧 session）**：T01-T03 `ae54a2174ff`；T08 `d41fa4faf3e`（type-mapping read parity）；T04 `1fd4d42c297`（pom 7-flavor 闭包 + plugin-zip + fe/pom dM）。
+  - **已 commit（本 session = T05 part1/part2）**：`562201deb9f`（T05 part1：metastore-spi `bindForType`/`supportsType` + 设计文档）；`6f7b292b5c6`（T05 part2：factory `buildBaseCatalogProperties`/`appendS3FileIOProperties`/`chooseS3Compatible`，纯静态，25 factory UT 绿）；`ac2b67448e8`（HANDOFF 全 per-flavor key map）。**HEAD = 本 HANDOFF commit。**
+  - **metastore 子线 = 已彻底 CLOSED**（8 文档加 CLOSED banner；后续勿读，见顶部范围注）。
 - **stale cruft = 本 session 已清理**：删除 `fe-connector-{iceberg,paimon}-{api,backend-*}` 共 12 个目录（仅含 gitignored 生成物 `.flattened-pom.xml`，0 tracked、不在 reactor = 本地 `phase3-module-split` 旧实验遗留；untracked 故 git 无变更）。当前线用单 `fe-connector-iceberg` + flavor switch。
 - **P0–P5 + P3 hybrid + P4 + P3b 全部已合入**（#63582/#63641/#64096/#64143/#64253/#64300/#64446/#64653/#64655）。iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:50` = {jdbc,es,trino-connector,max_compute,paimon}），仍走 switch-case（`:137 case "iceberg"`）。
 - ⚠️ `regression-test/conf/regression-conf.groovy`（明文 Aliyun key）+ `*.bak` + scratch（`.audit-scratch/` `conf.cmy/` `META-INF/`）**严禁 `git add -A`**，commit 前 path-whitelist。
@@ -71,7 +72,7 @@
 - **连接器（终态归宿）**：`fe/fe-connector/fe-connector-iceberg/src/main/java/org/apache/doris/connector/iceberg/`（现：`IcebergConnector`/`Provider`/`ConnectorMetadata`/`ConnectorProperties`/`TableHandle`/`TypeMapping`/`CatalogFactory`/`CatalogOps`）。**pom 闭包（T04）已就绪**：7-flavor SDK + hive-catalog-shade + metastore-spi。
 - **paimon 模板**（P6.1 镜像）：`fe/fe-connector/fe-connector-paimon/`（`PaimonCatalogFactory`/`PaimonCatalogOps` seam/`createCatalogFromContext` CL-pin+executeAuthenticated/测试 `RecordingPaimonCatalogOps`/`FakePaimonTable`）+ `fe-connector-paimon-hive-shade`（paimon 专建 thrift shade，**iceberg 不复用，改用 hive-catalog-shade**）。
 - **legacy 对照（P6.1 读路径）**：fe-core `datasource/iceberg/`（`IcebergMetadataOps`1362 读半 / `IcebergExternalTable`535 读 / `IcebergUtils`1826 schema-type / `DorisTypeToIcebergType`134 / 7 flavor catalog + `HiveCompatibleCatalog`181 + `dlf/`4）+ `datasource/property/metastore/`（`AbstractIcebergProperties`285 + 7 flavor + factory，**STILL-CONSUMED 留 fe-core 至翻闸后**；T05/T07 移植 per-flavor 装配的源）。
-- **metastore-spi（Q2=B 将扩）**：`fe/fe-connector/fe-connector-metastore-spi/`（`MetaStoreProviders.bind` + `HmsMetaStorePropertiesImpl`/`DlfMetaStorePropertiesImpl`，现 paimon-specific REST/DLF、无 glue/s3tables）。**T04 已加为 iceberg 连接器依赖。**
+- **metastore-spi（Q2=B 已扩 part1）**：`fe/fe-connector/fe-connector-metastore-spi/`（`MetaStoreProviders.bind`(paimon)+**新 `bindForType(flavor,…)`(iceberg)** + `MetaStoreProvider.supportsType` + `HmsMetaStorePropertiesImpl.toHiveConfOverrides`/`DlfMetaStorePropertiesImpl.toDlfCatalogConf`）。无 glue/s3tables provider（这两者在连接器内直接装配）。**T04 已加为 iceberg 连接器依赖。**
 
 ## ⚙️ 操作须知（复用）
 
@@ -92,5 +93,6 @@
 
 - **删除/parity 前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED**（参 P5-T29 教训；metastore-props 是 STILL-CONSUMED）。
 - **HANDOFF 的依赖名可能过时**——T04 实证「iceberg-hive-metastore」「aliyun DLF SDK」均不存在（在 hive-catalog-shade 内）。下次动 pom/依赖前**先 recon（grep repo + unzip 实证）再信 HANDOFF**。
-- **Q2=B 是用户主动选的非默认项** —— 扩 metastore-spi 前对 `MetaStoreProviders.bind` + 现有 provider impl 单独 mini-recon（**直接读代码** `fe/fe-connector/fe-connector-metastore-spi/`；metastore 子线规划文档已 CLOSED 勿读）。
+- **Q2=B（用户主动选）已落地 part1** —— `bindForType`/`supportsType` 已加（`562201deb9f`）；后续 flavor（T07 DLF）直接调 `bindForType("dlf",…)`，勿再重做 metastore-spi recon。
+- **REST signing-cred 的 PROVIDER_CHAIN 非-DEFAULT gap**（见「🟡 T05 剩余」REST 条）：实现 REST 时若要补该 niche 路，需新增一个 `ConnectorContext` seam 让 fe-core 解析 `AwsCredentialsProviderFactory.getV2ClassName`（连接器不能 import）；DEFAULT mode 无缺口，可先 NOTE 跳过。
 - **大文件（`IcebergUtils`1826 等）用 subagent 总结**（playbook §3.1），勿主线整读。
