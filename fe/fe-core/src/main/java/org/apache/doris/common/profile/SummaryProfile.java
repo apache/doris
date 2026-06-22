@@ -123,10 +123,6 @@ public class SummaryProfile {
     public static final String READ_BYTES_PER_SECOND = "Read Bytes Per Second";
     public static final String REMOTE_READ_BYTES_PER_SECOND = "Remote Read Bytes Per Second";
 
-    // Written last in queryFinished(), after all BE fragment profiles are merged.
-    // Readers can poll for this field to know the profile is fully collected.
-    public static final String IS_PROFILE_COLLECTION_COMPLETED = "Is Profile Collection Completed";
-
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
     public static final String NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME = "Nereids Preload External Metadata Time";
     public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
@@ -580,10 +576,6 @@ public class SummaryProfile {
                     SPLITS_ASSIGNMENT_WEIGHT,
                     new GsonBuilder().create().toJson(m));
         }
-        // Mark profile collection as complete. This MUST be written last, after all optional
-        // fields above (e.g. SPLITS_ASSIGNMENT_WEIGHT), so a poller that observes this marker
-        // never reads a partial profile.
-        executionSummaryProfile.addInfoString(IS_PROFILE_COLLECTION_COMPLETED, "true");
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {

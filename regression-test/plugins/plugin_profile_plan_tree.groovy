@@ -240,7 +240,8 @@ Suite.metaClass.profile_plan_tree = { String profileText ->
 // profile_plan_tree_from_id(queryId) → formatted String
 //   Fetches profile via HTTP then calls profile_plan_tree.
 // ---------------------------------------------------------------------------
-Suite.metaClass.profile_plan_tree_from_id = { String queryId ->
+// Fetch the raw profile text for a query id via the FE HTTP API.
+Suite.metaClass.profile_text_from_id = { String queryId ->
     Suite suite = delegate as Suite
     def dst  = 'http://' + suite.context.config.feHttpAddress
     def conn = new URL("${dst}/api/profile/text?query_id=${queryId}").openConnection()
@@ -251,15 +252,21 @@ Suite.metaClass.profile_plan_tree_from_id = { String queryId ->
     conn.setRequestProperty("Authorization", "Basic ${encoding}")
     conn.setConnectTimeout(5000)
     conn.setReadTimeout(15000)
-    def profileText = conn.getInputStream().getText()
+    return conn.getInputStream().getText()
+}
+
+Suite.metaClass.profile_plan_tree_from_id = { String queryId ->
+    Suite suite = delegate as Suite
+    def profileText = suite.profile_text_from_id(queryId)
     def tree = suite.profile_plan_tree(profileText)
     return tree.split('\n').findAll { !it.startsWith('      | ') }.join('\n')
 }
 
 // ---------------------------------------------------------------------------
 // profile_plan_tree_from_sql(testSql) → formatted String
-//   Executes the SQL with profiling enabled and SQL cache disabled,
-//   waits for the profile to be collected, then returns the operator tree.
+//   Executes the SQL with profiling enabled and SQL cache disabled, polls until
+//   the profile is fully collected (master's "Profile Completion State: COMPLETE",
+//   set once all BE fragment profiles have been merged), then returns the tree.
 // ---------------------------------------------------------------------------
 Suite.metaClass.profile_plan_tree_from_sql = { String testSql ->
     Suite suite = delegate as Suite
@@ -267,8 +274,22 @@ Suite.metaClass.profile_plan_tree_from_sql = { String testSql ->
     suite.sql "set enable_sql_cache=false;"
     suite.sql testSql
     def qid = suite.sql("select last_query_id()")[0][0] as String
-    Thread.sleep(1500)
-    return suite.profile_plan_tree_from_id(qid)
+    // Poll for completion instead of a fixed sleep — BE fragment profiles are merged
+    // asynchronously after the query returns (~30s budget).
+    def profileText = ""
+    for (int i = 0; i < 150; i++) {
+        try {
+            profileText = suite.profile_text_from_id(qid)
+            if (profileText =~ /Profile Completion State\s*:\s*COMPLETE\b/) {
+                break
+            }
+        } catch (Exception e) {
+            // profile not available yet — keep polling
+        }
+        Thread.sleep(200)
+    }
+    def tree = suite.profile_plan_tree(profileText)
+    return tree.split('\n').findAll { !it.startsWith('      | ') }.join('\n')
 }
 
 logger.info("Added 'profile_plan_tree', 'profile_plan_tree_from_id' and 'profile_plan_tree_from_sql' to Suite")
