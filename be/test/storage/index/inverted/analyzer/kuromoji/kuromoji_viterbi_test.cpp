@@ -148,4 +148,91 @@ TEST_F(KuromojiViterbiTest, TokenizerUsesDictionary) {
     EXPECT_EQ(toks, (std::vector<std::string> {TOU + KYO, FU}));
 }
 
+// 都 = E9 83 BD (U+90FD), 山 = E5 B1 B1 (U+5C71), 川 = E5 B7 9D (U+5DDD)
+static const std::string TO = "\xE9\x83\xBD";
+static const std::string YAMA = "\xE5\xB1\xB1";
+static const std::string KAWA = "\xE5\xB7\x9D";
+
+// Search-mode compound decomposition, mirroring Lucene's JapaneseTokenizer:
+// long all-kanji dictionary words are penalized so the Viterbi prefers their
+// shorter parts (better recall), while Normal mode keeps the whole compound and
+// short (<= 2 kanji) compounds are never split.
+class KuromojiSearchModeTest : public ::testing::Test {
+protected:
+    std::string _dir;
+    std::unique_ptr<KuromojiDictionary> _dict;
+
+    void SetUp() override {
+        _dir = std::string(::testing::TempDir()) + "/kmj_search";
+        ::mkdir(_dir.c_str(), 0755);
+
+        // Single kanji cost 1000 each; compounds "東京都" and "山川" cost 100.
+        SystemDictInput sys;
+        sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun"}}});
+        sys.surfaces.push_back({KYO, {{1, 1, 1000, "noun"}}});
+        sys.surfaces.push_back({TO, {{1, 1, 1000, "noun"}}});
+        sys.surfaces.push_back({YAMA, {{1, 1, 1000, "noun"}}});
+        sys.surfaces.push_back({KAWA, {{1, 1, 1000, "noun"}}});
+        sys.surfaces.push_back({TOU + KYO + TO, {{1, 1, 100, "noun"}}});
+        sys.surfaces.push_back({YAMA + KAWA, {{1, 1, 100, "noun"}}});
+        ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
+
+        MatrixInput m;
+        m.forward_size = 2;
+        m.backward_size = 2;
+        m.cells.assign(4, 0);
+        ASSERT_TRUE(KuromojiDictionaryBuilder::write_matrix(_dir + "/matrix.bin", m).ok());
+
+        CharDefInput cd;
+        cd.catmap.fill(CAT_DEFAULT);
+        cd.catmap[0x6771] = CAT_KANJI; // 東
+        cd.catmap[0x4EAC] = CAT_KANJI; // 京
+        cd.catmap[0x90FD] = CAT_KANJI; // 都
+        cd.catmap[0x5C71] = CAT_KANJI; // 山
+        cd.catmap[0x5DDD] = CAT_KANJI; // 川
+        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
+        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};
+        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+        ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
+
+        UnkDictInput unk;
+        unk.per_category.resize(CAT_CLASS_COUNT);
+        unk.per_category[CAT_KANJI].push_back({1, 1, 5000, "unknown"});
+        unk.per_category[CAT_DEFAULT].push_back({1, 1, 5000, "unknown"});
+        ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
+
+        ASSERT_TRUE(KuromojiDictionary::load(_dir, &_dict).ok());
+    }
+
+    std::vector<std::string> surfaces(std::string_view text, KuromojiMode mode) const {
+        KuromojiViterbi v(*_dict, mode);
+        std::vector<KuromojiMorpheme> ms;
+        v.segment(text, &ms);
+        std::vector<std::string> out;
+        for (const auto& m : ms) {
+            out.emplace_back(text.substr(m.byte_start, m.byte_len));
+        }
+        return out;
+    }
+};
+
+TEST_F(KuromojiSearchModeTest, NormalModeKeepsCompound) {
+    // 東京都(100) beats 東+京+都(3000): the compound is one token.
+    EXPECT_EQ(surfaces(TOU + KYO + TO, KuromojiMode::Normal),
+              (std::vector<std::string> {TOU + KYO + TO}));
+}
+
+TEST_F(KuromojiSearchModeTest, SearchModeDecompoundsKanjiCompound) {
+    // 東京都 is 3 kanji: penalty (3-2)*3000 makes it 3100, so 東+京+都(3000) wins.
+    EXPECT_EQ(surfaces(TOU + KYO + TO, KuromojiMode::Search),
+              (std::vector<std::string> {TOU, KYO, TO}));
+}
+
+TEST_F(KuromojiSearchModeTest, SearchModeKeepsShortCompound) {
+    // 山川 is only 2 kanji (not > SEARCH_MODE_KANJI_LENGTH), so no penalty: it is
+    // kept whole even in search mode.
+    EXPECT_EQ(surfaces(YAMA + KAWA, KuromojiMode::Search),
+              (std::vector<std::string> {YAMA + KAWA}));
+}
+
 } // namespace doris::segment_v2::kuromoji

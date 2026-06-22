@@ -21,9 +21,11 @@
 
 namespace doris::segment_v2 {
 
-// Segmentation mode, mirroring Lucene's JapaneseTokenizer.Mode. Only Normal is
-// honored right now; Search and Extended are accepted but segment the same way,
-// since compound decomposition is not implemented yet.
+// Segmentation mode, mirroring Lucene's JapaneseTokenizer.Mode. Normal returns
+// the minimum-cost segmentation. Search additionally decomposes long compounds
+// into their shorter parts (via a length-based cost penalty) for better search
+// recall. Extended currently behaves like Search (its extra step of splitting
+// unknown words into unigrams is not implemented yet).
 enum class KuromojiMode { Normal, Search, Extended };
 
 inline KuromojiMode kuromoji_mode_from_string(const std::string& mode) {
