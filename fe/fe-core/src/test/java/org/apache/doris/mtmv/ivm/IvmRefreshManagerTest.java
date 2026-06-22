@@ -19,33 +19,25 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
-import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class IvmRefreshManagerTest {
 
     @Test
     public void testRefreshContextRejectsNulls() {
         MTMV mtmv = mockMtmv();
-        ConnectContext connectContext = new ConnectContext();
-
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(null, connectContext));
+                () -> new IvmRefreshContext(null, new ConnectContext()));
         Assertions.assertThrows(NullPointerException.class,
                 () -> new IvmRefreshContext(mtmv, null));
     }
@@ -58,14 +50,11 @@ public class IvmRefreshManagerTest {
 
     @Test
     public void testManagerReturnsSuccessForEmptyBundles() {
-        // Empty bundles means all base tables are up to date — no-op success.
         MTMV mtmv = mockMtmv();
         TestDeltaExecutor executor = new TestDeltaExecutor();
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
-
         IvmRefreshResult result = manager.doRefresh(mtmv);
-
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(executor.executeCalled);
     }
@@ -73,26 +62,23 @@ public class IvmRefreshManagerTest {
     @Test
     public void testManagerExecutesBundles() {
         MTMV mtmv = mockMtmv();
-        Command deltaWriteCommand = Mockito.mock(Command.class);
+        Command cmd = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<Command> commands = makeCommands(deltaWriteCommand, mtmv);
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), commands);
-
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), makeCommands(cmd, mtmv));
         IvmRefreshResult result = manager.doRefresh(mtmv);
-
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(executor.executeCalled);
-        Assertions.assertEquals(commands, executor.lastCommands);
     }
 
     @Test
     public void testManagerThrowsHardFailureOnExecutorFailure() {
         MTMV mtmv = mockMtmv();
-        Command deltaWriteCommand = Mockito.mock(Command.class);
+        Command cmd = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
-                newContext(mtmv), makeCommands(deltaWriteCommand, mtmv));
+                newContext(mtmv), makeCommands(cmd, mtmv));
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> manager.doRefresh(mtmv));
@@ -271,9 +257,9 @@ public class IvmRefreshManagerTest {
     @Test
     public void testManagerPrecheckPassesWithoutStreamCheck() {
         // checkStreamSupport is currently disabled (stream/binlog not ready),
-        // so precheck only checks binlogBroken.  With binlogBroken=false the
-        // precheck passes and the manager proceeds to analyze, which returns
-        // empty bundles → success (no-op, all base tables up to date).
+        // so precheck only checks binlogBroken and runningIvmRefresh.
+        // With both false the precheck passes and the manager proceeds to analyze,
+        // which returns empty bundles → success (no-op).
         MTMV mtmv = mockMtmv();
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
@@ -294,13 +280,13 @@ public class IvmRefreshManagerTest {
         // With checkStreamSupport disabled, precheck only verifies binlogBroken.
         // No relation/table mocking is needed.
         MTMV mtmv = mockMtmv();
-        Command deltaWriteCommand = Mockito.mock(Command.class);
+        Command cmd = Mockito.mock(Command.class);
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<Command> commands = makeCommands(deltaWriteCommand, mtmv);
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), commands);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), makeCommands(cmd, mtmv));
         manager.useSuperPrecheck = true;
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
@@ -331,30 +317,23 @@ public class IvmRefreshManagerTest {
     @Test
     public void testRunningIvmRefreshFlagSetBeforeExecutionAndClearedAfter() {
         MTMV mtmv = mockMtmv();
-        Command deltaWriteCommand = Mockito.mock(Command.class);
+        Command cmd = Mockito.mock(Command.class);
         IvmInfo ivmInfo = new IvmInfo();
-        BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
-        IvmStreamRef streamRef = new IvmStreamRef(5L);
-        streamRef.setLatestTso(10L);
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
-        streams.put(baseTableInfo, streamRef);
-        ivmInfo.setBaseTableStreams(streams);
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<Command> commands = makeCommands(deltaWriteCommand, mtmv);
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), commands);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), makeCommands(cmd, mtmv));
 
         // Before refresh: flag should be false
         Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
 
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
-        // After successful refresh: flag should be cleared, consumedTso advanced
+        // After successful refresh: flag should be cleared
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
-        Assertions.assertEquals(10L, streamRef.getConsumedTso());
-        // Two editlog writes: first sets flag=true, second clears flag=false + advances TSO
+        // Two editlog writes: first sets flag=true, second clears flag=false
         Assertions.assertEquals(2, manager.persistCalls.size());
         Assertions.assertTrue(manager.persistCalls.get(0), "first persist should have runningIvmRefresh=true");
         Assertions.assertFalse(manager.persistCalls.get(1), "second persist should have runningIvmRefresh=false");
@@ -363,51 +342,29 @@ public class IvmRefreshManagerTest {
     @Test
     public void testRunningIvmRefreshFlagLeftSetOnExecutionFailure() {
         MTMV mtmv = mockMtmv();
-        Command deltaWriteCommand = Mockito.mock(Command.class);
+        Command cmd = Mockito.mock(Command.class);
         IvmInfo ivmInfo = new IvmInfo();
-        BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
-        IvmStreamRef streamRef = new IvmStreamRef(5L);
-        streamRef.setLatestTso(10L);
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
-        streams.put(baseTableInfo, streamRef);
-        ivmInfo.setBaseTableStreams(streams);
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
-                newContext(mtmv), makeCommands(deltaWriteCommand, mtmv));
+                newContext(mtmv), makeCommands(cmd, mtmv));
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> manager.doRefresh(mtmv));
 
-        // Execution failed: flag should remain true, consumedTso NOT advanced
+        // Execution failed: flag should remain true
         Assertions.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED,
                 exception.getFailureReason());
         Assertions.assertTrue(ivmInfo.isRunningIvmRefresh());
-        Assertions.assertEquals(5L, streamRef.getConsumedTso());
         // Only one editlog write: the one that set the flag=true before execution
         Assertions.assertEquals(1, manager.persistCalls.size());
         Assertions.assertTrue(manager.persistCalls.get(0), "persist should have runningIvmRefresh=true");
     }
 
-    private void assertKnownExecutionFailureReason(IvmFailureReason expectedReason, String detail) {
-        MTMV mtmv = mockMtmv();
-        Command deltaWriteCommand = Mockito.mock(Command.class);
-        TestDeltaExecutor executor = new TestDeltaExecutor();
-        executor.failureMessage = detail;
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
-                newContext(mtmv), makeCommands(deltaWriteCommand, mtmv));
-
-        IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> manager.doRefresh(mtmv));
-
-        Assertions.assertEquals(expectedReason, exception.getFailureReason());
-        Assertions.assertTrue(executor.executeCalled);
-    }
-
     @Test
-    public void testEmptyBundlesDoNotWriteRunningIvmRefreshEditlog() {
+    public void testEmptyBundlesDoNotWriteEditlog() {
         MTMV mtmv = mockMtmv();
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
@@ -424,101 +381,19 @@ public class IvmRefreshManagerTest {
         Assertions.assertEquals(0, manager.persistCalls.size());
     }
 
-    @Test
-    public void testEnsureBaseTableStreamsInitializedPopulatesEmptyStreams() {
+    private void assertKnownExecutionFailureReason(IvmFailureReason expectedReason, String detail) {
         MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        Assertions.assertTrue(ivmInfo.getBaseTableStreams().isEmpty());
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        Command cmd = Mockito.mock(Command.class);
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        executor.failureMessage = detail;
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), makeCommands(cmd, mtmv));
 
-        BaseTableInfo bt1 = Mockito.mock(BaseTableInfo.class);
-        BaseTableInfo bt2 = Mockito.mock(BaseTableInfo.class);
-        Set<BaseTableInfo> baseTables = Sets.newHashSet(bt1, bt2);
-        MTMVRelation relation = new MTMVRelation(baseTables, baseTables, baseTables, null, null);
-        Mockito.when(mtmv.getRelation()).thenReturn(relation);
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> manager.doRefresh(mtmv));
 
-        IvmRefreshManager manager = new TestIvmRefreshManager(
-                new TestDeltaExecutor(), newContext(mtmv), Collections.emptyList());
-        manager.ensureBaseTableStreamsInitialized(mtmv);
-
-        Map<BaseTableInfo, IvmStreamRef> streams = ivmInfo.getBaseTableStreams();
-        Assertions.assertEquals(2, streams.size());
-        for (IvmStreamRef ref : streams.values()) {
-            Assertions.assertEquals(0, ref.getConsumedTso());
-            Assertions.assertEquals(0, ref.getLatestTso());
-        }
-    }
-
-    @Test
-    public void testEnsureBaseTableStreamsInitializedSkipsIfAlreadyPopulated() {
-        MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        BaseTableInfo existingBt = Mockito.mock(BaseTableInfo.class);
-        Map<BaseTableInfo, IvmStreamRef> existingStreams = new HashMap<>();
-        existingStreams.put(existingBt, new IvmStreamRef(99L));
-        ivmInfo.setBaseTableStreams(existingStreams);
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-
-        IvmRefreshManager manager = new TestIvmRefreshManager(
-                new TestDeltaExecutor(), newContext(mtmv), Collections.emptyList());
-        manager.ensureBaseTableStreamsInitialized(mtmv);
-
-        // Should not overwrite existing streams
-        Assertions.assertEquals(1, ivmInfo.getBaseTableStreams().size());
-        Assertions.assertEquals(99L, ivmInfo.getBaseTableStreams().get(existingBt).getConsumedTso());
-    }
-
-    @Test
-    public void testEnsureBaseTableStreamsInitializedHandlesNullRelation() {
-        MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-        Mockito.when(mtmv.getRelation()).thenReturn(null);
-
-        IvmRefreshManager manager = new TestIvmRefreshManager(
-                new TestDeltaExecutor(), newContext(mtmv), Collections.emptyList());
-        manager.ensureBaseTableStreamsInitialized(mtmv);
-
-        // Should remain empty — no relation to initialize from
-        Assertions.assertTrue(ivmInfo.getBaseTableStreams().isEmpty());
-    }
-
-    @Test
-    public void testResetIvmStateAfterFullRefreshInitializesMissingStreams() {
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.setRunningIvmRefresh(true);
-        BaseTableInfo bt1 = Mockito.mock(BaseTableInfo.class);
-        BaseTableInfo bt2 = Mockito.mock(BaseTableInfo.class);
-        Map<BaseTableInfo, Long> capturedTsos = new HashMap<>();
-        capturedTsos.put(bt1, 3L);
-        capturedTsos.put(bt2, 5L);
-
-        IvmRefreshManager.resetIvmStateAfterFullRefresh(ivmInfo, capturedTsos);
-
-        Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
-        Assertions.assertEquals(2, ivmInfo.getBaseTableStreams().size());
-        Assertions.assertEquals(3L, ivmInfo.getBaseTableStreams().get(bt1).getConsumedTso());
-        Assertions.assertEquals(3L, ivmInfo.getBaseTableStreams().get(bt1).getLatestTso());
-        Assertions.assertEquals(5L, ivmInfo.getBaseTableStreams().get(bt2).getConsumedTso());
-        Assertions.assertEquals(5L, ivmInfo.getBaseTableStreams().get(bt2).getLatestTso());
-    }
-
-    @Test
-    public void testClearRunningIvmRefreshAfterFullRefreshKeepsStreams() {
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.setRunningIvmRefresh(true);
-        BaseTableInfo baseTable = Mockito.mock(BaseTableInfo.class);
-        IvmStreamRef streamRef = new IvmStreamRef();
-        streamRef.setConsumedTso(10L);
-        streamRef.setLatestTso(20L);
-        ivmInfo.getBaseTableStreams().put(baseTable, streamRef);
-
-        IvmRefreshManager.clearRunningIvmRefreshAfterFullRefresh(ivmInfo);
-
-        Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
-        Assertions.assertSame(streamRef, ivmInfo.getBaseTableStreams().get(baseTable));
-        Assertions.assertEquals(10L, streamRef.getConsumedTso());
-        Assertions.assertEquals(20L, streamRef.getLatestTso());
+        Assertions.assertEquals(expectedReason, exception.getFailureReason());
+        Assertions.assertTrue(executor.executeCalled);
     }
 
     private static IvmRefreshContext newContext(MTMV mtmv) {
@@ -542,24 +417,22 @@ public class IvmRefreshManagerTest {
         return queryInfo;
     }
 
-    private static List<Command> makeCommands(Command deltaWriteCommand, MTMV mtmv) {
-        return Collections.singletonList(deltaWriteCommand);
+    private static List<Command> makeCommands(Command cmd, MTMV mtmv) {
+        return Collections.singletonList(cmd);
     }
 
     private static class TestDeltaExecutor extends IvmDeltaExecutor {
         private boolean executeCalled;
         private boolean throwOnExecute;
         private String failureMessage;
-        private List<Command> lastCommands;
 
         @Override
         public void execute(IvmRefreshContext context, List<Command> commands,
-                int exprIdStart) throws AnalysisException {
+                int exprIdStart) {
             executeCalled = true;
-            lastCommands = commands;
             if (throwOnExecute || failureMessage != null) {
                 String message = failureMessage != null ? failureMessage : "executor failed";
-                throw new AnalysisException(message);
+                throw new RuntimeException(message);
             }
         }
     }

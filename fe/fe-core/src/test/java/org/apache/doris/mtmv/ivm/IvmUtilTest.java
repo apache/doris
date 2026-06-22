@@ -106,6 +106,22 @@ class IvmUtilTest {
         Assertions.assertInstanceOf(Cast.class, nvl.child(0));
     }
 
+    // ==================== streamName tests ====================
+
+    @Test
+    void testStreamName() {
+        Assertions.assertEquals("__doris_ivm_123_t1", IvmUtil.streamName(123L, "t1"));
+        Assertions.assertEquals("__doris_ivm_456_base_table", IvmUtil.streamName(456L, "base_table"));
+    }
+
+    @Test
+    void testStreamNamePrefixConsistency() {
+        String name = IvmUtil.streamName(1L, "t");
+        Assertions.assertTrue(name.startsWith(IvmUtil.IVM_STREAM_PREFIX));
+    }
+
+    // ==================== buildRowIdHash tests ====================
+
     @Test
     void testBuildRowIdHashResultNotNullable() {
         // With non-nullable keys

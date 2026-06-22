@@ -42,21 +42,20 @@ suite("test_ivm_agg_join_3") {
     sql """
         CREATE TABLE ivm_aj3_p11_dim (
             dim_id INT,
-            category VARCHAR(32),
-            binlog_op TINYINT
+            category VARCHAR(32)
         )
         UNIQUE KEY(dim_id)
         DISTRIBUTED BY HASH(dim_id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """INSERT INTO ivm_aj3_p11_fact VALUES (1,1,10),(2,1,20);"""
-    sql """INSERT INTO ivm_aj3_p11_dim VALUES (1,'A',0);"""
+    sql """INSERT INTO ivm_aj3_p11_dim VALUES (1,'A');"""
 
     sql """
         CREATE MATERIALIZED VIEW ivm_aj3_p11_mv
@@ -79,7 +78,8 @@ suite("test_ivm_agg_join_3") {
 
     // Mock binlog scans the full base table as delta. Keep the joined key as delete and add a
     // non-joined insert row to trigger incremental refresh.
-    sql """INSERT INTO ivm_aj3_p11_dim VALUES (1,'A',1),(3,'B',0);"""
+    sql """INSERT INTO ivm_aj3_p11_dim VALUES (3,'B');"""
+    sql """DELETE FROM ivm_aj3_p11_dim WHERE dim_id = 1;"""
     sql """REFRESH MATERIALIZED VIEW ivm_aj3_p11_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_aj3_p11_mv")
     // This output follows the current mock binlog behavior. Refresh it with real binlog data after

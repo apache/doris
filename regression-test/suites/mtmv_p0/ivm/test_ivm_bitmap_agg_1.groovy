@@ -27,24 +27,23 @@ suite("test_ivm_bitmap_agg_1") {
             id INT,
             k INT,
             b BITMAP,
-            keep_bitmap TINYINT,
-            binlog_op TINYINT
+            keep_bitmap TINYINT
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """
         INSERT INTO test_ivm_bitmap_agg_1_t VALUES
-            (1, 1, bitmap_from_string('1,2'), 1, 0),
-            (2, 1, bitmap_from_string('2,3'), 1, 0),
-            (3, 2, bitmap_from_string('10'), 1, 0);
+            (1, 1, bitmap_from_string('1,2'), 1),
+            (2, 1, bitmap_from_string('2,3'), 1),
+            (3, 2, bitmap_from_string('10'), 1);
     """
 
     sql """
@@ -74,8 +73,8 @@ suite("test_ivm_bitmap_agg_1") {
         GROUP BY k
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (4, 1, bitmap_from_string('3,4'), 1, 0);"""
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (5, 3, bitmap_from_string('100,101'), 1, 0);"""
+    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (4, 1, bitmap_from_string('3,4'), 1);"""
+    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (5, 3, bitmap_from_string('100,101'), 1);"""
     Thread.sleep(1000)
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv INCREMENTAL"""
@@ -106,7 +105,7 @@ suite("test_ivm_bitmap_agg_1") {
         GROUP BY k
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (3, 2, bitmap_from_string('10'), 1, 1);"""
+    sql """DELETE FROM test_ivm_bitmap_agg_1_t WHERE id = 3;"""
     Thread.sleep(1000)
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv INCREMENTAL"""
@@ -116,7 +115,7 @@ suite("test_ivm_bitmap_agg_1") {
         FROM test_ivm_bitmap_agg_1_mv
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (3, 2, bitmap_from_string('10'), 1, 0);"""
+    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (3, 2, bitmap_from_string('10'), 1);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_bitmap_agg_1_mv")
     order_qt_bitmap_delete_group_complete """
@@ -131,7 +130,7 @@ suite("test_ivm_bitmap_agg_1") {
         GROUP BY k
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (6, 3, bitmap_from_string('999'), 0, 1);"""
+    sql """DELETE FROM test_ivm_bitmap_agg_1_t WHERE id = 6;"""
     Thread.sleep(1000)
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv INCREMENTAL"""
@@ -148,7 +147,7 @@ suite("test_ivm_bitmap_agg_1") {
         GROUP BY k
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (8, 2, bitmap_from_string(''), 1, 1);"""
+    sql """DELETE FROM test_ivm_bitmap_agg_1_t WHERE id = 8;"""
     Thread.sleep(1000)
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv INCREMENTAL"""
@@ -165,8 +164,8 @@ suite("test_ivm_bitmap_agg_1") {
         GROUP BY k
     """
 
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (2, 1, bitmap_from_string('2,3'), 1, 1);"""
-    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (7, 2, bitmap_from_string('10,11'), 1, 0);"""
+    sql """DELETE FROM test_ivm_bitmap_agg_1_t WHERE id = 2;"""
+    sql """INSERT INTO test_ivm_bitmap_agg_1_t VALUES (7, 2, bitmap_from_string('10,11'), 1);"""
     Thread.sleep(1000)
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_bitmap_agg_1_mv INCREMENTAL"""

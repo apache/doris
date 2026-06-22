@@ -32,15 +32,14 @@ suite("test_ivm_agg_4") {
             k1 INT,
             grp INT,
             v1 INT,
-            v2 INT,
-            binlog_op TINYINT
+            v2 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -48,9 +47,9 @@ suite("test_ivm_agg_4") {
     // Initial data
     sql """
         INSERT INTO test_ivm_agg_4_expr_base VALUES
-            (1, 1, 10, 20, 0),
-            (2, 1, 30, 40, 0),
-            (3, 2, 50, 60, 0);
+            (1, 1, 10, 20),
+            (2, 1, 30, 40),
+            (3, 2, 50, 60);
     """
 
     sql """
@@ -84,8 +83,8 @@ suite("test_ivm_agg_4") {
     """
 
     // Insert rows and trigger INCREMENTAL
-    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (4, 1, 100, 200, 0);"""
-    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (5, 2, 5, 1, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (4, 1, 100, 200);"""
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (5, 2, 5, 1);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
@@ -113,9 +112,9 @@ suite("test_ivm_agg_4") {
     // Delete row k1=2 (grp=1, v1=30, v2=40):
     //   v1*2=60 → current MIN is 20, so 60 > 20 → NOT min boundary
     //   v1+v2=70 → current MAX is 300, so 70 < 300 → NOT max boundary
-    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (2, 1, 30, 40, 1);"""
+    sql """DELETE FROM test_ivm_agg_4_expr_base WHERE k1 = 2;"""
     // Dirty partition
-    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (6, 2, 7, 3, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_expr_base VALUES (6, 2, 7, 3);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_expr_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_expr_mv")
@@ -152,15 +151,14 @@ suite("test_ivm_agg_4") {
         CREATE TABLE test_ivm_agg_4_nullkey1_base (
             id INT,
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -168,10 +166,10 @@ suite("test_ivm_agg_4") {
     // Initial data: 3 groups — k1=NULL, k1=1, k1=2
     sql """
         INSERT INTO test_ivm_agg_4_nullkey1_base VALUES
-            (1, NULL, 10, 0),
-            (2, NULL, 20, 0),
-            (3, 1, 30, 0),
-            (4, 2, 40, 0);
+            (1, NULL, 10),
+            (2, NULL, 20),
+            (3, 1, 30),
+            (4, 2, 40);
     """
 
     sql """
@@ -196,8 +194,8 @@ suite("test_ivm_agg_4") {
     """
 
     // Insert: add to NULL group and k1=1 group
-    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (5, NULL, 50, 0);"""
-    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (6, 1, 60, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (5, NULL, 50);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (6, 1, 60);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
@@ -219,9 +217,9 @@ suite("test_ivm_agg_4") {
     """
 
     // Delete from NULL group via binlog_op=1
-    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (1, NULL, 10, 1);"""
+    sql """DELETE FROM test_ivm_agg_4_nullkey1_base WHERE k1 = 1;"""
     // Dirty partition with another insert
-    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (7, 2, 70, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey1_base VALUES (7, 2, 70);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey1_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey1_mv")
@@ -255,15 +253,14 @@ suite("test_ivm_agg_4") {
             id INT,
             k1 VARCHAR(32),
             k2 VARCHAR(32),
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -275,11 +272,11 @@ suite("test_ivm_agg_4") {
     // ('a', 'b'):    id 5    → v1=50
     sql """
         INSERT INTO test_ivm_agg_4_nullkey2_base VALUES
-            (1, NULL, 'x', 10, 0),
-            (2, NULL, 'x', 20, 0),
-            (3, 'x', NULL, 30, 0),
-            (4, NULL, NULL, 40, 0),
-            (5, 'a', 'b', 50, 0);
+            (1, NULL, 'x', 10),
+            (2, NULL, 'x', 20),
+            (3, 'x', NULL, 30),
+            (4, NULL, NULL, 40),
+            (5, 'a', 'b', 50);
     """
 
     sql """
@@ -307,9 +304,9 @@ suite("test_ivm_agg_4") {
     """
 
     // Insert into various NULL groups to test incremental correctness
-    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (6, NULL, 'x', 60, 0);"""
-    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (7, 'x', NULL, 70, 0);"""
-    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (8, NULL, NULL, 80, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (6, NULL, 'x', 60);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (7, 'x', NULL, 70);"""
+    sql """INSERT INTO test_ivm_agg_4_nullkey2_base VALUES (8, NULL, NULL, 80);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullkey2_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullkey2_mv")
@@ -344,15 +341,14 @@ suite("test_ivm_agg_4") {
         CREATE TABLE test_ivm_agg_4_nullempty_base (
             id INT,
             k1 VARCHAR(32),
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -360,9 +356,9 @@ suite("test_ivm_agg_4") {
     // Groups: k1=NULL, k1='', k1='a'
     sql """
         INSERT INTO test_ivm_agg_4_nullempty_base VALUES
-            (1, NULL, 10, 0),
-            (2, '', 20, 0),
-            (3, 'a', 30, 0);
+            (1, NULL, 10),
+            (2, '', 20),
+            (3, 'a', 30);
     """
 
     sql """
@@ -386,9 +382,9 @@ suite("test_ivm_agg_4") {
     """
 
     // Insert into each group
-    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (4, NULL, 40, 0);"""
-    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (5, '', 50, 0);"""
-    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (6, 'a', 60, 0);"""
+    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (4, NULL, 40);"""
+    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (5, '', 50);"""
+    sql """INSERT INTO test_ivm_agg_4_nullempty_base VALUES (6, 'a', 60);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_4_nullempty_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_4_nullempty_mv")

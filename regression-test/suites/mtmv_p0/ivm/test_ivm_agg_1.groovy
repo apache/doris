@@ -38,7 +38,7 @@ suite("test_ivm_agg_1") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -130,7 +130,7 @@ suite("test_ivm_agg_1") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -202,7 +202,7 @@ suite("test_ivm_agg_1") {
     """
 
     // =========================================================
-    // Part 3: MIN / MAX aggregate MV (grouped)
+    // Part 3: MIN / MAX aggregate MV (grouped by non-key column so each group has multiple rows)
     // =========================================================
 
     sql """drop materialized view if exists test_ivm_agg_mtmv_minmax_mv;"""
@@ -211,6 +211,7 @@ suite("test_ivm_agg_1") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_minmax_base (
             k1 INT,
+            grp INT,
             v1 INT
         )
         UNIQUE KEY(k1)
@@ -218,30 +219,34 @@ suite("test_ivm_agg_1") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
+    // Group grp=1: three rows (k1=10→v1=100, k1=11→v1=200, k1=12→v1=150) → MIN=100, MAX=200
+    // Group grp=2: three rows (k1=20→v1=50,  k1=21→v1=80,  k1=22→v1=70)  → MIN=50,  MAX=80
     sql """
         INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES
-            (1, 10),
-            (1, 10),
-            (2, 20),
-            (3, 30);
+            (10, 1, 100),
+            (11, 1, 200),
+            (12, 1, 150),
+            (20, 2, 50),
+            (21, 2, 80),
+            (22, 2, 70);
     """
 
-    // MV: GROUP BY k1, MIN(v1), MAX(v1)
+    // MV: GROUP BY grp, MIN(v1), MAX(v1)
     sql """
         CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        DISTRIBUTED BY HASH(grp) BUCKETS 2
         PROPERTIES (
             'replication_num' = '1'
         )
-        AS SELECT k1, MIN(v1) AS min_v1, MAX(v1) AS max_v1
+        AS SELECT grp, MIN(v1) AS min_v1, MAX(v1) AS max_v1
            FROM test_ivm_agg_mtmv_minmax_base
-           GROUP BY k1;
+           GROUP BY grp;
     """
 
     def minmaxMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_agg_mtmv_minmax_mv'"""
@@ -251,37 +256,40 @@ suite("test_ivm_agg_1") {
     def minmaxDescResult = sql """desc test_ivm_agg_mtmv_minmax_mv all"""
     assertTrue(minmaxDescResult.toString().contains("UNIQUE_KEYS"))
 
-    // First COMPLETE refresh: k1=1 → min=10,max=10; k1=2 → min=20,max=20; k1=3 → min=30,max=30
+    // First COMPLETE refresh: grp=1 → min=100,max=200; grp=2 → min=50,max=80
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
 
     order_qt_minmax_after_first_complete """
-        SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
+        SELECT grp, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY grp
     """
 
-    // Safe INCREMENTAL: upsert k1=1 with v1=5 (new min) and insert k1=4 (v1=40).
-    // NOTE: The current IVM mock reads the full base table as delta (all rows have dml_factor=+1,
-    // i.e. no delete stream), so the assert_true guard for boundary deletion is never triggered.
-    // Boundary-deletion fallback can only be tested once real binlog-based delta streams are available.
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (1, 5);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (4, 40);"""
+    // Test 1: Update k1=10 (grp=1) from v1=100 to v1=90 → new MIN should be 90.
+    //   Group grp=1 has other rows (200, 150), so MAX=200 is safe.
+    //   MIN guard: old_min=100, deltaDel=100, deltaInsert=90.
+    //   delete 命中旧 MIN (100), but insert 提供更优值 90 ≤ 100 → guard passes ✓
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (10, 1, 90);"""
+
+    // Test 2: Update k1=21 (grp=2) from v1=80 to v1=90 → new MAX should be 90.
+    //   Group grp=2 has other rows (50, 70), so MIN=50 is safe.
+    //   MAX guard: old_max=80, deltaDel=80, deltaInsert=90.
+    //   delete 命中旧 MAX (80), but insert 提供更优值 90 ≥ 80 → guard passes ✓
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_base VALUES (21, 2, 90);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
 
-    // Verify INCREMENTAL refresh completed and produced queryable data (values may not be
-    // semantically correct due to the mock delta reading the full base table).
+    // grp=1: min=90, max=200; grp=2: min=50, max=90
     order_qt_minmax_after_incremental """
-        SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
+        SELECT grp, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY grp
     """
 
-    // Final COMPLETE refresh to get ground truth
+    // Final COMPLETE refresh to verify ground truth
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_mv")
 
-    // k1=1 → v1=5 (MOW upsert); k1=2 → v1=20; k1=3 → v1=30; k1=4 → v1=40
     order_qt_minmax_after_final_complete """
-        SELECT k1, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY k1
+        SELECT grp, min_v1, max_v1 FROM test_ivm_agg_mtmv_minmax_mv ORDER BY grp
     """
 
     // =========================================================
@@ -296,20 +304,19 @@ suite("test_ivm_agg_1") {
     // COMPLETE — it fails with status FAILED. We verify this, then run COMPLETE to recover.
 
     sql """drop materialized view if exists test_ivm_agg_mtmv_minmax_op_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_minmax_op_base;"""
+    sql """drop table if exists test_ivm_agg_mmop_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_minmax_op_base (
+        CREATE TABLE test_ivm_agg_mmop_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -317,10 +324,10 @@ suite("test_ivm_agg_1") {
     // Initial data: group by v1 ranges via k1 grouping
     // k1=1 (v1=10, op=0), k1=2 (v1=20, op=0), k1=3 (v1=30, op=0)
     sql """
-        INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES
-            (1, 10, 0),
-            (2, 20, 0),
-            (3, 30, 0);
+        INSERT INTO test_ivm_agg_mmop_base VALUES
+            (1, 10),
+            (2, 20),
+            (3, 30);
     """
 
     // Scalar agg MV with MIN/MAX (no GROUP BY) — the single group makes boundary detection simple
@@ -332,7 +339,7 @@ suite("test_ivm_agg_1") {
             'replication_num' = '1'
         )
         AS SELECT MIN(v1) AS min_v1, MAX(v1) AS max_v1, COUNT(*) AS cnt
-           FROM test_ivm_agg_mtmv_minmax_op_base;
+           FROM test_ivm_agg_mmop_base;
     """
 
     def minmaxOpMvInfos = sql """select State from mv_infos('database'='${context.dbName}') where Name = 'test_ivm_agg_mtmv_minmax_op_mv'"""
@@ -348,20 +355,17 @@ suite("test_ivm_agg_1") {
 
     // Step 2: Safe INCREMENTAL — insert a new row (op=0) that does NOT touch MIN boundary
     // After this, mock delta reads all 4 rows (all op=0), dml_factor=1 for all → no deletes
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (4, 25, 0);"""
+    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (4, 25);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 
-    // Step 3: Now upsert k1=1 to binlog_op=1 (mark the MIN value v1=10 as deleted),
+    // Step 3: Now delete k1=1 (the MIN value v1=10 was deleted),
     // and insert a dirty row to ensure the partition is stale for INCREMENTAL.
-    // The mock delta will read all rows. k1=1 has op=1 → dml_factor=-1,
-    // and deleteOnlyExpr picks up v1=10. Since old_min=10 and deltaDelMin=10,
-    // the guard (deltaDelMin > old_min) is false → assert_true fires → task FAILS.
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (1, 10, 1);"""
+    sql """DELETE FROM test_ivm_agg_mmop_base WHERE k1 = 1;"""
 
     // Dirty the partition to ensure INCREMENTAL actually runs
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (5, 35, 0);"""
+    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (5, 35);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
 
@@ -400,7 +404,7 @@ suite("test_ivm_agg_1") {
     """
 
     // Step 5: Fix the data — upsert k1=1 back to op=0, then safe INCREMENTAL should succeed
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_op_base VALUES (1, 10, 0);"""
+    sql """INSERT INTO test_ivm_agg_mmop_base VALUES (1, 10);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
@@ -422,15 +426,14 @@ suite("test_ivm_agg_1") {
         CREATE TABLE test_ivm_agg_mtmv_null_base (
             k1 INT,
             grp INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -441,11 +444,11 @@ suite("test_ivm_agg_1") {
     // grp=3: one row, all NULL (v1=NULL)
     sql """
         INSERT INTO test_ivm_agg_mtmv_null_base VALUES
-            (1, 1, 10, 0),
-            (2, 1, 20, 0),
-            (3, 2, NULL, 0),
-            (4, 2, 30, 0),
-            (5, 3, NULL, 0);
+            (1, 1, 10),
+            (2, 1, 20),
+            (3, 2, NULL),
+            (4, 2, 30),
+            (5, 3, NULL);
     """
 
     sql """
@@ -480,8 +483,8 @@ suite("test_ivm_agg_1") {
 
     // Step 2: INCREMENTAL — insert a NULL value into grp=1 and a non-NULL into grp=3
     // Mock delta reads all rows (all op=0), no deletes, so INCREMENTAL should succeed.
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL, 0);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (7, 3, 50, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (7, 3, 50);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
@@ -506,9 +509,9 @@ suite("test_ivm_agg_1") {
 
     // Step 4: Delete a NULL value row (binlog_op=1) — tests caseWhenExprNotNull with delete+NULL
     // Mark k1=6 (grp=1, v1=NULL) as deleted
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (6, 1, NULL, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_null_base WHERE k1 = 6;"""
     // Dirty partition for INCREMENTAL
-    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (8, 2, 40, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_null_base VALUES (8, 2, 40);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_null_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_null_mv")
@@ -523,7 +526,7 @@ suite("test_ivm_agg_1") {
     // Step 5: COMPLETE to get ground truth after NULL-row deletion
     // grp=1: k1=1(10),2(20),6(NULL,deleted) → effectively k1=1(10),2(20) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=2
     //         BUT with mock delta, COMPLETE still sees all physical rows including k1=6 with op=1
-    //         COMPLETE refresh ignores binlog_op, so k1=6 is still counted:
+    //         COMPLETE refresh ignores so k1=6 is still counted:
     //         k1=1(10),2(20),6(NULL) → sum=30, avg=15, cnt_v1=2, min=10, max=20, cnt_all=3
     // grp=2: k1=3(NULL),4(30),8(40) → sum=70, avg=35, cnt_v1=2, min=30, max=40, cnt_all=3
     // grp=3: k1=5(NULL),7(50) → sum=50, avg=50, cnt_v1=1, min=50, max=50, cnt_all=2

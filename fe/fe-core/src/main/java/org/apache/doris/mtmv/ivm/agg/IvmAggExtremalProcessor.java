@@ -113,7 +113,7 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
                 new EqualTo(newCount, new BigIntLiteral(0L)),
                 new IsNull(deltaDel),
                 new IsNull(oldExtreme),
-                deletedExtremeKeepsOldValueValid(deltaDel, oldExtreme)
+                deletedExtremeKeepsOldValueValid(deltaDel, oldExtreme, deltaInsert)
         ));
         Expression guard = new AssertTrue(guardCond, new StringLiteral(fallbackMessage()));
         Expression newExtremeRaw = new CaseWhen(
@@ -138,8 +138,13 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
     /** Builds MIN or MAX over a filtered insert/delete expression. */
     protected abstract Expression buildExtremeAggregate(Expression input);
 
-    /** Returns true when deleted rows cannot have invalidated the old visible extreme. */
-    protected abstract Expression deletedExtremeKeepsOldValueValid(Expression deltaDeletedExtreme, Slot oldExtreme);
+    /**
+     * Returns true when the old visible extreme is still deterministically valid after deletes,
+     * either because no delete hit the boundary point, or because the insert side provides a
+     * value that equals or improves the old extreme position.
+     */
+    protected abstract Expression deletedExtremeKeepsOldValueValid(Expression deltaDeletedExtreme,
+            Slot oldExtreme, Expression deltaInsertExtreme);
 
     /** Merges the old visible extreme with the insert-only delta extreme. */
     protected abstract Expression mergeOldAndInsertedExtreme(Slot oldExtreme, Expression deltaInsertExtreme);

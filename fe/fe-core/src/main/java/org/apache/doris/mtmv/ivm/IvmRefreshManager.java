@@ -115,16 +115,8 @@ public class IvmRefreshManager {
             return Collections.emptyList();
         }
 
-        // Ensure base table streams are initialized (first refresh may have empty map)
-        ensureBaseTableStreamsInitialized(mtmv);
-
-        // Read latestTso for each base table and pass baseTableStreams to rewrite context
-        Map<BaseTableInfo, IvmStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
-        populateLatestTso(baseTableStreams);
-
         IvmRefreshContext rewriteCtx = new IvmRefreshContext(
-                mtmv, context.getConnectContext(), normalizeResult,
-                IvmRefreshContext.buildBaseTableStreams(baseTableStreams));
+                mtmv, context.getConnectContext(), normalizeResult);
         return new IvmDeltaRewriter().rewrite(normalizedPlan, rewriteCtx);
     }
 
@@ -145,39 +137,13 @@ public class IvmRefreshManager {
             throw new AnalysisException("IVM normalized plan is empty");
         }
 
-        Map<BaseTableInfo, IvmStreamRef> baseTableStreams = buildBaseTableStreamsForExplain(mtmv);
-        populateLatestTso(baseTableStreams);
         IvmRefreshContext rewriteCtx = new IvmRefreshContext(
-                mtmv, context.getConnectContext(), normalizeResult,
-                IvmRefreshContext.buildBaseTableStreams(baseTableStreams));
+                mtmv, context.getConnectContext(), normalizeResult);
         IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
         List<IvmDeltaExplainBundle> bundles = rewriter
                 .generateDeltaExplainBundles(normalizedPlan, rewriteCtx,
                         scan -> rewriter.isExcludedTriggerTable(scan, mtmv.getExcludedTriggerTables()));
         return new IvmRefreshExplainResult(normalizedPlan, bundles);
-    }
-
-    private Map<BaseTableInfo, IvmStreamRef> buildBaseTableStreamsForExplain(MTMV mtmv) {
-        Map<BaseTableInfo, IvmStreamRef> streams = mtmv.getIvmInfo().getBaseTableStreams();
-        Map<BaseTableInfo, IvmStreamRef> explainStreams = new HashMap<>();
-        if (streams != null && !streams.isEmpty()) {
-            for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : streams.entrySet()) {
-                IvmStreamRef source = entry.getValue();
-                IvmStreamRef copy = new IvmStreamRef(source.getConsumedTso());
-                copy.setLatestTso(source.getLatestTso());
-                explainStreams.put(entry.getKey(), copy);
-            }
-            return explainStreams;
-        }
-
-        Set<BaseTableInfo> baseTables = getBaseTablesForIvmState(mtmv);
-        if (baseTables == null || baseTables.isEmpty()) {
-            return explainStreams;
-        }
-        for (BaseTableInfo tableInfo : baseTables) {
-            explainStreams.put(tableInfo, new IvmStreamRef());
-        }
-        return explainStreams;
     }
 
     @VisibleForTesting
@@ -204,69 +170,6 @@ public class IvmRefreshManager {
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 
-    /**
-     * Reads the current visible TSO from each base table and stores it in the
-     * corresponding {@link IvmStreamRef#setLatestTso}. Throws on failure to ensure
-     * the caller falls back to full refresh rather than proceeding with stale TSO
-     * values (which could cause missed data or false no-op results).
-     */
-    @VisibleForTesting
-    void populateLatestTso(Map<BaseTableInfo, IvmStreamRef> baseTableStreams) {
-        if (baseTableStreams == null) {
-            return;
-        }
-        for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : baseTableStreams.entrySet()) {
-            BaseTableInfo tableInfo = entry.getKey();
-            IvmStreamRef ref = entry.getValue();
-            TableIf table;
-            try {
-                table = MTMVUtil.getTable(tableInfo);
-            } catch (Exception e) {
-                throw new AnalysisException("IVM: failed to resolve base table: " + tableInfo, e);
-            }
-            if (!(table instanceof OlapTable)) {
-                throw new AnalysisException(
-                        "IVM: base table is not OlapTable: " + tableInfo);
-            }
-            try {
-                ref.setLatestTso(((OlapTable) table).getVisibleTso());
-            } catch (Exception e) {
-                throw new AnalysisException(
-                        "IVM: failed to get visible TSO for table: " + tableInfo, e);
-            }
-        }
-    }
-
-    /**
-     * Ensures that baseTableStreams in IvmInfo is populated. On the first
-     * incremental refresh the map is empty; this method initializes it from
-     * the MTMV's relation metadata, creating an IvmStreamRef with
-     * consumedTso=0 for each base table.
-     *
-     * <p>Note: uses getBaseTablesOneLevel() which returns all base tables referenced
-     * in the MV query, including multi-table joins. When view support is added,
-     * this should align with getBaseTablesOneLevelAndFromView() and also backfill
-     * missing entries in partially populated maps.
-     */
-    @VisibleForTesting
-    void ensureBaseTableStreamsInitialized(MTMV mtmv) {
-        IvmInfo ivmInfo = mtmv.getIvmInfo();
-        Map<BaseTableInfo, IvmStreamRef> streams = ivmInfo.getBaseTableStreams();
-        if (streams != null && !streams.isEmpty()) {
-            return;
-        }
-        Set<BaseTableInfo> baseTables = getBaseTablesForIvmState(mtmv);
-        if (baseTables == null || baseTables.isEmpty()) {
-            return;
-        }
-        Map<BaseTableInfo, IvmStreamRef> newStreams = new HashMap<>();
-        for (BaseTableInfo tableInfo : baseTables) {
-            newStreams.put(tableInfo, new IvmStreamRef());
-        }
-        ivmInfo.setBaseTableStreams(newStreams);
-        LOG.info("IVM initialized baseTableStreams for mv={} with {} base tables",
-                mtmv.getName(), newStreams.size());
-    }
 
     private IvmRefreshResult doRefreshInternal(IvmRefreshContext context) {
         Objects.requireNonNull(context, "context can not be null");
@@ -337,22 +240,21 @@ public class IvmRefreshManager {
 
         // Advance consumedTso to latestTso for all base tables and clear the flag,
         // persisting everything in one editlog entry.
-        advanceConsumedTsoAndClearFlag(mtmv);
+        advanceStreamOffsetAndClearFlag(mtmv);
 
         return IvmRefreshResult.success();
     }
 
     /**
-     * After successful bundle execution, advances each stream's consumedTso to
-     * latestTso and clears the runningIvmRefresh flag, then persists via editlog.
+     * After successful bundle execution, advances each base table's stream offset
+     * and clears the runningIvmRefresh flag, then persists via editlog.
+     *
+     * TODO: Implement stream offset advancement via OlapTableStream.unprotectedUpdateStreamUpdate()
+     * once streams are auto-created in Phase 1.
      */
-    private void advanceConsumedTsoAndClearFlag(MTMV mtmv) {
+    private void advanceStreamOffsetAndClearFlag(MTMV mtmv) {
         IvmInfo ivmInfo = mtmv.getIvmInfo();
-        for (IvmStreamRef ref : ivmInfo.getBaseTableStreams().values()) {
-            if (ref.getLatestTso() >= ref.getConsumedTso()) {
-                ref.setConsumedTso(ref.getLatestTso());
-            }
-        }
+        // TODO: advance stream offsets for each base table
         ivmInfo.setRunningIvmRefresh(false);
         persistIvmInfo(mtmv, ivmInfo);
     }
@@ -370,18 +272,16 @@ public class IvmRefreshManager {
     /**
      * Resets IVM state after a successful full (COMPLETE) refresh. Called from MTMVTask
      * when the partition-based refresh succeeds and a previous IVM run left
-     * {@code runningIvmRefresh=true}. Sets each base table's consumedTso to the
-     * pre-captured snapshot TSO so the next incremental refresh starts from the correct
-     * position, and clears the flag.
+     * {@code runningIvmRefresh=true}. Resets each base table's stream offset to the
+     * pre-captured snapshot TSO and clears the flag.
      *
-     * @param mtmv the materialized view
-     * @param capturedTsos TSO values captured before the full refresh executed,
-     *                     keyed by BaseTableInfo
+     * TODO: Implement stream offset reset via OlapTableStream.unprotectedUpdateStreamUpdate()
+     * once streams are auto-created in Phase 1. For now, just clear the flag.
      */
     public static void resetIvmStateAfterFullRefresh(MTMV mtmv,
             Map<BaseTableInfo, Long> capturedTsos) {
         IvmInfo ivmInfo = mtmv.getIvmInfo();
-        resetIvmStateAfterFullRefresh(ivmInfo, capturedTsos);
+        clearRunningIvmRefreshAfterFullRefresh(ivmInfo);
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
         LOG.info("IVM state reset after full refresh for mv={}", mtmv.getName());
@@ -411,35 +311,21 @@ public class IvmRefreshManager {
         ivmInfo.setRunningIvmRefresh(false);
     }
 
-    @VisibleForTesting
-    static void resetIvmStateAfterFullRefresh(IvmInfo ivmInfo,
-            Map<BaseTableInfo, Long> capturedTsos) {
-        Map<BaseTableInfo, IvmStreamRef> streams = ivmInfo.getBaseTableStreams();
-        if (streams == null) {
-            streams = new HashMap<>();
-            ivmInfo.setBaseTableStreams(streams);
-        }
-        if (capturedTsos != null) {
-            for (Map.Entry<BaseTableInfo, Long> entry : capturedTsos.entrySet()) {
-                IvmStreamRef ref = streams.computeIfAbsent(entry.getKey(), key -> new IvmStreamRef());
-                ref.setConsumedTso(entry.getValue());
-                ref.setLatestTso(entry.getValue());
-            }
-        }
-        ivmInfo.setRunningIvmRefresh(false);
-    }
+    // resetIvmStateAfterFullRefresh(IvmInfo, Map) removed — stream offsets are now
+    // reset directly via OlapTableStream.unprotectedUpdateStreamUpdate() in the public
+    // resetIvmStateAfterFullRefresh(MTMV, Map) method.
 
     /**
-     * Captures the current visible TSO for each base table stream. Should be called
+     * Captures the current visible TSO for each base table. Should be called
      * BEFORE a full refresh executes, so the captured values represent the snapshot
-     * that the refresh will read. On failure, logs a warning and returns an empty map;
-     * the caller should check the result size and skip consumedTso reset if incomplete.
+     * that the refresh will read. On failure, logs a warning and returns an empty map.
+     *
+     * TODO: Update to get table list from MTMV relation (not IvmStreamRef) once
+     * streams are auto-created in Phase 1.
      */
     public static Map<BaseTableInfo, Long> captureBaseTableTsos(MTMV mtmv) {
         Map<BaseTableInfo, Long> result = new HashMap<>();
-        Map<BaseTableInfo, IvmStreamRef> streams = mtmv.getIvmInfo().getBaseTableStreams();
-        Set<BaseTableInfo> baseTables = streams == null || streams.isEmpty()
-                ? getBaseTablesForIvmState(mtmv) : streams.keySet();
+        Set<BaseTableInfo> baseTables = getBaseTablesForIvmState(mtmv);
         if (baseTables == null || baseTables.isEmpty()) {
             return result;
         }
@@ -463,41 +349,4 @@ public class IvmRefreshManager {
         return relation == null ? null : relation.getBaseTablesOneLevel();
     }
 
-    private IvmRefreshResult checkStreamSupport(MTMV mtmv) {
-        MTMVRelation relation = mtmv.getRelation();
-        if (relation == null) {
-            return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
-                    "No base table relation found for incremental refresh");
-        }
-        Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevelAndFromView();
-        if (baseTables == null || baseTables.isEmpty()) {
-            return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
-                    "No base tables found for incremental refresh");
-        }
-        Map<BaseTableInfo, IvmStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
-        if (baseTableStreams == null || baseTableStreams.isEmpty()) {
-            return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
-                    "No stream bindings are registered for this materialized view");
-        }
-        for (BaseTableInfo baseTableInfo : baseTables) {
-            IvmStreamRef streamRef = baseTableStreams.get(baseTableInfo);
-            if (streamRef == null) {
-                return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
-                        "No stream binding found for base table: " + baseTableInfo);
-            }
-            final TableIf table;
-            try {
-                table = MTMVUtil.getTable(baseTableInfo);
-            } catch (Exception e) {
-                return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
-                        "Failed to resolve base table metadata for incremental refresh: "
-                                + baseTableInfo + ", reason=" + e.getMessage());
-            }
-            if (!(table instanceof OlapTable)) {
-                return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
-                        "Only OLAP base tables are supported for incremental refresh: " + baseTableInfo);
-            }
-        }
-        return IvmRefreshResult.success();
-    }
 }

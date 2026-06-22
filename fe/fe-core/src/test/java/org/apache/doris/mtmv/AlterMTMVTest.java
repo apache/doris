@@ -21,18 +21,17 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
-import org.apache.doris.mtmv.ivm.IvmStreamRef;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Set;
 
 
@@ -279,18 +278,10 @@ public class AlterMTMVTest extends TestWithFeService {
         // Verify initial state
         IvmInfo initialInfo = mtmv.getIvmInfo();
         Assertions.assertFalse(initialInfo.isRunningIvmRefresh());
-        Assertions.assertTrue(initialInfo.getBaseTableStreams().isEmpty());
 
-        // Build a modified IvmInfo with runningIvmRefresh=true and a baseTableStream entry
+        // Build a modified IvmInfo with runningIvmRefresh=true
         IvmInfo newInfo = new IvmInfo();
         newInfo.setRunningIvmRefresh(true);
-        Table baseTable = Env.getCurrentInternalCatalog()
-                .getDb("alter_ivm_test").get()
-                .getTableOrMetaException("ivm_base");
-        BaseTableInfo baseTableInfo = new BaseTableInfo(baseTable);
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
-        streams.put(baseTableInfo, new IvmStreamRef(42L));
-        newInfo.setBaseTableStreams(streams);
 
         // Persist via alterMTMVIvmInfo
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
@@ -299,21 +290,85 @@ public class AlterMTMVTest extends TestWithFeService {
         // Verify the MTMV's IvmInfo was updated
         IvmInfo updatedInfo = mtmv.getIvmInfo();
         Assertions.assertTrue(updatedInfo.isRunningIvmRefresh());
-        Assertions.assertEquals(1, updatedInfo.getBaseTableStreams().size());
-        IvmStreamRef ref = updatedInfo.getBaseTableStreams().get(baseTableInfo);
-        Assertions.assertNotNull(ref, "stream ref should exist for base table");
-        Assertions.assertEquals(42L, ref.getConsumedTso());
 
         // Reset it back and verify
         IvmInfo resetInfo = new IvmInfo();
         resetInfo.setRunningIvmRefresh(false);
-        Map<BaseTableInfo, IvmStreamRef> resetStreams = new HashMap<>();
-        resetStreams.put(baseTableInfo, new IvmStreamRef(100L));
-        resetInfo.setBaseTableStreams(resetStreams);
         Env.getCurrentEnv().alterMTMVIvmInfo(tableName, resetInfo);
 
         IvmInfo finalInfo = mtmv.getIvmInfo();
         Assertions.assertFalse(finalInfo.isRunningIvmRefresh());
-        Assertions.assertEquals(100L, finalInfo.getBaseTableStreams().get(baseTableInfo).getConsumedTso());
+    }
+
+    @Test
+    public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("stream_test");
+        createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM stream_base");
+
+        // Verify the auto-created stream exists
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("stream_test").get()
+                .getTableOrMetaException("stream_mv");
+        String streamName = IvmUtil.streamName(mtmv.getId(), "stream_base");
+        org.apache.doris.catalog.TableIf streamTable = Env.getCurrentInternalCatalog()
+                .getDb("stream_test").get()
+                .getTableOrMetaException(streamName);
+        Assertions.assertNotNull(streamTable, "Stream should be auto-created for IVM base table");
+        Assertions.assertTrue(streamTable instanceof org.apache.doris.catalog.stream.OlapTableStream,
+                "Should be an OlapTableStream");
+    }
+
+    @Test
+    public void testCreateIncrementalMtmvExcludeTriggerTableSkipsStream() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("stream_excl_test");
+        createTable("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createTable("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
+                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
+                + " 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW excl_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',\n"
+                + "   'excluded_trigger_tables' = 'excl_base1')\n"
+                + " AS SELECT k1, v1 FROM excl_base1 UNION ALL SELECT k1, v1 FROM excl_base2");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("stream_excl_test").get()
+                .getTableOrMetaException("excl_stream_mv");
+
+        // excl_base1 is excluded → no stream should be created
+        String excludedStreamName = IvmUtil.streamName(mtmv.getId(), "excl_base1");
+        Assertions.assertThrows(Exception.class,
+                () -> Env.getCurrentInternalCatalog()
+                        .getDb("stream_excl_test").get()
+                        .getTableOrMetaException(excludedStreamName),
+                "Excluded table should NOT have a stream auto-created");
+
+        // excl_base2 is NOT excluded → stream should exist
+        String includedStreamName = IvmUtil.streamName(mtmv.getId(), "excl_base2");
+        org.apache.doris.catalog.TableIf includedStream = Env.getCurrentInternalCatalog()
+                .getDb("stream_excl_test").get()
+                .getTableOrMetaException(includedStreamName);
+        Assertions.assertNotNull(includedStream, "Non-excluded table should have a stream auto-created");
     }
 }
