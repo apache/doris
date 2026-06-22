@@ -6,35 +6,34 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.1 继续：T05 收尾（factory 5-flavor appender + connector wiring + DriverShim + parity tests）→ T06（s3tables）→ T07（DLF port）→ T09（column parity）**
+# 🎯 下一个 session 的任务 — **P6.1 继续：T06（s3tables bespoke）→ T07（DLF port）→ T09（column parity，可并行）**
 
 > **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。**翻闸全有或全无，P6.1–P6.5 切忌动 `SPI_READY_TYPES`**（翻闸只在 P6.6）。
 
-## ✅ 本 session 产出（2026-06-22，T05 part1+part2 已 commit）
+## ✅ T05 = DONE（2026-06-22，part3 `b0dbe91e1a5` 已 commit，未 push）
 
-> 设计文档 = `plan-doc/tasks/designs/P6-T05-iceberg-catalog-assembly-design.md`（parity 契约 + 验证过的 iceberg-SDK key 字面量）。
-> **已 commit**：part1 `562201deb9f`（metastore-spi `bindForType` + 设计文档），part2 `6f7b292b5c6`（factory common base + S3FileIO，纯静态，25 factory UT 绿）。
+> 设计文档 = `plan-doc/tasks/designs/P6-T05-iceberg-catalog-assembly-design.md`。前序：part1 `562201deb9f`（metastore-spi `bindForType`），part2 `6f7b292b5c6`（factory common base + S3FileIO）。
+> **T05 全部完成**：5-flavor 装配 + connector LIVE 接线 + DriverShim + 52 parity 测试。**验收全绿**：fe-connector-iceberg UT 75/0/0、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`。
 
-1. **6-agent code-grounded recon**（base+factory / rest / hms+hadoop / glue+jdbc / metastore-spi / paimon-mirror）→ 全 flavor parity 属性表 + paimon 镜像结构 + metastore-spi bind 形态。
-2. **2 个跨模块决策（用户确认，CORRECT 过时 HANDOFF）**：
-   - **D-061（S3FileIO `s3.*`/`aws.*` 方言）**：旧 HANDOFF「移植 `toS3FileIOProperties` 进连接器」**不可行**（它读 fe-core `S3Properties` getter,连接器不能 import）。改：连接器直读 `S3CompatibleFileSystemProperties`（**fe-filesystem-api 已存在**,纯 JDK getter,S3/OSS/COS/OBS 全实现,白名单允许）→ 本地拼 iceberg key（key 拼写留连接器,类型化数据来自 fe-filesystem 单一真源 D-003）。**无需新 ConnectorContext / fe-filesystem 方法**。影响 REST/JDBC/HADOOP。
-   - **D-062（metastore-spi 复用,HMS+后续 DLF）= 已实现 GREEN**：providers 写死 `paimon.catalog.type`,iceberg 传 `iceberg.catalog.type` 不命中。改：`MetaStoreProvider.supportsType(String)`（抽象）+ `supports(Map)` 变 default 委托它（**paimon 字节不变**）+ `MetaStoreProviders.bindForType(flavor,props,storageConf)`；5 provider 全转。iceberg 调 `bindForType("hms",…)` 且**只用 `toHiveConfOverrides()` 不调 paimon `validate()`**（paimon-ism:requireWarehouse for all flavors;iceberg HMS 不要求 warehouse）。**验证:metastore-spi 全模块测试绿,dispatch 10/10（+3 新），paimon 既有测试全绿=parity 守住**。
-3. **验证过的 iceberg-SDK key 字面量**（recon agent 猜错 2 处）：manifest cache 是**点分** `io.manifest.cache-enabled`；OAuth2 是**裸** `credential`/`token`/`scope`/`oauth2-server-uri`/`token-refresh-enabled`（非 `client.credentials.*`）；`AwsClientProperties.CLIENT_REGION` = `client.region`（非 `aws.region`）；S3FileIO=`s3.endpoint`/`s3.access-key-id`/`s3.secret-access-key`/`s3.session-token`/`s3.path-style-access`；assume-role=`client.assume-role.{arn,external-id,region}`+`client.factory`。
+1. **5-agent code-grounded 复核**（legacy `AbstractIcebergProperties`+5 flavor 实体逐行）→ 精确 key 派生契约。**纠正 2 处过时 HANDOFF**：
+   - **GLUE 是自包含的**（非旧 HANDOFF 说的「走 base chooseS3」）：legacy `appendS3Props` **无条件 plain put** 5 个 `s3.*`（空串也发，从 `S3Properties.of(origProps)` 专属 store，**忽略** storagePropertiesList），不走 base `toS3FileIOProperties`（那条才 blank-guard + assume-role）。连接器版从 `chosenS3`（fe-filesystem 单一真源 D-061）无条件发，`glue.*` 凭据从 raw props 读。
+   - **HADOOP warehouse FE 不强制**（旧 HANDOFF 说「必填」错）：仅 JDBC 强制 warehouse；HADOOP 靠 HadoopCatalog 下游自己抛——**不要加 warehouse 检查**。
+   - REST 凭据类型优先级（核 `IcebergAwsClientCredentialsProperties.getCredentialType`）：**EXPLICIT(AK&SK) > ASSUME_ROLE(roleArn) > PROVIDER_CHAIN**（连接器用 `hasStaticCredentials()`/`hasAssumeRole()` 对齐）。
+2. **实现（纯静态，镜像 paimon）**：`IcebergCatalogFactory.{appendRestProperties,appendGlueProperties,appendJdbcProperties,buildCatalogProperties(编排),resolveCatalogName,buildHadoopConfiguration,assembleHiveConf}`；`IcebergConnector.createCatalog` flavor switch（HMS `bindForType`→HiveConf；GLUE conf=null；JDBC driver+catalog_name 位置参数；REST/HADOOP storage conf）+ TCCL-pin + `executeAuthenticated` + DriverShim + `preCreateValidation`。pom 加 `hadoop-mapreduce-client-core`+`commons-lang` **test-scope**（`new HiveConf()` 静态初始化需,运行时闭包已含,不入 plugin-zip,镜像 paimon）。
+3. **对抗 parity review**（3-flavor 独立比对 legacy）= **0 confirmed bug**（2 个 minor 经独立 verify 均非真 bug：REST oauth2 token else 分支 `""` vs `null` 仅在校验拒绝的不可达态;JDBC driver dedup 是有意的 paimon-parity 重构,可观察结果一致）。
 
-## 🟡 T05 剩余（next round = 纯实现，legacy 已全部读完精确映射如下）
+## 🟢 T05 已交付的可复用件（T06/T07 直接接）
 
-> ✅ DONE（part2）：`buildBaseCatalogProperties`（copy-all+warehouse+manifest-cache）/ `appendS3FileIOProperties` / `chooseS3Compatible`。
-> ⬜ 待做：3 个 per-flavor appender（纯静态）+ connector LIVE wiring + DriverShim + 测试。
+- **`buildCatalogProperties(props,flavor,chosenS3)`**：编排器,handles base+impl+per-flavor+type 删除+jdbc catalog_name 删除。**s3tables/dlf 当前走 default 分支 = 仅 base+impl（占位）**——T06/T07 在此扩。
+- **`IcebergConnector.createCatalog` switch 的 `default` 分支** = rest/hadoop/s3tables/dlf 共用 `buildHadoopConfiguration`；s3tables/dlf 的 bespoke 实例化（`new S3TablesCatalog().initialize` / `new DLFCatalog().setConf().initialize`）尚未接,现仍走 `CatalogUtil.buildIcebergCatalog`(impl-name)——**dlf 会 ClassNotFound（`...dlf.DLFCatalog` 未建），s3tables 可能能起但缺 region/s3 派生**。因 iceberg 不在 SPI_READY 故未被触发。
+- **`MetaStoreProviders.bindForType("dlf",props,storageConf)`** 已就绪（part1）：T07 DLF 直接调 → `DlfMetaStoreProperties.toDlfCatalogConf()`,勿再做 metastore-spi recon。
+- **`assembleHiveConf` / `buildHadoopConfiguration` / `firstNonBlank`**（public static）= T06/T07 复用。
 
-**per-flavor appender 精确映射（已核 legacy 实体，无需再读）：**
+## 🟡 T05 已记录的 deviation（UT 不可见,仅 P6.6 docker plugin-zip e2e 真验）
 
-- **REST**（`IcebergRestProperties`）：`uri`=firstNonBlank(`iceberg.rest.uri`,`uri`)（恒发,默认""）；`prefix`=`iceberg.rest.prefix`(非空才发)；`warehouse`(非空)；vended：`iceberg.rest.vended-credentials-enabled`(parseBool true)→`header.X-Iceberg-Access-Delegation`=`vended-credentials`；timeouts **恒发默认值**：`rest.client.connection-timeout-ms`=`iceberg.rest.connection-timeout-ms`??`10000`、`rest.client.socket-timeout-ms`=??`60000`；oauth2(`iceberg.rest.security.type`==oauth2)：有 credential→`credential`+(`oauth2-server-uri`?)+(`scope`?)+`token-refresh-enabled`(默认 `OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT`)；否则→`token`=`iceberg.rest.oauth2.token`。signing(`iceberg.rest.signing-name` 非空)：`rest.signing-name`/`rest.sigv4-enabled`(=`iceberg.rest.sigv4-enabled`)/`rest.signing-region`+creds：name∈{glue,s3tables}用 chosenS3（EXPLICIT→`rest.access-key-id`/`rest.secret-access-key`/(`rest.session-token`?)；ASSUME_ROLE→`appendAssumeRoleProperties`），否则用 `iceberg.rest.access-key-id`/`-secret-access-key`/`-session-token`。**GAP（NOTE）**：PROVIDER_CHAIN 非-DEFAULT 的 provider-class 需 fe-core `AwsCredentialsProviderFactory.getV2ClassName`（连接器不能 import；DEFAULT=no-op=常见情形,无行为缺口）。catalog-impl 由 connector 设。
-- **GLUE**（`IcebergGlueMetaStoreProperties`+`AWSGlueMetaStoreBaseProperties`）：appendS3Props **无条件**发 5 个 `s3.*`(从 chosenS3 getter;chosenS3 空则跳过=legacy 发 5 空串的等价)；`glue.endpoint`=`AwsProperties.GLUE_CATALOG_ENDPOINT`(从 `glue.endpoint`/`aws.endpoint`/`aws.glue.endpoint`)；若 glueAccessKey(`glue.access_key`/`aws.glue.access-key`/`client.credentials-provider.glue.access_key`)&glueSecretKey(同构) 非空→`client.credentials-provider`=`com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x`+`client.credentials-provider.glue.access_key`/`...secret_key`+`aws.catalog.credentials.provider.factory.class`=`...ConfigurationAWSCredentialsProviderFactory`+(`...session_token`=`aws.glue.session-token`?)；否则若 glueIAMRole(`glue.role_arn`)非空→`client.factory`=AssumeRole+`aws.region`+`client.assume-role.arn`/`.region`+(`.external-id`=`glue.external_id`?)；最后 `client.region`=glueRegion(从 `glue.region`/`aws.region`/`aws.glue.region`,空则从 endpoint 正则提取,再空则 `us-east-1`)；`putIfAbsent(WAREHOUSE_LOCATION,"s3://doris")`。catalog-impl 由 connector 设；conf=null。
-- **JDBC**（`IcebergJdbcMetaStoreProperties`）：`uri`=firstNonBlank(`uri`,`iceberg.jdbc.uri`)；addIfNotBlank `jdbc.user`=`iceberg.jdbc.user`、`jdbc.password`=`iceberg.jdbc.password`、`jdbc.init-catalog-tables`=`iceberg.jdbc.init-catalog-tables`、`jdbc.schema-version`=`iceberg.jdbc.schema-version`、`jdbc.strict-mode`=`iceberg.jdbc.strict-mode`；raw `jdbc.*` passthrough（已随 copy-all 进 opts,幂等）。**LIVE（connector）**：`iceberg.jdbc.catalog_name`(required)= iceberg catalogName **位置参数**（替代 ctx.getCatalogName()）且**从 opts 删**；DriverShim：`iceberg.jdbc.driver_url` 非空→注册（`JdbcResource.getFullDriverUrl`→fe-core,连接器需经 `ConnectorContext` env `jdbc_drivers_dir` 自解析或新 seam；driver_class required）。
-- **HMS**：无额外 catalog-prop 派生；`bindForType("hms",props,storageConf)`→`toHiveConfOverrides(env hive_metastore_client_timeout_second??"10")`→HiveConf 当 conf；catalog-impl=HiveCatalog。**HADOOP**：仅 common+S3FileIO+Hadoop conf(storageHadoopConfig + 原 fs./dfs./hadoop. passthrough)+impl=HadoopCatalog；warehouse 必填。
-
-- **`IcebergConnector.createCatalog`（LIVE）**：resolveFlavor → `buildBaseCatalogProperties` + impl(`resolveCatalogImpl`) → flavor switch（REST/GLUE/JDBC append + HADOOP/JDBC/REST 走 `chooseS3Compatible`+`appendS3FileIOProperties` from `ctx.getStorageProperties()`；HMS `bindForType`）→ remove `type` → TCCL-pin + `ctx.executeAuthenticated` → `CatalogUtil.buildIcebergCatalog`。镜像 `PaimonConnector.createCatalogFromContext`。
-- **测试**：扩 `IcebergCatalogFactoryTest`（无 Mockito,复用 `FakeS3CompatibleStorageProperties`）；断言**装配后的 prop MAP vs 上面字面量 key**（防 parity-by-omission）；每断言带 WHY+mutation（Rule 9）。connector 级测 `catalog_name` 位置参数 + flavor 分支（用 `RecordingConnectorContext`）。
+- **REST PROVIDER_CHAIN 非-DEFAULT** provider-class 跳过（连接器不能 import fe-core `AwsCredentialsProviderFactory.getV2ClassName`；DEFAULT=no-op=常见情形无缺口）。
+- **GLUE/REST 的 `s3.*`** 取自 fe-filesystem 类型化 `S3CompatibleFileSystemProperties`（D-061）而非 legacy `S3Properties.of(origProps)`——若 glue 仅用 `glue.*` 别名供凭据（fe-filesystem 不读这些进 S3 store），s3.* FileIO 凭据可能缺（glue-client 凭据仍从 `glue.*` 读,不受影响）。
+- **base 的 no-S3-store fallback region**（`getRegionFromProperties`）未移植（niche；连接器读类型化 storage）。
 
 ## 🔴 关键认知（写下来免下次重踩）
 
@@ -50,9 +49,10 @@
 
 ## 🟢 下一步（精确）
 
-- **立即 = T05 收尾（纯实现，无需再 recon/读 legacy）**：按上面「🟡 T05 剩余」的逐 flavor 精确映射实现 3 个 appender（`appendRestProperties`/`appendGlueProperties`/`appendJdbcProperties`）+ `IcebergConnector.createCatalog` 实接线（镜像 `PaimonConnector.createCatalogFromContext`）+ JDBC DriverShim + `iceberg.jdbc.catalog_name` 位置参数 + 测试。**Q2=B `bindForType` mini-recon 与 metastore-spi 改造 = 已完成（part1 `562201deb9f`）**，HMS 直接调 `MetaStoreProviders.bindForType("hms",props,storageConf)`。**起步先 re-read 已 commit 的 `IcebergCatalogFactory`（part2 已有 common/S3FileIO 方法）+ `IcebergConnector`（仍 skeleton）+ `PaimonConnector`（接线模板）。**
-- **T05 后 = T06（s3tables bespoke `new S3TablesCatalog().initialize`）→ T07（DLF 子树 port：`DLFCatalog`+`HiveCompatibleCatalog`+`DLFTableOperations`+2 client pool + vendored `ProxyMetaStoreClient`，断 3 fe-core import，复用 `bindForType("dlf",…)`→`DlfMetaStoreProperties.toDlfCatalogConf`）**。
-- **T09（column 构造 parity + format-version + nested-namespace + view 过滤）**：依赖 T03+T08，**与 T05 独立、现可起**——可作并行项。T10 待 T05/T06/T07/T09。
+- **立即 = T06（s3tables bespoke）**：legacy `IcebergS3TablesMetaStoreProperties`（73 行附近,未读全）走 `new S3TablesCatalog().initialize(name, props)`（**不**经 `CatalogUtil.buildIcebergCatalog`）。需：①读 legacy `IcebergS3TablesMetaStoreProperties` 精确 key 派生（s3tables 的 `warehouse`=table-bucket ARN + region + S3FileIO）；②在 `IcebergConnector.createCatalog` 给 s3tables 单独分支：`buildCatalogProperties`(base+impl+S3FileIO) 后 `new software.amazon.s3tables.iceberg.S3TablesCatalog()` + `setConf` + `initialize(catalogName, opts)`（不走 `CatalogUtil`）；③测试装配 map + 分支。s3tables SDK 已在 pom（`s3-tables-catalog-for-iceberg`）。
+- **然后 = T07（DLF 子树 port）**：`DLFCatalog`+`HiveCompatibleCatalog`(181)+`DLFTableOperations`+2 client pool + vendored `ProxyMetaStoreClient`，断 3 fe-core import；**复用 `MetaStoreProviders.bindForType("dlf",props,storageConf)`→`DlfMetaStoreProperties.toDlfCatalogConf()`**（已就绪,勿重做 metastore-spi recon）；`IcebergConnector` dlf 分支 `new DLFCatalog().setConf(hiveConf).initialize(...)`。DLF 子树在 fe-core `datasource/iceberg/dlf/`，连接器终态归宿 `org.apache.doris.connector.iceberg.dlf`（`resolveCatalogImpl` 已指向该 FQCN）。
+- **T09（column 构造 parity + format-version + nested-namespace + view 过滤）**：依赖 T03+T08，**与 T06/T07 独立、现可并行起**（见下「🔴 关键认知」#3#4）。T10 待 T06/T07/T09。
+- **起步先 re-read 已 commit 的 `IcebergCatalogFactory`（T05 全套 appender/编排/conf 方法）+ `IcebergConnector`（T05 LIVE switch，s3tables/dlf 现走 default 占位）+ `PaimonConnector`（接线模板）。**
 - 验收门（每 task）：连接器 UT 绿（无 Mockito，fail-loud fake）+ checkstyle 0 + `tools/check-connector-imports.sh` 净 + **断言 assembled prop map / Hadoop conf / column flag vs legacy 期望值**（不能只断类名——parity-by-omission 风险）+ `grep` 确认 iceberg **不在** `SPI_READY_TYPES`。
 
 ---
@@ -61,7 +61,7 @@
 
 - **工作分支 = `catalog-spi-10-iceberg`**（P6.1 起步前 HEAD = `e5959e1b53d` #64655 P3b）。branch off `branch-catalog-spi`，PR 时 squash 合并。**所有 commit 均未 push。**
   - **已 commit（旧 session）**：T01-T03 `ae54a2174ff`；T08 `d41fa4faf3e`（type-mapping read parity）；T04 `1fd4d42c297`（pom 7-flavor 闭包 + plugin-zip + fe/pom dM）。
-  - **已 commit（本 session = T05 part1/part2）**：`562201deb9f`（T05 part1：metastore-spi `bindForType`/`supportsType` + 设计文档）；`6f7b292b5c6`（T05 part2：factory `buildBaseCatalogProperties`/`appendS3FileIOProperties`/`chooseS3Compatible`，纯静态，25 factory UT 绿）；`ac2b67448e8`（HANDOFF 全 per-flavor key map）。**HEAD = 本 HANDOFF commit。**
+  - **已 commit（T05 全套）**：`562201deb9f`（part1：metastore-spi `bindForType`/`supportsType` + 设计文档）；`6f7b292b5c6`（part2：factory `buildBaseCatalogProperties`/`appendS3FileIOProperties`/`chooseS3Compatible`）；`b0dbe91e1a5`（**part3：5-flavor appender + connector LIVE wiring + DriverShim + 52 parity 测试；UT 75/0/0、checkstyle 0、import-gate 净**）。**HEAD = 本 HANDOFF commit。**
   - **metastore 子线 = 已彻底 CLOSED**（8 文档加 CLOSED banner；后续勿读，见顶部范围注）。
 - **stale cruft = 本 session 已清理**：删除 `fe-connector-{iceberg,paimon}-{api,backend-*}` 共 12 个目录（仅含 gitignored 生成物 `.flattened-pom.xml`，0 tracked、不在 reactor = 本地 `phase3-module-split` 旧实验遗留；untracked 故 git 无变更）。当前线用单 `fe-connector-iceberg` + flavor switch。
 - **P0–P5 + P3 hybrid + P4 + P3b 全部已合入**（#63582/#63641/#64096/#64143/#64253/#64300/#64446/#64653/#64655）。iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:50` = {jdbc,es,trino-connector,max_compute,paimon}），仍走 switch-case（`:137 case "iceberg"`）。
