@@ -703,6 +703,27 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testFoldDivideDecimalV2() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        // 0 / 5 over DecimalV2 literals must fold to decimal 0 through the full FoldConstantRuleOnFE
+        // dispatch (which selects NumericArithmetic.divideDecimal), not NULL.
+        Divide divide = new Divide(new DecimalLiteral(new BigDecimal(0)), new DecimalLiteral(new BigDecimal(5)));
+        Expression rewritten = executor.rewrite(divide, context);
+        Assertions.assertFalse(rewritten instanceof NullLiteral, "0 / 5 must not fold to NULL, got " + rewritten);
+        Assertions.assertTrue(rewritten instanceof DecimalLiteral,
+                "0 / 5 should fold to a decimal literal, got " + rewritten);
+        Assertions.assertEquals(0, ((DecimalLiteral) rewritten).getValue().compareTo(BigDecimal.ZERO),
+                "0 / 5 should fold to 0");
+
+        // 5 / 0 over DecimalV2 literals must fold to NULL (Doris/MySQL divide-by-zero semantics).
+        divide = new Divide(new DecimalLiteral(new BigDecimal(5)), new DecimalLiteral(new BigDecimal(0)));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertTrue(rewritten instanceof NullLiteral, "5 / 0 should fold to NULL, got " + rewritten);
+    }
+
+    @Test
     void testleFoldNumeric() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
