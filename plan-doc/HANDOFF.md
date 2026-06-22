@@ -6,14 +6,31 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.2（scan 路径 + MVCC + cache + vended）**（**P6.1 全部 task〔T01–T10〕已完成、全绿，见下「✅ T10 Phase A/B = DONE」**）
+# 🎯 下一个 session 的任务 — **P6.2 实现起步（P6.2-T01：`IcebergScanPlanProvider` 骨架）**（**P6.2 recon + 逐 task 拆解已完成、4 决策签字，见下「✅ P6.2 recon = DONE」；P6.1〔T01–T10〕全绿**）
 
 > **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。**翻闸全有或全无，P6.1–P6.5 切忌动 `SPI_READY_TYPES`**（翻闸只在 P6.6）。
 >
 > **✅ P6.1 = DONE（本 session 2026-06-22 收口 T10）**：P6.1 task 表 T01–T10 全绿（见 `P6-iceberg-migration.md:143-154`）。T10 经 redefine 吸收了「metastore 模块拆分（Phase A，行为不变）+ iceberg per-flavor 校验（Phase B，§4 逐字）」——validateProperties 接线只是 Phase B 的尾巴。**A-gate + B-gate 全绿；对抗 parity 复核 4 MATCH + 1 nit。**
-> **下一步 = P6.2（scan/MVCC/cache/vended）——不是 P6.6！** P6.6 翻闸是「全有或全无」（`CatalogFactory:104-113`），**须等 P6.1–P6.5 全部实现完**（scan/write/procedure/sys-table 都还没做）；现在翻闸会让所有 iceberg 查询走只有读元数据+校验的连接器→scan/write 全断。详见「🟢 下一步」。
+> **下一步 = P6.2 实现（从 P6.2-T01 起）——不是 P6.6！** P6.6 翻闸是「全有或全无」（`CatalogFactory:104-113`），**须等 P6.1–P6.5 全部实现完**（scan/write/procedure/sys-table 都还没做）；现在翻闸会让所有 iceberg 查询走只有读元数据+校验的连接器→scan/write 全断。
 
-## 🧭 用户裁定（本 session，按序）
+---
+
+# ✅ P6.2 recon = DONE（2026-06-22 本 session；recon-only，**未改一行产品代码**，仅文档）
+
+> 本 session = recon session（playbook §7.3）：7 路并行结构化 recon（workflow `wf_a74302c7-194`）+ 主线直读 paimon vended 链/`ConnectorContext`/`ConnectorDeleteFile`/`ConnectorMetaInvalidator`。产出 = recon 笔记 + P6.2 逐 task 拆解 + 4 决策签字。**下一轮起实现（P6.2-T01）。**
+
+- **recon 笔记**：[`research/p6.2-iceberg-scan-recon.md`](./research/p6.2-iceberg-scan-recon.md)（scan/MVCC/cache/vended/field-id old→new 映射 + 风险登记 + paimon 模板锚点）。
+- **逐 task 拆解**：`tasks/P6-iceberg-migration.md` 末「P6.2 逐 task 拆解」（P6.2-T01..T11）。
+- **🔑 用户裁定（4 项，全签字 2026-06-22）**：
+  1. **D6 cache = 全连接器内部**（镜像 `PaimonLatestSnapshotCache` + schema-at-snapshot memo + manifest cache loader/value 也搬进连接器，path-keyed）。
+  2. **field-id = 字符串属性**（`getScanNodeProperties` 用 iceberg Schema 构 `history_schema_info`，**不改 `ConnectorColumn`**；镜像 paimon `FIX-SCHEMA-EVOLUTION`）。
+  3. **O2 vended = 复用既有 `ConnectorContext` 接缝，E6 取消**——code-grounded 证 paimon **无独立 `ConnectorCredentials` SPI**，用 `context.vendStorageCredentials(rawToken)` + `normalizeStorageUri(uri,token)`（`DefaultConnectorContext` 实现，引擎中立）。iceberg token 同类（raw cloud props）直接复用；连接器只写 iceberg SDK `extractVendedToken(table)`；仅 REST，DLF 凭据走 HiveConf（T07/T10 已接）。详见 recon §5。
+  4. **节奏 = 本轮收尾 recon，下轮起实现**。
+- **🔑 关键结论：P6.2 净 0 个新 SPI 接口、0 处 SPI 破坏**——scan（`ConnectorScanPlanProvider`）/MVCC（`ConnectorMvccSnapshot`/`PluginDrivenMvccExternalTable`）接缝就绪；delete equality 元数据编码进既有 `ConnectorDeleteFile.properties`；field-id/vended 走既有接缝；cache 失效用既有 `ConnectorMetaInvalidator`/`Connector.invalidate*`（默认方法已存在，paimon override 过）。
+- **🔴 最高危**（UT 不可见，P6.6 docker 验）：**field-id 丢失**（schema 演化 BE SIGSEGV/DCHECK，CI #969249 类）+ **分区列双填**（必发 `path_partition_keys`，CI #968880 类）。
+- **下一步（实现起点）**：P6.2-T01 = `IcebergScanPlanProvider` 骨架 + `IcebergScanRange` + 接线 + `ignorePartitionPruneShortCircuit()=true` + 测试基建扩。镜像 `PaimonScanPlanProvider`(1589)/`PaimonScanRange`(383)。**起步先**读 recon 笔记 + migration P6.2 块 + paimon 真实代码（大文件 subagent 总结）。
+
+## 🧭 用户裁定（T10 session，按序）
 1. **iceberg CREATE-CATALOG 校验做全量 per-flavor**（非最小/非延迟）。无任何回归测试强制（115 套件无一断言建目录属性校验报错；paimon 同），纯取忠实度。
 2. **校验逻辑下沉到共享 metastore 层**（不在连接器写 bespoke）。storage 半边**已被 fe-filesystem bind 时校验**（`S3FileSystemProperties.validate()` 等），连接器拿到的 `StorageProperties` 已校验过 → 本任务只做 **metastore 半边**。
 3. **把 metastore 重构成 per-engine 模块、镜像 fe-filesystem**（`-spi` 只留扩展点+共享基类，impl 进 per-engine 模块）。理由：impl 塞在 `-spi` 既非严格 SPI 惯例、也与本仓库 fe-filesystem（`-spi` 纯接口、impl 在 `fe-filesystem-s3/-oss/...`）不一致。

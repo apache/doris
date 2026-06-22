@@ -45,7 +45,7 @@
 | 阶段 | scope | 关键 legacy → 归宿 | 新 SPI | 翻闸 |
 |---|---|---|---|---|
 | **P6.1** | 连接器地基 + **普通读元数据** + **7 flavor** | 测试基建 + 注入 seam（paimon `PaimonCatalogOps` 范式）；`IcebergMetadataOps`(读半) + `IcebergExternalTable`(读) + `IcebergUtils`(schema/type 部分) + `DorisTypeToIcebergType` → `IcebergConnectorMetadata`/`IcebergTypeMapping`；7 flavor（**port DLF 4-file 子树**进连接器 + **wire S3Tables SDK dep**） | — | ❌ |
-| **P6.2** | **scan 路径 + MVCC + cache + vended** | `source/`(7, `IcebergScanNode` 1228) + `IcebergExternalMetaCache`(289) + `cache/`(2) + `IcebergSnapshot*` → `IcebergScanPlanProvider` + 连接器内 cache；`IcebergMvccSnapshot` → `ConnectorMvccSnapshot`；`IcebergVendedCredentialsProvider` → 新 vended SPI | **`ConnectorCredentials`**（扫描期 vended，E6） | ❌ |
+| **P6.2** | **scan 路径 + MVCC + cache + vended** | `source/`(7, `IcebergScanNode` 1228) + `IcebergExternalMetaCache`(289) + `cache/`(2) + `IcebergSnapshot*` → `IcebergScanPlanProvider` + 连接器内 cache（D6）；`IcebergMvccSnapshot` → `ConnectorMvccSnapshot`；`IcebergVendedCredentialsProvider` → 连接器 `extractVendedToken` + 复用既有 `ConnectorContext` 接缝 | **0 新 SPI**（recon 更正：E6 取消，复用 `ConnectorContext.vendStorageCredentials`） | ❌ |
 | **P6.3** | **写路径**（INSERT/DELETE/UPDATE/MERGE + 事务） | **先写 `06-iceberg-write-path-rfc.md` → PMC 评审**；`IcebergTransaction`(981) + `IcebergMetadataOps`(写半) + `helper/`(3) + `IcebergConflictDetectionFilterUtils`(336) + `IcebergNereidsUtils`(608) + `transaction/IcebergTransactionManager`；planner 改用 `PhysicalConnectorTableSink`，删 `Iceberg{Delete,Merge,Table}Sink`；nereids `Iceberg{Update,Delete,Merge}Command` 走 `ConnectorWriteOps` SPI | 写路径 RFC + `ConnectorWriteOps` 扩展（`beginMerge`/`beginDelete`/`getDeleteConfig`/`getMergeConfig`） | ❌ |
 | **P6.4** | **10 个 procedure action** | `action/`(11: `BaseIcebergAction` + 9 action + `IcebergExecuteActionFactory`) + `rewrite/`(6) → 连接器；`ExecuteActionCommand` 走通用 dispatch | **`ConnectorProcedureOps`**（`listProcedures`/`callProcedure`，E2；先看 Trino Iceberg connector 定形态，R3） | ❌ |
 | **P6.5** | **系统表 + 元数据列** | `IcebergSysExternalTable`(177) → 复用 `PluginDrivenSysExternalTable`（E7 已就绪）；`IcebergMetadataColumn`(122) + `IcebergRowId`(68) → 元数据列 SPI | 复用 E7 sys-table hook（按需扩元数据列承载） | ❌ |
@@ -64,7 +64,7 @@
 | 普通读 scan | `source/IcebergScanNode`/`IcebergSource`/`IcebergSplit`/`IcebergApiSource`/`IcebergHMSSource`/`IcebergDeleteFileFilter`/`IcebergTableQueryInfo` | `IcebergScanPlanProvider` + `IcebergScanRange` + 通用 `PluginDrivenScanNode` | E3 | P6.2 |
 | cache | `IcebergExternalMetaCache` + `cache/IcebergManifestCacheLoader` + `IcebergSnapshotCacheValue` | 连接器内 cache（决策点 D6，无 SPI） | 无 | P6.2 |
 | MVCC | `IcebergMvccSnapshot` + `IcebergSnapshot` | `ConnectorMvccSnapshot` + 通用 `PluginDrivenMvccExternalTable`（D-042 源无关，已就绪） | E5 | P6.2 |
-| vended | `IcebergVendedCredentialsProvider` | 新 `ConnectorCredentials getCredentialsForScan(session, scanRange)` | **E6（新）** | P6.2 |
+| vended | `IcebergVendedCredentialsProvider` | 连接器 `extractVendedToken(table)`（REST，自包含移植）+ 复用既有 `ConnectorContext.vendStorageCredentials`/`normalizeStorageUri(uri,token)`（发 `location.*`） | **无新 SPI**（recon 更正 E6） | P6.2 |
 | 写路径 | `IcebergTransaction` + `IcebergMetadataOps`(写) + `helper/*` + `IcebergConflictDetectionFilterUtils` + `transaction/IcebergTransactionManager` + planner `Iceberg{Delete,Merge,Table}Sink` + nereids `Iceberg{Update,Delete,Merge}Command` | `ConnectorWriteOps` 扩展 + `ConnectorTransactionFactory` + 通用 `PhysicalConnectorTableSink` | E1+写 SPI | P6.3 |
 | actions | `action/*`(11) + `rewrite/*`(6) | 连接器 procedure impl；fe-core `ExecuteActionCommand` 通用 dispatch | **E2（新 `ConnectorProcedureOps`）** | P6.4 |
 | sys-table | `IcebergSysExternalTable` | 通用 `PluginDrivenSysExternalTable`（已就绪）+ 连接器 E7 impl | E7 | P6.5 |
@@ -76,7 +76,7 @@
 
 ## 阶段内前置（不挡 P6.1，卡各自阶段）
 
-1. **`ConnectorCredentials` SPI（E6）** —— P6.2 起前在 `fe-connector-api` 新建（扫描期 vended）。paimon 当前走另一套 `isVendedCredentialsEnabled` 网关，**非此 SPI**；P6.2 设计时核对 iceberg REST/DLF vended 与 paimon 网关能否共面。
+1. ~~**`ConnectorCredentials` SPI（E6）**~~ **【2026-06-22 recon 更正：取消】** —— code-grounded 复核证 paimon vended **未用独立 SPI**，而是复用既有 `ConnectorContext.vendStorageCredentials(rawToken)` + `normalizeStorageUri(uri,token)`（`DefaultConnectorContext` 实现，引擎中立）。iceberg token 形态同类（raw cloud props）→ **直接复用，零新 SPI**。连接器只写 iceberg SDK 的 `extractVendedToken(table)`。详见 [`../research/p6.2-iceberg-scan-recon.md`](../research/p6.2-iceberg-scan-recon.md) §5。
 2. **写路径 RFC `plan-doc/06-iceberg-write-path-rfc.md`** —— P6.3 **第一件事**，请 PMC 评审（master plan §7-#4 + R5）。写路径与 nereids 优化器深度耦合（`IcebergConflictDetectionFilterUtils`），RFC 须先于实现。
 3. **`ConnectorProcedureOps` SPI（E2）** —— P6.4 起前新建，**先看 Trino Iceberg connector 形态再定**（R3，10 个 action 行为不齐风险）。
 - 已就绪（P6.1–P6.2 够用）：`ConnectorMetadata` / `ConnectorMvccSnapshot` / `ConnectorWriteOps`(基础) / `ConnectorTransactionHandle` / `PluginDrivenSysExternalTable` / `PluginDrivenMvccExternalTable`（D-042 源无关）/ E7 sys-table hook。
@@ -100,7 +100,7 @@
 ## 开放决策（待各阶段确认 / 用户签字）
 
 - **O1（P6.1）**：DLF flavor — port legacy `dlf/`（`DLFCatalog`/`DLFTableOperations`/`DLFCachedClientPool`/`DLFClientPool` 4 文件）进 `connector.iceberg.dlf`（连接器禁 import fe-core，须自包含）。确认 vs 是否有上游 iceberg-aliyun SDK 可直接 `catalog-impl`。
-- **O2（P6.2）**：vended-credentials SPI 形态 —— 新 `ConnectorCredentials` 是否与 paimon 现有 `isVendedCredentialsEnabled` 网关合面（iceberg REST/DLF 共用），还是各连接器独立。影响 metastore 子线。
+- **O2（P6.2）✅ 已决（2026-06-22，用户签字）**：vended-credentials **复用既有 `ConnectorContext.vendStorageCredentials`/`normalizeStorageUri(uri,token)` 接缝，不新建 SPI**（原 E6 取消）。paimon 实证无独立 `ConnectorCredentials` SPI；iceberg token 同类直接复用。仅 REST flavor；DLF 凭据走 HiveConf（catalog-bind，T07/T10 已接）。详见 recon §5。同样确认：**D6**=cache 全连接器内部（镜像 paimon）；**field-id**=字符串属性（不改 `ConnectorColumn`）；**P6.2 净 0 个新 SPI 接口、0 处 SPI 破坏**（delete equality 元数据编码进既有 `ConnectorDeleteFile.properties`；cache 失效用既有 `ConnectorMetaInvalidator`/`Connector.invalidate*`）。
 - **O3（P6.7）**：iceberg maven 依赖删除集 —— `iceberg-core`/`-aws`/`-aliyun`/`s3tables` 等哪些随 legacy 删、哪些因 fe-core metastore-props 仍 import 而保留（与 paimon P5-T29 D 项同型冲突，`dependency:tree | grep iceberg` 实测敲定）。`iceberg-aws` 与既有 s3-transfer-manager 共享须留意。
 - **O4（全程）**：fe-core iceberg metastore-props（`AbstractIcebergProperties`+7+factory）—— **本 P6 不删**（沿用 paimon 决策，留 fe-core 驱动翻闸后 auth/validation/`@ConnectorProperty`/type）。删除迁移属 backlog #2，与 hive/P7 共用 `MetastoreProperties` 通用 seam 一并设计。
 - **O5（P6.3）**：写路径 nereids 耦合（`IcebergConflictDetectionFilterUtils` 等优化器特殊规则）能否通用 SPI 表达，或需给 `ConnectorMetadata` 暴露 hint API（R5）—— RFC 阶段定。
@@ -188,3 +188,31 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 - **验证（pom-only，编译+打包级；live 真闸在 P6.6）**：`mvn -pl :fe-connector-iceberg -am test` 36/0/0/0 + checkstyle 0 + import-gate 0 + `dependency:tree` iceberg-core **恰 1**（1.10.1）+ metastore-spi→fe-kerberos 链在 + AWS SDK 全 2.29.52 + s3tables-catalog 0.1.4；**`mvn -am package` 装出 plugin-zip 实查**（143 jar）：全 AWS SDK module 在（glue/sts/s3/s3tables/s3-transfer-manager/sdk-core/...）、全 `iceberg-*.jar` 皆 **1.10.1 无 skew**、`libthrift` **缺席**（排除生效）、hadoop **仅 3.4.2**（无 skew jar）；`SPI_READY_TYPES` iceberg 仍缺席（零行为变更）。
 - **残留风险（UT/打包不可见，→P6.6 docker plugin-zip e2e 真闸）**：① hive-catalog-shade **内含** iceberg 1.10.1 与直接 iceberg-core 在 child-first loader 共存——版本相同→预期 byte-identical benign（fe-connector-hive 同款已上线），但未 live 验；② `apache-client` 经 awssdk 传递 runtime 入闭包（paimon 同款故意 ship，无害）；③ **glue 显式-AK 凭据 provider 类 `com.amazonaws.glue.catalog.credentials.*` 来源未定**（不在 hive-catalog-shade / iceberg-aws；fe-core `aws-java-sdk-glue` v1 疑源但未证）→ **T05 glue flavor wiring 时核**（不挡 T04 闭包）。
 - **遗留待清（非 T04）**：worktree 有 `phase3-module-split` 分支遗留的 stale 生成物（`fe-connector-iceberg-backend-*` / `-api` 目录仅含 gitignored `.flattened-pom.xml`，2026-04，不在 reactor、0 tracked 文件，无害）。
+
+---
+
+## P6.2 逐 task 拆解（P6.2-Tnn）—— 2026-06-22 code-grounded recon 产出
+
+> recon 详情 + 风险 + old→new 映射见 [`../research/p6.2-iceberg-scan-recon.md`](../research/p6.2-iceberg-scan-recon.md)（workflow `wf_a74302c7-194`，7 路并行 + 主线直读 paimon vended 链/`ConnectorContext`/`ConnectorDeleteFile`/`ConnectorMetaInvalidator`）。
+> **用户裁定（2026-06-22 全签字）**：D6=cache 全连接器内部（镜像 paimon）；field-id=字符串属性（不改 `ConnectorColumn`）；O2=vended 复用既有 `ConnectorContext` 接缝（**E6 取消**）。
+> **关键结论**：**P6.2 净 0 个新 SPI 接口、0 处 SPI 破坏**——scan/MVCC 接缝就绪，delete equality 元数据编码进既有 `ConnectorDeleteFile.properties`，field-id/vended 走既有接缝，cache 失效用既有 `ConnectorMetaInvalidator`/`Connector.invalidate*`。
+> **顺序原则**（镜像 paimon proven sequence）：scan provider 骨架 + 测试基建 → 谓词/split/params → delete → COUNT/batch → **field-id 字典** → MVCC → cache（连接器内部）→ vended（复用接缝）→ parity UT → 设计文档/handoff。**全程不碰 `SPI_READY_TYPES`，零行为变更**（对齐 legacy，离线 UT 验；翻闸前连接器 scan 代码运行时不触发）。
+> **新建连接器类**（mirror paimon）：`IcebergScanPlanProvider` / `IcebergScanRange` / `IcebergLatestSnapshotCache` / `IcebergSchemaAtMemo` / `IcebergManifestCache`（+ loader/value 移植）/ 连接器版 `extractVendedToken` / `IcebergTableHandle` scan-option 扩展 / `IcebergConnectorMetadata` MVCC 方法；测试 `FakeIcebergTable` 扩 scan 能力 + `IcebergScanPlanProviderTest` 等。
+
+| ID | 标题 | 依赖 | 估 | 状态 |
+|---|---|---|---|---|
+| **P6.2-T01** | `IcebergScanPlanProvider` 骨架（implements `ConnectorScanPlanProvider`）+ `IcebergScanRange`（implements `ConnectorScanRange`）+ `IcebergConnector.getScanPlanProvider` 接线 + `ignorePartitionPruneShortCircuit()=true` + 测试基建扩（`FakeIcebergTable` scan 能力 / `IcebergScanPlanProviderTest`）。镜像 `PaimonScanPlanProvider`/`PaimonScanRange` | — | M | ⬜ |
+| **P6.2-T02** | 谓词下推（自包含移植 `convertToIcebergExpr`，不 import fe-core）+ `createTableScan`（filter add 顺序保真）+ `planFileScanTask` split 枚举（targetSplitSize/batch 阈值）；manifest-cache 集成留 T08 | P6.2-T01 | L | ⬜ |
+| **P6.2-T03** | `FileScanTask`→`IcebergScanRange` + `populateRangeParams`→`TTableFormatFileDesc.icebergParams`（format-version / partition-data-json / first-row-id / last-updated-seq-num v3 / identity 分区列→columns-from-path）+ native vs JNI 文件格式判定 + **`path_partition_keys` 必发**（CI #968880 双填 guard） | P6.2-T02 | L | ⬜ |
+| **P6.2-T04** | delete files（position bounds / equality field-ids / PUFFIN deletion-vector offset+length）：`DeleteFileIndex.forDataFile` 关联 + **类型/field-ids/bounds 编码进 `ConnectorDeleteFile.properties`**（不破接口）→ 序列化 `TIcebergDeleteFileDesc`；附每 native sub-range | P6.2-T03 | L | ⬜ |
+| **P6.2-T05** | COUNT 下推（`getCountFromSnapshot`：equality-delete 不可下推 / position 处理 / `ignoreIcebergDanglingDelete`）+ batch mode 检测（manifest 计数阈值） | P6.2-T03 | M | ⬜ |
+| **P6.2-T06** | **field-id 字典（最高危）**：`getScanNodeProperties` 用 iceberg `Schema` 构建 `history_schema_info`（`-1`/current 按请求列名 + 历史枚举全 schema-id + name-mapping），`populateScanLevelParams` 落 `TFileScanRangeParams`（镜像 paimon `FIX-SCHEMA-EVOLUTION`，不改 `ConnectorColumn`）；UT 喂多 schema-id/重命名表断字典完整 | P6.2-T03 | L | ⬜ |
+| **P6.2-T07** | MVCC：`IcebergConnectorMetadata.{resolveTimeTravel(5 kinds: SNAPSHOT_ID/TIMESTAMP/TAG/BRANCH/INCREMENTAL),applySnapshot,getTableSchema(@snapshot),beginQuerySnapshot}` + `IcebergTableHandle` scan-option 键 + timestamp TZ aliases（自包含）+ 接线 `PluginDrivenMvccExternalTable`/`applyMvccSnapshotPin`（通用已就绪） | P6.2-T02 | L | ⬜ |
+| **P6.2-T08** | cache（D6 连接器内部）：`IcebergLatestSnapshotCache`（TTL，镜像 `PaimonLatestSnapshotCache`）+ `IcebergSchemaAtMemo`（schemaId→列）+ `IcebergManifestCache`（path-keyed，移植 loader/value）+ `IcebergConnector` override `invalidateTable`/`invalidateAll`（**不清 manifest**）+ wire `ExternalMetaCacheMgr` | P6.2-T06,P6.2-T07 | L | ⬜ |
+| **P6.2-T09** | vended（O2 复用接缝，仅 REST）：连接器 `extractVendedToken(table)`（`table.io().properties()`+`SupportsStorageCredentials`，自包含移植 `IcebergVendedCredentialsProvider`）→ 复用 `context.vendStorageCredentials`/`normalizeStorageUri(uri,token)` → 发 `location.*`；gate `iceberg.rest.vended-credentials-enabled`/FileIO 能力 | P6.2-T03 | M | ⬜ |
+| **P6.2-T10** | parity UT 套件（vs legacy 期望值，非只断类名）：谓词下推全形 / 分区裁剪 / delete（position+equality+DV）/ COUNT 下推 / batch / format-version 边界 / field-id 字典 / `path_partition_keys` / native·JNI / MVCC time-travel / vended REST round-trip | P6.2-T04..T09 | L | ⬜ |
+| **P6.2-T11** | 设计文档 `designs/P6-T??-iceberg-scan-design.md` + HANDOFF + 连接器 validation gate；登记 UT-不可见 deviation（classloader / field-id 真崩 / vended round-trip / null-partition）待 P6.6 docker | P6.2-T10 | S | ⬜ |
+
+**通用验收门（每 task）**：连接器 UT 绿（无 Mockito，fail-loud fake）+ checkstyle 0 + `tools/check-connector-imports.sh` 净 + **断 assembled 属性/Thrift 参数/字典 vs legacy 期望值**（parity-by-omission 风险）+ `grep` 确认 iceberg **不在** `SPI_READY_TYPES`。**P6.2 验收门（line 90）**：scan parity（谓词下推 / 分区裁剪行数 / native·JNI / position+equality delete / SELECT* 无谓词）vs `IcebergScanNode`；MVCC time-travel（AS OF / VERSION）；vended REST round-trip。
+
+> **系统表 scan 不在 P6.2**（migration 表把 sys-table 放 **P6.5** `PluginDrivenSysExternalTable` E7）；P6.2 scan provider 只做普通表。`fileio/*`(4 Delegate) 留 catalog 层；`broker/*`=dead；`profile/IcebergMetricsReporter`=**drop**（参 paimon）。
