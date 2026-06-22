@@ -223,6 +223,11 @@ public class MetaCacheEntry<K, V> {
                 return loaded;
             }
 
+            // Keep null results uncached so manual miss load matches LoadingCache null-return behavior.
+            if (loaded == null) {
+                return null;
+            }
+
             // Leave a narrow hook for tests to pause exactly before the cache put race window.
             beforeManualCachePutForTest(key, loaded);
             data.put(key, loaded);

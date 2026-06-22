@@ -334,6 +334,38 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void testManualMissLoadAllowsNullWithoutCaching() {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+            AtomicInteger missLoaderCounter = new AtomicInteger();
+
+            // Verify manual miss load returns null directly and retries because null values are not cached.
+            Assert.assertNull(entry.get("missing", key -> {
+                missLoaderCounter.incrementAndGet();
+                return null;
+            }));
+            Assert.assertNull(entry.getIfPresent("missing"));
+            Assert.assertNull(entry.get("missing", key -> {
+                missLoaderCounter.incrementAndGet();
+                return null;
+            }));
+            Assert.assertEquals(2, missLoaderCounter.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     // Keep the loader blocking helper in one place so concurrent tests stay readable.
     private void awaitLatch(CountDownLatch latch) {
         try {
