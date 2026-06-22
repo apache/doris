@@ -22,9 +22,14 @@
 #include <functional>
 #include <future>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/column/column_const.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "exec/operator/blackhole_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
@@ -35,6 +40,7 @@
 #include "exec/spill/spill_file.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "testutil/mock/mock_workload_group_mgr.h"
@@ -112,6 +118,65 @@ public:
 
     std::function<void(PipelineTaskSPtr)> on_submit;
 };
+
+class RecordingSinkOperator final : public DataSinkOperatorX<DummySinkLocalState> {
+public:
+    RecordingSinkOperator(int op_id, int node_id, int dest_id)
+            : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
+
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
+        received_blocks.push_back(*in_block);
+        received_eos.push_back(eos);
+        return Status::OK();
+    }
+
+    bool use_default_implementation_for_constants() const override {
+        return use_default_implementation_for_constants_;
+    }
+
+    bool use_default_implementation_for_constants_ = true;
+    std::vector<Block> received_blocks;
+    std::vector<bool> received_eos;
+};
+
+#ifndef NDEBUG
+TEST_F(PipelineTaskTest, TEST_SINK_CONST_BLOCK_MOCK_ONCE) {
+    RecordingSinkOperator sink(1, 2, 3);
+    sink.use_default_implementation_for_constants_ = false;
+    _runtime_state->emplace_sink_local_state(
+            sink.operator_id(), std::make_unique<DummySinkLocalState>(&sink, _runtime_state.get()));
+
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    ASSERT_TRUE(sink.sink(_runtime_state.get(), &block, false).ok());
+
+    ASSERT_EQ(sink.received_blocks.size(), 3);
+    ASSERT_EQ(sink.received_eos.size(), 3);
+    for (size_t i = 0; i < sink.received_blocks.size(); ++i) {
+        const auto& received_block = sink.received_blocks[i];
+        ASSERT_EQ(received_block.rows(), 1);
+        ASSERT_EQ(received_block.columns(), 1);
+        const auto& column = received_block.get_by_position(0);
+        EXPECT_TRUE(is_column_const(*column.column));
+        EXPECT_EQ(column.type->to_string(*column.column, 0), std::to_string(i + 1));
+        EXPECT_FALSE(sink.received_eos[i]);
+    }
+
+    auto second_block = ColumnHelper::create_block<DataTypeInt32>({4, 5});
+    ASSERT_TRUE(sink.sink(_runtime_state.get(), &second_block, true).ok());
+    ASSERT_EQ(sink.received_blocks.size(), 5);
+    ASSERT_EQ(sink.received_eos.size(), 5);
+    for (size_t i = 3; i < sink.received_blocks.size(); ++i) {
+        const auto& received_block = sink.received_blocks[i];
+        ASSERT_EQ(received_block.rows(), 1);
+        ASSERT_EQ(received_block.columns(), 1);
+        const auto& column = received_block.get_by_position(0);
+        EXPECT_TRUE(is_column_const(*column.column));
+        EXPECT_EQ(column.type->to_string(*column.column, 0), std::to_string(i + 1));
+    }
+    EXPECT_FALSE(sink.received_eos[3]);
+    EXPECT_TRUE(sink.received_eos.back());
+}
+#endif
 
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     auto num_instances = 1;
@@ -396,6 +461,74 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
     }
 }
+
+TEST_F(PipelineTaskTest, TEST_SINK_DEFAULT_MATERIALIZE_CONST_BLOCK) {
+    RecordingSinkOperator sink(1, 2, 3);
+    auto data_column = ColumnInt32::create();
+    data_column->insert_value(10);
+    Block block({ColumnWithTypeAndName(ColumnConst::create(std::move(data_column), 3),
+                                       std::make_shared<DataTypeInt32>(), "const_column")});
+
+    EXPECT_TRUE(sink.sink(_runtime_state.get(), &block, true).ok());
+    ASSERT_EQ(sink.received_blocks.size(), 1);
+    ASSERT_EQ(sink.received_blocks[0].rows(), 3);
+    ASSERT_EQ(sink.received_blocks[0].columns(), 1);
+    EXPECT_FALSE(is_column_const(*sink.received_blocks[0].get_by_position(0).column));
+    for (size_t i = 0; i < sink.received_blocks[0].rows(); ++i) {
+        EXPECT_EQ(sink.received_blocks[0].get_by_position(0).type->to_string(
+                          *sink.received_blocks[0].get_by_position(0).column, i),
+                  "10");
+    }
+    ASSERT_EQ(sink.received_eos.size(), 1);
+    EXPECT_TRUE(sink.received_eos[0]);
+}
+
+TEST_F(PipelineTaskTest, TEST_SINK_DISABLE_DEFAULT_MATERIALIZE_CONST_BLOCK) {
+    RecordingSinkOperator sink(1, 2, 3);
+    sink.use_default_implementation_for_constants_ = false;
+    auto data_column = ColumnInt32::create();
+    data_column->insert_value(10);
+    Block block({ColumnWithTypeAndName(ColumnConst::create(std::move(data_column), 3),
+                                       std::make_shared<DataTypeInt32>(), "const_column")});
+
+    EXPECT_TRUE(sink.sink(_runtime_state.get(), &block, true).ok());
+    ASSERT_EQ(sink.received_blocks.size(), 1);
+    ASSERT_EQ(sink.received_blocks[0].rows(), 3);
+    ASSERT_EQ(sink.received_blocks[0].columns(), 1);
+    EXPECT_TRUE(is_column_const(*sink.received_blocks[0].get_by_position(0).column));
+    ASSERT_EQ(sink.received_eos.size(), 1);
+    EXPECT_TRUE(sink.received_eos[0]);
+}
+
+TEST_F(PipelineTaskTest, TEST_BLACKHOLE_SINK_DISABLE_DEFAULT_MATERIALIZE) {
+    BlackholeSinkOperatorX sink(1);
+    EXPECT_FALSE(sink.use_default_implementation_for_constants());
+}
+
+#ifndef NDEBUG
+TEST_F(PipelineTaskTest, TEST_SINK_CONST_BLOCK_MOCK_WITHOUT_DEFAULT_MATERIALIZE) {
+    RecordingSinkOperator sink(1, 2, 3);
+    sink.use_default_implementation_for_constants_ = false;
+    _runtime_state->emplace_sink_local_state(
+            1, std::make_unique<DummySinkLocalState>(&sink, _runtime_state.get()));
+
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2});
+    EXPECT_TRUE(sink.sink(_runtime_state.get(), &block, true).ok());
+
+    ASSERT_EQ(sink.received_blocks.size(), 2);
+    ASSERT_EQ(sink.received_eos.size(), 2);
+
+    for (size_t i = 0; i < sink.received_blocks.size(); ++i) {
+        ASSERT_EQ(sink.received_blocks[i].rows(), 1);
+        ASSERT_EQ(sink.received_blocks[i].columns(), 1);
+        const auto& column = sink.received_blocks[i].get_by_position(0).column;
+        EXPECT_TRUE(is_column_const(*column));
+        EXPECT_EQ(sink.received_blocks[i].get_by_position(0).type->to_string(*column, 0),
+                  std::to_string(i + 1));
+        EXPECT_EQ(sink.received_eos[i], i + 1 == sink.received_blocks.size());
+    }
+}
+#endif
 
 TEST_F(PipelineTaskTest, TEST_TERMINATE) {
     auto num_instances = 1;

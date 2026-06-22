@@ -106,6 +106,13 @@ TEST_F(PartitionedAggregationSinkOperatorTest, Init) {
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
 }
 
+TEST_F(PartitionedAggregationSinkOperatorTest, DefaultMaterializeConst) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    ASSERT_TRUE(source_operator != nullptr);
+    ASSERT_TRUE(sink_operator != nullptr);
+    EXPECT_TRUE(sink_operator->use_default_implementation_for_constants());
+}
+
 TEST_F(PartitionedAggregationSinkOperatorTest, Sink) {
     auto [source_operator, sink_operator] = _helper.create_operators();
     ASSERT_TRUE(source_operator != nullptr);

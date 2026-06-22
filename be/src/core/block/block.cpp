@@ -592,6 +592,23 @@ Block Block::clone_empty() const {
     return res;
 }
 
+std::vector<Block> Block::split_to_const_blocks() const {
+    std::vector<Block> res;
+    const size_t num_rows = rows();
+    res.reserve(num_rows);
+    for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+        Block block;
+        block.reserve(data.size());
+        for (const auto& elem : data) {
+            DCHECK(elem.column);
+            block.insert(
+                    {ColumnConst::create(elem.column->cut(row_idx, 1), 1), elem.type, elem.name});
+        }
+        res.emplace_back(std::move(block));
+    }
+    return res;
+}
+
 MutableColumns Block::clone_empty_columns() const {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);

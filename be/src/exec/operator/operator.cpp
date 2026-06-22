@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "common/status.h"
+#include "core/block/materialize_block.h"
 #include "exec/common/util.hpp"
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
@@ -107,6 +108,50 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
+
+#ifndef NDEBUG
+namespace {
+
+constexpr size_t SINK_CONST_BLOCK_MOCK_MAX_ROWS = 4096;
+constexpr size_t SINK_CONST_BLOCK_MOCK_MAX_BLOCK_BYTES = 64 * 1024 * 1024;
+
+bool should_skip_const_block_mock(const Block& block) {
+    return block.rows() > SINK_CONST_BLOCK_MOCK_MAX_ROWS ||
+           block.allocated_bytes() > SINK_CONST_BLOCK_MOCK_MAX_BLOCK_BYTES;
+}
+
+Status sink_with_const_block_mock(DataSinkOperatorXBase* sink, RuntimeState* state, Block* block,
+                                  bool eos) {
+    auto* local_state = state->get_sink_local_state();
+    if (local_state == nullptr) {
+        return sink->sink_impl(state, block, eos);
+    }
+    const bool mock_first_block = !local_state->has_mocked_first_sink_const_block();
+    if (!mock_first_block && !eos) {
+        return sink->sink_impl(state, block, eos);
+    }
+    if (block->rows() == 0) {
+        return sink->sink_impl(state, block, eos);
+    }
+    // This debug-only mock expands a block into one const block per row. Skip large blocks to
+    // avoid amplifying memory usage for nested or variable-length external data.
+    if (should_skip_const_block_mock(*block)) {
+        return sink->sink_impl(state, block, eos);
+    }
+    if (mock_first_block) {
+        local_state->set_mocked_first_sink_const_block();
+    }
+    auto const_blocks = block->split_to_const_blocks();
+    for (size_t i = 0; i < const_blocks.size(); ++i) {
+        RETURN_IF_ERROR(const_blocks[i].check_type_and_column());
+        RETURN_IF_ERROR(
+                sink->sink_impl(state, &const_blocks[i], eos && i + 1 == const_blocks.size()));
+    }
+    return Status::OK();
+}
+
+} // namespace
+#endif
 
 Status OperatorBase::close(RuntimeState* state) {
     if (_is_closed) {
@@ -466,6 +511,21 @@ Status DataSinkOperatorXBase::terminate(RuntimeState* state) {
         return result.error();
     }
     return result.value()->terminate(state);
+}
+
+Status DataSinkOperatorXBase::sink(RuntimeState* state, Block* block, bool eos) {
+    RETURN_IF_ERROR(block->check_type_and_column());
+#ifndef NDEBUG
+    // Only sinks that opt out of default const materialization should be tested with const blocks.
+    // Other sinks rely on the default materialize path, so keep their original behavior.
+    if (!use_default_implementation_for_constants()) {
+        return sink_with_const_block_mock(this, state, block, eos);
+    }
+#endif
+    if (use_default_implementation_for_constants()) {
+        materialize_block_inplace(*block);
+    }
+    return sink_impl(state, block, eos);
 }
 
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {

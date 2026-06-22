@@ -70,6 +70,8 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* block, bool eos) override;
 
+    bool use_default_implementation_for_constants() const override { return false; }
+
     Status close(RuntimeState* state) override;
 
 private:
