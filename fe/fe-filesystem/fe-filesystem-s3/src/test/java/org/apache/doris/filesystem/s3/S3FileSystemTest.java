@@ -572,6 +572,36 @@ class S3FileSystemTest {
     }
 
     @Test
+    void expandedGlobListPrefixes_fallsBackWhenBraceArmContainsWildcard() {
+        Assertions.assertEquals(List.of("data/"),
+                S3FileSystem.expandedGlobListPrefixes("data/{foo*,bar*}/part.parquet"));
+    }
+
+    @Test
+    void globListWithLimit_doesNotAppendSuffixToPartialBraceArmPrefix() throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/data/"), ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("data/foobar/part.parquet",
+                                        "foobar/part.parquet", null, 10L, 0L),
+                                new RemoteObject("data/barbaz/part.parquet",
+                                        "barbaz/part.parquet", null, 20L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("s3://bucket/data/{foo*,bar*}/part.parquet"), null, 0L, 0L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("s3://bucket/data/"), ArgumentMatchers.isNull());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("s3://bucket/data/foo/part.parquet"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("s3://bucket/data/bar/part.parquet"), ArgumentMatchers.any());
+    }
+
+    @Test
     void globListWithLimit_listsExpandedDatePrefixesInsteadOfBroadDatePrefix() throws IOException {
         Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.isNull()))
                 .thenReturn(new RemoteObjects(List.of(), false, null));

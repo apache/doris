@@ -871,7 +871,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         while (i < globPattern.length()) {
             char c = globPattern.charAt(i);
             if (c == '*' || c == '?') {
-                return compactPrefixes(prefixes);
+                return allowPartialPrefix ? compactPrefixes(prefixes) : null;
             }
             if (c == '\\') {
                 if (i + 1 < globPattern.length()) {
