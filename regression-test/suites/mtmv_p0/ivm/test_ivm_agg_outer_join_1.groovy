@@ -95,9 +95,9 @@ suite("test_ivm_agg_outer_join_1") {
         GROUP BY ivm_aoj1_chain_a.k1;
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_aoj1_chain_mv COMPLETE"""
+    sql """REFRESH MATERIALIZED VIEW ivm_aoj1_chain_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_aoj1_chain_mv")
-    order_qt_chain_agg_after_complete """
+    order_qt_chain_agg_after_initial_incremental """
         SELECT k1, row_count, b_count, c_sum
         FROM ivm_aoj1_chain_mv
         ORDER BY k1
@@ -112,6 +112,9 @@ suite("test_ivm_agg_outer_join_1") {
         ORDER BY k1
     """
 
+    // TODO: Right-side delta (insert into c) requires stream cursor advancement
+    // and TSO snapshots. Currently repair events for null-side delta produce
+    // incorrect results. Expected to fail until Phase 1 stream infrastructure lands.
     sql """INSERT INTO ivm_aoj1_chain_c VALUES (3, 3000);"""
     sql """REFRESH MATERIALIZED VIEW ivm_aoj1_chain_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_aoj1_chain_mv")
