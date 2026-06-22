@@ -38,6 +38,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -70,8 +71,9 @@ import java.util.TreeMap;
  * {@link IcebergCatalogOps} seam / {@link ConnectorContext}) and pins the predicate-driven semantics
  * ({@link #ignorePartitionPruneShortCircuit()} = {@code true}). The real split planning — self-contained
  * predicate pushdown, {@code FileScanTask} enumeration, native-vs-JNI classification, merge-on-read
- * delete files, the field-id history-schema dictionary, COUNT/batch, and vended credentials — lands in
- * P6.2-T02..T09. Iceberg is NOT yet in {@code SPI_READY_TYPES}, so {@link #planScan} is not exercised at
+ * delete files (T04), COUNT(*) pushdown (T05; batch mode deferred, mirrors paimon), the field-id
+ * history-schema dictionary (T06), and vended credentials (T09) — lands across P6.2-T02..T09. Iceberg is NOT
+ * yet in {@code SPI_READY_TYPES}, so {@link #planScan} is not exercised at
  * runtime this phase (iceberg queries still route to the legacy {@code IcebergScanNode}); the parity is
  * verified by offline unit tests until the P6.6 cutover.</p>
  */
@@ -91,6 +93,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_FILE_SPLIT_SIZE = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
+
+    // COUNT(*) pushdown (T05). The snapshot-summary keys are the stable iceberg spec strings — byte-identical
+    // to legacy IcebergUtils.TOTAL_* (themselves local constants, not org.apache.iceberg.SnapshotSummary.*).
+    private static final String TOTAL_RECORDS = "total-records";
+    private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
+    private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
+    // Session var: when a table has only (dangling) position deletes, ignore them and still push count down.
+    private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
 
     // Self-contained mirror of fe-core TimeUtils.timeZoneAliasMap (cannot import TimeUtils). Doris stores the
     // session time_zone un-canonicalized (e.g. SET time_zone='CST' keeps "CST"), and legacy resolves it via
@@ -144,39 +154,65 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
+        return planScanInternal(session, handle, columns, filter, false);
+    }
+
+    /**
+     * COUNT(*)-pushdown-aware scan entry (FIX-COUNT-PUSHDOWN). The generic {@code PluginDrivenScanNode}
+     * forwards the no-grouping {@code COUNT(*)} signal here. {@code limit}/{@code requiredPartitions} are not
+     * consumed by the iceberg read path (it is predicate-driven; mirrors paimon, whose other overloads fold
+     * down to the 4-arg planScan).
+     */
+    @Override
+    public List<ConnectorScanRange> planScan(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit,
+            List<String> requiredPartitions,
+            boolean countPushdown) {
+        return planScanInternal(session, handle, columns, filter, countPushdown);
+    }
+
+    private List<ConnectorScanRange> planScanInternal(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Table table = resolveTable(iceHandle);
+        TableScan scan = buildScan(table, filter, session);
 
-        // Predicate pushdown: translate the engine-neutral predicate into iceberg Expressions (self-contained,
-        // mirrors legacy IcebergUtils.convertToIcebergExpr); unpushable conjuncts are dropped (BE residual).
-        List<Expression> predicates = Collections.emptyList();
-        if (filter.isPresent()) {
-            predicates = new IcebergPredicateConverter(table.schema(), resolveSessionZone(session))
-                    .convert(filter.get());
-        }
-
-        // Build the TableScan, applying each pushed predicate as a separate filter (iceberg ANDs them
-        // internally), mirroring legacy createTableScan. The fe-core-only metricsReporter (profile) and
-        // planWith(threadPool) are intentionally dropped — the iceberg SDK default worker pool plans, and the
-        // file set is identical (see design deviations). Snapshot pinning (time-travel/MVCC) is P6.2-T07.
-        TableScan scan = table.newScan();
-        for (Expression predicate : predicates) {
-            scan = scan.filter(predicate);
-        }
-
-        // Enumerate FileScanTasks via the iceberg SDK (split byte-offsets come from TableScanUtil.splitFiles)
-        // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers — incl. the
-        // merge-on-read delete files (T04) — mirroring legacy IcebergScanNode.createIcebergSplit. COUNT (T05),
-        // the field-id history dict (T06, scan-level), MVCC pin (T07), and vended credentials (T09) land later.
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
         boolean partitioned = table.spec().isPartitioned();
+
+        // COUNT(*) pushdown (T05): when the count is servable from the snapshot summary, collapse the scan to
+        // a single whole-file range carrying the full count (mirrors paimon's collapse + legacy's <=10000
+        // case; the legacy >10000 parallel multi-split trim is a perf-only divergence, dropped). A -1 (equality
+        // deletes, or dangling position deletes without the ignore flag) falls through to the normal scan so
+        // BE reads and counts.
+        if (countPushdown) {
+            long realCount = getCountFromSnapshot(scan, session);
+            if (realCount >= 0) {
+                return planCountPushdown(table, scan, realCount, formatVersion, partitioned,
+                        orderedPartitionKeys, zone);
+            }
+        }
+
+        // Enumerate FileScanTasks via the iceberg SDK (split byte-offsets come from TableScanUtil.splitFiles)
+        // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers — incl. the
+        // merge-on-read delete files (T04) — mirroring legacy IcebergScanNode.createIcebergSplit. The field-id
+        // history dict (T06, scan-level), MVCC pin, and vended credentials (T09) land later.
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = splitFiles(scan, session)) {
             for (FileScanTask task : tasks) {
                 DataFile dataFile = task.file();
-                ranges.add(buildRange(table, dataFile, task, formatVersion, partitioned, orderedPartitionKeys, zone));
+                ranges.add(buildRange(table, dataFile, task, formatVersion, partitioned, orderedPartitionKeys,
+                        zone, -1));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to enumerate iceberg file scan tasks, error message is:"
@@ -187,6 +223,55 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * Build the predicate-filtered {@link TableScan}, mirroring legacy {@code createTableScan}: translate the
+     * engine-neutral predicate into iceberg {@code Expression}s (self-contained, mirrors legacy
+     * {@code IcebergUtils.convertToIcebergExpr}; unpushable conjuncts are dropped → BE residual) and apply
+     * each as a separate filter (iceberg ANDs them internally). The fe-core-only {@code metricsReporter}
+     * (profile) and {@code planWith(threadPool)} are intentionally dropped — the iceberg SDK default worker
+     * pool plans, and the file set is identical (see design deviations). Snapshot pinning (time-travel/MVCC)
+     * is a later P6.2 task — the scan (and the count below) use the current snapshot until then.
+     */
+    private TableScan buildScan(Table table, Optional<ConnectorExpression> filter, ConnectorSession session) {
+        List<Expression> predicates = Collections.emptyList();
+        if (filter.isPresent()) {
+            predicates = new IcebergPredicateConverter(table.schema(), resolveSessionZone(session))
+                    .convert(filter.get());
+        }
+        TableScan scan = table.newScan();
+        for (Expression predicate : predicates) {
+            scan = scan.filter(predicate);
+        }
+        return scan;
+    }
+
+    /**
+     * Emit the single collapsed COUNT(*)-pushdown range: the first whole-file {@link FileScanTask} from
+     * {@code scan.planFiles()} carrying the full {@code realCount} via {@code table_level_row_count} → BE's
+     * count reader serves it without opening the data file. Mirrors paimon's {@code buildCountRange} (one
+     * range bearing the summed total). Result-identical to legacy's count short-circuit even though legacy
+     * takes a different shape: legacy byte-splits the count file ({@code planFileScanTask} →
+     * {@code splitFiles} → {@code TableScanUtil.splitFiles}), keeps the first split task's byte-range for
+     * {@code count < 10000}, and {@code assignCountToSplits} distributes the same total — but under count
+     * pushdown BE's count reader never reads the file (the range's start/length are irrelevant) and sums
+     * {@code table_level_row_count} across ranges, so one whole-file range yields the identical total (and
+     * legacy's {@code >10000} parallel multi-split trim is the perf-only divergence we drop). An empty table
+     * (no files) yields no range, so BE gets 0 ranges and COUNT returns 0 (legacy returns empty splits too).
+     */
+    private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, long realCount,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone) {
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            for (FileScanTask task : tasks) {
+                return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
+                        partitioned, orderedPartitionKeys, zone, realCount));
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
+                    + e.getMessage(), e);
+        }
+        return Collections.emptyList();
+    }
+
+    /**
      * Build the BE-ready {@link IcebergScanRange} for one {@link FileScanTask}, mirroring legacy
      * {@code IcebergScanNode.createIcebergSplit} + {@code setIcebergParams}: the file path/offset/size, the
      * per-file format (native parquet/orc), the table format version, the v3 row-lineage fields, and — for a
@@ -194,7 +279,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * identity {@code partitionValues} that become columns-from-path.
      */
     private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
-            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone) {
+            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone, long pushDownRowCount) {
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         Map<String, String> partitionValues = Collections.emptyMap();
@@ -253,6 +338,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .lastUpdatedSequenceNumber(lastUpdatedSequenceNumber)
                 .partitionValues(partitionValues)
                 .deleteFiles(buildDeleteFiles(task))
+                .pushDownRowCount(pushDownRowCount)
                 .build();
     }
 
@@ -503,6 +589,54 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    /**
+     * Compute the COUNT(*)-pushdown row count from the scan's snapshot summary, a faithful port of legacy
+     * {@code IcebergScanNode.getCountFromSnapshot} (:1142-1171):
+     * <ul>
+     *   <li>no snapshot (empty table) → {@code 0};</li>
+     *   <li>any equality delete ({@code total-equality-deletes != "0"}) → {@code -1} — not pushable, since
+     *       equality deletes re-project at read time and the summary cannot net them out;</li>
+     *   <li>no position deletes → {@code total-records};</li>
+     *   <li>position deletes present and session {@code ignore_iceberg_dangling_delete=true} →
+     *       {@code total-records - total-position-deletes};</li>
+     *   <li>otherwise {@code -1}.</li>
+     * </ul>
+     * Reads the scan's snapshot ({@code scan.snapshot()}) so the count tracks the scan automatically (the
+     * current snapshot today; the pinned snapshot once MVCC time-travel lands) — equivalent to legacy's
+     * {@code currentSnapshot()} for every non-time-travel query. The {@code summary.get(...)} calls are
+     * null-unsafe by design (legacy parity — real iceberg snapshots always carry these totals, "0" when none).
+     */
+    private static long getCountFromSnapshot(TableScan scan, ConnectorSession session) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return 0;
+        }
+        Map<String, String> summary = snapshot.summary();
+        if (!summary.get(TOTAL_EQUALITY_DELETES).equals("0")) {
+            // has equality delete files, can not push down count
+            return -1;
+        }
+        long deleteCount = Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        if (deleteCount == 0) {
+            // no delete files, can push down count directly
+            return Long.parseLong(summary.get(TOTAL_RECORDS));
+        }
+        if (ignoreIcebergDanglingDelete(session)) {
+            // has position delete files; if we ignore dangling deletes, the netted count can be pushed down
+            return Long.parseLong(summary.get(TOTAL_RECORDS)) - deleteCount;
+        }
+        // otherwise, can not push down count
+        return -1;
+    }
+
+    private static boolean ignoreIcebergDanglingDelete(ConnectorSession session) {
+        if (session == null) {
+            return false;
+        }
+        String raw = session.getSessionProperties().get(IGNORE_ICEBERG_DANGLING_DELETE);
+        return raw != null && Boolean.parseBoolean(raw.trim());
     }
 
     // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Resolved through the Doris

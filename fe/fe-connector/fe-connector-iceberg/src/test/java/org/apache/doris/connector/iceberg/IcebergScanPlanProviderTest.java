@@ -700,4 +700,155 @@ public class IcebergScanPlanProviderTest {
         TIcebergFileDesc fd = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
         Assertions.assertEquals("oss://bucket/db/t1/f.parquet", fd.getOriginalFilePath());
     }
+
+    // --- T05: COUNT(*) pushdown (getCountFromSnapshot + collapse-to-one count range, mirrors paimon) ---
+
+    private static final IcebergTableHandle T1 = new IcebergTableHandle("db1", "t1");
+
+    private static List<ConnectorScanRange> planCount(IcebergScanPlanProvider provider, ConnectorSession session,
+            boolean countPushdown) {
+        // The COUNT-pushdown-aware 7-arg overload the generic PluginDrivenScanNode invokes (limit/
+        // requiredPartitions are unused by the iceberg read path).
+        return provider.planScan(session, T1, Collections.emptyList(), Optional.empty(),
+                -1L, Collections.emptyList(), countPushdown);
+    }
+
+    @Test
+    public void countPushdownCollapsesToSingleRangeWithTotalRecords() {
+        // No-delete table; record counts 1024/100 + 2048/100 + 3072/100 = 10+20+30 = total-records 60.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f3.parquet", 3072, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = planCount(provider, null, true);
+
+        // Collapse to ONE range carrying the full snapshot count (paimon parity; the legacy >10000 parallel
+        // multi-split trim is dropped). MUTATION: ignoring countPushdown (T04 behavior) -> 3 ranges, each
+        // count -1 -> red.
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(60L, ranges.get(0).getPushDownRowCount());
+        // Kept whole (NOT byte-tiled): the representative is a whole-file FileScanTask (start 0). MUTATION:
+        // running splitFiles in the count path -> a sub-range could start != 0 / more than one range -> red.
+        Assertions.assertEquals(0L, ranges.get(0).getStart());
+        // table_level_row_count carries the total to BE's count reader.
+        Assertions.assertEquals(60L, populate(ranges.get(0)).getTableFormatParams().getTableLevelRowCount());
+    }
+
+    @Test
+    public void countPushdownNotAppliedWithEqualityDeletesScansAll() {
+        Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null))
+                .commit();
+        // An equality delete makes total-equality-deletes != "0" -> count NOT pushable.
+        table.newRowDelta()
+                .addDeletes(equalityDeleteFile("s3://b/db/t1/eq.parquet", FileFormat.PARQUET, 1))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = planCount(provider, null, true);
+
+        // Equality deletes -> getCountFromSnapshot returns -1 -> fall back to the normal scan (every data file,
+        // each count -1 so BE reads & counts). MUTATION: pushing the count anyway -> 1 range / a count >= 0 -> red.
+        Assertions.assertEquals(2, ranges.size());
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals(-1L, range.getPushDownRowCount());
+        }
+    }
+
+    @Test
+    public void countPushdownWithPositionDeletesNetsOutWhenIgnoringDangling() {
+        Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
+        // 1000/100 = 10 data records.
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null))
+                .commit();
+        DeleteFile posDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t1/pos.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(3L)   // total-position-deletes 3
+                .withReferencedDataFile("s3://b/db/t1/f1.parquet")
+                .build();
+        table.newRowDelta().addDeletes(posDelete).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("ignore_iceberg_dangling_delete", "true"));
+
+        List<ConnectorScanRange> ranges = planCount(provider, session, true);
+
+        // total-records(10) - total-position-deletes(3) = 7, pushable only because the session ignores dangling
+        // deletes. MUTATION: returning total-records (10) / not honoring the session flag -> wrong count -> red.
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(7L, ranges.get(0).getPushDownRowCount());
+        Assertions.assertEquals(7L, populate(ranges.get(0)).getTableFormatParams().getTableLevelRowCount());
+    }
+
+    @Test
+    public void countPushdownWithPositionDeletesScansAllWhenNotIgnoringDangling() {
+        Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null))
+                .commit();
+        DeleteFile posDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t1/pos.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(3L)
+                .withReferencedDataFile("s3://b/db/t1/f1.parquet")
+                .build();
+        table.newRowDelta().addDeletes(posDelete).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        // No ignore flag (null session -> default false): position deletes present -> not pushable.
+        List<ConnectorScanRange> ranges = planCount(provider, null, true);
+
+        // MUTATION: pushing the count without the ignore flag -> a count >= 0 / single collapsed range -> red.
+        Assertions.assertFalse(ranges.isEmpty());
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals(-1L, range.getPushDownRowCount());
+        }
+    }
+
+    @Test
+    public void countPushdownEmptyTableProducesNoRanges() {
+        // Empty table (no snapshot) -> getCountFromSnapshot 0, but no representative file -> no range -> BE gets
+        // 0 ranges -> COUNT returns 0 (legacy returns empty splits too). MUTATION: emitting a synthetic count
+        // range with no path -> red (no file to build from).
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = planCount(provider, null, true);
+
+        Assertions.assertTrue(ranges.isEmpty());
+    }
+
+    @Test
+    public void countPushdownFalseDoesNormalMultiRangeScan() {
+        // The 7-arg overload with countPushdown=false must behave exactly like the normal scan (no collapse).
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = planCount(provider, null, false);
+
+        // MUTATION: collapsing on countPushdown=false -> 1 range -> red.
+        Assertions.assertEquals(2, ranges.size());
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals(-1L, range.getPushDownRowCount());
+        }
+    }
 }

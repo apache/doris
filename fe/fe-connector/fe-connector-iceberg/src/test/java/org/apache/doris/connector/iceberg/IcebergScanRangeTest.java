@@ -345,4 +345,31 @@ public class IcebergScanRangeTest {
         // normalizeColumnsFromPath (not path-parsing). MUTATION: returning emptyMap -> red.
         Assertions.assertEquals(parts, range.getPartitionValues());
     }
+
+    // ---- T05: COUNT(*) pushdown row count carrier (pushDownRowCount -> table_level_row_count) ----
+
+    @Test
+    public void pushDownRowCountDefaultsToMinusOne() {
+        // The normal scan path never sets a count: the SPI carrier defaults to -1 so the generic node renders
+        // the (-1) "no precomputed count" sentinel and BE counts by reading. MUTATION: defaulting to 0 (a
+        // valid count) -> the EXPLAIN line and BE count path would treat every range as pre-counted -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2).build();
+        Assertions.assertEquals(-1L, range.getPushDownRowCount());
+        Assertions.assertEquals(-1L,
+                populate(range, new TFileRangeDesc()).getTableFormatParams().getTableLevelRowCount());
+    }
+
+    @Test
+    public void populateRangeParamsEmitsTableLevelRowCountWhenCountPushed() {
+        // The single collapsed count range carries the snapshot-summary total -> BE serves COUNT from
+        // table_level_row_count without reading. MUTATION: still emitting the constant -1 (T03 behavior) ->
+        // BE re-reads and the EXPLAIN (n) is lost -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
+                .pushDownRowCount(4242L).build();
+        Assertions.assertEquals(4242L, range.getPushDownRowCount());
+        Assertions.assertEquals(4242L,
+                populate(range, new TFileRangeDesc()).getTableFormatParams().getTableLevelRowCount());
+    }
 }

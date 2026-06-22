@@ -45,8 +45,9 @@ import java.util.Optional;
  * {@code IcebergScanNode.setIcebergParams}. Unlike paimon (which stashes stringly-typed {@code paimon.*}
  * props), iceberg's carriers are strongly typed fields (its params are numeric), so {@link #getProperties()}
  * stays empty. T04 adds the typed merge-on-read {@link DeleteFile} carriers (position / equality / deletion
- * vector). COUNT pushdown (T05) and the field-id history dictionary (T06, scan-level) land later. Iceberg is
- * not yet in {@code SPI_READY_TYPES}, so no range reaches BE.</p>
+ * vector); T05 adds the COUNT(*)-pushdown row count ({@code pushDownRowCount} → {@code table_level_row_count}).
+ * The field-id history dictionary (T06, scan-level) lands later. Iceberg is not yet in
+ * {@code SPI_READY_TYPES}, so no range reaches BE.</p>
  */
 public class IcebergScanRange implements ConnectorScanRange {
 
@@ -70,6 +71,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final Map<String, String> partitionValues;
     // Merge-on-read delete files applying to this data file (T04). Never null (empty when none / v1).
     private final List<DeleteFile> deleteFiles;
+    // COUNT(*) pushdown precomputed row count (T05): -1 = no precomputed count (the normal scan path);
+    // >= 0 = the single collapsed count range carrying the snapshot-summary total. Drives both the generic
+    // node's EXPLAIN "pushdown agg=COUNT (n)" line (getPushDownRowCount) and the BE thrift
+    // table_level_row_count (populateRangeParams).
+    private final long pushDownRowCount;
 
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
@@ -91,6 +97,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.deleteFiles = builder.deleteFiles != null
                 ? Collections.unmodifiableList(builder.deleteFiles)
                 : Collections.emptyList();
+        this.pushDownRowCount = builder.pushDownRowCount;
     }
 
     @Override
@@ -156,6 +163,19 @@ public class IcebergScanRange implements ConnectorScanRange {
         return partitionSpecId != null;
     }
 
+    /**
+     * The precomputed COUNT(*)-pushdown row count this range carries, or {@code -1} when none (the normal
+     * scan path). The generic {@code PluginDrivenScanNode} reads it (via {@code resolvePushDownRowCount}) to
+     * render the EXPLAIN {@code pushdown agg=COUNT (n)} line; the same value drives the BE thrift
+     * {@code table_level_row_count} in {@link #populateRangeParams}. Mirrors paimon's {@code paimon.row_count}
+     * carrier (typed here since iceberg's params are numeric). Default {@code -1} keeps every normal range
+     * (T02/T03/T04) byte-unchanged — only the single collapsed count range (T05) carries a real count.
+     */
+    @Override
+    public long getPushDownRowCount() {
+        return pushDownRowCount;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         // Iceberg carries its per-range payload as typed fields (see populateRangeParams), not as string
@@ -212,8 +232,10 @@ public class IcebergScanRange implements ConnectorScanRange {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
         }
 
-        // Non-count path: distinct -1 (COUNT pushdown sets a real count in T05).
-        formatDesc.setTableLevelRowCount(-1);
+        // table_level_row_count: the single collapsed COUNT(*)-pushdown range carries the snapshot-summary
+        // total (T05); every other range carries the distinct -1 sentinel (BE then counts by reading). The
+        // carrier defaults to -1, so all normal/T03/T04 ranges are byte-unchanged.
+        formatDesc.setTableLevelRowCount(pushDownRowCount);
         formatDesc.setIcebergParams(fileDesc);
 
         // Overwrite the parent's iceberg-invalid path-parsed columns-from-path: unset, then re-set from the
@@ -258,6 +280,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private Long lastUpdatedSequenceNumber;
         private Map<String, String> partitionValues;
         private List<DeleteFile> deleteFiles;
+        private long pushDownRowCount = -1;
 
         public Builder path(String path) {
             this.path = path;
@@ -322,6 +345,12 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder deleteFiles(List<DeleteFile> deleteFiles) {
             this.deleteFiles = deleteFiles;
+            return this;
+        }
+
+        /** The precomputed COUNT(*)-pushdown row count for the collapsed count range; default -1 (no count). */
+        public Builder pushDownRowCount(long pushDownRowCount) {
+            this.pushDownRowCount = pushDownRowCount;
             return this;
         }
 
