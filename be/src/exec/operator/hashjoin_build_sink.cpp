@@ -155,7 +155,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         const auto bytes = _build_side_mutable_block.bytes();
         const auto allocated_bytes = _build_side_mutable_block.allocated_bytes();
         const auto bytes_per_row = bytes / build_block_rows;
-        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
+        const auto estimated_size_of_next_block = bytes_per_row * batch_size();
         // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
         if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 85) {
             size_to_reserve += static_cast<size_t>(static_cast<double>(allocated_bytes) * 1.15);
@@ -163,7 +163,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
     }
 
     if (eos) {
-        const size_t rows = build_block_rows + state->batch_size();
+        const size_t rows = build_block_rows + batch_size();
         const auto bucket_size = hash_join_table_calc_bucket_size(rows);
 
         size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
@@ -625,7 +625,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
                           ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                  rows, raw_ptrs, this, state->batch_size(), state);
+                                  rows, raw_ptrs, this, batch_size(), state);
                           auto st = hash_table_build_process.template run<JoinOpType::value>(
                                   arg, null_map_val ? &null_map_val->get_data() : nullptr,
                                   &_shared_state->_has_null_in_build_side,

@@ -141,11 +141,15 @@ public:
 
     // Row-count limit for output blocks. Clamp to [1, 65535].
     // Adaptive byte budgeting still uses this as the hard row ceiling.
-    MOCK_FUNCTION int batch_size() const {
-        static constexpr int kMax = 65535;
-        auto v = _query_options.batch_size;
-        return std::min(std::max(1, v), kMax);
-    }
+    MOCK_FUNCTION int batch_size() const { return _clamp_batch_size(_query_options.batch_size); }
+
+        MOCK_FUNCTION int batch_size_for_node(int node_id) const {
+    #ifndef NDEBUG
+        return _debug_batch_size_by_node(batch_size(), node_id);
+    #else
+        return batch_size();
+    #endif
+        }
 
     // Target byte budget per output block (default 8MB when adaptive is enabled).
     // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
@@ -863,6 +867,33 @@ public:
     void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
+    static int _clamp_batch_size(int value) {
+        static constexpr int kMax = 65535;
+        return std::min(std::max(1, value), kMax);
+    }
+
+    static int _debug_batch_size_by_node(int base, int node_id) {
+        auto mixed = static_cast<uint32_t>(-node_id) ^ 0x9e3779b9U;
+        mixed ^= mixed >> 16;
+        mixed *= 0x7feb352dU;
+        mixed ^= mixed >> 15;
+        mixed *= 0x846ca68bU;
+        mixed ^= mixed >> 16;
+
+        switch (mixed % 5) {
+        case 0:
+            return _clamp_batch_size(base / 2);
+        case 1:
+            return _clamp_batch_size((base * 3) / 4);
+        case 2:
+            return base;
+        case 3:
+            return _clamp_batch_size((base * 3) / 2);
+        default:
+            return _clamp_batch_size(base * 2);
+        }
+    }
+
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 4062;

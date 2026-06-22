@@ -133,7 +133,8 @@ Status UnionSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool 
         return Status::OK();
     }
     // not eos and block rows is enough to output,so push block
-    if (local_state._output_block && (local_state._output_block->rows() >= state->batch_size())) {
+    if (local_state._output_block &&
+        (local_state._output_block->rows() >= local_state.batch_size())) {
         RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
                 std::move(local_state._output_block), _cur_child_id));
     }

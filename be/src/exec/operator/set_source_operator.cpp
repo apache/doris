@@ -88,8 +88,8 @@ Status SetSourceOperatorX<is_intersect>::get_block_impl(RuntimeState* state, Blo
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                        return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
-                                                                        state->batch_size(), eos);
+                        return _get_data_in_hashtable<HashTableCtxType>(
+                                local_state, arg, block, local_state.batch_size(), eos);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";
                         __builtin_unreachable();

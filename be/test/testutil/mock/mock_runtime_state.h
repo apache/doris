@@ -57,6 +57,8 @@ public:
 
     int batch_size() const override { return _batch_size; }
 
+    int batch_size_for_node(int node_id) const override { return _batch_size; }
+
     bool enable_shared_exchange_sink_buffer() const override {
         return _enable_shared_exchange_sink_buffer;
     }

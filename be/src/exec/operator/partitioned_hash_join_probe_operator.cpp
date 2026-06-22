@@ -927,7 +927,7 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
     if (about_to_build && local_state._recovered_build_block) {
         // Estimate rows that will land in the hash table so we can reserve
         // enough for JoinHashTable::first[] + JoinHashTable::next[].
-        size_t rows = std::max(static_cast<size_t>(state->batch_size()),
+        size_t rows = std::max(static_cast<size_t>(local_state.batch_size()),
                                static_cast<size_t>(local_state._recovered_build_block->rows()));
 
         const size_t bucket_size = hash_join_table_calc_bucket_size(rows);

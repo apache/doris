@@ -536,14 +536,17 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
 
 PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
-        : _parent(parent), _state(state) {}
+        : _parent(parent),
+          _state(state),
+                    _batch_size(state->batch_size_for_node(parent->node_id())) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
         : _num_rows_returned(0),
           _rows_returned_counter(nullptr),
           _parent(parent),
           _state(state),
-          _budget(state->batch_size(), state->preferred_block_size_bytes()) {}
+                    _batch_size(state->batch_size_for_node(parent->node_id())),
+          _budget(_batch_size, state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -610,6 +613,7 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
     _common_profile->add_info_string("FollowedByShuffledOperator",
                                      std::to_string(_parent->followed_by_shuffled_operator()));
+    _common_profile->add_info_string("BatchSize", std::to_string(_batch_size));
     return Status::OK();
 }
 
@@ -715,6 +719,7 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
     _common_profile->add_info_string("FollowedByShuffledOperator",
                                      std::to_string(_parent->followed_by_shuffled_operator()));
+    _common_profile->add_info_string("BatchSize", std::to_string(_batch_size));
     return Status::OK();
 }
 

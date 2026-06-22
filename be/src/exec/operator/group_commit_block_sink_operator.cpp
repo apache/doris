@@ -47,8 +47,7 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     _state = state;
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(p._output_tuple_desc);
-    _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(),
-                                        _state->batch_size());
+    _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(), batch_size());
 
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {

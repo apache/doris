@@ -54,6 +54,7 @@ struct UnionOperatorTest : public ::testing::Test {
         state->_batch_size = 10;
         for (int i = 0; i < child_size; i++) {
             sink_state.push_back(std::make_shared<MockRuntimeState>());
+            sink_state.back()->_batch_size = 2;
             sink_ops.push_back(nullptr);
         }
     }
@@ -254,7 +255,6 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
 
     {
         for (int i = 0; i < child_size; i++) {
-            sink_state[i]->_batch_size = 2;
             Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2}, {3, 4});
             EXPECT_TRUE(sink_ops[i]->sink(sink_state[i].get(), &block, false));
         }

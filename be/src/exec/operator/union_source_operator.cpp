@@ -154,7 +154,8 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     auto& mblock = scoped_mutable_block.mutable_block();
 
     ColumnsWithTypeAndName tmp_block_columns;
-    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
+    for (; _const_expr_list_idx < _const_expr_lists.size() &&
+           mblock.rows() < local_state.batch_size();
          ++_const_expr_list_idx) {
         int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
         if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
