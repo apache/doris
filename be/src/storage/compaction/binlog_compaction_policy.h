@@ -33,20 +33,23 @@ public:
     // Binlog compaction selection rules (tiered, L0..LMax)
     //
     // Score / Permits
-    // - For LMax, treat Base([0-x]) as score/permit=1, others use RowsetMeta::get_compaction_score().
+    // - L0/L1 use RowsetMeta::get_compaction_score().
+    // - For LMax, each rowset before cumulative point is score/permit=1,
+    //   others use RowsetMeta::get_compaction_score().
     //
     // Trigger (all levels): merge when ANY holds
     // - size >= binlog_compaction_goal_size_mbytes * 1MB
     // - score >= binlog_compaction_file_count_threshold
     // - time >= binlog_compaction_time_threshold_seconds
     //
-    // LMax "Base + `ENOUGH` + remaining" model (oldest -> newest)
-    //   | Base([0-x]) | `ENOUGH` rowsets | remaining rowsets ... |
-    // `ENOUGH` is computed dynamically on LMax (not persisted):
-    //      (rowset_size >= goal_size) OR (rowset_score >= file_count_threshold)
+    // LMax model (oldest -> newest):
+    //        version: 0                                   point
+    //                 |------------------------------------|------------------- ...
+    //        rowsets: | compact enough  |  compact enough  | compacting rowsets ...
+    //        score :  |       1         |       1          | get_compaction_score()
     //
     // Input Rowsets selection:
-    // - If physical rewrite trigger is NOT met: try quick compact first (requires Base([0-x])).
+    // - If physical rewrite trigger is NOT met: try quick compact first.
     // - If both quick compact and physical rewrite are possible: compare score and pick the higher.
     //
     // Quick compact output must be OVERLAPPING.
@@ -56,6 +59,13 @@ public:
 
     uint32_t calc_binlog_compaction_score(Tablet* tablet, int8_t* prefer_compaction_level) const;
     uint32_t calc_binlog_compaction_level_score(Tablet* tablet, int8_t level) const;
+
+    bool is_compaction_enough(const RowsetMetaSharedPtr& rowset_meta) const;
+    void calculate_cumulative_point(Tablet* tablet, const RowsetMetaMapContainer& all_rowsets,
+                                    int64_t current_cumulative_point,
+                                    int64_t* cumulative_point) const;
+    void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset) const;
 
     void update_compaction_level(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
                                  RowsetSharedPtr output_rowset);

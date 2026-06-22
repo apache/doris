@@ -17,16 +17,81 @@
 
 #include "storage/compaction/binlog_compaction_policy.h"
 
+#include <algorithm>
 #include <string>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/time.h"
 
 namespace doris {
+
+bool BinlogCompactionPolicy::is_compaction_enough(const RowsetMetaSharedPtr& rowset_meta) const {
+    if (rowset_meta->compaction_level() != kBinlogCompactionMaxLevel - 1) {
+        return false;
+    }
+    if (rowset_meta->start_version() == 0) {
+        return true;
+    }
+    return rowset_meta->data_disk_size() >=
+                   config::binlog_compaction_goal_size_mbytes * 1024 * 1024 ||
+           rowset_meta->get_compaction_score() >= config::binlog_compaction_file_count_threshold;
+}
+
+void BinlogCompactionPolicy::calculate_cumulative_point(Tablet* tablet,
+                                                        const RowsetMetaMapContainer& all_rowsets,
+                                                        int64_t current_cumulative_point,
+                                                        int64_t* cumulative_point) const {
+    *cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
+    if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT || all_rowsets.empty()) {
+        return;
+    }
+
+    std::vector<RowsetMetaSharedPtr> rowset_metas;
+    rowset_metas.reserve(all_rowsets.size());
+    for (const auto& [_, rs_meta] : all_rowsets) {
+        if (rs_meta->is_local()) {
+            rowset_metas.emplace_back(rs_meta);
+        }
+    }
+    std::sort(rowset_metas.begin(), rowset_metas.end(), RowsetMeta::comparator);
+
+    int64_t prev_version = -1;
+    for (const auto& rs_meta : rowset_metas) {
+        if (*cumulative_point == Tablet::K_INVALID_CUMULATIVE_POINT) {
+            *cumulative_point = rs_meta->start_version();
+        }
+        if (rs_meta->start_version() > prev_version + 1 || !is_compaction_enough(rs_meta)) {
+            break;
+        }
+        prev_version = rs_meta->end_version();
+        *cumulative_point = prev_version + 1;
+    }
+
+    VLOG_NOTICE << "binlog compaction policy, calculate cumulative point value="
+                << *cumulative_point << ", tablet=" << tablet->tablet_id();
+}
+
+void BinlogCompactionPolicy::update_cumulative_point(
+        Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+        RowsetSharedPtr output_rowset) const {
+    if (tablet->tablet_state() != TABLET_RUNNING || input_rowsets.empty() ||
+        output_rowset->num_segments() == 0 ||
+        output_rowset->rowset_meta()->compaction_level() != kBinlogCompactionMaxLevel - 1 ||
+        !is_compaction_enough(output_rowset->rowset_meta())) {
+        return;
+    }
+
+    const int64_t point = tablet->cumulative_layer_point();
+    if (point == Tablet::K_INVALID_CUMULATIVE_POINT || output_rowset->start_version() > point) {
+        return;
+    }
+    tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
+}
 
 int BinlogCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
@@ -51,40 +116,25 @@ int BinlogCompactionPolicy::pick_input_rowsets(
         level_rowsets.push_back(rs);
     }
 
-    // 2) Split `level_rowsets` into `full_enough_rowsets` and `remaining_rowsets`.
+    // 2) Split `level_rowsets` into `compact_enough_rowsets` and `remaining_rowsets`.
     //    - L0/L1: only physical rewrite.
-    //    - LMax: Base([0-x]) + prefix ENOUGH rowsets are candidates for quick compact.
-    std::vector<RowsetSharedPtr> full_enough_rowsets;
+    //    - LMax: rowsets before cumulative point are candidates for quick compact.
+    std::vector<RowsetSharedPtr> compact_enough_rowsets;
     std::vector<RowsetSharedPtr> remaining_rowsets;
-    full_enough_rowsets.reserve(level_rowsets.size());
+    compact_enough_rowsets.reserve(level_rowsets.size());
     remaining_rowsets.reserve(level_rowsets.size());
 
-    bool find_base = false;
-    int full_enough_size = 0;
-    size_t idx = 0;
-    if (compaction_level == kBinlogCompactionMaxLevel - 1) {
-        if (!level_rowsets.empty() && level_rowsets[0]->start_version() == 0) {
-            find_base = true;
-            full_enough_rowsets.push_back(level_rowsets[0]);
-            ++full_enough_size;
-            idx = 1;
-            for (; idx < level_rowsets.size(); ++idx) {
-                const auto& rs = level_rowsets[idx];
-                int64_t rs_score = rs->rowset_meta()->get_compaction_score();
-                if (rs->data_disk_size() >=
-                            config::binlog_compaction_goal_size_mbytes * 1024 * 1024 ||
-                    rs_score >= config::binlog_compaction_file_count_threshold) {
-                    full_enough_rowsets.push_back(rs);
-                    ++full_enough_size;
-                    continue;
-                }
-                break;
+    int compact_enough_size = 0;
+    const int64_t point = tablet->cumulative_layer_point();
+    if (compaction_level == kBinlogCompactionMaxLevel - 1 &&
+        point != Tablet::K_INVALID_CUMULATIVE_POINT) {
+        for (const auto& rs : level_rowsets) {
+            if (rs->end_version() < point) {
+                compact_enough_rowsets.push_back(rs);
+                ++compact_enough_size;
+                continue;
             }
-            for (; idx < level_rowsets.size(); ++idx) {
-                remaining_rowsets.push_back(level_rowsets[idx]);
-            }
-        } else {
-            remaining_rowsets = level_rowsets;
+            remaining_rowsets.push_back(rs);
         }
     } else {
         remaining_rowsets = level_rowsets;
@@ -126,15 +176,12 @@ int BinlogCompactionPolicy::pick_input_rowsets(
     }
 
     // 5) LMax quick compact vs physical rewrite.
-    if (compaction_level == kBinlogCompactionMaxLevel - 1 && find_base && full_enough_size > 1) {
-        int64_t quick_merge_score = 1;
-        for (int i = 1; i < full_enough_size; ++i) {
-            quick_merge_score += full_enough_rowsets[i]->rowset_meta()->get_compaction_score();
-        }
+    if (compaction_level == kBinlogCompactionMaxLevel - 1 && compact_enough_size > 1) {
+        int64_t quick_merge_score = compact_enough_size;
 
         if (!can_do_binlog_compaction || quick_merge_score > compaction_score) {
-            input_rowsets->swap(full_enough_rowsets);
-            return full_enough_size;
+            input_rowsets->swap(compact_enough_rowsets);
+            return compact_enough_size;
         }
     }
 
@@ -154,15 +201,25 @@ int BinlogCompactionPolicy::pick_input_rowsets(
 uint32_t BinlogCompactionPolicy::calc_binlog_compaction_level_score(Tablet* tablet,
                                                                     int8_t level) const {
     uint32_t score = 0;
+    const int64_t point = tablet->cumulative_layer_point();
     // Binlog tiered compaction score (L0..LMax)
     //
     //   L0/L1/... : | rowsets ... |
-    //   LMax      : | Base([0-x]) | remaining rowsets ... |
     //
-    // Base only performs meta-only merge (merge rowset meta), so get_compaction_score()
-    // treats Base score as 1.
+    //   LMax:
+    //        version: 0                                   point
+    //                 |------------------------------------|------------------- ...
+    //        rowsets: | compact enough  |  compact enough  | compacting rowsets ...
+    //        score :  |       1         |       1          | get_compaction_score()
+    //
+    // Each rowset before cumulative point is compact-complete, and its score is treated as 1.
     for (const auto& [_, rs_meta] : tablet->tablet_meta()->all_rs_metas()) {
         if (!rs_meta->is_local() || rs_meta->compaction_level() != level) {
+            continue;
+        }
+        if (level == kBinlogCompactionMaxLevel - 1 && point != Tablet::K_INVALID_CUMULATIVE_POINT &&
+            rs_meta->end_version() < point) {
+            score += 1;
             continue;
         }
         score += rs_meta->get_compaction_score();

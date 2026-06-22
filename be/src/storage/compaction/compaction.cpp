@@ -1630,7 +1630,13 @@ Status Compaction::check_correctness() {
 
 int64_t CompactionMixin::get_compaction_permits() {
     int64_t permits = 0;
+    const int64_t point = tablet()->cumulative_layer_point();
     for (auto&& rowset : _input_rowsets) {
+        if (tablet()->is_row_binlog_tablet() && point != Tablet::K_INVALID_CUMULATIVE_POINT &&
+            rowset->end_version() < point) {
+            ++permits;
+            continue;
+        }
         permits += rowset->rowset_meta()->get_compaction_score();
     }
     return permits;

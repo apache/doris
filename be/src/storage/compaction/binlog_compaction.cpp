@@ -64,6 +64,8 @@ Status BinlogCompaction::prepare_compact() {
         return st;
     }
 
+    tablet()->calculate_cumulative_point();
+
     st = pick_rowsets_to_compact();
     RETURN_IF_ERROR(st);
 
@@ -100,6 +102,9 @@ Status BinlogCompaction::execute_compact() {
                                       Status::OK());
 
     DCHECK_EQ(_state, CompactionState::SUCCESS);
+
+    tablet()->binlog_compaction_policy()->update_cumulative_point(tablet(), _input_rowsets,
+                                                                  _output_rowset);
 
     st = Status::OK();
     return st;
