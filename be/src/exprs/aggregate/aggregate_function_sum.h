@@ -81,6 +81,8 @@ class AggregateFunctionSum<T, TResult, Data> final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
           UnaryExpression,
           NullableAggregateFunction {
+    using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>;
+
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -130,6 +132,44 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).get());
+    }
+
+    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
+                                   Arena& arena) const override {
+        if constexpr (is_decimalv2(TResult)) {
+            Base::insert_result_into_repeat(place, repeat, to, arena);
+        } else {
+            auto& column = assert_cast<ColVecResult&>(to);
+            auto result = this->data(place).get();
+            if constexpr (is_decimalv3(TResult)) {
+                result.value *= typename decltype(result)::NativeType(repeat);
+            } else {
+                result *= static_cast<decltype(result)>(repeat);
+            }
+            column.get_data().push_back(result);
+        }
+    }
+
+    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                       const size_t offset, const std::vector<uint64_t>& repeats,
+                                       IColumn& to, const size_t num_rows,
+                                       Arena& arena) const override {
+        if constexpr (is_decimalv2(TResult)) {
+            Base::insert_result_into_repeat_vec(places, offset, repeats, to, num_rows, arena);
+        } else {
+            auto& column = assert_cast<ColVecResult&>(to);
+            auto& column_data = column.get_data();
+            column_data.reserve(column_data.size() + num_rows);
+            for (size_t i = 0; i != num_rows; ++i) {
+                auto result = this->data(places[i] + offset).get();
+                if constexpr (is_decimalv3(TResult)) {
+                    result.value *= typename decltype(result)::NativeType(repeats[i]);
+                } else {
+                    result *= static_cast<decltype(result)>(repeats[i]);
+                }
+                column_data.push_back(result);
+            }
+        }
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,

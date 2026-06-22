@@ -321,6 +321,14 @@ void AggFnEvaluator::insert_result_info_vec(const std::vector<AggregateDataPtr>&
     _function->insert_result_into_vec(places, offset, *column, num_rows);
 }
 
+void AggFnEvaluator::insert_result_info_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                                   size_t offset,
+                                                   const std::vector<uint64_t>& repeats,
+                                                   IColumn* column, const size_t num_rows,
+                                                   Arena& arena) {
+    _function->insert_result_into_repeat_vec(places, offset, repeats, *column, num_rows, arena);
+}
+
 void AggFnEvaluator::reset(AggregateDataPtr place) {
     _function->reset(place);
 }

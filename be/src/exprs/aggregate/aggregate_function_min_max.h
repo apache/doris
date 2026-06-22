@@ -810,6 +810,19 @@ public:
         this->data(place).insert_result_into(to);
     }
 
+    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t, IColumn& to,
+                                   Arena&) const override {
+        this->data(place).insert_result_into(to);
+    }
+
+    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                       const size_t offset, const std::vector<uint64_t>&,
+                                       IColumn& to, const size_t num_rows, Arena&) const override {
+        for (size_t i = 0; i != num_rows; ++i) {
+            this->data(places[i] + offset).insert_result_into(to);
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {

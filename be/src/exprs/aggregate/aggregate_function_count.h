@@ -95,6 +95,23 @@ public:
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
 
+    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
+                                   Arena&) const override {
+        auto& column = assert_cast<ColumnInt64&>(to);
+        column.get_data().push_back(data(place).count * repeat);
+    }
+
+    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                       const size_t offset, const std::vector<uint64_t>& repeats,
+                                       IColumn& to, const size_t num_rows, Arena&) const override {
+        auto& column = assert_cast<ColumnInt64&>(to);
+        auto& column_data = column.get_data();
+        column_data.reserve(column_data.size() + num_rows);
+        for (size_t i = 0; i != num_rows; ++i) {
+            column_data.push_back(data(places[i] + offset).count * repeats[i]);
+        }
+    }
+
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
@@ -246,6 +263,40 @@ public:
                     .push_back(data(place).count);
         } else {
             assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+        }
+    }
+
+    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
+                                   Arena&) const override {
+        if (is_column_nullable(to)) {
+            auto& nullable_column = assert_cast<ColumnNullable&>(to);
+            nullable_column.get_null_map_data().push_back(0);
+            assert_cast<ColumnInt64&>(nullable_column.get_nested_column())
+                    .get_data()
+                    .push_back(data(place).count * repeat);
+        } else {
+            assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count * repeat);
+        }
+    }
+
+    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                       const size_t offset, const std::vector<uint64_t>& repeats,
+                                       IColumn& to, const size_t num_rows, Arena&) const override {
+        if (is_column_nullable(to)) {
+            auto& nullable_column = assert_cast<ColumnNullable&>(to);
+            nullable_column.get_null_map_column().insert_many_vals(0, num_rows);
+            auto& nested_data =
+                    assert_cast<ColumnInt64&>(nullable_column.get_nested_column()).get_data();
+            nested_data.reserve(nested_data.size() + num_rows);
+            for (size_t i = 0; i != num_rows; ++i) {
+                nested_data.push_back(data(places[i] + offset).count * repeats[i]);
+            }
+        } else {
+            auto& column_data = assert_cast<ColumnInt64&>(to).get_data();
+            column_data.reserve(column_data.size() + num_rows);
+            for (size_t i = 0; i != num_rows; ++i) {
+                column_data.push_back(data(places[i] + offset).count * repeats[i]);
+            }
         }
     }
 

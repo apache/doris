@@ -67,6 +67,8 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/operator/group_commit_block_sink_operator.h"
 #include "exec/operator/group_commit_scan_operator.h"
+#include "exec/operator/groupjoin_build_sink.h"
+#include "exec/operator/groupjoin_probe_operator.h"
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
@@ -1515,6 +1517,26 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _op_id_to_shared_state.insert(
                     {op->operator_id(), {shared_state, shared_state->sink_deps}});
         }
+        break;
+    }
+    case TPlanNodeType::GROUP_JOIN_NODE: {
+        op = std::make_shared<GroupJoinProbeOperatorX>(pool, tnode, next_operator_id(), descs);
+        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (!_dag.contains(downstream_pipeline_id)) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+
+        sink_ops.push_back(std::make_shared<GroupJoinBuildSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
+        RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
+
+        _pipeline_parent_map.push(op->node_id(), cur_pipe);
+        _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
     }
     case TPlanNodeType::HASH_JOIN_NODE: {

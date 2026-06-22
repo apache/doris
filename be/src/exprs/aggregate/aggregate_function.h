@@ -25,6 +25,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_fixed_length_object.h"
@@ -193,6 +194,14 @@ public:
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
                                         const size_t offset, IColumn& to,
                                         const size_t num_rows) const = 0;
+
+    virtual void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat,
+                                           IColumn& to, Arena& arena) const = 0;
+
+    virtual void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                               const size_t offset,
+                                               const std::vector<uint64_t>& repeats, IColumn& to,
+                                               const size_t num_rows, Arena& arena) const = 0;
 
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
@@ -438,6 +447,33 @@ public:
         const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i != num_rows; ++i) {
             derived->insert_result_into(places[i] + offset, to);
+        }
+    }
+
+    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
+                                   Arena& arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
+        auto* output_state = arena.aligned_alloc(derived->size_of_data(), derived->align_of_data());
+        derived->create(output_state);
+        try {
+            for (uint64_t i = 0; i < repeat; ++i) {
+                derived->merge(output_state, place, arena);
+            }
+            derived->insert_result_into(output_state, to);
+        } catch (...) {
+            derived->destroy(output_state);
+            throw;
+        }
+        derived->destroy(output_state);
+    }
+
+    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                       const size_t offset, const std::vector<uint64_t>& repeats,
+                                       IColumn& to, const size_t num_rows,
+                                       Arena& arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
+        for (size_t i = 0; i != num_rows; ++i) {
+            derived->insert_result_into_repeat(places[i] + offset, repeats[i], to, arena);
         }
     }
 

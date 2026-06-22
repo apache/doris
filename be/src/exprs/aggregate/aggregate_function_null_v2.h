@@ -380,6 +380,69 @@ public:
             nested_function->insert_result_into(nested_place(place), to);
         }
     }
+
+    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
+                                   Arena& arena) const override {
+        if constexpr (result_is_nullable) {
+            auto& to_concrete = assert_cast<ColumnNullable&>(to);
+            auto& nested_column = to_concrete.get_nested_column();
+            auto& null_map = to_concrete.get_null_map_data();
+            if (get_flag(place)) {
+                nested_function->insert_result_into_repeat(nested_place(place), repeat,
+                                                           nested_column, arena);
+                null_map.push_back(0);
+            } else {
+                to_concrete.insert_default();
+            }
+        } else {
+            nested_function->insert_result_into_repeat(nested_place(place), repeat, to, arena);
+        }
+    }
+
+    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
+                                       const size_t offset, const std::vector<uint64_t>& repeats,
+                                       IColumn& to, const size_t num_rows,
+                                       Arena& arena) const override {
+        if constexpr (result_is_nullable) {
+            auto& to_concrete = assert_cast<ColumnNullable&>(to);
+            auto& nested_column = to_concrete.get_nested_column();
+
+            std::vector<AggregateDataPtr> nested_places;
+            std::vector<uint64_t> nested_repeats;
+            nested_places.reserve(num_rows);
+            nested_repeats.reserve(num_rows);
+
+            // Nullable result columns are stored as a nested value column plus a null map.
+            // The nested aggregate function only writes value rows, so the wrapper has to
+            // flush each contiguous non-NULL run before inserting a NULL row. This preserves
+            // row order and keeps the nested column size aligned with the null map size.
+            auto flush_nested = [&]() {
+                if (nested_places.empty()) {
+                    return;
+                }
+                nested_function->insert_result_into_repeat_vec(nested_places, offset + prefix_size,
+                                                               nested_repeats, nested_column,
+                                                               nested_places.size(), arena);
+                to_concrete.get_null_map_column().insert_many_vals(0, nested_places.size());
+                nested_places.clear();
+                nested_repeats.clear();
+            };
+
+            for (size_t i = 0; i != num_rows; ++i) {
+                if (get_flag(places[i] + offset)) {
+                    nested_places.push_back(places[i]);
+                    nested_repeats.push_back(repeats[i]);
+                } else {
+                    flush_nested();
+                    to_concrete.insert_default();
+                }
+            }
+            flush_nested();
+        } else {
+            nested_function->insert_result_into_repeat_vec(places, offset + prefix_size, repeats,
+                                                           to, num_rows, arena);
+        }
+    }
 };
 
 template <typename NestFuction, bool result_is_nullable>

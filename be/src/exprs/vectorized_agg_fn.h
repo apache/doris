@@ -87,6 +87,10 @@ public:
     void insert_result_info_vec(const std::vector<AggregateDataPtr>& place, size_t offset,
                                 IColumn* column, const size_t num_rows);
 
+    void insert_result_info_repeat_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
+                                       const std::vector<uint64_t>& repeats, IColumn* column,
+                                       const size_t num_rows, Arena& arena);
+
     void reset(AggregateDataPtr place);
 
     DataTypePtr& data_type() { return _data_type; }

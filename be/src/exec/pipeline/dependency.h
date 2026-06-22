@@ -23,6 +23,7 @@
 #endif
 
 #include <concurrentqueue.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <sqltypes.h>
 
@@ -39,6 +40,7 @@
 #include "core/block/block.h"
 #include "core/types.h"
 #include "exec/common/agg_utils.h"
+#include "exec/common/groupjoin_utils.h"
 #include "exec/common/join_utils.h"
 #include "exec/common/set_utils.h"
 #include "exec/operator/data_queue.h"
@@ -754,6 +756,27 @@ struct HashJoinSharedState : public JoinSharedState {
     AsofIndexVariant asof_index_groups;
     // build_row_index -> bucket_id for O(1) reverse lookup
     std::vector<uint32_t> asof_build_row_to_bucket;
+};
+
+struct GroupJoinSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(GroupJoinSharedState)
+    GroupJoinSharedState() { data_variants = std::make_unique<GroupJoinDataVariants>(); }
+    ~GroupJoinSharedState() override;
+
+    bool probe_eos = false;
+    bool result_emitted = false;
+    GroupJoinDataVariantsUPtr data_variants = nullptr;
+    std::shared_ptr<Arena> arena = std::make_shared<Arena>();
+    int64_t total_match_count = 0;
+    bool drain_inited = false;
+    std::vector<TGroupJoinAggSide::type> aggregate_sides;
+    std::vector<AggFnEvaluator*> aggregate_evaluators;
+    Sizes offsets_of_aggregate_states;
+    Sizes sizes_of_aggregate_states;
+    Sizes aligns_of_aggregate_states;
+    size_t total_size_of_aggregate_states = 0;
+    size_t align_aggregate_states = 1;
+    bool agg_layout_ready = false;
 };
 
 struct PartitionedHashJoinSharedState
