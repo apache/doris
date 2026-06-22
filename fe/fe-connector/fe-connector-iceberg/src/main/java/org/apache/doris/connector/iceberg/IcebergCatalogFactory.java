@@ -615,6 +615,23 @@ public final class IcebergCatalogFactory {
         return hiveConf;
     }
 
+    /**
+     * Builds the Hadoop {@link Configuration} for the bespoke {@code dlf} flavor, mirroring legacy
+     * {@code IcebergAliyunDLFMetaStoreProperties.initCatalog}: the {@code dlf.catalog.*} keys from the
+     * metastore-spi {@code toDlfCatalogConf()} (= the {@code DataLakeConfig.CATALOG_*} constant values), plus
+     * the two fixed hive keys {@code hive.metastore.type=dlf} and {@code type=hms} that legacy sets on the DLF
+     * {@code Configuration}. The conf classloader is pinned to the plugin loader (metastore client + filter-hook
+     * resolution parity). PURE (a function of {@code dlfCatalogConf}).
+     */
+    public static Configuration buildDlfConfiguration(Map<String, String> dlfCatalogConf) {
+        Configuration conf = new Configuration();
+        conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
+        dlfCatalogConf.forEach(conf::set);
+        conf.set("hive.metastore.type", "dlf");
+        conf.set("type", "hms");
+        return conf;
+    }
+
     // ---------------------------------------------------------------------
     // Pure helpers
     // ---------------------------------------------------------------------

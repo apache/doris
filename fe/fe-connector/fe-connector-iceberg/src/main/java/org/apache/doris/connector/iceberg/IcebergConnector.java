@@ -22,6 +22,8 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
+import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
@@ -138,6 +140,12 @@ public class IcebergConnector implements Connector {
             return createS3TablesCatalog(catalogName, chosenS3);
         }
 
+        // dlf is bespoke too: legacy IcebergAliyunDLFMetaStoreProperties builds a hive-compatible DLFCatalog with
+        // a DataLakeConfig-keyed Configuration and an OSS-backed S3FileIO, NOT via CatalogUtil.buildIcebergCatalog.
+        if (IcebergConnectorProperties.TYPE_DLF.equals(flavor)) {
+            return createDlfCatalog(catalogName, chosenS3);
+        }
+
         Map<String, String> catalogProps =
                 IcebergCatalogFactory.buildCatalogProperties(properties, flavor, chosenS3);
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
@@ -167,8 +175,8 @@ public class IcebergConnector implements Connector {
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
             default:
-                // rest / hadoop (and the dlf placeholder): a storage Configuration from the
-                // fe-filesystem-bound storage + raw fs./dfs./hadoop. passthrough.
+                // rest / hadoop: a storage Configuration from the fe-filesystem-bound storage + raw
+                // fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
         }
@@ -207,6 +215,33 @@ public class IcebergConnector implements Connector {
             S3TablesCatalog catalog = new S3TablesCatalog();
             catalog.initialize(catalogName, catalogProps, client);
             return catalog;
+        });
+    }
+
+    /**
+     * Creates the bespoke {@code dlf} catalog, mirroring legacy {@code IcebergAliyunDLFMetaStoreProperties}: the
+     * DLF metastore connection {@link Configuration} is built from the shared metastore-spi
+     * ({@code MetaStoreProviders.bindForType("dlf", ...)} -> {@code DlfMetaStoreProperties.toDlfCatalogConf()},
+     * the {@code dlf.catalog.*} = {@code DataLakeConfig.CATALOG_*} keys) plus the two legacy hive keys (see
+     * {@link IcebergCatalogFactory#buildDlfConfiguration}); the OSS-backed {@link DLFCatalog} then reads its
+     * FileIO endpoint/region/credentials from the chosen fe-filesystem OSS storage (D-061). A bound
+     * S3-compatible (OSS) storage is required; a missing one fails loud, before any metastore call.
+     */
+    private Catalog createDlfCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        if (!chosenS3.isPresent()) {
+            throw new DorisConnectorException("Iceberg dlf catalog requires OSS storage properties");
+        }
+        S3CompatibleFileSystemProperties oss = chosenS3.get();
+        DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
+                IcebergConnectorProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
+        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
+        Map<String, String> catalogProps = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
+        LOG.info("Creating Iceberg dlf catalog '{}'", catalogName);
+        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_DLF, () -> {
+            DLFCatalog dlfCatalog = new DLFCatalog(oss);
+            dlfCatalog.setConf(conf);
+            dlfCatalog.initialize(catalogName, catalogProps);
+            return dlfCatalog;
         });
     }
 

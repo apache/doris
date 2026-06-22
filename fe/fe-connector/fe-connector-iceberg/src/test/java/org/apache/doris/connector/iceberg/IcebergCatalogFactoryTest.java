@@ -806,4 +806,21 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertEquals("thrift://override:9083", conf.get("hive.metastore.uris"));
         Assertions.assertEquals("kept", conf.get("base.only"));
     }
+
+    @Test
+    public void buildDlfConfigurationAddsLegacyHiveKeysOnTopOfDlfCatalogConf() {
+        // WHY: legacy IcebergAliyunDLFMetaStoreProperties.initCatalog sets the DataLakeConfig.CATALOG_* keys (=
+        // the dlf.catalog.* keys toDlfCatalogConf already produces) AND the two fixed hive keys
+        // hive.metastore.type=dlf + type=hms on the DLF Configuration. MUTATION: dropping either hive key, or not
+        // carrying the toDlfCatalogConf entries through, -> red.
+        Map<String, String> dlfConf = new HashMap<>();
+        dlfConf.put("dlf.catalog.accessKeyId", "AK");
+        dlfConf.put("dlf.catalog.endpoint", "dlf-vpc.cn-hangzhou.aliyuncs.com");
+        Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlfConf);
+        Assertions.assertEquals("AK", conf.get("dlf.catalog.accessKeyId"));
+        Assertions.assertEquals("dlf-vpc.cn-hangzhou.aliyuncs.com", conf.get("dlf.catalog.endpoint"));
+        Assertions.assertEquals("dlf", conf.get("hive.metastore.type"),
+                "legacy sets hive.metastore.type=dlf on the DLF Configuration");
+        Assertions.assertEquals("hms", conf.get("type"), "legacy sets type=hms on the DLF Configuration");
+    }
 }
