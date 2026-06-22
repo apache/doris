@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -273,7 +274,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRewritePlanWithOpColumnUsesIfExpression() {
-        // Incremental stream scan: should use IF(STREAM_CHANGE_TYPE_COL = "APPEND", 1, -1)
+        // Incremental stream scan: should use IF(op = "APPEND" OR op = "UPDATE_AFTER", 1, -1)
         LogicalOlapTableStreamScan scan = buildDeltaScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
@@ -286,8 +287,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         Expression ifExpr = ((Alias) factorExpr).child();
         Assertions.assertInstanceOf(If.class, ifExpr);
         If ifFunc = (If) ifExpr;
-        // Condition: EqualTo(VarcharLiteral("APPEND"), opSlot)
-        Assertions.assertInstanceOf(EqualTo.class, ifFunc.getArgument(0));
+        // Condition: Or(EqualTo(VarcharLiteral("APPEND"), opSlot), EqualTo(VarcharLiteral("UPDATE_AFTER"), opSlot))
+        Assertions.assertInstanceOf(Or.class, ifFunc.getArgument(0));
         // Then: TinyIntLiteral(1)
         Assertions.assertInstanceOf(TinyIntLiteral.class, ifFunc.getArgument(1));
         Assertions.assertEquals((byte) 1, ((TinyIntLiteral) ifFunc.getArgument(1)).getValue());

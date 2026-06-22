@@ -37,3 +37,35 @@
 3	10
 3	20
 
+-- !mow_dup_unmatched_after_complete --
+1	10	100
+2	20	200
+
+-- !mow_dup_unmatched_after_incremental --
+1	10	100
+2	20	200
+3	30	300
+
+-- !mow_dup_unmatched_after_complete_recovery --
+1	10	100
+2	20	200
+3	30	300
+
+-- !mow_dup_matched_after_complete --
+1	10	100
+2	20	200
+
+-- !mow_dup_matched_after_complete_recovery --
+1	10	100
+
+-- !nested_join_after_complete --
+1	10	100	1000
+
+-- !nested_join_after_incremental --
+1	10	100	1000
+2	20	200	2000
+
+-- !nested_join_after_complete_recovery --
+1	10	100	1000
+2	20	200	2000
+

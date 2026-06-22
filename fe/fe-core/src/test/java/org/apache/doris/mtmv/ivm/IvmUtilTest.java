@@ -110,8 +110,8 @@ class IvmUtilTest {
 
     @Test
     void testStreamName() {
-        Assertions.assertEquals("__doris_ivm_123_t1", IvmUtil.streamName(123L, "t1"));
-        Assertions.assertEquals("__doris_ivm_456_base_table", IvmUtil.streamName(456L, "base_table"));
+        Assertions.assertEquals("__doris_ivm_stream_123_t1", IvmUtil.streamName(123L, "t1"));
+        Assertions.assertEquals("__doris_ivm_stream_456_base_table", IvmUtil.streamName(456L, "base_table"));
     }
 
     @Test

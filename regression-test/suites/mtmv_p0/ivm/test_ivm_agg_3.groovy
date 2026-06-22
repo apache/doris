@@ -23,11 +23,11 @@ suite("test_ivm_agg_3") {
     //          Also tests group deletion with composite keys via binlog_op
     // =========================================================
 
-    sql """drop materialized view if exists test_ivm_agg_mtmv_multikey_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_multikey_base;"""
+    sql """drop materialized view if exists ivm_agg_multikey_mv;"""
+    sql """drop table if exists ivm_agg_multikey_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_multikey_base (
+        CREATE TABLE ivm_agg_multikey_base (
             id INT,
             k1 INT,
             k2 VARCHAR(32),
@@ -48,7 +48,7 @@ suite("test_ivm_agg_3") {
     // (k1=1,k2='b'): 1 row (v1=30)
     // (k1=2,k2='a'): 1 row (v1=40)
     sql """
-        INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES
+        INSERT INTO ivm_agg_multikey_base VALUES
             (1, 1, 'a', 10),
             (2, 1, 'a', 20),
             (3, 1, 'b', 30),
@@ -56,36 +56,36 @@ suite("test_ivm_agg_3") {
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv
+        CREATE MATERIALIZED VIEW ivm_agg_multikey_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
             'replication_num' = '1'
         )
         AS SELECT k1, k2, COUNT(*) AS cnt, SUM(v1) AS sum_v1
-           FROM test_ivm_agg_mtmv_multikey_base
+           FROM ivm_agg_multikey_base
            GROUP BY k1, k2;
     """
 
     // Step 1: COMPLETE refresh
     // (1,'a'): cnt=2, sum=30; (1,'b'): cnt=1, sum=30; (2,'a'): cnt=1, sum=40
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
     order_qt_multikey_after_complete """
-        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_mtmv_multikey_mv ORDER BY k1, k2
+        SELECT k1, k2, cnt, sum_v1 FROM ivm_agg_multikey_mv ORDER BY k1, k2
     """
 
     // Step 2: Insert new rows — add to existing group (1,'a') and create new group (2,'b')
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (5, 1, 'a', 50);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (6, 2, 'b', 60);"""
+    sql """INSERT INTO ivm_agg_multikey_base VALUES (5, 1, 'a', 50);"""
+    sql """INSERT INTO ivm_agg_multikey_base VALUES (6, 2, 'b', 60);"""
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
     // After INCREMENTAL insert: new group (2,'b') appears; (1,'a') inflated due to mock delta.
     order_qt_multikey_after_insert_incremental """
-        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_mtmv_multikey_mv ORDER BY k1, k2
+        SELECT k1, k2, cnt, sum_v1 FROM ivm_agg_multikey_mv ORDER BY k1, k2
     """
 
     // COMPLETE to verify
@@ -93,24 +93,24 @@ suite("test_ivm_agg_3") {
     // (1,'b'): id=3(30) → cnt=1, sum=30
     // (2,'a'): id=4(40) → cnt=1, sum=40
     // (2,'b'): id=6(60) → cnt=1, sum=60
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
     order_qt_multikey_after_insert_complete """
-        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_mtmv_multikey_mv ORDER BY k1, k2
+        SELECT k1, k2, cnt, sum_v1 FROM ivm_agg_multikey_mv ORDER BY k1, k2
     """
 
     // Step 3: Delete the only row in group (1,'b') — should disappear from MV
-    sql """DELETE FROM test_ivm_agg_mtmv_multikey_base WHERE k1 = 3;"""
+    sql """DELETE FROM ivm_agg_multikey_base WHERE k1 = 3;"""
     // Dirty partition
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (7, 2, 'a', 70);"""
+    sql """INSERT INTO ivm_agg_multikey_base VALUES (7, 2, 'a', 70);"""
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
     // After INCREMENTAL: group (1,'b') should be gone
     order_qt_multikey_after_delete_incremental """
-        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_mtmv_multikey_mv ORDER BY k1, k2
+        SELECT k1, k2, cnt, sum_v1 FROM ivm_agg_multikey_mv ORDER BY k1, k2
     """
 
     // COMPLETE to verify ground truth
@@ -118,11 +118,11 @@ suite("test_ivm_agg_3") {
     //           id=5(1,'a',50,0), id=6(2,'b',60,0), id=7(2,'a',70,0)
     // COMPLETE ignores binlog_op:
     // (1,'a'): cnt=3, sum=80; (1,'b'): cnt=1, sum=30; (2,'a'): cnt=2, sum=110; (2,'b'): cnt=1, sum=60
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multikey_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multikey_mv")
 
     order_qt_multikey_after_final_complete """
-        SELECT k1, k2, cnt, sum_v1 FROM test_ivm_agg_mtmv_multikey_mv ORDER BY k1, k2
+        SELECT k1, k2, cnt, sum_v1 FROM ivm_agg_multikey_mv ORDER BY k1, k2
     """
 
     // =========================================================
@@ -130,11 +130,11 @@ suite("test_ivm_agg_3") {
     //          Verifies hidden state columns don't collide across aggregations
     // =========================================================
 
-    sql """drop materialized view if exists test_ivm_agg_mtmv_multiagg_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_multiagg_base;"""
+    sql """drop materialized view if exists ivm_agg_multiagg_mv;"""
+    sql """drop table if exists ivm_agg_multiagg_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_multiagg_base (
+        CREATE TABLE ivm_agg_multiagg_base (
             k1 INT,
             grp INT,
             v1 INT,
@@ -151,55 +151,55 @@ suite("test_ivm_agg_3") {
     """
 
     sql """
-        INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES
+        INSERT INTO ivm_agg_multiagg_base VALUES
             (1, 1, 10, 100),
             (2, 1, 20, 200),
             (3, 2, 30, 300);
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv
+        CREATE MATERIALIZED VIEW ivm_agg_multiagg_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
             'replication_num' = '1'
         )
         AS SELECT grp, SUM(v1) AS sum_v1, SUM(v2) AS sum_v2, MIN(v1) AS min_v1, MAX(v2) AS max_v2, COUNT(*) AS cnt
-           FROM test_ivm_agg_mtmv_multiagg_base
+           FROM ivm_agg_multiagg_base
            GROUP BY grp;
     """
 
     // COMPLETE: grp=1: sum_v1=30, sum_v2=300, min_v1=10, max_v2=200, cnt=2
     //           grp=2: sum_v1=30, sum_v2=300, min_v1=30, max_v2=300, cnt=1
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multiagg_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multiagg_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multiagg_mv")
 
     order_qt_multiagg_after_complete """
         SELECT grp, sum_v1, sum_v2, min_v1, max_v2, cnt
-        FROM test_ivm_agg_mtmv_multiagg_mv ORDER BY grp
+        FROM ivm_agg_multiagg_mv ORDER BY grp
     """
 
     // Insert safe rows (not touching MIN/MAX boundaries)
-    sql """INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES (4, 1, 15, 150);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES (5, 2, 35, 250);"""
+    sql """INSERT INTO ivm_agg_multiagg_base VALUES (4, 1, 15, 150);"""
+    sql """INSERT INTO ivm_agg_multiagg_base VALUES (5, 2, 35, 250);"""
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multiagg_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multiagg_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multiagg_mv")
 
     // After INCREMENTAL insert: mock delta inflates counts; output still queryable.
     order_qt_multiagg_after_insert_incremental """
         SELECT grp, sum_v1, sum_v2, min_v1, max_v2, cnt
-        FROM test_ivm_agg_mtmv_multiagg_mv ORDER BY grp
+        FROM ivm_agg_multiagg_mv ORDER BY grp
     """
 
     // COMPLETE: grp=1: sum_v1=45, sum_v2=450, min_v1=10, max_v2=200, cnt=3
     //           grp=2: sum_v1=65, sum_v2=550, min_v1=30, max_v2=300, cnt=2
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multiagg_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_multiagg_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_multiagg_mv")
 
     order_qt_multiagg_after_insert_complete """
         SELECT grp, sum_v1, sum_v2, min_v1, max_v2, cnt
-        FROM test_ivm_agg_mtmv_multiagg_mv ORDER BY grp
+        FROM ivm_agg_multiagg_mv ORDER BY grp
     """
 
     // =========================================================
@@ -207,11 +207,11 @@ suite("test_ivm_agg_3") {
     //          SUM crosses zero, becomes negative, or cancels to exactly 0
     // =========================================================
 
-    sql """drop materialized view if exists test_ivm_agg_mtmv_negval_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_negval_base;"""
+    sql """drop materialized view if exists ivm_agg_negval_mv;"""
+    sql """drop table if exists ivm_agg_negval_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_negval_base (
+        CREATE TABLE ivm_agg_negval_base (
             k1 INT,
             v1 INT
         )
@@ -227,77 +227,77 @@ suite("test_ivm_agg_3") {
 
     // Initial: v1=100, v1=-80 → SUM=20
     sql """
-        INSERT INTO test_ivm_agg_mtmv_negval_base VALUES
+        INSERT INTO ivm_agg_negval_base VALUES
             (1, 100),
             (2, -80);
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv
+        CREATE MATERIALIZED VIEW ivm_agg_negval_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
             'replication_num' = '1'
         )
         AS SELECT COUNT(*) AS cnt, SUM(v1) AS sum_v1
-           FROM test_ivm_agg_mtmv_negval_base;
+           FROM ivm_agg_negval_base;
     """
 
     // COMPLETE: cnt=2, sum=20
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
     order_qt_negval_after_complete """
-        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+        SELECT cnt, sum_v1 FROM ivm_agg_negval_mv
     """
 
     // Insert v1=-50 → SUM should be 100+(-80)+(-50)=-30 (crosses zero to negative)
-    sql """INSERT INTO test_ivm_agg_mtmv_negval_base VALUES (3, -50);"""
+    sql """INSERT INTO ivm_agg_negval_base VALUES (3, -50);"""
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
     // After INCREMENTAL: mock delta reads all 3 rows; SUM inflated but queryable.
     order_qt_negval_after_first_incremental """
-        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+        SELECT cnt, sum_v1 FROM ivm_agg_negval_mv
     """
 
     // COMPLETE: cnt=3, sum=-30
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
     order_qt_negval_after_negative_complete """
-        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+        SELECT cnt, sum_v1 FROM ivm_agg_negval_mv
     """
 
     // Insert v1=30 → SUM should be -30+30=0 (exact cancellation to zero)
-    sql """INSERT INTO test_ivm_agg_mtmv_negval_base VALUES (4, 30);"""
+    sql """INSERT INTO ivm_agg_negval_base VALUES (4, 30);"""
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
     // After second INCREMENTAL: 4 rows in delta; output queryable.
     order_qt_negval_after_second_incremental """
-        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+        SELECT cnt, sum_v1 FROM ivm_agg_negval_mv
     """
 
     // COMPLETE: cnt=4, sum=0
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_negval_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_negval_mv")
 
     order_qt_negval_after_zero_complete """
-        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_negval_mv
+        SELECT cnt, sum_v1 FROM ivm_agg_negval_mv
     """
 
     // =========================================================
     // Part 13: Empty delta — INCREMENTAL without changes → NOT_REFRESH
     // =========================================================
 
-    sql """drop materialized view if exists test_ivm_agg_mtmv_emptydelta_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_emptydelta_base;"""
+    sql """drop materialized view if exists ivm_agg_emptydelta_mv;"""
+    sql """drop table if exists ivm_agg_emptydelta_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_emptydelta_base (
+        CREATE TABLE ivm_agg_emptydelta_base (
             k1 INT,
             v1 INT
         )
@@ -311,40 +311,40 @@ suite("test_ivm_agg_3") {
         );
     """
 
-    sql """INSERT INTO test_ivm_agg_mtmv_emptydelta_base VALUES (1, 10), (2, 20);"""
+    sql """INSERT INTO ivm_agg_emptydelta_base VALUES (1, 10), (2, 20);"""
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_emptydelta_mv
+        CREATE MATERIALIZED VIEW ivm_agg_emptydelta_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
             'replication_num' = '1'
         )
         AS SELECT COUNT(*) AS cnt, SUM(v1) AS sum_v1
-           FROM test_ivm_agg_mtmv_emptydelta_base;
+           FROM ivm_agg_emptydelta_base;
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_emptydelta_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_emptydelta_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_emptydelta_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_emptydelta_mv")
 
     // INCREMENTAL without any new data — should get SUCCESS (NOT_REFRESH)
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_emptydelta_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_emptydelta_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_emptydelta_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_emptydelta_mv")
 
     // Verify data is unchanged
     order_qt_emptydelta_unchanged """
-        SELECT cnt, sum_v1 FROM test_ivm_agg_mtmv_emptydelta_mv
+        SELECT cnt, sum_v1 FROM ivm_agg_emptydelta_mv
     """
 
     // =========================================================
     // Part 14: Type casting / widening — TINYINT, DECIMAL, DOUBLE columns
     // =========================================================
 
-    sql """drop materialized view if exists test_ivm_agg_mtmv_types_mv;"""
-    sql """drop table if exists test_ivm_agg_mtmv_types_base;"""
+    sql """drop materialized view if exists ivm_agg_types_mv;"""
+    sql """drop table if exists ivm_agg_types_base;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_mtmv_types_base (
+        CREATE TABLE ivm_agg_types_base (
             k1 INT,
             v_tiny TINYINT,
             v_dec DECIMAL(10,2),
@@ -361,14 +361,14 @@ suite("test_ivm_agg_3") {
     """
 
     sql """
-        INSERT INTO test_ivm_agg_mtmv_types_base VALUES
+        INSERT INTO ivm_agg_types_base VALUES
             (1, 10, 99.50, 1.5),
             (2, 20, 50.25, 2.5),
             (3, -5, 100.75, 3.5);
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_types_mv
+        CREATE MATERIALIZED VIEW ivm_agg_types_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
@@ -379,38 +379,38 @@ suite("test_ivm_agg_3") {
                   SUM(v_dbl) AS sum_dbl, AVG(v_dbl) AS avg_dbl,
                   MIN(v_tiny) AS min_tiny, MAX(v_dec) AS max_dec,
                   COUNT(*) AS cnt
-           FROM test_ivm_agg_mtmv_types_base;
+           FROM ivm_agg_types_base;
     """
 
     // COMPLETE: sum_tiny=25, avg_tiny≈8.33, sum_dec=250.50, avg_dec≈83.50,
     //           sum_dbl=7.5, avg_dbl=2.5, min_tiny=-5, max_dec=100.75, cnt=3
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_types_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_types_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_types_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_types_mv")
 
     order_qt_types_after_complete """
         SELECT sum_tiny, avg_tiny, sum_dec, avg_dec, sum_dbl, avg_dbl, min_tiny, max_dec, cnt
-        FROM test_ivm_agg_mtmv_types_mv
+        FROM ivm_agg_types_mv
     """
 
     // Safe insert (doesn't touch MIN/MAX boundaries)
-    sql """INSERT INTO test_ivm_agg_mtmv_types_base VALUES (4, 0, 75.00, 4.0);"""
+    sql """INSERT INTO ivm_agg_types_base VALUES (4, 0, 75.00, 4.0);"""
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_types_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_types_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_types_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_types_mv")
 
     // After INCREMENTAL: row k1=4 added; all typed aggregates queryable.
     order_qt_types_after_insert_incremental """
         SELECT sum_tiny, avg_tiny, sum_dec, avg_dec, sum_dbl, avg_dbl, min_tiny, max_dec, cnt
-        FROM test_ivm_agg_mtmv_types_mv
+        FROM ivm_agg_types_mv
     """
 
     // COMPLETE: sum_tiny=25, avg_tiny≈6.25, sum_dec=325.50, avg_dec≈81.375,
     //           sum_dbl=11.5, avg_dbl=2.875, min_tiny=-5, max_dec=100.75, cnt=4
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_types_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_types_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_agg_types_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_agg_types_mv")
 
     order_qt_types_after_insert_complete """
         SELECT sum_tiny, avg_tiny, sum_dec, avg_dec, sum_dbl, avg_dbl, min_tiny, max_dec, cnt
-        FROM test_ivm_agg_mtmv_types_mv
+        FROM ivm_agg_types_mv
     """
 }

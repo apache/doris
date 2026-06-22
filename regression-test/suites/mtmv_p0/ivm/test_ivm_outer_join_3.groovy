@@ -20,12 +20,12 @@ suite("test_ivm_outer_join_3") {
     // =========================================================
     // Part 1: RIGHT OUTER JOIN null-side delta with pure hash conjuncts.
     // =========================================================
-    sql """drop materialized view if exists test_ivm_outer_join_3_right_event_mv;"""
-    sql """drop table if exists test_ivm_outer_join_3_right_event_l;"""
-    sql """drop table if exists test_ivm_outer_join_3_right_event_r;"""
+    sql """drop materialized view if exists ivm_oj3_right_event_mv;"""
+    sql """drop table if exists ivm_oj3_right_event_l;"""
+    sql """drop table if exists ivm_oj3_right_event_r;"""
 
     sql """
-        CREATE TABLE test_ivm_outer_join_3_right_event_l (
+        CREATE TABLE ivm_oj3_right_event_l (
             k1 INT,
             v1 INT
         )
@@ -40,7 +40,7 @@ suite("test_ivm_outer_join_3") {
     """
 
     sql """
-        CREATE TABLE test_ivm_outer_join_3_right_event_r (
+        CREATE TABLE ivm_oj3_right_event_r (
             k1 INT,
             v2 INT
         )
@@ -54,11 +54,11 @@ suite("test_ivm_outer_join_3") {
         );
     """
 
-    sql """INSERT INTO test_ivm_outer_join_3_right_event_l VALUES (1, 10), (3, 30);"""
-    sql """INSERT INTO test_ivm_outer_join_3_right_event_r VALUES (1, 100), (2, 200), (3, 300);"""
+    sql """INSERT INTO ivm_oj3_right_event_l VALUES (1, 10), (3, 30);"""
+    sql """INSERT INTO ivm_oj3_right_event_r VALUES (1, 100), (2, 200), (3, 300);"""
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_outer_join_3_right_event_mv
+        CREATE MATERIALIZED VIEW ivm_oj3_right_event_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 1
         PROPERTIES (
@@ -66,49 +66,49 @@ suite("test_ivm_outer_join_3") {
         )
         AS
         SELECT
-            test_ivm_outer_join_3_right_event_r.k1 AS k1,
-            test_ivm_outer_join_3_right_event_l.v1 AS left_v1,
-            test_ivm_outer_join_3_right_event_r.v2 AS right_v2
-        FROM test_ivm_outer_join_3_right_event_l
-        RIGHT OUTER JOIN test_ivm_outer_join_3_right_event_r
-            ON test_ivm_outer_join_3_right_event_l.k1 = test_ivm_outer_join_3_right_event_r.k1;
+            ivm_oj3_right_event_r.k1 AS k1,
+            ivm_oj3_right_event_l.v1 AS left_v1,
+            ivm_oj3_right_event_r.v2 AS right_v2
+        FROM ivm_oj3_right_event_l
+        RIGHT OUTER JOIN ivm_oj3_right_event_r
+            ON ivm_oj3_right_event_l.k1 = ivm_oj3_right_event_r.k1;
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_3_right_event_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_3_right_event_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_event_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_oj3_right_event_mv")
     order_qt_right_event_after_complete """
         SELECT k1, left_v1, right_v2
-        FROM test_ivm_outer_join_3_right_event_mv
+        FROM ivm_oj3_right_event_mv
         ORDER BY k1, left_v1, right_v2
     """
 
-    sql """INSERT INTO test_ivm_outer_join_3_right_event_r VALUES (4, 400);"""
-    sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_3_right_event_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_3_right_event_mv")
+    sql """INSERT INTO ivm_oj3_right_event_r VALUES (4, 400);"""
+    sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_event_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_oj3_right_event_mv")
     order_qt_right_event_after_right_incremental """
         SELECT k1, left_v1, right_v2
-        FROM test_ivm_outer_join_3_right_event_mv
+        FROM ivm_oj3_right_event_mv
         ORDER BY k1, left_v1, right_v2
     """
 
-    sql """INSERT INTO test_ivm_outer_join_3_right_event_l VALUES (2, 20);"""
-    sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_3_right_event_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_3_right_event_mv")
+    sql """INSERT INTO ivm_oj3_right_event_l VALUES (2, 20);"""
+    sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_event_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_oj3_right_event_mv")
     order_qt_right_event_after_left_incremental """
         SELECT k1, left_v1, right_v2
-        FROM test_ivm_outer_join_3_right_event_mv
+        FROM ivm_oj3_right_event_mv
         ORDER BY k1, left_v1, right_v2
     """
 
     // =========================================================
     // Part 2: RIGHT OUTER JOIN null-side delta with a non-hash other conjunct.
     // =========================================================
-    sql """drop materialized view if exists test_ivm_outer_join_3_right_repair_mv;"""
-    sql """drop table if exists test_ivm_outer_join_3_right_repair_l;"""
-    sql """drop table if exists test_ivm_outer_join_3_right_repair_r;"""
+    sql """drop materialized view if exists ivm_oj3_right_repair_mv;"""
+    sql """drop table if exists ivm_oj3_right_repair_l;"""
+    sql """drop table if exists ivm_oj3_right_repair_r;"""
 
     sql """
-        CREATE TABLE test_ivm_outer_join_3_right_repair_l (
+        CREATE TABLE ivm_oj3_right_repair_l (
             k1 INT,
             v1 INT
         )
@@ -123,7 +123,7 @@ suite("test_ivm_outer_join_3") {
     """
 
     sql """
-        CREATE TABLE test_ivm_outer_join_3_right_repair_r (
+        CREATE TABLE ivm_oj3_right_repair_r (
             k1 INT,
             v2 INT
         )
@@ -137,11 +137,11 @@ suite("test_ivm_outer_join_3") {
         );
     """
 
-    sql """INSERT INTO test_ivm_outer_join_3_right_repair_l VALUES (1, 10);"""
-    sql """INSERT INTO test_ivm_outer_join_3_right_repair_r VALUES (1, 5), (2, 25), (3, 30);"""
+    sql """INSERT INTO ivm_oj3_right_repair_l VALUES (1, 10);"""
+    sql """INSERT INTO ivm_oj3_right_repair_r VALUES (1, 5), (2, 25), (3, 30);"""
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_outer_join_3_right_repair_mv
+        CREATE MATERIALIZED VIEW ivm_oj3_right_repair_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 1
         PROPERTIES (
@@ -149,29 +149,29 @@ suite("test_ivm_outer_join_3") {
         )
         AS
         SELECT
-            test_ivm_outer_join_3_right_repair_r.k1 AS k1,
-            test_ivm_outer_join_3_right_repair_l.v1 AS left_v1,
-            test_ivm_outer_join_3_right_repair_r.v2 AS right_v2
-        FROM test_ivm_outer_join_3_right_repair_l
-        RIGHT OUTER JOIN test_ivm_outer_join_3_right_repair_r
-            ON test_ivm_outer_join_3_right_repair_l.k1 = test_ivm_outer_join_3_right_repair_r.k1
-            AND test_ivm_outer_join_3_right_repair_l.v1 > test_ivm_outer_join_3_right_repair_r.v2;
+            ivm_oj3_right_repair_r.k1 AS k1,
+            ivm_oj3_right_repair_l.v1 AS left_v1,
+            ivm_oj3_right_repair_r.v2 AS right_v2
+        FROM ivm_oj3_right_repair_l
+        RIGHT OUTER JOIN ivm_oj3_right_repair_r
+            ON ivm_oj3_right_repair_l.k1 = ivm_oj3_right_repair_r.k1
+            AND ivm_oj3_right_repair_l.v1 > ivm_oj3_right_repair_r.v2;
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_3_right_repair_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_3_right_repair_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_repair_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_oj3_right_repair_mv")
     order_qt_right_repair_after_complete """
         SELECT k1, left_v1, right_v2
-        FROM test_ivm_outer_join_3_right_repair_mv
+        FROM ivm_oj3_right_repair_mv
         ORDER BY k1, left_v1, right_v2
     """
 
-    sql """INSERT INTO test_ivm_outer_join_3_right_repair_l VALUES (2, 30);"""
-    sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_3_right_repair_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_3_right_repair_mv")
+    sql """INSERT INTO ivm_oj3_right_repair_l VALUES (2, 30);"""
+    sql """REFRESH MATERIALIZED VIEW ivm_oj3_right_repair_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_oj3_right_repair_mv")
     order_qt_right_repair_after_left_incremental """
         SELECT k1, left_v1, right_v2
-        FROM test_ivm_outer_join_3_right_repair_mv
+        FROM ivm_oj3_right_repair_mv
         ORDER BY k1, left_v1, right_v2
     """
 

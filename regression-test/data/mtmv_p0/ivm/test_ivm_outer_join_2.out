@@ -19,3 +19,29 @@
 2	20	\N	\N
 4	40	\N	\N
 
+-- !inner_nested_after_complete --
+1	10	100	1000
+2	20	200	\N
+
+-- !inner_nested_after_inner_incremental --
+1	10	100	1000
+2	20	200	\N
+3	30	300	\N
+
+-- !inner_nested_after_right_incremental --
+2	20	200	\N
+3	30	300	\N
+
+-- !filter_after_complete --
+1	10	100
+3	30	\N
+
+-- !filter_after_left_incremental --
+1	10	100
+3	30	\N
+4	40	\N
+
+-- !filter_after_right_incremental --
+3	30	\N
+4	40	\N
+
