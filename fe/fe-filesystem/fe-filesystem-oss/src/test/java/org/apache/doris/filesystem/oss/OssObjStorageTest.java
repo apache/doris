@@ -207,6 +207,62 @@ class OssObjStorageTest {
     }
 
     @Test
+    void listObjects_truncatedWithoutNextMarker_fallsBackToLastKey() throws Exception {
+        // OSS only fills NextMarker when a delimiter is set; a delimiter-less (recursive)
+        // truncated page returns a null/blank marker. The fallback must resume from the last
+        // returned key, otherwise recursive list/delete/rename silently stop after page 1.
+        OSS mockOss = Mockito.mock(OSS.class);
+        OSSObjectSummary s1 = new OSSObjectSummary();
+        s1.setKey("stage/a.parquet");
+        OSSObjectSummary s2 = new OSSObjectSummary();
+        s2.setKey("stage/b.parquet");
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(List.of(s1, s2));
+        listing.setTruncated(true);
+        listing.setNextMarker(null);
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class))).thenReturn(listing);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+        RemoteObjects result = storage.listObjects("oss://my-bucket/stage/", null);
+
+        Assertions.assertTrue(result.isTruncated());
+        Assertions.assertEquals("stage/b.parquet", result.getContinuationToken(),
+                "Truncated page with blank NextMarker must fall back to the last object key");
+    }
+
+    @Test
+    void listObjects_notTruncated_hasNoContinuationToken() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OSSObjectSummary s1 = new OSSObjectSummary();
+        s1.setKey("stage/a.parquet");
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(List.of(s1));
+        listing.setTruncated(false);
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class))).thenReturn(listing);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+        RemoteObjects result = storage.listObjects("oss://my-bucket/stage/", null);
+
+        Assertions.assertFalse(result.isTruncated());
+        Assertions.assertNull(result.getContinuationToken());
+    }
+
+    @Test
+    void putObject_translatesServerSideOssExceptionToIoException() {
+        // OSSException (server-side, e.g. AccessDenied) is a sibling of ClientException, not a
+        // subclass; it must be caught and translated, not allowed to escape as an unchecked
+        // exception that bypasses the throws-IOException contract.
+        OSS mockOss = Mockito.mock(OSS.class);
+        Mockito.when(mockOss.putObject(Mockito.any(PutObjectRequest.class)))
+                .thenThrow(new com.aliyun.oss.OSSException("Access denied"));
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        byte[] content = "x".getBytes(StandardCharsets.UTF_8);
+        Assertions.assertThrows(IOException.class, () -> storage.putObject("oss://my-bucket/k.txt",
+                RequestBody.of(new ByteArrayInputStream(content), content.length)));
+    }
+
+    @Test
     void headObject_usesOssNativeClientAndMapsMetadata() throws Exception {
         OSS mockOss = Mockito.mock(OSS.class);
         ObjectMetadata metadata = new ObjectMetadata();

@@ -15,16 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.cos;
-
-import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
+package org.apache.doris.filesystem.hdfs.properties;
 
 /**
- * COS filesystem using the shared object-store file semantics with native COS SDK I/O.
+ * Minimal local copy of fe-common's {@code UserException}, kept so the migrated HDFS
+ * property classes preserve their original {@code throws UserException} signatures without
+ * depending on fe-common (the original drags in InternalErrorCode and the large ErrorCode
+ * enum). Only the constructors used by the migrated code are provided.
  */
-public class CosFileSystem extends S3CompatibleFileSystem {
+public class UserException extends Exception {
 
-    public CosFileSystem(CosObjStorage objStorage) {
-        super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
+    public UserException(String msg) {
+        super(msg);
+    }
+
+    public UserException(String msg, Throwable cause) {
+        super(msg, cause);
     }
 }

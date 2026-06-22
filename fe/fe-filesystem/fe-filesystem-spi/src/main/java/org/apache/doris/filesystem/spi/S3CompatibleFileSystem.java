@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -55,10 +56,13 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     private static final String DIR_MARKER_SUFFIX = "/";
 
     private final boolean usePathStyle;
+    private final Set<String> supportedSchemes;
 
-    protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle) {
+    protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle,
+            Set<String> supportedSchemes) {
         super(objStorage);
         this.usePathStyle = usePathStyle;
+        this.supportedSchemes = supportedSchemes;
     }
 
     @Override
@@ -204,7 +208,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
     /** Parses {@code uri} respecting the underlying client's path-style configuration. */
     private ObjectStorageUri parseUri(String uri) {
-        return ObjectStorageUri.parse(uri, usePathStyle);
+        return ObjectStorageUri.parse(uri, usePathStyle, supportedSchemes);
     }
 
     /**

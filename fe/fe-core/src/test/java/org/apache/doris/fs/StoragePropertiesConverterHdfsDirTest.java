@@ -15,16 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.cos;
+package org.apache.doris.fs;
 
-import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
+import org.apache.doris.common.Config;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
 
-/**
- * COS filesystem using the shared object-store file semantics with native COS SDK I/O.
- */
-public class CosFileSystem extends S3CompatibleFileSystem {
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-    public CosFileSystem(CosObjStorage objStorage) {
-        super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
+import java.util.HashMap;
+import java.util.Map;
+
+public class StoragePropertiesConverterHdfsDirTest {
+
+    @Test
+    public void hdfsMapCarriesInjectedConfigDir() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("fs.defaultFS", "hdfs://ns");
+        HdfsProperties props = new HdfsProperties(raw);
+        props.initNormalizeAndCheckProps();
+
+        Map<String, String> map = StoragePropertiesConverter.toMap(props);
+
+        Assertions.assertEquals("HDFS", map.get("_STORAGE_TYPE_"));
+        Assertions.assertEquals(Config.hadoop_config_dir, map.get("_HADOOP_CONFIG_DIR_"));
     }
 }

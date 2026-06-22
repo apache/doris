@@ -69,6 +69,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -107,6 +108,11 @@ public class OssObjStorage implements ObjStorage<OSS> {
     /** Whether path-style (vs virtual-hosted-style) bucket access is explicitly configured. */
     public boolean isUsePathStyle() {
         return properties.isUsePathStyle();
+    }
+
+    /** Returns the URI schemes this provider accepts (e.g. {@code {oss, s3, s3a}}). */
+    public Set<String> getSupportedSchemes() {
+        return properties.getSupportedSchemes();
     }
 
     @Override
@@ -193,7 +199,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         ListObjectsRequest request = new ListObjectsRequest(uri.bucket());
         request.setPrefix(uri.key());
         if (options != null) {
@@ -214,8 +220,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
             List<RemoteObject> objects = listing.getObjectSummaries().stream()
                     .map(obj -> toRemoteObject(uri.key(), obj))
                     .collect(Collectors.toList());
-            return new RemoteObjects(objects, listing.isTruncated(),
-                    listing.isTruncated() ? listing.getNextMarker() : null);
+            return new RemoteObjects(objects, listing.isTruncated(), resolveNextMarker(listing));
         } catch (OSSException e) {
             // OSSException (server-side errors such as NoSuchBucket) is a sibling of
             // ClientException, not a subclass, so it must be caught explicitly or it would
@@ -228,7 +233,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public RemoteObject headObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             ObjectMetadata metadata = getClient(uri.bucket()).getObjectMetadata(uri.bucket(), uri.key());
             return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
@@ -245,19 +250,21 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void putObject(String remotePath, RequestBody requestBody) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(requestBody.contentLength());
         try (InputStream content = requestBody.content()) {
             getClient(uri.bucket()).putObject(new PutObjectRequest(uri.bucket(), uri.key(), content, metadata));
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
+            // OSSException (server-side error) is a sibling of ClientException, not a subclass,
+            // so both must be caught or a server error would escape as an unchecked exception.
             throw new IOException("putObject failed for " + remotePath + ": " + e.getMessage(), e);
         }
     }
 
     @Override
     public void deleteObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient(uri.bucket()).deleteObject(uri.bucket(), uri.key());
         } catch (OSSException e) {
@@ -272,12 +279,12 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void copyObject(String srcPath, String dstPath) throws IOException {
-        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, false);
-        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, false);
+        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient(src.bucket()).copyObject(new CopyObjectRequest(
                     src.bucket(), src.key(), dst.bucket(), dst.key()));
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             throw new IOException("copyObject from " + srcPath + " to " + dstPath
                     + " failed: " + e.getMessage(), e);
         }
@@ -285,12 +292,12 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             InitiateMultipartUploadResult result = getClient(uri.bucket()).initiateMultipartUpload(
                     new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
             return result.getUploadId();
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             throw new IOException("initiateMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
         }
@@ -299,7 +306,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     @Override
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             RequestBody body) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try (InputStream content = body.content()) {
             com.aliyun.oss.model.UploadPartRequest request = new com.aliyun.oss.model.UploadPartRequest();
             request.setBucketName(uri.bucket());
@@ -310,7 +317,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
             request.setInputStream(content);
             com.aliyun.oss.model.UploadPartResult result = getClient(uri.bucket()).uploadPart(request);
             return new UploadPartResult(partNum, result.getETag());
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             throw new IOException("uploadPart " + partNum + " failed for " + remotePath
                     + ": " + e.getMessage(), e);
         }
@@ -319,14 +326,14 @@ public class OssObjStorage implements ObjStorage<OSS> {
     @Override
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         List<PartETag> partEtags = parts.stream()
                 .map(part -> new PartETag(part.partNumber(), part.etag()))
                 .collect(Collectors.toList());
         try {
             getClient(uri.bucket()).completeMultipartUpload(new CompleteMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId, partEtags));
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             throw new IOException("completeMultipartUpload failed for " + remotePath
                     + ": " + e.getMessage(), e);
         }
@@ -334,11 +341,11 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             getClient(uri.bucket()).abortMultipartUpload(new AbortMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId));
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             throw new IOException("abortMultipartUpload failed for " + remotePath
                     + " (uploadId=" + uploadId + "): " + e.getMessage(), e);
         }
@@ -346,7 +353,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
         try {
             GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
             if (fromByte > 0) {
@@ -426,9 +433,9 @@ public class OssObjStorage implements ObjStorage<OSS> {
             GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey, HttpMethod.PUT);
             request.setExpiration(expiration);
             URL signedUrl = getClient(bucket).generatePresignedUrl(request);
-            LOG.info("Generated OSS presigned URL for key={}", objectKey);
+            LOG.debug("Generated OSS presigned URL for key={}", objectKey);
             return signedUrl.toString();
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             LOG.warn("Failed to generate OSS presigned URL for key={}", objectKey, e);
             throw new IOException("Failed to generate OSS presigned URL: " + e.getMessage(), e);
         }
@@ -444,7 +451,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
                 request.setKeys(batch);
                 getClient(bucket).deleteObjects(request);
             }
-        } catch (ClientException e) {
+        } catch (OSSException | ClientException e) {
             throw new IOException("Failed to batch delete objects from bucket=" + bucket + ": " + e.getMessage(), e);
         }
     }
@@ -471,6 +478,43 @@ public class OssObjStorage implements ObjStorage<OSS> {
             throw new IOException(description + " is required; set " + key + " in properties");
         }
         return value;
+    }
+
+    /**
+     * Computes the marker that resumes listing on the next page.
+     *
+     * <p>OSS (like the S3 V1 {@code GetBucket} API) only fills
+     * {@link ObjectListing#getNextMarker()} when a {@code delimiter} is set. For a delimiter-less
+     * (recursive) listing the marker is {@code null} even when {@link ObjectListing#isTruncated()}
+     * is {@code true}, so naively forwarding it would stop pagination after the first page (~1000
+     * keys) and silently drop every object beyond it (recursive delete/rename/list).
+     *
+     * <p>When the SDK leaves the marker blank on a truncated page, fall back to the
+     * lexicographically greatest key/common-prefix returned on this page — OSS lists in
+     * lexicographic order and resumes strictly after the marker. This mirrors the last-key
+     * fallback the COS/OBS SDKs perform internally.
+     */
+    private static String resolveNextMarker(ObjectListing listing) {
+        if (!listing.isTruncated()) {
+            return null;
+        }
+        String nextMarker = listing.getNextMarker();
+        if (hasText(nextMarker)) {
+            return nextMarker;
+        }
+        String marker = null;
+        List<OSSObjectSummary> summaries = listing.getObjectSummaries();
+        if (summaries != null && !summaries.isEmpty()) {
+            marker = summaries.get(summaries.size() - 1).getKey();
+        }
+        List<String> commonPrefixes = listing.getCommonPrefixes();
+        if (commonPrefixes != null && !commonPrefixes.isEmpty()) {
+            String lastPrefix = commonPrefixes.get(commonPrefixes.size() - 1);
+            if (marker == null || lastPrefix.compareTo(marker) > 0) {
+                marker = lastPrefix;
+            }
+        }
+        return marker;
     }
 
     private static boolean isNotFound(OSSException e) {

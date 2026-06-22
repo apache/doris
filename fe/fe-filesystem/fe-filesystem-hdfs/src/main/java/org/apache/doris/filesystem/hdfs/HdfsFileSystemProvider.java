@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
@@ -57,7 +58,12 @@ public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProp
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        return new DFSFileSystem(properties);
+        // Resolve raw user properties through the migrated HdfsProperties so that typed auth
+        // params (hdfs.authentication.*) are translated to Hadoop keys, xml resources are
+        // loaded, and defaults are injected — instead of passing raw keys straight through.
+        HdfsProperties hdfsProperties = new HdfsProperties(properties);
+        hdfsProperties.initNormalizeAndCheckProps();
+        return new DFSFileSystem(hdfsProperties.getBackendConfigProperties());
     }
 
     @Override
