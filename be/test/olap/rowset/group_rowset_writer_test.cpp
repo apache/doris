@@ -99,8 +99,13 @@ protected:
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
         ASSERT_TRUE(_tablet != nullptr);
-        EXPECT_TRUE(
-                io::global_local_filesystem()->create_directory(_tablet->row_binlog_path()).ok());
+        _row_binlog_request = _request;
+        _row_binlog_request.tablet_id = 10011;
+        _row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
+                _request.tablet_schema, _request.tablet_schema.schema_hash + 1);
+        ASSERT_TRUE(engine_ptr->create_tablet(_row_binlog_request, profile.get()).ok());
+        _row_binlog_tablet = engine_ptr->tablet_manager()->get_tablet(_row_binlog_request.tablet_id);
+        ASSERT_TRUE(_row_binlog_tablet != nullptr);
 
         config::enable_debug_points = true;
     }
@@ -109,6 +114,7 @@ protected:
         DebugPoints::instance()->clear();
         config::enable_debug_points = false;
         _tablet.reset();
+        _row_binlog_tablet.reset();
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_storage_root_path).ok());
     }
@@ -163,8 +169,8 @@ protected:
         }
 
         RowsetWriterContext row_binlog_context;
-        row_binlog_context.tablet = _tablet;
-        row_binlog_context.tablet_schema = _tablet->row_binlog_tablet_schema();
+        row_binlog_context.tablet = _row_binlog_tablet;
+        row_binlog_context.tablet_schema = _row_binlog_tablet->tablet_schema();
         row_binlog_context.rowset_state = PREPARED;
         row_binlog_context.segments_overlap = NONOVERLAPPING;
         row_binlog_context.max_rows_per_segment = 1024;
@@ -180,7 +186,7 @@ protected:
         auto lsn_ids = std::make_shared<std::vector<int64_t>>();
         RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
         cfg.insert_seg_lsn(0, lsn_ids);
-        auto row_binlog_writer_res = _tablet->create_rowset_writer(row_binlog_context, false);
+        auto row_binlog_writer_res = _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
         if (!row_binlog_writer_res.has_value()) {
             return row_binlog_writer_res.error();
         }
@@ -202,7 +208,9 @@ protected:
     }
 
     TabletSharedPtr _tablet;
+    TabletSharedPtr _row_binlog_tablet;
     TCreateTabletReq _request;
+    TCreateTabletReq _row_binlog_request;
     std::string _storage_root_path;
 };
 
@@ -257,7 +265,7 @@ TEST_F(GroupRowsetWriterTest, success) {
     const auto data_segment_path =
             local_segment_path(_tablet->tablet_path(), data_rowset_id.to_string(), 0);
     const auto second_segment_path =
-            local_segment_path(_tablet->row_binlog_path(), rowsets[1]->rowset_id().to_string(), 0);
+            local_segment_path(_row_binlog_tablet->tablet_path(), rowsets[1]->rowset_id().to_string(), 0);
     EXPECT_TRUE(file_exists(data_segment_path));
     EXPECT_TRUE(file_exists(second_segment_path));
 }

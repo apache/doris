@@ -88,17 +88,18 @@ Status RowBinlogSegmentWriter::init() {
         _write_before = true;
     }
 
+    auto base_tablet = _binlog_opts.source.base_tablet == nullptr ? _tablet : _binlog_opts.source.base_tablet;
     HistoricalRowRetrieverContext historical_row_retriever_context = {
-            .tablet = _tablet,
+            .tablet = base_tablet,
             .tablet_schema = source_schema,
             .rowset_writer_ctx = _opts.rowset_ctx,
             .partial_update_info = _binlog_opts.source.partial_update_info,
             .is_transient_rowset_writer = _binlog_opts.source.is_transient_rowset_writer,
             .write_type = _binlog_opts.source.source_write_type};
-    if (_tablet->enable_unique_key_merge_on_write()) {
+    if (base_tablet->enable_unique_key_merge_on_write()) {
         _historical_data_writer = std::make_unique<PrimaryKeyModelRowRetriever>();
         RETURN_IF_ERROR(_historical_data_writer->init(historical_row_retriever_context));
-    } else if (_tablet->keys_type() == KeysType::AGG_KEYS) {
+    } else if (base_tablet->keys_type() == KeysType::AGG_KEYS) {
         // todo
     }
     return Status::OK();

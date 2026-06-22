@@ -63,6 +63,14 @@ enum class TxnState {
 };
 enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 
+// The row binlog rowset and its independent binlog tablet, carried through commit and publish.
+struct RowBinlogTxnInfo {
+    RowsetSharedPtr rowset;
+    TabletSharedPtr tablet;
+    // Delete bitmap deltas that should be applied to the independent binlog tablet.
+    DeleteBitmapPtr delete_bitmap;
+};
+
 struct TxnPublishInfo {
     int64_t publish_version {-1};
     int64_t base_compaction_cnt {-1};
@@ -73,14 +81,11 @@ struct TxnPublishInfo {
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
-    // The list of rowsets committed along with the transaction rowset
-    // currently contains only the binlog<Row> rowset.
-    std::vector<RowsetSharedPtr> attach_rowsets;
+    // the row binlog committed along with this txn.
+    RowBinlogTxnInfo attach_row_binlog;
     PendingRowsetGuard pending_rs_guard;
     bool unique_key_merge_on_write {false};
     DeleteBitmapPtr delete_bitmap;
-    // copy delete_bitmap of data rowset to binlog
-    DeleteBitmapPtr binlog_delvec;
     // records rowsets calc in commit txn
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
@@ -174,7 +179,7 @@ public:
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
-                      std::vector<RowsetSharedPtr>* attach_rowsets = nullptr);
+                      const RowBinlogTxnInfo& attach_row_binlog = {});
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -193,7 +198,7 @@ public:
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
-                      std::vector<RowsetSharedPtr>* attach_rowsets = nullptr);
+                      const RowBinlogTxnInfo& attach_row_binlog = {});
 
     // remove a txn from txn manager
     // not persist rowset meta because
@@ -223,7 +228,7 @@ public:
     void get_txn_related_tablets(
             const TTransactionId transaction_id, TPartitionId partition_ids,
             std::map<TabletInfo, RowsetSharedPtr>* tablet_infos,
-            std::map<TabletInfo, std::vector<RowsetSharedPtr>>* tablet_attach_rowsets = nullptr);
+            std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>>* tablet_txn_infos = nullptr);
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 

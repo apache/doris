@@ -123,6 +123,5 @@ message POlapTableSchemaParam {
     optional UniqueKeyUpdateModePB unique_key_update_mode = 15 [default = UPSERT];
     optional int32 sequence_map_col_unique_id = 16 [default = -1];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 17 [default = APPEND];
-    optional POlapTableIndexSchema row_binlog_index_schema = 18;
+    repeated POlapTableIndexSchema row_binlog_index_schemas = 18;
 };
-

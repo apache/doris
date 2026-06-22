@@ -707,9 +707,7 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
-    optional TabletSchemaPB row_binlog_schema = 42;
-    repeated RowsetMetaPB row_binlog_rs_metas = 43;
-    optional int32 row_binlog_schema_hash = 44;
+    optional int64 binlog_tablet_id = 42;
     optional string compaction_policy = 28 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 1000];
@@ -718,6 +716,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 34;
     optional int32 vertical_compaction_num_columns_per_group = 35 [default = 5];
+    optional bool is_row_binlog_tablet = 36 [default = false];
 
     // For cloud
     optional int64 index_id = 1000;
@@ -766,9 +765,6 @@ message TabletMetaCloudPB {
     optional int64 storage_policy_id = 28;
     optional PUniqueId cooldown_meta_id = 29;
     optional BinlogConfigPB binlog_config = 30;
-    optional TabletSchemaCloudPB row_binlog_schema = 42;
-    repeated RowsetMetaCloudPB row_binlog_rs_metas = 43;
-    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 31 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 1000];
@@ -779,6 +775,7 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
     optional EncryptionAlgorithmPB encryption_algorithm = 39;
     optional int32 vertical_compaction_num_columns_per_group = 40 [default = 5];
+    optional bool is_row_binlog_tablet = 41 [default = false];
 
     // Use for selectdb-cloud
     optional string table_name = 101;
@@ -796,7 +793,6 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
-    repeated bool is_binlog_delvec = 5;
 }
 
 message BinlogMetaEntryPB {

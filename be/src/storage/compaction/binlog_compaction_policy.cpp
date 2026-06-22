@@ -161,7 +161,7 @@ uint32_t BinlogCompactionPolicy::calc_binlog_compaction_level_score(Tablet* tabl
     //
     // Base only performs meta-only merge (merge rowset meta), so get_compaction_score()
     // treats Base score as 1.
-    for (const auto& [_, rs_meta] : tablet->tablet_meta()->all_row_binlog_rs_metas()) {
+    for (const auto& [_, rs_meta] : tablet->tablet_meta()->all_rs_metas()) {
         if (!rs_meta->is_local() || rs_meta->compaction_level() != level) {
             continue;
         }
