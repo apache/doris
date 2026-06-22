@@ -4191,7 +4191,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (ctx.BITMAP_EMPTY() != null) {
                 defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             } else if (ctx.defaultExpr != null) {
-                defaultValue = Optional.of(DefaultValue.expressionSqlDefaultValue(ctx.defaultExpr.getText()));
+                defaultValue = Optional.of(DefaultValue.expressionSqlDefaultValue(getOriginSql(ctx.defaultExpr)));
             }
         }
         if (ctx.UPDATE() != null) {

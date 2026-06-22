@@ -71,4 +71,19 @@ public class DefaultValueExpressionValidatorTest extends TestWithFeService {
         String msg = ex.getMessage().toLowerCase();
         Assertions.assertTrue(msg.contains("aggregate") || msg.contains("sum"));
     }
+
+    @Test
+    public void testValidateDefaultValueExpressionSqlRejectsTooLongBoundedCharAndVarchar() {
+        AnalysisException varcharEx = Assertions.assertThrows(AnalysisException.class,
+                () -> ColumnDef.validateDefaultValue(ScalarType.createVarcharType(3),
+                        "concat('abcdef')",
+                        DefaultValueExprDef.fromSql("concat('abcdef')")));
+        Assertions.assertTrue(varcharEx.getMessage().toLowerCase().contains("too long"));
+
+        AnalysisException charEx = Assertions.assertThrows(AnalysisException.class,
+                () -> ColumnDef.validateDefaultValue(ScalarType.createCharType(3),
+                        "concat('abcdef')",
+                        DefaultValueExprDef.fromSql("concat('abcdef')")));
+        Assertions.assertTrue(charEx.getMessage().toLowerCase().contains("too long"));
+    }
 }

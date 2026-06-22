@@ -73,6 +73,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -275,6 +276,15 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
      */
     public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan, DescriptorTable descTable,
             TupleDescriptor scanDescriptor) {
+        ConnectContext ctx = ConnectContext.get();
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT
+                && destTable.hasExpressionDefaultValue()
+                && ctx != null
+                && !ctx.getSessionVariable().isAllowPartialUpdateWithExpressionDefault()) {
+            throw new AnalysisException("Can't do partial update on merge-on-write Unique table with "
+                    + "expression default value column while `allow_partial_update_with_expression_default` is false.");
+        }
+
         this.logicalPlan = logicalPlan;
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
                 logicalPlan, PhysicalProperties.ANY);

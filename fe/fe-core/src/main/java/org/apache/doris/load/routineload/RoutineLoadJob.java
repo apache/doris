@@ -2077,6 +2077,7 @@ public abstract class RoutineLoadJob
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+            validateExpressionDefaultValueForPartialUpdateForAlter(uniqueKeyUpdateMode);
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
@@ -2089,6 +2090,7 @@ public abstract class RoutineLoadJob
             }
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+            validateExpressionDefaultValueForPartialUpdateForAlter(uniqueKeyUpdateMode);
         }
     }
 
@@ -2138,6 +2140,33 @@ public abstract class RoutineLoadJob
         // Cannot specify COLUMNS mapping
         if (columnDescs != null && !columnDescs.descs.isEmpty()) {
             throw new DdlException("Flexible partial update does not support COLUMNS specification");
+        }
+    }
+
+    private void validateExpressionDefaultValueForPartialUpdateForAlter(TUniqueKeyUpdateMode mode)
+            throws UserException {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return;
+        }
+        if (mode == TUniqueKeyUpdateMode.UPSERT
+                || ctx.getSessionVariable().isAllowPartialUpdateWithExpressionDefault()) {
+            return;
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            throw new DdlException("Database not found: " + dbId);
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            throw new DdlException("Table not found: " + tableId);
+        }
+        if (!(table instanceof OlapTable)) {
+            return;
+        }
+        if (((OlapTable) table).hasExpressionDefaultValue()) {
+            throw new DdlException("Can't do partial update on merge-on-write Unique table with "
+                + "expression default value column while `allow_partial_update_with_expression_default` is false.");
         }
     }
 }

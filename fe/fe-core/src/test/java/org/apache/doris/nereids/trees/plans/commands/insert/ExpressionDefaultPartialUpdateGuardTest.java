@@ -97,4 +97,14 @@ public class ExpressionDefaultPartialUpdateGuardTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(
                 () -> analyzeInsertWithoutTxn("insert into tbl_expr_default_mow(k1) values (1)"));
     }
+
+    @Test
+    public void testInsertValuesDowngradedToUpsertNotRejectedWhenExpressionDefaultAndSessionVarDisabled() {
+        connectContext.getSessionVariable().setEnableUniqueKeyPartialUpdate(true);
+        connectContext.getSessionVariable().setAllowPartialUpdateWithExpressionDefault(false);
+
+        Assertions.assertDoesNotThrow(
+                () -> analyzeInsertWithoutTxn(
+                        "insert into tbl_expr_default_mow values (1, 2, to_date('2024-01-01'))"));
+    }
 }

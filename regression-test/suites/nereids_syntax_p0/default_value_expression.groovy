@@ -19,31 +19,26 @@ suite("nereids_default_value_expression", "p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    def tbl = "tbl_default_expr"
+    sql "DROP TABLE IF EXISTS tbl_default_expr"
+    sql """
+        CREATE TABLE tbl_default_expr (
+          id INT NOT NULL,
+          d DATEV2 NOT NULL DEFAULT to_date(now()),
+          dt DATETIMEV2(3) NOT NULL DEFAULT now(3),
+          s STRING NOT NULL DEFAULT concat('a-', DATE_FORMAT(now(), '%M %e, %Y'))
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
 
-    try {
-        sql "DROP TABLE IF EXISTS ${tbl}"
-        sql """
-            CREATE TABLE ${tbl} (
-              id INT NOT NULL,
-              d DATEV2 NOT NULL DEFAULT to_date(now()),
-              dt DATETIMEV2(3) NOT NULL DEFAULT now(3),
-              s STRING NOT NULL DEFAULT concat('a-', DATE_FORMAT(now(), '%M %e, %Y'))
-            )
-            DISTRIBUTED BY HASH(id) BUCKETS 1
-            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
-        """
-
-        sql "INSERT INTO ${tbl}(id) VALUES (1)"
-        sql "sync"
-        qt_default_expr_select "SELECT id, d = CURRENT_DATE, dt IS NOT NULL, s = concat('a-', DATE_FORMAT(now(), '%M %e, %Y')) FROM ${tbl} ORDER BY id"
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${tbl}")
-    }
+    sql "INSERT INTO tbl_default_expr(id) VALUES (1)"
+    sql "sync"
+    qt_default_expr_select "SELECT id, d = CURRENT_DATE, dt IS NOT NULL, s = concat('a-', DATE_FORMAT(now(), '%M %e, %Y')) FROM tbl_default_expr ORDER BY id"
 
     test {
+        sql "DROP TABLE IF EXISTS tbl_default_expr_bad_ref"
         sql """
-            CREATE TABLE ${tbl}_bad_ref (
+            CREATE TABLE tbl_default_expr_bad_ref (
               k1 INT,
               v1 INT DEFAULT k1 + 1
             )
@@ -54,8 +49,9 @@ suite("nereids_default_value_expression", "p0") {
     }
 
     test {
+        sql "DROP TABLE IF EXISTS tbl_default_expr_bad_rand"
         sql """
-            CREATE TABLE ${tbl}_bad_rand (
+            CREATE TABLE tbl_default_expr_bad_rand (
               k1 INT,
               v1 DOUBLE DEFAULT rand()
             )
@@ -65,11 +61,10 @@ suite("nereids_default_value_expression", "p0") {
         exception "non-deterministic"
     }
 
-    def mowTbl = "${tbl}_mow"
     try {
-        sql "DROP TABLE IF EXISTS ${mowTbl}"
+        sql "DROP TABLE IF EXISTS tbl_default_expr_mow"
         sql """
-            CREATE TABLE ${mowTbl} (
+            CREATE TABLE tbl_default_expr_mow (
               k1 INT,
               v1 INT NULL,
               d DATEV2 NOT NULL DEFAULT to_date(now())
@@ -86,21 +81,17 @@ suite("nereids_default_value_expression", "p0") {
         sql "set allow_partial_update_with_expression_default=false"
 
         test {
-            sql "INSERT INTO ${mowTbl}(k1) VALUES (1)"
+            sql "INSERT INTO tbl_default_expr_mow(k1) VALUES (1)"
             exception "Partial update is not supported for table with expression default value"
         }
 
         sql "set allow_partial_update_with_expression_default=true"
-        sql "INSERT INTO ${mowTbl}(k1) VALUES (1)"
+        sql "INSERT INTO tbl_default_expr_mow(k1) VALUES (1)"
         sql "sync"
-        qt_default_expr_partial_update_bypass "SELECT k1, v1 IS NULL, d IS NOT NULL FROM ${mowTbl} ORDER BY k1"
+        qt_default_expr_partial_update_bypass "SELECT k1, v1 IS NULL, d IS NOT NULL FROM tbl_default_expr_mow ORDER BY k1"
     } finally {
-        try {
-            sql "set allow_partial_update_with_expression_default=false"
-            sql "set enable_unique_key_partial_update=false"
-            sql "sync"
-        } finally {
-            try_sql("DROP TABLE IF EXISTS ${mowTbl}")
-        }
+        sql "set allow_partial_update_with_expression_default=false"
+        sql "set enable_unique_key_partial_update=false"
+        sql "sync"
     }
 }

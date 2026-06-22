@@ -29,10 +29,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -40,6 +43,8 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -331,6 +336,8 @@ public class ColumnDef {
 
         if (defaultValueExprDef != null && defaultValueExprDef.isExpressionSql()) {
             validateDefaultValueExpressionSql(type, defaultValue);
+            String foldedLiteralDefaultValue = computeRealDefaultValueForExpressionSql(type, defaultValue);
+            validateDefaultValue(type, foldedLiteralDefaultValue, null);
             return;
         }
 
@@ -517,6 +524,31 @@ public class ColumnDef {
 
         DataType targetType = DataType.fromCatalogType(type);
         TypeCoercionUtils.castIfNotSameType(expr, targetType);
+    }
+
+    private static String computeRealDefaultValueForExpressionSql(Type type, String defaultExprSql)
+            throws AnalysisException {
+        Expression parsedExpr = new NereidsParser().parseExpression(defaultExprSql);
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, true, true);
+        Expression expr;
+        try {
+            expr = analyzer.analyze(parsedExpr);
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
+        DataType targetType = DataType.fromCatalogType(type);
+        expr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(CascadesContext.initTempContext());
+        Expression folded = FoldConstantRuleOnFE.evaluate(expr, rewriteContext);
+
+        if (!(folded instanceof Literal) || folded instanceof NullLiteral) {
+            throw new AnalysisException("Default value expression must be foldable to a non-null literal: "
+                    + defaultExprSql);
+        }
+
+        return ((Literal) folded).getStringValue();
     }
 
     public String toSql() {

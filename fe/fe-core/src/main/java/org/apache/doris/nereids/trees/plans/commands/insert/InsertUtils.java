@@ -311,17 +311,6 @@ public class InsertUtils {
                 // check the necessary conditions for partial updates
                 OlapTable olapTable = (OlapTable) table;
 
-                ConnectContext connectContext = ConnectContext.get();
-                if (connectContext != null
-                        && olapTable.hasExpressionDefaultValue()
-                        && !connectContext.getSessionVariable().isAllowPartialUpdateWithExpressionDefault()) {
-                    throw new AnalysisException(
-                        "Partial update is not supported for table with expression default value. "
-                        + "You can set session variable '"
-                        + SessionVariable.ALLOW_PARTIAL_UPDATE_WITH_EXPRESSION_DEFAULT
-                        + "'=true to bypass this check (may be unsafe). ");
-                }
-
                 if (!olapTable.getEnableUniqueKeyMergeOnWrite() || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
                     // when enable_unique_key_partial_update = true,
                     // only unique table with MOW (and without cluster keys)
@@ -371,6 +360,21 @@ public class InsertUtils {
                                 }
                             }
                         }
+                    }
+                }
+
+                UnboundTableSink<? extends Plan> tableSink = (UnboundTableSink<? extends Plan>) unboundLogicalSink;
+                if (tableSink.isPartialUpdate()) {
+                    ConnectContext connectContext = ConnectContext.get();
+                    if (connectContext != null
+                            && olapTable.hasExpressionDefaultValue()
+                            && !connectContext.getSessionVariable().isAllowPartialUpdateWithExpressionDefault()) {
+                        throw new AnalysisException(
+                            "Partial update is not supported for table with expression default value. "
+                                + "You can set session variable '"
+                                + SessionVariable.ALLOW_PARTIAL_UPDATE_WITH_EXPRESSION_DEFAULT
+                                + "'=true to bypass this check "
+                                + "(then missing columns are filled using the pre-folded literal value). ");
                     }
                 }
             }
