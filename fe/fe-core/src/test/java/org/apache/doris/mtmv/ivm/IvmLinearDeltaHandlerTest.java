@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -98,7 +99,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewriteProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) IvmDeltaCommandBuilder.INSTANCE
                 .rewrite(buildScanPlan(scan), ctx).get(0);
@@ -108,7 +109,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRewritePlanInjectsDmlFactorAtScan() {
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
@@ -121,7 +122,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testVisitLogicalProjectAppendsDmlFactor() {
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.copyOf(scan.getOutput()), scan);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
@@ -133,7 +134,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testVisitLogicalProjectPreservesExistingDmlFactor() {
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         ImmutableList<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
                 .addAll(scan.getOutput())
                 .add(new Alias(new TinyIntLiteral((byte) 1), Column.IVM_DML_FACTOR_COL))
@@ -149,7 +150,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testVisitLogicalFilterPropagatesDmlFactor() {
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         Expression predicate = new GreaterThan(scan.getOutput().get(0), new IntegerLiteral(0));
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
@@ -161,7 +162,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testVisitLogicalRepeatPreservesDmlFactorAsPassThrough() {
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         Slot id = scan.getOutput().get(0);
         Slot name = scan.getOutput().get(1);
         LogicalRepeat<LogicalOlapScan> repeat = new LogicalRepeat<>(
@@ -184,16 +185,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testVisitUnsupportedPlanThrows() {
-        MTMV mtmv = mockMtmv();
-        LogicalOlapScan left = buildScan();
-        LogicalOlapScan right = buildScan();
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.INNER_JOIN, ImmutableList.of(), left, right, JoinReorderContext.EMPTY);
-        LogicalResultSink<?> plan = new LogicalResultSink<>(ImmutableList.copyOf(left.getOutput()), join);
-
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
+        // Pass an unsupported plan directly to the catch-all visit() method.
+        // rewritePlan strips ResultSink first, so we test visit() directly.
+        LogicalOlapScan scan = buildScan();
+        LogicalResultSink<?> sink = new LogicalResultSink<>(
+                ImmutableList.copyOf(scan.getOutput()), scan);
+        IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor();
         Assertions.assertThrows(AnalysisException.class,
-                () -> new TestableIvmLinearDeltaHandler().exposeRewritePlan(plan, ctx));
+                () -> visitor.visit(sink, dummyCtx()));
     }
 
     @Test
@@ -245,7 +244,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewriteBuildsDeleteSignIfExpression() {
         MTMV mtmv = mockMtmv();
-        LogicalOlapScan scan = buildScan();
+        LogicalOlapScan scan = buildDeltaScan();
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) IvmDeltaCommandBuilder.INSTANCE
                 .rewrite(buildScanPlan(scan), ctx)
@@ -262,23 +261,20 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRewritePlanWithoutOpColumnUsesLiteralOne() {
-        LogicalOlapScan scan = buildScan(); // table without op column
+        // Non-incremental stream scan: rewrite returns scan as-is with null dmlFactor (no dml_factor injected)
+        LogicalOlapTableStreamScan scan = (LogicalOlapTableStreamScan) buildDeltaScan().withIncrementalScan(false);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
-        // The injected project should have scan columns + dml_factor
-        LogicalProject<?> project = (LogicalProject<?>) result.plan;
-        NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 1);
-        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
-        Assertions.assertInstanceOf(Alias.class, factorExpr);
-        // Should be literal TinyIntLiteral(1) — not an IF expression
-        Assertions.assertInstanceOf(TinyIntLiteral.class, ((Alias) factorExpr).child());
-        Assertions.assertEquals((byte) 1, ((TinyIntLiteral) ((Alias) factorExpr).child()).getValue());
+        // Non-incremental scans do not inject dml_factor
+        Assertions.assertNull(result.dmlFactorSlot);
+        Assertions.assertSame(scan, result.plan);
     }
 
     @Test
     void testRewritePlanWithOpColumnUsesIfExpression() {
-        LogicalOlapScan scan = buildScanWithOpColumn(); // table WITH op column
+        // Incremental stream scan: should use IF(STREAM_CHANGE_TYPE_COL = "APPEND", 1, -1)
+        LogicalOlapTableStreamScan scan = buildDeltaScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(scan, dummyCtx());
@@ -286,11 +282,11 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 1);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
         Assertions.assertInstanceOf(Alias.class, factorExpr);
-        // Should be IF(op = 0, 1, -1)
+        // Should be IF(STREAM_CHANGE_TYPE_COL = "APPEND", 1, -1)
         Expression ifExpr = ((Alias) factorExpr).child();
         Assertions.assertInstanceOf(If.class, ifExpr);
         If ifFunc = (If) ifExpr;
-        // Condition: EqualTo(opSlot, TinyIntLiteral(0))
+        // Condition: EqualTo(VarcharLiteral("APPEND"), opSlot)
         Assertions.assertInstanceOf(EqualTo.class, ifFunc.getArgument(0));
         // Then: TinyIntLiteral(1)
         Assertions.assertInstanceOf(TinyIntLiteral.class, ifFunc.getArgument(1));
@@ -302,16 +298,16 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRewritePlanWithOpColumnDmlFactorSlotPropagates() {
-        LogicalOlapScan scan = buildScanWithOpColumn();
-        // Wrap in project + result sink (simulating normalized plan)
+        LogicalOlapTableStreamScan scan = buildDeltaScan();
+        // Wrap in project (simulating normalized plan)
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
-        LogicalProject<LogicalOlapScan> userProject = new LogicalProject<>(exprs, scan);
+        LogicalProject<LogicalOlapTableStreamScan> userProject = new LogicalProject<>(exprs, scan);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(userProject, dummyCtx());
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
-        // The outer project should propagate dml_factor from the scan-level project
+        // The outer project should propagate dml_factor from the stream scan
         Assertions.assertTrue(
                 result.plan.getOutput().stream().anyMatch(s -> Column.IVM_DML_FACTOR_COL.equals(s.getName())));
     }
@@ -320,7 +316,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinDmlFactorPropagationLeft() {
-        LogicalOlapScan scanDelta = buildScan(); // isDelta=true
+        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2"); // isDelta=false
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
@@ -336,7 +332,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testJoinDmlFactorPropagationRight() {
         LogicalOlapScan scanSnapshot = buildScanForTable(1, "t1"); // isDelta=false
-        LogicalOlapScan scanDelta = buildScan(); // isDelta=true
+        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanSnapshot, scanDelta, JoinReorderContext.EMPTY);
 
@@ -350,7 +346,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinCrossJoinDmlFactor() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
@@ -365,8 +361,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinBothDeltaThrows() {
-        LogicalOlapScan scanA = buildScan(); // isDelta=true
-        LogicalOlapScan scanB = buildScan(); // isDelta=true
+        LogicalOlapScan scanA = buildDeltaScan(); // isDelta=true
+        LogicalOlapScan scanB = buildDeltaScan(); // isDelta=true
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
@@ -392,7 +388,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinRightOuterJoinThrows() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
@@ -405,7 +401,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testJoinNonDetGuardAdded() {
         // Build a join where the snapshot side has a normalized row_id slot (non-deterministic)
-        LogicalOlapScan scanDelta = buildScan(); // isDelta=true
+        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2"); // isDelta=false
 
         // Simulate normalization: wrap snapshot in a project with row_id slot
@@ -438,7 +434,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinDetNoGuard() {
-        LogicalOlapScan scanDelta = buildScan(); // isDelta=true
+        LogicalOlapScan scanDelta = buildDeltaScan(); // isDelta=true
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2"); // isDelta=false
 
         // Simulate normalization: wrap snapshot in a project with row_id slot
@@ -468,7 +464,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinGuardFallbackMessage() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
 
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
@@ -496,7 +492,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testJoinDmlFactorWithHashConjuncts() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         EqualTo condition = new EqualTo(scanDelta.getOutput().get(0), scanSnapshot.getOutput().get(0));
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
@@ -534,7 +530,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionDeltaInFirstArm() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
 
@@ -551,7 +547,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testUnionDeltaInSecondArm() {
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalUnion union = buildUnionAll(scanSnapshot, scanDelta);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
@@ -581,8 +577,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionBothDeltaThrows() {
-        LogicalOlapScan scanA = buildScan();
-        LogicalOlapScan scanB = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan scanA = buildDeltaScan();
+        LogicalOlapTableStreamScan scanB = buildDeltaScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanA, scanB);
 
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
@@ -594,7 +590,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testUnionThreeWayDeltaInMiddle() {
         LogicalOlapScan scanA = buildScanForTable(2, "t2");
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanC = buildScanForTable(3, "t3");
         LogicalUnion union = buildUnionAll(scanA, scanDelta, scanC);
 
@@ -610,7 +606,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testUnionOutputMappingPreservesExprIds() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
 
@@ -635,7 +631,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         // Delta is in the inner union's first arm.
         // Rewriter should: inner union → eliminate b, return a as delta;
         // outer union → eliminate c, return mapped project with dml_factor.
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanB = buildScanForTable(2, "t2");
         LogicalOlapScan scanC = buildScanForTable(3, "t3");
 

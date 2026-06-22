@@ -34,7 +34,7 @@ suite("test_ivm_basic_mtmv") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -130,15 +130,14 @@ suite("test_ivm_basic_mtmv") {
         CREATE TABLE t_ivm_basic_op_base (
             k1 INT,
             v1 INT,
-            v2 VARCHAR(50),
-            binlog_op TINYINT
+            v2 VARCHAR(50)
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -146,10 +145,10 @@ suite("test_ivm_basic_mtmv") {
     // Insert rows: binlog_op=0 means insert, =1 means delete
     sql """
         INSERT INTO t_ivm_basic_op_base VALUES
-            (1, 10, 'aaa', 0),
-            (2, 20, 'bbb', 0),
-            (3, 30, 'ccc', 1);
+            (1, 10, 'aaa'),
+            (2, 20, 'bbb');
     """
+    sql """DELETE FROM t_ivm_basic_op_base WHERE k1 = 3;"""
 
     // Create IVM MV (BUILD DEFERRED so no immediate refresh)
     sql """
@@ -170,7 +169,7 @@ suite("test_ivm_basic_mtmv") {
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    order_qt_op_after_complete """SELECT k1, v1, v2, binlog_op FROM mv_ivm_basic_op"""
+    order_qt_op_after_complete """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // Step 2: Insert a new row (binlog_op=0) to dirty the partition, then INCREMENTAL refresh.
     // The mock delta reads all 4 rows. The dml_factor logic:
@@ -178,28 +177,28 @@ suite("test_ivm_basic_mtmv") {
     //   k1=2 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
     //   k1=3 (binlog_op=1): dml_factor=-1 → delete_sign=1 → deleted (hidden)
     //   k1=4 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
-    sql """INSERT INTO t_ivm_basic_op_base VALUES (4, 40, 'ddd', 0);"""
+    sql """INSERT INTO t_ivm_basic_op_base VALUES (4, 40, 'ddd');"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
     // Only binlog_op=0 rows survive: k1=1, k1=2, k1=4 (k1=3 is deleted)
-    order_qt_op_after_incremental """SELECT k1, v1, v2, binlog_op FROM mv_ivm_basic_op"""
+    order_qt_op_after_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // Step 3: COMPLETE refresh restores all rows (including k1=3)
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op COMPLETE"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    order_qt_op_after_restore """SELECT k1, v1, v2, binlog_op FROM mv_ivm_basic_op"""
+    order_qt_op_after_restore """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // Step 4: Upsert k1=3 to binlog_op=0 (was 1), then INCREMENTAL refresh.
     // Now all rows have binlog_op=0, so all survive.
-    sql """INSERT INTO t_ivm_basic_op_base VALUES (3, 30, 'ccc', 0);"""
+    sql """INSERT INTO t_ivm_basic_op_base VALUES (3, 30, 'ccc');"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    order_qt_op_after_upsert_incremental """SELECT k1, v1, v2, binlog_op FROM mv_ivm_basic_op"""
+    order_qt_op_after_upsert_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // =========================================================
     // Part 3: Simple MV with Project -> Filter -> Scan + binlog_op (delete rows filtered)
@@ -215,15 +214,14 @@ suite("test_ivm_basic_mtmv") {
     sql """
         CREATE TABLE t_ivm_basic_filter_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -234,11 +232,11 @@ suite("test_ivm_basic_mtmv") {
     //              k1=4(v1=40, op=0) passes filter
     sql """
         INSERT INTO t_ivm_basic_filter_base VALUES
-            (1, 10, 0),
-            (2, 20, 0),
-            (3, 30, 1),
-            (4, 40, 0);
+            (1, 10),
+            (2, 20),
+            (4, 40);
     """
+    sql """DELETE FROM t_ivm_basic_filter_base WHERE k1 = 3;"""
 
     sql """
         CREATE MATERIALIZED VIEW mv_ivm_basic_filter
@@ -266,7 +264,7 @@ suite("test_ivm_basic_mtmv") {
     //   k1=3(op=1, dml_factor=-1) → delete_sign=1 → deleted
     //   k1=4(op=0, dml_factor=1)  → kept
     //   k1=5(op=0, dml_factor=1)  → kept (new row)
-    sql """INSERT INTO t_ivm_basic_filter_base VALUES (5, 50, 0);"""
+    sql """INSERT INTO t_ivm_basic_filter_base VALUES (5, 50);"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_filter")
@@ -281,7 +279,7 @@ suite("test_ivm_basic_mtmv") {
     order_qt_filter_after_restore """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
     // Step 4: Upsert k1=3 to binlog_op=0, then INCREMENTAL — all filter-passing rows survive
-    sql """INSERT INTO t_ivm_basic_filter_base VALUES (3, 30, 0);"""
+    sql """INSERT INTO t_ivm_basic_filter_base VALUES (3, 30);"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_filter")

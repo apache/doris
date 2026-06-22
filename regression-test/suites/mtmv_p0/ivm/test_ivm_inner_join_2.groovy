@@ -34,7 +34,7 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -49,7 +49,7 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -107,7 +107,7 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -122,7 +122,7 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -186,15 +186,14 @@ suite("test_ivm_inner_join_2") {
     sql """
         CREATE TABLE test_ivm_inner_join_2_op_t1 (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -209,15 +208,15 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """
         INSERT INTO test_ivm_inner_join_2_op_t1 VALUES
-            (1, 10, 0),
-            (2, 20, 0);
+            (1, 10),
+            (2, 20);
     """
     sql """
         INSERT INTO test_ivm_inner_join_2_op_t2 VALUES
@@ -235,8 +234,7 @@ suite("test_ivm_inner_join_2") {
         SELECT
             test_ivm_inner_join_2_op_t1.k1 AS k1,
             test_ivm_inner_join_2_op_t1.v1 AS left_v1,
-            test_ivm_inner_join_2_op_t2.v2 AS right_v2,
-            test_ivm_inner_join_2_op_t1.binlog_op AS left_op
+            test_ivm_inner_join_2_op_t2.v2 AS right_v2
         FROM test_ivm_inner_join_2_op_t1
         INNER JOIN test_ivm_inner_join_2_op_t2
             ON test_ivm_inner_join_2_op_t1.k1 = test_ivm_inner_join_2_op_t2.k1;
@@ -245,24 +243,24 @@ suite("test_ivm_inner_join_2") {
     sql """REFRESH MATERIALIZED VIEW test_ivm_inner_join_2_op_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_inner_join_2_op_mv")
     order_qt_op_join_after_complete """
-        SELECT k1, left_v1, right_v2, left_op FROM test_ivm_inner_join_2_op_mv
+        SELECT k1, left_v1, right_v2 FROM test_ivm_inner_join_2_op_mv
     """
 
     sql """
         INSERT INTO test_ivm_inner_join_2_op_t1 VALUES
-            (2, 20, 1),
-            (3, 30, 0);
+            (3, 30);
     """
+    sql """DELETE FROM test_ivm_inner_join_2_op_t1 WHERE k1 = 2;"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_inner_join_2_op_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_inner_join_2_op_mv")
     order_qt_op_join_after_incremental """
-        SELECT k1, left_v1, right_v2, left_op FROM test_ivm_inner_join_2_op_mv
+        SELECT k1, left_v1, right_v2 FROM test_ivm_inner_join_2_op_mv
     """
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_inner_join_2_op_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_inner_join_2_op_mv")
     order_qt_op_join_after_complete_recovery """
-        SELECT k1, left_v1, right_v2, left_op FROM test_ivm_inner_join_2_op_mv
+        SELECT k1, left_v1, right_v2 FROM test_ivm_inner_join_2_op_mv
     """
 
     // =========================================================
@@ -363,7 +361,7 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -378,7 +376,7 @@ suite("test_ivm_inner_join_2") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

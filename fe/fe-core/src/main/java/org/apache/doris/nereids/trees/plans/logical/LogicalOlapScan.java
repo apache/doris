@@ -186,12 +186,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      */
     private final long tso;
 
-    /**
-     * Whether this scan is a delta source (binlog_delta) for IVM.
-     * Default false means normal/snapshot scan.
-     */
-    private final boolean isDelta;
-
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
     }
@@ -207,7 +201,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 Maps.newHashMap(), Optional.empty(), Optional.empty(), false, ImmutableMap.of(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty(), "",
-                -1, false);
+                -1);
     }
 
     /**
@@ -221,7 +215,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty(), "",
-                -1, false);
+                -1);
     }
 
     /**
@@ -250,7 +244,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty(), "",
-                -1, false);
+                -1);
     }
 
     /**
@@ -282,7 +276,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 ImmutableList.of(), operativeSlots, ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty(), "",
-                -1, false);
+                -1);
     }
 
     /**
@@ -319,7 +313,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedTabletIds, selectedIndexId, indexSelected, preAggStatus, specifiedPartitions, hints,
                 cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 specifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
-                annOrderKeys, annLimit, tableAlias, -1, false);
+                annOrderKeys, annLimit, tableAlias, -1);
     }
 
     /**
@@ -336,12 +330,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
             List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit, Optional<ScoreRangeInfo> scoreRangeInfo,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
-            long tso, boolean isDelta) {
+            long tso) {
         this(id, table, qualifier, groupExpression, logicalProperties, selectedPartitionIds, partitionPruned, false,
                 selectedTabletIds, selectedIndexId, indexSelected, preAggStatus, specifiedPartitions, hints,
                 cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 specifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
-                annOrderKeys, annLimit, tableAlias, tso, isDelta);
+                annOrderKeys, annLimit, tableAlias, tso);
     }
 
     /**
@@ -363,7 +357,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                Optional.empty(), Optional.empty(), -1, false);
+                Optional.empty(), Optional.empty(), -1);
     }
 
     /**
@@ -380,13 +374,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
             List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit, Optional<ScoreRangeInfo> scoreRangeInfo,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
-            long tso, boolean isDelta) {
+            long tso) {
         this(id, table, qualifier, groupExpression, logicalProperties, selectedPartitionIds, partitionPruned,
                 hasPartitionPredicate, selectedTabletIds, selectedIndexId, indexSelected, preAggStatus,
                 specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                Optional.empty(), Optional.empty(), tso, isDelta);
+                Optional.empty(), Optional.empty(), tso);
     }
 
     /**
@@ -405,7 +399,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
             Optional<PartitionPrunablePredicate> partitionPrunablePredicates,
             Optional<TableScanParams> scanParams,
-            long tso, boolean isDelta) {
+            long tso) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 operativeSlots, virtualColumns, groupExpression, logicalProperties, tableAlias);
         Preconditions.checkArgument(selectedPartitionIds != null,
@@ -449,7 +443,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 : partitionPrunablePredicates;
         this.scanParams = scanParams;
         this.tso = tso;
-        this.isDelta = isDelta;
     }
 
     /**
@@ -469,7 +462,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 cacheSlotWithSlotName, Optional.empty(), tableSample, directMvScan, colToSubPathsMap,
                 specifiedTabletIds, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty(), "",
-                Optional.empty(), scanParams, -1, false);
+                Optional.empty(), scanParams, -1);
     }
 
     /**
@@ -518,7 +511,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     @Override
@@ -592,7 +585,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 && Objects.equals(partitionPrunablePredicates, that.partitionPrunablePredicates)
                 && Objects.equals(scanParams, that.scanParams)
                 && tso == that.tso
-                && isDelta == that.isDelta;
+                ;
     }
 
     @Override
@@ -610,7 +603,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     @Override
@@ -623,7 +616,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     /**
@@ -646,7 +639,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     /**
@@ -662,7 +655,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 indexId, true, PreAggStatus.unset(), manuallySpecifiedPartitions, hints, cacheSlotWithSlotName,
                 cachedOutput, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
                 operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
-                annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams, tso, isDelta));
+                annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams, tso));
     }
 
     /**
@@ -677,7 +670,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
-                scanParams, tso, isDelta));
+                scanParams, tso));
     }
 
     /**
@@ -692,7 +685,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     /**
@@ -707,7 +700,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     /**
@@ -722,7 +715,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     @Override
@@ -735,7 +728,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, Maps.newHashMap(), Optional.empty(), tableSample, directMvScan,
                 colToSubPathsMap, selectedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
-                scanParams, tso, isDelta));
+                scanParams, tso));
     }
 
     @Override
@@ -748,7 +741,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta));
+                partitionPrunablePredicates, scanParams, tso));
     }
 
     /**
@@ -770,7 +763,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams,
-                tso, isDelta));
+                tso));
     }
 
     /**
@@ -794,7 +787,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams,
-                tso, isDelta);
+                tso);
     }
 
     /**
@@ -824,7 +817,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams,
-                tso, isDelta);
+                tso);
     }
 
     @Override
@@ -1021,11 +1014,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return tso;
     }
 
-    /** Returns true if this scan is a delta source (binlog_delta) for IVM. */
-    public boolean isDelta() {
-        return isDelta;
-    }
-
     /** Returns a copy of this scan with the given TSO for snapshot binding. */
     public LogicalOlapScan withTso(long tso) {
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
@@ -1035,19 +1023,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta);
-    }
-
-    /** Returns a copy of this scan marked as a delta source for IVM. */
-    public LogicalOlapScan withIsDelta(boolean isDelta) {
-        return new LogicalOlapScan(relationId, (Table) table, qualifier,
-                groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
-                hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
-                manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                partitionPrunablePredicates, scanParams, tso, isDelta);
+                partitionPrunablePredicates, scanParams, tso);
     }
 
     protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
@@ -1299,7 +1275,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams,
-                tso, isDelta));
+                tso));
     }
 
     @VisibleForTesting
@@ -1382,7 +1358,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, Optional.of(outputSlots), tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams,
-                tso, isDelta));
+                tso));
     }
 
     /** withTableScanParams */
@@ -1395,7 +1371,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
-                        Optional.of(scanParams), tso, isDelta));
+                        Optional.of(scanParams), tso));
     }
 
     @Override

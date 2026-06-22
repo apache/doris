@@ -4,8 +4,7 @@ PhysicalResultSink
 --PhysicalProject
 ----hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_ivm_explain_refresh_t1.k1 = test_ivm_explain_refresh_t2.k1)) otherCondition=()
 ------PhysicalProject
---------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
-----------PhysicalOlapScan[test_ivm_explain_refresh_t1]
+--------PhysicalOlapScan[__doris_ivm_stream_1782121674005_test_ivm_explain_refresh_t1]
 ------PhysicalProject
 --------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
 ----------PhysicalOlapScan[test_ivm_explain_refresh_t2]
@@ -18,6 +17,5 @@ PhysicalResultSink
 --------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
 ----------PhysicalOlapScan[test_ivm_explain_refresh_t1]
 ------PhysicalProject
---------filter((test_ivm_explain_refresh_t2.__DORIS_DELETE_SIGN__ = 0))
-----------PhysicalOlapScan[test_ivm_explain_refresh_t2]
+--------PhysicalOlapScan[__doris_ivm_stream_1782121674005_test_ivm_explain_refresh_t2]
 

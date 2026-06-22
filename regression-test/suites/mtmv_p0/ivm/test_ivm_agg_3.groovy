@@ -31,15 +31,14 @@ suite("test_ivm_agg_3") {
             id INT,
             k1 INT,
             k2 VARCHAR(32),
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -50,10 +49,10 @@ suite("test_ivm_agg_3") {
     // (k1=2,k2='a'): 1 row (v1=40)
     sql """
         INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES
-            (1, 1, 'a', 10, 0),
-            (2, 1, 'a', 20, 0),
-            (3, 1, 'b', 30, 0),
-            (4, 2, 'a', 40, 0);
+            (1, 1, 'a', 10),
+            (2, 1, 'a', 20),
+            (3, 1, 'b', 30),
+            (4, 2, 'a', 40);
     """
 
     sql """
@@ -78,8 +77,8 @@ suite("test_ivm_agg_3") {
     """
 
     // Step 2: Insert new rows — add to existing group (1,'a') and create new group (2,'b')
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (5, 1, 'a', 50, 0);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (6, 2, 'b', 60, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (5, 1, 'a', 50);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (6, 2, 'b', 60);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
@@ -102,9 +101,9 @@ suite("test_ivm_agg_3") {
     """
 
     // Step 3: Delete the only row in group (1,'b') — should disappear from MV
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (3, 1, 'b', 30, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_multikey_base WHERE k1 = 3;"""
     // Dirty partition
-    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (7, 2, 'a', 70, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_multikey_base VALUES (7, 2, 'a', 70);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multikey_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multikey_mv")
@@ -139,24 +138,23 @@ suite("test_ivm_agg_3") {
             k1 INT,
             grp INT,
             v1 INT,
-            v2 INT,
-            binlog_op TINYINT
+            v2 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """
         INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES
-            (1, 1, 10, 100, 0),
-            (2, 1, 20, 200, 0),
-            (3, 2, 30, 300, 0);
+            (1, 1, 10, 100),
+            (2, 1, 20, 200),
+            (3, 2, 30, 300);
     """
 
     sql """
@@ -182,8 +180,8 @@ suite("test_ivm_agg_3") {
     """
 
     // Insert safe rows (not touching MIN/MAX boundaries)
-    sql """INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES (4, 1, 15, 150, 0);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES (5, 2, 35, 250, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES (4, 1, 15, 150);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_multiagg_base VALUES (5, 2, 35, 250);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_multiagg_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_multiagg_mv")
@@ -215,15 +213,14 @@ suite("test_ivm_agg_3") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_negval_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -231,8 +228,8 @@ suite("test_ivm_agg_3") {
     // Initial: v1=100, v1=-80 → SUM=20
     sql """
         INSERT INTO test_ivm_agg_mtmv_negval_base VALUES
-            (1, 100, 0),
-            (2, -80, 0);
+            (1, 100),
+            (2, -80);
     """
 
     sql """
@@ -255,7 +252,7 @@ suite("test_ivm_agg_3") {
     """
 
     // Insert v1=-50 → SUM should be 100+(-80)+(-50)=-30 (crosses zero to negative)
-    sql """INSERT INTO test_ivm_agg_mtmv_negval_base VALUES (3, -50, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_negval_base VALUES (3, -50);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
@@ -274,7 +271,7 @@ suite("test_ivm_agg_3") {
     """
 
     // Insert v1=30 → SUM should be -30+30=0 (exact cancellation to zero)
-    sql """INSERT INTO test_ivm_agg_mtmv_negval_base VALUES (4, 30, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_negval_base VALUES (4, 30);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_negval_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_negval_mv")
@@ -309,7 +306,7 @@ suite("test_ivm_agg_3") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -351,24 +348,23 @@ suite("test_ivm_agg_3") {
             k1 INT,
             v_tiny TINYINT,
             v_dec DECIMAL(10,2),
-            v_dbl DOUBLE,
-            binlog_op TINYINT
+            v_dbl DOUBLE
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """
         INSERT INTO test_ivm_agg_mtmv_types_base VALUES
-            (1, 10, 99.50, 1.5, 0),
-            (2, 20, 50.25, 2.5, 0),
-            (3, -5, 100.75, 3.5, 0);
+            (1, 10, 99.50, 1.5),
+            (2, 20, 50.25, 2.5),
+            (3, -5, 100.75, 3.5);
     """
 
     sql """
@@ -397,7 +393,7 @@ suite("test_ivm_agg_3") {
     """
 
     // Safe insert (doesn't touch MIN/MAX boundaries)
-    sql """INSERT INTO test_ivm_agg_mtmv_types_base VALUES (4, 0, 75.00, 4.0, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_types_base VALUES (4, 0, 75.00, 4.0);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_types_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_types_mv")

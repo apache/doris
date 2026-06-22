@@ -29,14 +29,22 @@ it covers MTMV creation paths that can be affected by IVM normalize/metadata cha
 
 New test classes are added over time — always check the directories above for the current set.
 
-## Important: Binlog/Stream Not Ready
+## Important: Binlog/Stream Status
 
-The binlog/stream-based incremental data capture is **not yet implemented**. During IVM incremental refresh, the base table delta is **mocked** — it reads the full base table data as if it were the incremental change. This means:
+Stream-based binlog capture is implemented for IVM incremental refresh:
 
-- `IvmStreamRef` and `StreamType` are placeholder structures
-- The delta executor currently treats the entire base table scan as the delta input
-- Real incremental behavior (capturing only inserted/deleted rows since last refresh) will require binlog/stream integration in the future
-- All current regression and unit tests operate under this mock-full-scan assumption
+- Delta scans use `LogicalOlapTableStreamScan` with `isIncrementalScan=true`.
+- `IvmDeltaRewriteHelper.isIncrementalDeltaScan()` identifies delta scans.
+- Consumption positions are managed by `OlapTableStream` per-partition offsets (`partitionOffset`).
+- On `CREATE MTMV ... REFRESH INCREMENTAL`, an internal stream
+  `__doris_ivm_{mvId}_{baseTableName}` is auto-created for each base table.
+- `IvmDeltaRewriter.replaceWithDelta()` constructs `LogicalOlapTableStreamScan`
+  with `OlapTableStreamWrapper`, flowing through stream → `RowBinlogTableWrapper` → binlog scan.
+- `dml_factor` is derived from `__DORIS_BINLOG_OP__`:
+  `ROW_BINLOG_APPEND(0)/UPDATE(1) → +1, DELETE(2) → -1`.
+
+**TSO snapshot reads** (`scan.withTso(tso)`) are mocked — BE does not support TSO-based
+snapshot reads yet.
 
 ## Explain IVM Refresh Plans
 
@@ -59,16 +67,17 @@ all IVM plans together. Plan process follows the existing syntax, for example:
 EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name INCREMENTAL FOR DELTA 1;
 ```
 
-## DML Factor from binlog_op
+## DML Factor from `__DORIS_BINLOG_OP__`
 
-The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmLinearDeltaHandler.rewriteScan()`:
+The `dml_factor` column (+1 for inserts/updates, −1 for deletes) drives all delta computations.
+It is derived in `IvmLinearDeltaHandler.buildDmlFactorExpr()`:
 
-- **binlog_op present**: If the base table has a column named `binlog_op` (`Column.BINLOG_OPERATION_COL`), its value follows the delete-sign convention (TinyInt: 0 = insert, 1 = delete). The dml_factor expression is `IF(binlog_op = 0, 1, -1)`.
-- **binlog_op absent (fallback)**: When the column does not exist (e.g., normal tables without binlog), dml_factor falls back to the literal `1` (insert-only assumption).
-
-The aggregate handler rewrites its child subtree through `IvmDeltaRewriteVisitor`, so simple-scan and aggregate MVs both use the same binlog_op-based dml_factor logic when available.
-
-See `IvmLinearDeltaHandler.buildDmlFactorExpr()` for the implementation.
+- Reads the real `__DORIS_BINLOG_OP__` binlog column (type `BIGINT`):
+  - `ROW_BINLOG_APPEND(0)` or `ROW_BINLOG_UPDATE(1)` → `dml_factor = +1`
+  - `ROW_BINLOG_DELETE(2)` → `dml_factor = -1`
+- Expression: `IF(__DORIS_BINLOG_OP__ < 2, 1, -1)`
+- The `__DORIS_BINLOG_OP__` column is output by `LogicalOlapTableStreamScan.computeOutput()`
+  when `isIncrementalScan=true`, populated by the BE binlog scan via `RowBinlogTableWrapper`.
 
 ## Row ID Generation
 
@@ -84,56 +93,25 @@ The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase
 
 IVM is not publicly available until July 2026. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views. Breaking changes to IVM metadata, DDL format, or internal storage layout are acceptable without migration support.
 
-## Regression Test Guide: Mocking binlog_op for Delete Operations
+## Regression Test Guide: Binlog Operations
 
-When writing IVM regression tests that need to simulate **delete** operations on base tables,
-the base table **must** use a MOW (Merge-on-Write unique key) table. This is because in Doris's
-binlog implementation, only MOW tables can produce `delete` operations in the binlog stream;
-duplicate/detail tables (i.e., `DUPLICATE KEY` tables) only produce `insert` operations.
+When writing IVM regression tests, base tables should use MOW (Merge-on-Write unique key) tables
+for delete testing. The real binlog stream captures the `__DORIS_BINLOG_OP__` column automatically
+— no mock column is needed in the base table schema.
 
-### How it works
+### Base Table Setup
 
-Add a `binlog_op TINYINT` column as the **last column** in the base table schema:
+Base tables with MOW primary key can generate `INSERT`, `UPDATE`, and `DELETE` operations
+in the binlog stream. The `CREATE MTMV ... REFRESH INCREMENTAL` command auto-creates an
+internal stream for each base table.
 
-```sql
-CREATE TABLE base_table (
-    k1 INT,
-    v1 INT,
-    binlog_op TINYINT
-)
-UNIQUE KEY(k1)
-DISTRIBUTED BY HASH(k1) BUCKETS 2
-PROPERTIES (
-    "replication_num" = "1",
-    "enable_unique_key_merge_on_write" = "true"    -- MOW is required
-);
-```
+### Important Notes
 
-### Insert vs Delete
-
-- **Insert a row**: set `binlog_op = 0`
-  ```sql
-  INSERT INTO base_table VALUES (1, 10, 0);
-  ```
-- **Delete a row**: set `binlog_op = 1` (re-insert same key with op=1)
-  ```sql
-  INSERT INTO base_table VALUES (1, 10, 1);
-  ```
-
-The IVM delta rewrite reads `binlog_op` to derive `dml_factor`:
-`IF(binlog_op = 0, 1, -1)`, which controls whether a row contributes positively or negatively
-to aggregated state.
-
-### Important notes
-
-1. The `binlog_op` column is part of the **base table schema**, not the MV definition.
-   MV queries should reference only the business columns (exclude `binlog_op`).
+1. MV queries should reference only the business columns.
 2. After a delete, a "dirty" insert into the same partition is often needed to trigger
    the INCREMENTAL refresh (the partition must have new data for the refresh to run).
 3. When all rows of a group are deleted, the group-level count
-   (`__DORIS_IVM_AGG_COUNT_COL__`) drops to 0, causing `DELETE_SIGN=1` in the MV
-   (effectively removing the group row).
-4. The mock delta reads the **entire base table** on each INCREMENTAL refresh. To test
-   group deletion correctly, always do a COMPLETE refresh immediately before the deletion
-   scenario to reset group counts to the true physical count. Otherwise, counts may be
-   inflated by prior INCREMENTALs, preventing deletion from driving the count to zero.
+   (`__DORIS_IVM_AGG_COUNT_COL__`) drops to 0, causing `DELETE_SIGN=1` in the MV.
+4. TSO snapshot reads are not yet supported by BE; snapshot scans are still mock
+   (read the full table). This means snapshot TSO bindings (`withTso(tso)`) are
+   placeholders and will produce correct results once BE support is added.
