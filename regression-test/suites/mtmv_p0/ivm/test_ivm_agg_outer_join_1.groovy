@@ -20,13 +20,13 @@ suite("test_ivm_agg_outer_join_1") {
     // =========================================================
     // O2 root aggregate above a LEFT OUTER JOIN chain.
     // =========================================================
-    sql """drop materialized view if exists test_ivm_agg_outer_join_1_chain_mv;"""
-    sql """drop table if exists test_ivm_agg_outer_join_1_chain_a;"""
-    sql """drop table if exists test_ivm_agg_outer_join_1_chain_b;"""
-    sql """drop table if exists test_ivm_agg_outer_join_1_chain_c;"""
+    sql """drop materialized view if exists ivm_aoj1_chain_mv;"""
+    sql """drop table if exists ivm_aoj1_chain_a;"""
+    sql """drop table if exists ivm_aoj1_chain_b;"""
+    sql """drop table if exists ivm_aoj1_chain_c;"""
 
     sql """
-        CREATE TABLE test_ivm_agg_outer_join_1_chain_a (
+        CREATE TABLE ivm_aoj1_chain_a (
             k1 INT,
             v1 INT
         )
@@ -41,7 +41,7 @@ suite("test_ivm_agg_outer_join_1") {
     """
 
     sql """
-        CREATE TABLE test_ivm_agg_outer_join_1_chain_b (
+        CREATE TABLE ivm_aoj1_chain_b (
             k1 INT,
             v2 INT
         )
@@ -56,7 +56,7 @@ suite("test_ivm_agg_outer_join_1") {
     """
 
     sql """
-        CREATE TABLE test_ivm_agg_outer_join_1_chain_c (
+        CREATE TABLE ivm_aoj1_chain_c (
             k1 INT,
             v3 INT
         )
@@ -70,12 +70,12 @@ suite("test_ivm_agg_outer_join_1") {
         );
     """
 
-    sql """INSERT INTO test_ivm_agg_outer_join_1_chain_a VALUES (1, 10), (2, 20), (3, 30);"""
-    sql """INSERT INTO test_ivm_agg_outer_join_1_chain_b VALUES (1, 100), (3, 300);"""
-    sql """INSERT INTO test_ivm_agg_outer_join_1_chain_c VALUES (1, 1000);"""
+    sql """INSERT INTO ivm_aoj1_chain_a VALUES (1, 10), (2, 20), (3, 30);"""
+    sql """INSERT INTO ivm_aoj1_chain_b VALUES (1, 100), (3, 300);"""
+    sql """INSERT INTO ivm_aoj1_chain_c VALUES (1, 1000);"""
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_agg_outer_join_1_chain_mv
+        CREATE MATERIALIZED VIEW ivm_aoj1_chain_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 1
         PROPERTIES (
@@ -83,41 +83,41 @@ suite("test_ivm_agg_outer_join_1") {
         )
         AS
         SELECT
-            test_ivm_agg_outer_join_1_chain_a.k1 AS k1,
+            ivm_aoj1_chain_a.k1 AS k1,
             COUNT(*) AS row_count,
-            COUNT(test_ivm_agg_outer_join_1_chain_b.v2) AS b_count,
-            SUM(test_ivm_agg_outer_join_1_chain_c.v3) AS c_sum
-        FROM test_ivm_agg_outer_join_1_chain_a
-        LEFT OUTER JOIN test_ivm_agg_outer_join_1_chain_b
-            ON test_ivm_agg_outer_join_1_chain_a.k1 = test_ivm_agg_outer_join_1_chain_b.k1
-        LEFT OUTER JOIN test_ivm_agg_outer_join_1_chain_c
-            ON test_ivm_agg_outer_join_1_chain_a.k1 = test_ivm_agg_outer_join_1_chain_c.k1
-        GROUP BY test_ivm_agg_outer_join_1_chain_a.k1;
+            COUNT(ivm_aoj1_chain_b.v2) AS b_count,
+            SUM(ivm_aoj1_chain_c.v3) AS c_sum
+        FROM ivm_aoj1_chain_a
+        LEFT OUTER JOIN ivm_aoj1_chain_b
+            ON ivm_aoj1_chain_a.k1 = ivm_aoj1_chain_b.k1
+        LEFT OUTER JOIN ivm_aoj1_chain_c
+            ON ivm_aoj1_chain_a.k1 = ivm_aoj1_chain_c.k1
+        GROUP BY ivm_aoj1_chain_a.k1;
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_outer_join_1_chain_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_outer_join_1_chain_mv")
+    sql """REFRESH MATERIALIZED VIEW ivm_aoj1_chain_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("ivm_aoj1_chain_mv")
     order_qt_chain_agg_after_complete """
         SELECT k1, row_count, b_count, c_sum
-        FROM test_ivm_agg_outer_join_1_chain_mv
+        FROM ivm_aoj1_chain_mv
         ORDER BY k1
     """
 
-    sql """INSERT INTO test_ivm_agg_outer_join_1_chain_a VALUES (4, 40);"""
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_outer_join_1_chain_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_outer_join_1_chain_mv")
+    sql """INSERT INTO ivm_aoj1_chain_a VALUES (4, 40);"""
+    sql """REFRESH MATERIALIZED VIEW ivm_aoj1_chain_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_aoj1_chain_mv")
     order_qt_chain_agg_after_left_incremental """
         SELECT k1, row_count, b_count, c_sum
-        FROM test_ivm_agg_outer_join_1_chain_mv
+        FROM ivm_aoj1_chain_mv
         ORDER BY k1
     """
 
-    sql """INSERT INTO test_ivm_agg_outer_join_1_chain_c VALUES (3, 3000);"""
-    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_outer_join_1_chain_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_agg_outer_join_1_chain_mv")
+    sql """INSERT INTO ivm_aoj1_chain_c VALUES (3, 3000);"""
+    sql """REFRESH MATERIALIZED VIEW ivm_aoj1_chain_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("ivm_aoj1_chain_mv")
     order_qt_chain_agg_after_right_incremental """
         SELECT k1, row_count, b_count, c_sum
-        FROM test_ivm_agg_outer_join_1_chain_mv
+        FROM ivm_aoj1_chain_mv
         ORDER BY k1
     """
 }
