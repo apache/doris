@@ -1969,7 +1969,13 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     }
 
     if (!table_children.empty()) {
-        DORIS_CHECK(is_complex_type(mapping->file_type->get_primitive_type()));
+        if (!is_complex_type(remove_nullable(mapping->file_type)->get_primitive_type())) {
+            return Status::NotSupported(
+                    "Cannot map complex table column '{}' to scalar parquet column '{}', table "
+                    "type={}, file type={}",
+                    table_column.name, file_field.name, mapping->table_type->get_name(),
+                    mapping->file_type->get_name());
+        }
         std::vector<int32_t> synthesized_used_file_child_ids;
         for (size_t table_child_idx = 0; table_child_idx < table_children.size();
              ++table_child_idx) {

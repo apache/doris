@@ -772,24 +772,6 @@ protected:
         return finish_array(&builder);
     }
 
-    std::shared_ptr<arrow::Array> build_time32_array(const std::shared_ptr<arrow::DataType>& type,
-                                                     const std::vector<int32_t>& values) {
-        arrow::Time32Builder builder(type, arrow::default_memory_pool());
-        for (const auto value : values) {
-            EXPECT_TRUE(builder.Append(value).ok());
-        }
-        return finish_array(&builder);
-    }
-
-    std::shared_ptr<arrow::Array> build_time64_array(const std::shared_ptr<arrow::DataType>& type,
-                                                     const std::vector<int64_t>& values) {
-        arrow::Time64Builder builder(type, arrow::default_memory_pool());
-        for (const auto value : values) {
-            EXPECT_TRUE(builder.Append(value).ok());
-        }
-        return finish_array(&builder);
-    }
-
     std::shared_ptr<arrow::Array> build_timestamp_array(
             const std::shared_ptr<arrow::DataType>& type, const std::vector<int64_t>& values) {
         arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
@@ -948,24 +930,6 @@ protected:
                       EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_DATEV2);
                       EXPECT_EQ(schema.type->to_string(column, 0), "1970-01-01");
                       EXPECT_EQ(schema.type->to_string(column, 2), "2021-01-01");
-                  });
-        add_field(arrow::field("time_millis_col", arrow::time32(arrow::TimeUnit::MILLI), false),
-                  build_time32_array(arrow::time32(arrow::TimeUnit::MILLI),
-                                     {0, 1000, 3723004, 43200000, 86399000}),
-                  [](const ParquetColumnSchema& schema, const IColumn& column) {
-                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT32);
-                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_TIMEV2);
-                      EXPECT_EQ(schema.type->to_string(column, 1), "00:00:01.000");
-                      EXPECT_EQ(schema.type->to_string(column, 2), "01:02:03.004");
-                  });
-        add_field(arrow::field("time_micros_col", arrow::time64(arrow::TimeUnit::MICRO), false),
-                  build_time64_array(arrow::time64(arrow::TimeUnit::MICRO),
-                                     {0, 1000000, 3723004567, 43200000000, 86399000000}),
-                  [](const ParquetColumnSchema& schema, const IColumn& column) {
-                      EXPECT_EQ(schema.type_descriptor.physical_type, ::parquet::Type::INT64);
-                      EXPECT_EQ(remove_nullable(schema.type)->get_primitive_type(), TYPE_TIMEV2);
-                      EXPECT_EQ(schema.type->to_string(column, 1), "00:00:01.000000");
-                      EXPECT_EQ(schema.type->to_string(column, 2), "01:02:03.004567");
                   });
         add_field(arrow::field("timestamp_millis_col", arrow::timestamp(arrow::TimeUnit::MILLI),
                                false),
@@ -3667,11 +3631,13 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
                                                    ::parquet::Type::INT32,
                                                    ::parquet::ConvertedType::DATE),
             ::parquet::schema::PrimitiveNode::Make(
-                    "time_millis_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
-                    ::parquet::ConvertedType::TIME_MILLIS),
+                    "time_millis_unadjusted", ::parquet::Repetition::REQUIRED,
+                    ::parquet::LogicalType::Time(false, ::parquet::LogicalType::TimeUnit::MILLIS),
+                    ::parquet::Type::INT32),
             ::parquet::schema::PrimitiveNode::Make(
-                    "time_micros_int64", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64,
-                    ::parquet::ConvertedType::TIME_MICROS),
+                    "time_micros_unadjusted", ::parquet::Repetition::REQUIRED,
+                    ::parquet::LogicalType::Time(false, ::parquet::LogicalType::TimeUnit::MICROS),
+                    ::parquet::Type::INT64),
             ::parquet::schema::PrimitiveNode::Make(
                     "timestamp_millis_int64", ::parquet::Repetition::REQUIRED,
                     ::parquet::Type::INT64, ::parquet::ConvertedType::TIMESTAMP_MILLIS),
@@ -3729,6 +3695,41 @@ TEST_F(ParquetColumnReaderTest, ResolveSupportedPhysicalAndLogicalSchemas) {
             ASSERT_EQ(field->type_descriptor.extra_type_info, ParquetExtraTypeInfo::FLOAT16);
             ASSERT_FALSE(field->type_descriptor.is_string_like);
         }
+    }
+}
+
+TEST_F(ParquetColumnReaderTest, RejectUtcAdjustedTimeSchemas) {
+    std::vector<::parquet::schema::NodePtr> nodes = {
+            ::parquet::schema::PrimitiveNode::Make(
+                    "time_millis_int32", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
+                    ::parquet::ConvertedType::TIME_MILLIS),
+            ::parquet::schema::PrimitiveNode::Make(
+                    "time_micros_int64", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64,
+                    ::parquet::ConvertedType::TIME_MICROS),
+            ::parquet::schema::PrimitiveNode::Make(
+                    "adjusted_time_millis", ::parquet::Repetition::REQUIRED,
+                    ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
+                    ::parquet::Type::INT32),
+            ::parquet::schema::PrimitiveNode::Make(
+                    "adjusted_time_micros", ::parquet::Repetition::REQUIRED,
+                    ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MICROS),
+                    ::parquet::Type::INT64),
+    };
+
+    for (const auto& node : nodes) {
+        SCOPED_TRACE(node->name());
+        auto schema = ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED,
+                                                         {node});
+        ::parquet::SchemaDescriptor descriptor;
+        descriptor.Init(schema);
+
+        std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+        auto st = build_parquet_column_schema(descriptor, &fields);
+        ASSERT_FALSE(st.ok()) << node->name();
+        EXPECT_TRUE(
+                st.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported") !=
+                std::string::npos)
+                << st;
     }
 }
 
@@ -3909,6 +3910,47 @@ TEST_F(ParquetColumnReaderTest, BuildBareRepeatedGroupInsideStructAsListStructSc
     ASSERT_NE(element_schema.children[1]->descriptor, nullptr);
     EXPECT_EQ(element_schema.children[0]->descriptor->max_repetition_level(), 1);
     EXPECT_EQ(element_schema.children[1]->descriptor->max_repetition_level(), 1);
+}
+
+TEST_F(ParquetColumnReaderTest, BuildStructuralArrayListWrapperAsStructElement) {
+    auto schema = ::parquet::schema::GroupNode::Make(
+            "schema", ::parquet::Repetition::REQUIRED,
+            {::parquet::schema::GroupNode::Make(
+                    "c", ::parquet::Repetition::OPTIONAL,
+                    {::parquet::schema::GroupNode::Make(
+                            "array", ::parquet::Repetition::REPEATED,
+                            {::parquet::schema::PrimitiveNode::Make("array",
+                                                                    ::parquet::Repetition::REPEATED,
+                                                                    ::parquet::Type::INT32)},
+                            ::parquet::ConvertedType::LIST)},
+                    ::parquet::ConvertedType::LIST)});
+    ::parquet::SchemaDescriptor descriptor;
+    descriptor.Init(schema);
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    auto st = build_parquet_column_schema(descriptor, &fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(fields.size(), 1);
+
+    const auto& c_schema = *fields[0];
+    EXPECT_EQ(c_schema.name, "c");
+    EXPECT_EQ(c_schema.kind, ParquetColumnSchemaKind::LIST);
+    ASSERT_EQ(c_schema.children.size(), 1);
+    const auto* c_type = assert_cast<const DataTypeArray*>(remove_nullable(c_schema.type).get());
+    EXPECT_EQ(remove_nullable(c_type->get_nested_type())->get_primitive_type(), TYPE_STRUCT);
+
+    const auto& element_schema = *c_schema.children[0];
+    EXPECT_EQ(element_schema.name, "element");
+    EXPECT_EQ(element_schema.kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(element_schema.children.size(), 1);
+    const auto& array_schema = *element_schema.children[0];
+    EXPECT_EQ(array_schema.name, "array");
+    EXPECT_EQ(array_schema.kind, ParquetColumnSchemaKind::LIST);
+    ASSERT_EQ(array_schema.children.size(), 1);
+    EXPECT_EQ(array_schema.children[0]->name, "element");
+    const auto* array_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(array_schema.type).get());
+    EXPECT_EQ(remove_nullable(array_type->get_nested_type())->get_primitive_type(), TYPE_INT);
 }
 
 } // namespace

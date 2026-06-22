@@ -193,8 +193,13 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             return column;
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        column.children.push_back(
-                build_schema_column_from_external_field(*item_field, array_type.get_nested_type()));
+        auto child =
+                build_schema_column_from_external_field(*item_field, array_type.get_nested_type());
+        child.name = "element";
+        if (child.has_identifier_name()) {
+            child.identifier = Field::create_field<TYPE_STRING>(child.name);
+        }
+        column.children.push_back(std::move(child));
         break;
     }
     case TYPE_MAP: {
@@ -206,13 +211,23 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
         const auto* key_field = get_field_ptr(field.nestedField.map_field.key_field);
         if (key_field != nullptr) {
-            column.children.push_back(
-                    build_schema_column_from_external_field(*key_field, map_type.get_key_type()));
+            auto child =
+                    build_schema_column_from_external_field(*key_field, map_type.get_key_type());
+            child.name = "key";
+            if (child.has_identifier_name()) {
+                child.identifier = Field::create_field<TYPE_STRING>(child.name);
+            }
+            column.children.push_back(std::move(child));
         }
         const auto* value_field = get_field_ptr(field.nestedField.map_field.value_field);
         if (value_field != nullptr) {
-            column.children.push_back(build_schema_column_from_external_field(
-                    *value_field, map_type.get_value_type()));
+            auto child = build_schema_column_from_external_field(*value_field,
+                                                                 map_type.get_value_type());
+            child.name = "value";
+            if (child.has_identifier_name()) {
+                child.identifier = Field::create_field<TYPE_STRING>(child.name);
+            }
+            column.children.push_back(std::move(child));
         }
         break;
     }

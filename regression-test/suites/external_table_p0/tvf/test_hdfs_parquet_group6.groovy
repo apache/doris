@@ -484,10 +484,13 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/lzo_compression.parquet"
-            order_qt_test_64 """ select * from HDFS(
+            test {
+                sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
+                exception "LZO compression is supported by the Parquet format in general, it is currently not supported by the C++ implementation"
+            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/page_index_small_page.parquet"
@@ -649,13 +652,10 @@ suite("test_hdfs_parquet_group6", "p0,external") {
                         "format" = "parquet") limit 10; """
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/test_parquet_time_type.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_87 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'c2' is not supported"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/json.parquet"
@@ -673,13 +673,10 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/ARROW-17100.parquet"
-            test {
-                sql """ select * from HDFS(
+            order_qt_test_90 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
-                exception "Can't read enough bytes in plain decode"
-            }
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/parquet_cpp_example.parquet"

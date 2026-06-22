@@ -82,12 +82,10 @@ DataTypePtr converted_type_to_doris_type(const ::parquet::ColumnDescriptor* colu
     case ::parquet::ConvertedType::DATE:
         return create_type(TYPE_DATEV2, nullable);
     case ::parquet::ConvertedType::TIME_MILLIS:
-        result->unsupported_reason =
-                "Parquet TIME with isAdjustedToUTC=true is not supported";
+        result->unsupported_reason = "Parquet TIME with isAdjustedToUTC=true is not supported";
         return nullptr;
     case ::parquet::ConvertedType::TIME_MICROS:
-        result->unsupported_reason =
-                "Parquet TIME with isAdjustedToUTC=true is not supported";
+        result->unsupported_reason = "Parquet TIME with isAdjustedToUTC=true is not supported";
         return nullptr;
     case ::parquet::ConvertedType::TIMESTAMP_MILLIS:
         result->is_timestamp = true;
@@ -158,8 +156,7 @@ DataTypePtr logical_type_to_doris_type(const ::parquet::ColumnDescriptor* column
     if (logical_type->is_time()) {
         const auto& time_type = static_cast<const ::parquet::TimeLogicalType&>(*logical_type);
         if (time_type.is_adjusted_to_utc()) {
-            result->unsupported_reason =
-                    "Parquet TIME with isAdjustedToUTC=true is not supported";
+            result->unsupported_reason = "Parquet TIME with isAdjustedToUTC=true is not supported";
             return nullptr;
         }
         int scale = 0;

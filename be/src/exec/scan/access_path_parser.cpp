@@ -213,8 +213,7 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
         const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
                                              ? &schema_column->children[0]
                                              : nullptr;
-        auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0),
-                                        schema_field_name_or(element_schema, "element"),
+        auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0), "element",
                                         array_type.get_nested_type());
         inherit_schema_metadata(child, element_schema);
         return build_nested_children_from_access_node(child, child->type, project_all, path + ".*",
@@ -228,14 +227,12 @@ Status build_all_nested_children_from_schema(format::ColumnDefinition* column,
         const auto* value_schema = schema_column != nullptr && schema_column->children.size() > 1
                                            ? &schema_column->children[1]
                                            : nullptr;
-        auto* key_child =
-                find_or_add_child(column, schema_field_id_or(key_schema, 0),
-                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
+        auto* key_child = find_or_add_child(column, schema_field_id_or(key_schema, 0), "key",
+                                            map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
                 key_child, key_child->type, project_all, path + ".KEYS", key_schema));
-        auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1),
-                                              schema_field_name_or(value_schema, "value"),
+        auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1), "value",
                                               map_type.get_value_type());
         inherit_schema_metadata(value_child, value_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
@@ -367,16 +364,14 @@ Status build_map_children_from_access_node(format::ColumnDefinition* column,
                                        ? &schema_column->children[1]
                                        : nullptr;
     if (need_key) {
-        auto* key_child =
-                find_or_add_child(column, schema_field_id_or(key_schema, 0),
-                                  schema_field_name_or(key_schema, "key"), map_type.get_key_type());
+        auto* key_child = find_or_add_child(column, schema_field_id_or(key_schema, 0), "key",
+                                            map_type.get_key_type());
         inherit_schema_metadata(key_child, key_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(key_child, key_child->type, key_node,
                                                                path + ".KEYS", key_schema));
     }
     if (need_value) {
-        auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1),
-                                              schema_field_name_or(value_schema, "value"),
+        auto* value_child = find_or_add_child(column, schema_field_id_or(value_schema, 1), "value",
                                               map_type.get_value_type());
         inherit_schema_metadata(value_child, value_schema);
         RETURN_IF_ERROR(build_nested_children_from_access_node(
@@ -410,8 +405,7 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
         const auto* element_schema = schema_column != nullptr && !schema_column->children.empty()
                                              ? &schema_column->children[0]
                                              : nullptr;
-        auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0),
-                                        schema_field_name_or(element_schema, "element"),
+        auto* child = find_or_add_child(column, schema_field_id_or(element_schema, 0), "element",
                                         array_type.get_nested_type());
         inherit_schema_metadata(child, element_schema);
         return build_nested_children_from_access_node(child, child->type, node.children.at("*"),
