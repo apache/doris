@@ -23,17 +23,23 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.rest.auth.OAuth2Properties;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Pure, testable assembly core for the Iceberg connector flavor switch — the iceberg-SDK-specific bits
@@ -62,6 +68,12 @@ public final class IcebergCatalogFactory {
     private static final boolean DEFAULT_MANIFEST_CACHE_ENABLE = false;
     private static final long DEFAULT_MANIFEST_CACHE_TTL_SECOND = 48L * 60 * 60;
     private static final long DEFAULT_MANIFEST_CACHE_CAPACITY = 1024L;
+
+    // Mirror of legacy AWSGlueMetaStoreBaseProperties.ENDPOINT_PATTERN: extracts the region from a glue
+    // endpoint host (e.g. glue.us-east-1.amazonaws.com / glue-fips.us-east-1.api.aws) when no explicit
+    // glue.region is set, before falling back to us-east-1.
+    private static final Pattern GLUE_ENDPOINT_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:glue|glue-fips)\\.([a-z0-9-]+)\\.(?:api\\.aws|amazonaws\\.com)$");
 
     private IcebergCatalogFactory() {
     }
@@ -237,5 +249,344 @@ public final class IcebergCatalogFactory {
                         "Unknown " + IcebergConnectorProperties.ICEBERG_CATALOG_TYPE + ": " + catalogType
                                 + ". Supported types: rest, hms, glue, hadoop, jdbc, s3tables, dlf");
         }
+    }
+
+    /**
+     * Assembles the full iceberg catalog OPTIONS map for one of the five {@code CatalogUtil}-built flavors
+     * (rest / hms / glue / hadoop / jdbc), mirroring the legacy fe-core
+     * {@code AbstractIcebergProperties.initializeCatalog} base + each {@code Iceberg*MetaStoreProperties#initCatalog}:
+     * the common base (copy-all + warehouse + manifest cache), the flavor's {@code catalog-impl}, the
+     * per-flavor derivations, the S3FileIO dialect (for rest/hadoop/jdbc; glue emits its own), the jdbc
+     * {@code catalog_name} positional removal, and finally the removal of the {@code type} key (the iceberg SDK
+     * forbids both {@code type} and {@code catalog-impl}). PURE: a function of {@code props} + {@code chosenS3}.
+     *
+     * <p>The metastore connection (HMS {@code HiveConf}) and storage {@code Configuration} are SEPARATE sinks
+     * built by the connector ({@link #assembleHiveConf} / {@link #buildHadoopConfiguration}); they are not part
+     * of this options map. {@code s3tables}/{@code dlf} are bespoke (T06/T07) and fall through to the base +
+     * impl only here (the existing skeleton behavior), so this method covers exactly the five SDK-built flavors.
+     */
+    public static Map<String, String> buildCatalogProperties(Map<String, String> props, String flavor,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        Map<String, String> opts = buildBaseCatalogProperties(props);
+        opts.put(CatalogProperties.CATALOG_IMPL, resolveCatalogImpl(flavor));
+        switch (flavor) {
+            case IcebergConnectorProperties.TYPE_REST:
+                appendRestProperties(opts, props, chosenS3);
+                chosenS3.ifPresent(s3 -> appendS3FileIOProperties(opts, s3));
+                break;
+            case IcebergConnectorProperties.TYPE_GLUE:
+                // glue emits its OWN s3.* (unconditional) + glue-client creds; it does NOT use the base
+                // S3FileIO path (legacy IcebergGlueMetaStoreProperties ignores storagePropertiesList).
+                appendGlueProperties(opts, props, chosenS3);
+                break;
+            case IcebergConnectorProperties.TYPE_JDBC:
+                appendJdbcProperties(opts, props);
+                chosenS3.ifPresent(s3 -> appendS3FileIOProperties(opts, s3));
+                // iceberg.jdbc.catalog_name is the positional catalog NAME (see resolveCatalogName); legacy
+                // removes it from the options map before building.
+                opts.remove(IcebergConnectorProperties.JDBC_CATALOG_NAME);
+                break;
+            case IcebergConnectorProperties.TYPE_HMS:
+                // No S3FileIO options: legacy iceberg HMS does not call toFileIOProperties; object-store access
+                // rides the HiveConf (fs.s3a.* from storage), built by the connector via assembleHiveConf.
+                break;
+            case IcebergConnectorProperties.TYPE_HADOOP:
+                chosenS3.ifPresent(s3 -> appendS3FileIOProperties(opts, s3));
+                break;
+            default:
+                // s3tables / dlf: bespoke instantiation is T06/T07. Preserve the skeleton's base+impl routing.
+                break;
+        }
+        // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
+        opts.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        return opts;
+    }
+
+    /**
+     * Resolves the catalog NAME to pass to {@code CatalogUtil.buildIcebergCatalog}. For the jdbc flavor this is
+     * the required {@code iceberg.jdbc.catalog_name} (legacy passes it as the positional {@code catalogName} arg,
+     * overriding the Doris catalog name); every other flavor uses {@code defaultName} (the Doris catalog name).
+     */
+    public static String resolveCatalogName(Map<String, String> props, String flavor, String defaultName) {
+        if (IcebergConnectorProperties.TYPE_JDBC.equals(flavor)) {
+            String name = firstNonBlank(props, IcebergConnectorProperties.JDBC_CATALOG_NAME);
+            if (StringUtils.isBlank(name)) {
+                throw new DorisConnectorException(
+                        IcebergConnectorProperties.JDBC_CATALOG_NAME + " is required for an iceberg jdbc catalog");
+            }
+            return name;
+        }
+        return defaultName;
+    }
+
+    // ---------------------------------------------------------------------
+    // REST appender (mirror IcebergRestProperties.initIcebergRestCatalogProperties)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Mirrors legacy {@code IcebergRestProperties}: core ({@code uri} always, default empty), optional
+     * ({@code prefix} / vended-credentials header / the two effectively-always timeouts), oauth2, and the glue
+     * sigv4 signing block (with credentials sourced from the chosen S3 store for glue/s3tables, else from the
+     * {@code iceberg.rest.*} aliases). PURE.
+     */
+    public static void appendRestProperties(Map<String, String> opts, Map<String, String> props,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        // Core: uri is put UNCONDITIONALLY (legacy field default ""), alias priority iceberg.rest.uri > uri.
+        opts.put(CatalogProperties.URI,
+                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_URI, IcebergConnectorProperties.URI));
+        // Optional.
+        putIfNotBlank(opts, IcebergConnectorProperties.REST_PREFIX_KEY,
+                firstNonBlank(props, IcebergConnectorProperties.REST_PREFIX));
+        String vendedEnabled =
+                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED);
+        if (Boolean.parseBoolean(vendedEnabled)) {
+            opts.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_HEADER,
+                    IcebergConnectorProperties.REST_VENDED_CREDENTIALS_VALUE);
+        }
+        // Timeouts: legacy fields default non-blank, so they are effectively always emitted.
+        opts.put(IcebergConnectorProperties.REST_CONNECTION_TIMEOUT_MS_KEY,
+                firstNonBlankOr(props, IcebergConnectorProperties.DEFAULT_REST_CONNECTION_TIMEOUT_MS,
+                        IcebergConnectorProperties.REST_CONNECTION_TIMEOUT_MS));
+        opts.put(IcebergConnectorProperties.REST_SOCKET_TIMEOUT_MS_KEY,
+                firstNonBlankOr(props, IcebergConnectorProperties.DEFAULT_REST_SOCKET_TIMEOUT_MS,
+                        IcebergConnectorProperties.REST_SOCKET_TIMEOUT_MS));
+        appendRestOAuth2Properties(opts, props);
+        appendRestSigningProperties(opts, props, chosenS3);
+    }
+
+    private static void appendRestOAuth2Properties(Map<String, String> opts, Map<String, String> props) {
+        String securityType = firstNonBlank(props, IcebergConnectorProperties.REST_SECURITY_TYPE);
+        if (!IcebergConnectorProperties.SECURITY_TYPE_OAUTH2.equalsIgnoreCase(securityType)) {
+            return;
+        }
+        String credential = firstNonBlank(props, IcebergConnectorProperties.REST_OAUTH2_CREDENTIAL);
+        if (StringUtils.isNotBlank(credential)) {
+            // Client Credentials Flow.
+            opts.put(OAuth2Properties.CREDENTIAL, credential);
+            putIfNotBlank(opts, OAuth2Properties.OAUTH2_SERVER_URI,
+                    firstNonBlank(props, IcebergConnectorProperties.REST_OAUTH2_SERVER_URI));
+            putIfNotBlank(opts, OAuth2Properties.SCOPE,
+                    firstNonBlank(props, IcebergConnectorProperties.REST_OAUTH2_SCOPE));
+            opts.put(OAuth2Properties.TOKEN_REFRESH_ENABLED,
+                    firstNonBlankOr(props, String.valueOf(OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT),
+                            IcebergConnectorProperties.REST_OAUTH2_TOKEN_REFRESH_ENABLED));
+        } else {
+            // Pre-configured Token Flow (validation guarantees a token here when credential is absent).
+            opts.put(OAuth2Properties.TOKEN,
+                    firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_OAUTH2_TOKEN));
+        }
+    }
+
+    private static void appendRestSigningProperties(Map<String, String> opts, Map<String, String> props,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        String signingName = firstNonBlank(props, IcebergConnectorProperties.REST_SIGNING_NAME);
+        if (StringUtils.isBlank(signingName)) {
+            return;
+        }
+        // signing-name is case-sensitive; do not lower-case it.
+        opts.put(IcebergConnectorProperties.REST_SIGNING_NAME_KEY, signingName);
+        opts.put(IcebergConnectorProperties.REST_SIGV4_ENABLED_KEY,
+                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_SIGV4_ENABLED));
+        opts.put(IcebergConnectorProperties.REST_SIGNING_REGION_KEY,
+                firstNonBlankOrEmpty(props, IcebergConnectorProperties.REST_SIGNING_REGION));
+        if (IcebergConnectorProperties.SIGNING_NAME_GLUE.equals(signingName)
+                || IcebergConnectorProperties.SIGNING_NAME_S3TABLES.equals(signingName)) {
+            // glue/s3tables: credentials come from the chosen S3 store, switching on its credential type
+            // (legacy getCredentialType precedence: EXPLICIT before ASSUME_ROLE before PROVIDER_CHAIN).
+            if (chosenS3.isPresent()) {
+                S3CompatibleFileSystemProperties s3 = chosenS3.get();
+                if (s3.hasStaticCredentials()) {
+                    putRestExplicitCredentials(opts, s3.getAccessKey(), s3.getSecretKey(), s3.getSessionToken());
+                } else if (s3.hasAssumeRole()) {
+                    appendAssumeRoleProperties(opts, s3);
+                }
+                // else PROVIDER_CHAIN: the non-DEFAULT provider class needs fe-core
+                // AwsCredentialsProviderFactory.getV2ClassName (the connector cannot import it); DEFAULT is a
+                // no-op, so the common case is unaffected. Documented GAP (P6.6 docker gate).
+            }
+        } else {
+            // other signing-name: explicit iceberg.rest.* credentials, else provider chain (gap, as above).
+            putRestExplicitCredentials(opts,
+                    firstNonBlank(props, IcebergConnectorProperties.REST_ACCESS_KEY_ID),
+                    firstNonBlank(props, IcebergConnectorProperties.REST_SECRET_ACCESS_KEY),
+                    firstNonBlank(props, IcebergConnectorProperties.REST_SESSION_TOKEN));
+        }
+    }
+
+    /** Mirrors legacy {@code putExplicitRestCredentials}: emit rest.* creds only when AK and SK are both set. */
+    private static void putRestExplicitCredentials(Map<String, String> opts, String accessKey, String secretKey,
+            String sessionToken) {
+        if (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey)) {
+            return;
+        }
+        opts.put(AwsProperties.REST_ACCESS_KEY_ID, accessKey);
+        opts.put(AwsProperties.REST_SECRET_ACCESS_KEY, secretKey);
+        putIfNotBlank(opts, AwsProperties.REST_SESSION_TOKEN, sessionToken);
+    }
+
+    // ---------------------------------------------------------------------
+    // GLUE appender (mirror IcebergGlueMetaStoreProperties.initCatalog)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Mirrors legacy {@code IcebergGlueMetaStoreProperties}: the 5 {@code s3.*} FileIO keys emitted
+     * UNCONDITIONALLY from the chosen S3 store (legacy plain puts allow empty strings), {@code glue.endpoint},
+     * exactly one credential branch (AK/SK provider OR assume-role), {@code client.region} (always, with the
+     * endpoint-regex / us-east-1 fallback), and a {@code putIfAbsent} warehouse placeholder. {@code conf=null}.
+     * PURE. NOTE (D-061): the s3.* values come from the fe-filesystem typed store, not legacy's
+     * {@code S3Properties.of(origProps)}; for a glue catalog whose creds were supplied ONLY via {@code glue.*}
+     * aliases (which fe-filesystem does not read into the S3 store) the s3.* FileIO creds may be absent — a
+     * UT-invisible edge handled at the P6.6 docker gate (the glue-client creds below still come from glue.*).
+     */
+    public static void appendGlueProperties(Map<String, String> opts, Map<String, String> props,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        chosenS3.ifPresent(s3 -> {
+            opts.put(S3FileIOProperties.ACCESS_KEY_ID, nullToEmpty(s3.getAccessKey()));
+            opts.put(S3FileIOProperties.SECRET_ACCESS_KEY, nullToEmpty(s3.getSecretKey()));
+            opts.put(S3FileIOProperties.ENDPOINT, nullToEmpty(s3.getEndpoint()));
+            opts.put(S3FileIOProperties.PATH_STYLE_ACCESS, nullToEmpty(s3.getUsePathStyle()));
+            opts.put(S3FileIOProperties.SESSION_TOKEN, nullToEmpty(s3.getSessionToken()));
+        });
+        String glueEndpoint = firstNonBlank(props, IcebergConnectorProperties.GLUE_ENDPOINT);
+        putIfNotBlank(opts, AwsProperties.GLUE_CATALOG_ENDPOINT, glueEndpoint);
+        String glueRegion = resolveGlueRegion(props, glueEndpoint);
+        String glueAccessKey = firstNonBlank(props, IcebergConnectorProperties.GLUE_ACCESS_KEY);
+        String glueSecretKey = firstNonBlank(props, IcebergConnectorProperties.GLUE_SECRET_KEY);
+        if (StringUtils.isNotBlank(glueAccessKey) && StringUtils.isNotBlank(glueSecretKey)) {
+            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_KEY,
+                    IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_2X);
+            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_ACCESS_KEY, glueAccessKey);
+            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SECRET_KEY, glueSecretKey);
+            opts.put(IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_FACTORY_KEY,
+                    IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_FACTORY);
+            putIfNotBlank(opts, IcebergConnectorProperties.GLUE_CREDENTIALS_PROVIDER_SESSION_TOKEN,
+                    firstNonBlank(props, IcebergConnectorProperties.GLUE_SESSION_TOKEN));
+        } else {
+            String glueIamRole = firstNonBlank(props, IcebergConnectorProperties.GLUE_IAM_ROLE);
+            if (StringUtils.isNotBlank(glueIamRole)) {
+                opts.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
+                opts.put(IcebergConnectorProperties.AWS_REGION_KEY, glueRegion);
+                opts.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, glueIamRole);
+                opts.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, glueRegion);
+                putIfNotBlank(opts, AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID,
+                        firstNonBlank(props, IcebergConnectorProperties.GLUE_EXTERNAL_ID));
+            }
+        }
+        opts.put(AwsClientProperties.CLIENT_REGION, glueRegion);
+        opts.putIfAbsent(CatalogProperties.WAREHOUSE_LOCATION, IcebergConnectorProperties.GLUE_CHECKED_WAREHOUSE);
+    }
+
+    /**
+     * Mirrors legacy {@code AWSGlueMetaStoreBaseProperties.checkAndInit} region resolution: an explicit
+     * glue.region / aws.region / aws.glue.region wins; else extract from the endpoint host; else us-east-1.
+     */
+    private static String resolveGlueRegion(Map<String, String> props, String glueEndpoint) {
+        String region = firstNonBlank(props, IcebergConnectorProperties.GLUE_REGION);
+        if (StringUtils.isNotBlank(region)) {
+            return region;
+        }
+        if (StringUtils.isNotBlank(glueEndpoint)) {
+            Matcher matcher = GLUE_ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase(Locale.ROOT));
+            if (matcher.matches() && StringUtils.isNotBlank(matcher.group(1))) {
+                return matcher.group(1);
+            }
+        }
+        return IcebergConnectorProperties.GLUE_DEFAULT_REGION;
+    }
+
+    // ---------------------------------------------------------------------
+    // JDBC appender (mirror IcebergJdbcMetaStoreProperties.initIcebergJdbcCatalogProperties)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Mirrors legacy {@code IcebergJdbcMetaStoreProperties}: {@code uri} (alias priority {@code uri} >
+     * {@code iceberg.jdbc.uri}, required), the five dotted {@code jdbc.*} keys added only-if-non-blank from
+     * their {@code iceberg.jdbc.*} aliases. The raw {@code jdbc.*} passthrough legacy performs is already
+     * covered by the base copy-all ({@link #buildBaseCatalogProperties} seeds the map from all props), so it is
+     * not repeated here. The {@code catalog_name} positional removal + driver registration are handled by the
+     * connector. PURE.
+     */
+    public static void appendJdbcProperties(Map<String, String> opts, Map<String, String> props) {
+        opts.put(CatalogProperties.URI, firstNonBlankOrEmpty(props, IcebergConnectorProperties.JDBC_URI));
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_USER_KEY,
+                firstNonBlank(props, IcebergConnectorProperties.JDBC_USER));
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_PASSWORD_KEY,
+                firstNonBlank(props, IcebergConnectorProperties.JDBC_PASSWORD));
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_INIT_CATALOG_TABLES_KEY,
+                firstNonBlank(props, IcebergConnectorProperties.JDBC_INIT_CATALOG_TABLES));
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_SCHEMA_VERSION_KEY,
+                firstNonBlank(props, IcebergConnectorProperties.JDBC_SCHEMA_VERSION));
+        putIfNotBlank(opts, IcebergConnectorProperties.JDBC_STRICT_MODE_KEY,
+                firstNonBlank(props, IcebergConnectorProperties.JDBC_STRICT_MODE));
+    }
+
+    // ---------------------------------------------------------------------
+    // Storage Configuration / HiveConf builders (mirror PaimonCatalogFactory)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Builds the storage Hadoop {@link Configuration} for the rest/hadoop/jdbc flavors, mirroring legacy
+     * {@code new Configuration()} + each storage {@code getHadoopStorageConfig()}: the pre-computed canonical
+     * object-store/HDFS config ({@code storageHadoopConfig}, from fe-filesystem's
+     * {@code toHadoopConfigurationMap()}) plus the raw {@code fs.}/{@code dfs.}/{@code hadoop.} passthrough for
+     * inline user keys. The conf classloader is pinned to the plugin loader so Hadoop's
+     * {@code fs.<scheme>.impl} resolution stays in one loader (FIX-PAIMON-HADOOP-CLASSLOADER parity). PURE.
+     */
+    public static Configuration buildHadoopConfiguration(Map<String, String> props,
+            Map<String, String> storageHadoopConfig) {
+        Configuration conf = new Configuration();
+        conf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
+        storageHadoopConfig.forEach(conf::set);
+        props.forEach((key, value) -> {
+            if (key.startsWith("fs.") || key.startsWith("dfs.") || key.startsWith("hadoop.")) {
+                conf.set(key, value);
+            }
+        });
+        return conf;
+    }
+
+    /**
+     * Assembles the {@link HiveConf} for the hms flavor, mirroring {@code PaimonCatalogFactory.assembleHiveConf}:
+     * seed the optional external hive-site.xml {@code base} first, then layer the metastore-spi
+     * {@code toHiveConfOverrides} on top (last-write-wins). The conf classloader is pinned to the plugin loader
+     * (HiveMetaStoreClient filter-hook resolution parity). PURE (a function of the two maps).
+     */
+    public static HiveConf assembleHiveConf(Map<String, String> base, Map<String, String> overrides) {
+        HiveConf hiveConf = new HiveConf();
+        hiveConf.setClassLoader(IcebergCatalogFactory.class.getClassLoader());
+        if (base != null) {
+            base.forEach(hiveConf::set);
+        }
+        overrides.forEach(hiveConf::set);
+        return hiveConf;
+    }
+
+    // ---------------------------------------------------------------------
+    // Pure helpers
+    // ---------------------------------------------------------------------
+
+    /** Returns the first non-blank value among the given keys (alias priority), or {@code null} if none set. */
+    public static String firstNonBlank(Map<String, String> props, String... keys) {
+        for (String key : keys) {
+            String value = props.get(key);
+            if (StringUtils.isNotBlank(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String firstNonBlankOrEmpty(Map<String, String> props, String... keys) {
+        String value = firstNonBlank(props, keys);
+        return value == null ? "" : value;
+    }
+
+    private static String firstNonBlankOr(Map<String, String> props, String defaultValue, String... keys) {
+        String value = firstNonBlank(props, keys);
+        return value == null ? defaultValue : value;
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 }

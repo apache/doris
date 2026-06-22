@@ -21,6 +21,8 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -319,5 +321,409 @@ public class IcebergCatalogFactoryTest {
         // WHY: a credential-less / HDFS-only catalog has no S3-compatible storage, so no S3FileIO props
         // are emitted (empty Optional). MUTATION: returning a present value -> red.
         Assertions.assertFalse(IcebergCatalogFactory.chooseS3Compatible(Collections.emptyList()).isPresent());
+    }
+
+    // ---------------------------------------------------------------------
+    // appendRestProperties — mirror IcebergRestProperties
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void appendRestEmitsUriAlwaysWithAliasPriority() {
+        // WHY: legacy puts CatalogProperties.URI UNCONDITIONALLY (field default ""), alias priority
+        // iceberg.rest.uri > uri. MUTATION: only-if-nonblank put OR wrong alias order -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.uri", "https://rest", "uri", "https://other"), Optional.empty());
+        Assertions.assertEquals("https://rest", opts.get("uri"));
+
+        Map<String, String> empty = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(empty, props(), Optional.empty());
+        Assertions.assertEquals("", empty.get("uri"), "uri must be emitted as empty string when no alias is set");
+    }
+
+    @Test
+    public void appendRestEmitsPrefixOnlyWhenSet() {
+        // WHY: legacy emits "prefix" only if iceberg.rest.prefix is non-blank. MUTATION: unconditional put -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts, props("iceberg.rest.prefix", "p1"), Optional.empty());
+        Assertions.assertEquals("p1", opts.get("prefix"));
+        Map<String, String> none = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(none, props(), Optional.empty());
+        Assertions.assertNull(none.get("prefix"));
+    }
+
+    @Test
+    public void appendRestEmitsVendedCredentialsHeaderWhenEnabled() {
+        // WHY: legacy puts header.X-Iceberg-Access-Delegation=vended-credentials iff
+        // Boolean.parseBoolean(iceberg.rest.vended-credentials-enabled). MUTATION: wrong header key/value or
+        // emitting when disabled -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.vended-credentials-enabled", "true"), Optional.empty());
+        Assertions.assertEquals("vended-credentials", opts.get("header.X-Iceberg-Access-Delegation"));
+        Map<String, String> off = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(off, props(), Optional.empty());
+        Assertions.assertNull(off.get("header.X-Iceberg-Access-Delegation"));
+    }
+
+    @Test
+    public void appendRestEmitsTimeoutsWithDefaults() {
+        // WHY: legacy fields default non-blank (10000 / 60000) and are put effectively always under the literal
+        // keys rest.client.connection-timeout-ms / rest.client.socket-timeout-ms. MUTATION: wrong defaults or
+        // wrong literal keys -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts, props(), Optional.empty());
+        Assertions.assertEquals("10000", opts.get("rest.client.connection-timeout-ms"));
+        Assertions.assertEquals("60000", opts.get("rest.client.socket-timeout-ms"));
+        Map<String, String> over = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(over,
+                props("iceberg.rest.connection-timeout-ms", "5000", "iceberg.rest.socket-timeout-ms", "7000"),
+                Optional.empty());
+        Assertions.assertEquals("5000", over.get("rest.client.connection-timeout-ms"));
+        Assertions.assertEquals("7000", over.get("rest.client.socket-timeout-ms"));
+    }
+
+    @Test
+    public void appendRestOAuth2CredentialBranchEmitsCredentialAndTokenRefreshDefault() {
+        // WHY: when security.type=oauth2 and a credential is present, legacy emits credential + optional
+        // server-uri/scope + token-refresh-enabled (default "true" from OAuth2Properties default).
+        // MUTATION: emitting token instead, wrong keys, or dropping token-refresh-enabled -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.security.type", "oauth2",
+                        "iceberg.rest.oauth2.credential", "id:secret",
+                        "iceberg.rest.oauth2.server-uri", "https://auth",
+                        "iceberg.rest.oauth2.scope", "catalog"),
+                Optional.empty());
+        Assertions.assertEquals("id:secret", opts.get("credential"));
+        Assertions.assertEquals("https://auth", opts.get("oauth2-server-uri"));
+        Assertions.assertEquals("catalog", opts.get("scope"));
+        Assertions.assertEquals("true", opts.get("token-refresh-enabled"));
+        Assertions.assertNull(opts.get("token"), "credential branch must NOT emit a token");
+    }
+
+    @Test
+    public void appendRestOAuth2TokenBranchWhenNoCredential() {
+        // WHY: oauth2 with no credential uses the pre-configured token flow: emit OAuth2Properties.TOKEN.
+        // MUTATION: emitting credential / token-refresh-enabled here -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.security.type", "oauth2", "iceberg.rest.oauth2.token", "tok"), Optional.empty());
+        Assertions.assertEquals("tok", opts.get("token"));
+        Assertions.assertNull(opts.get("credential"));
+        Assertions.assertNull(opts.get("token-refresh-enabled"));
+    }
+
+    @Test
+    public void appendRestOAuth2NotAppliedWhenSecurityNotOauth2() {
+        // WHY: the oauth2 block is gated on security.type==oauth2 (default none). MUTATION: applying it
+        // unconditionally would leak credential/token even for a non-oauth2 catalog -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.oauth2.credential", "id:secret"), Optional.empty());
+        Assertions.assertNull(opts.get("credential"));
+    }
+
+    @Test
+    public void appendRestSigningBlockEmitsSigningKeysAndS3ExplicitCredentials() {
+        // WHY: when signing-name is set, legacy emits rest.signing-name/sigv4-enabled/signing-region; for
+        // glue/s3tables the credentials come from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds
+        // (AwsProperties.REST_*). MUTATION: wrong signing keys, or sourcing creds from the wrong place -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.signing-name", "glue", "iceberg.rest.sigv4-enabled", "true",
+                        "iceberg.rest.signing-region", "us-east-1"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("AK").secretKey("SK")
+                        .sessionToken("TK")));
+        Assertions.assertEquals("glue", opts.get("rest.signing-name"));
+        Assertions.assertEquals("true", opts.get("rest.sigv4-enabled"));
+        Assertions.assertEquals("us-east-1", opts.get("rest.signing-region"));
+        Assertions.assertEquals("AK", opts.get("rest.access-key-id"));
+        Assertions.assertEquals("SK", opts.get("rest.secret-access-key"));
+        Assertions.assertEquals("TK", opts.get("rest.session-token"));
+    }
+
+    @Test
+    public void appendRestSigningGlueAssumeRoleWhenNoStaticCreds() {
+        // WHY: legacy getCredentialType precedence is EXPLICIT then ASSUME_ROLE; with no static AK/SK but a role
+        // ARN the glue/s3tables signing path emits the assume-role block (client.factory + client.assume-role.*).
+        // MUTATION: emitting rest.access-key-id from a blank AK, or skipping assume-role -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.signing-name", "s3tables", "iceberg.rest.sigv4-enabled", "true",
+                        "iceberg.rest.signing-region", "us-west-2"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
+                        .roleArn("arn:aws:iam::1:role/r")));
+        Assertions.assertEquals("org.apache.iceberg.aws.AssumeRoleAwsClientFactory", opts.get("client.factory"));
+        Assertions.assertEquals("arn:aws:iam::1:role/r", opts.get("client.assume-role.arn"));
+        Assertions.assertNull(opts.get("rest.access-key-id"), "no static creds -> no explicit rest creds");
+    }
+
+    @Test
+    public void appendRestSigningOtherNameUsesIcebergRestCredentials() {
+        // WHY: a signing-name NOT in {glue,s3tables} uses the iceberg.rest.* explicit creds (not the S3 store).
+        // MUTATION: reading the S3 store here -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.signing-name", "custom",
+                        "iceberg.rest.access-key-id", "RAK", "iceberg.rest.secret-access-key", "RSK"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("SHOULD_NOT_USE")
+                        .secretKey("SHOULD_NOT_USE")));
+        Assertions.assertEquals("RAK", opts.get("rest.access-key-id"));
+        Assertions.assertEquals("RSK", opts.get("rest.secret-access-key"));
+    }
+
+    @Test
+    public void appendRestNoSigningBlockWhenSigningNameAbsent() {
+        // WHY: the entire signing block is gated on a non-blank signing-name. MUTATION: emitting rest.signing-name
+        // (even empty) without the gate -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts, props(), Optional.empty());
+        Assertions.assertNull(opts.get("rest.signing-name"));
+        Assertions.assertNull(opts.get("rest.sigv4-enabled"));
+    }
+
+    // ---------------------------------------------------------------------
+    // appendGlueProperties — mirror IcebergGlueMetaStoreProperties
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void appendGlueEmitsS3KeysUnconditionallyFromChosenStore() {
+        // WHY: legacy appendS3Props uses PLAIN puts (no isNotBlank guard) from S3Properties.of(origProps), so an
+        // unset session token is written as "". MUTATION: blank-guarding these puts (like the base S3FileIO path)
+        // -> the empty s3.session-token would be absent -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts, props("glue.access_key", "a", "glue.secret_key", "b",
+                        "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("S3AK").secretKey("S3SK")
+                        .endpoint("https://s3").usePathStyle("true")));
+        Assertions.assertEquals("S3AK", opts.get("s3.access-key-id"));
+        Assertions.assertEquals("S3SK", opts.get("s3.secret-access-key"));
+        Assertions.assertEquals("https://s3", opts.get("s3.endpoint"));
+        Assertions.assertEquals("true", opts.get("s3.path-style-access"));
+        Assertions.assertEquals("", opts.get("s3.session-token"), "blank session token must be emitted as empty");
+    }
+
+    @Test
+    public void appendGlueAccessKeyBranchEmitsProviderKeysAndWins() {
+        // WHY: when glue access_key & secret_key are both set, legacy emits the ConfigurationAWSCredentialsProvider2x
+        // provider keys + factory class and RETURNS (mutually exclusive with the IAM-role branch). MUTATION: wrong
+        // key/value, or also emitting client.factory (IAM branch) -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
+                        "glue.role_arn", "arn:aws:iam::1:role/should-not-fire",
+                        "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
+                Optional.empty());
+        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x",
+                opts.get("client.credentials-provider"));
+        Assertions.assertEquals("GAK", opts.get("client.credentials-provider.glue.access_key"));
+        Assertions.assertEquals("GSK", opts.get("client.credentials-provider.glue.secret_key"));
+        Assertions.assertEquals("GST", opts.get("client.credentials-provider.glue.session_token"));
+        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory",
+                opts.get("aws.catalog.credentials.provider.factory.class"));
+        Assertions.assertNull(opts.get("client.factory"), "AK/SK branch must short-circuit the IAM-role branch");
+    }
+
+    @Test
+    public void appendGlueIamRoleBranchWhenNoAccessKey() {
+        // WHY: with no glue AK/SK but a glue.role_arn, legacy emits the assume-role block (client.factory +
+        // aws.region + client.assume-role.arn/region + optional external-id). MUTATION: wrong keys or skipping
+        // external-id -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.role_arn", "arn:aws:iam::1:role/r", "glue.external_id", "eid", "glue.region", "eu-west-1",
+                        "glue.endpoint", "https://glue.eu-west-1.amazonaws.com"),
+                Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.aws.AssumeRoleAwsClientFactory", opts.get("client.factory"));
+        Assertions.assertEquals("eu-west-1", opts.get("aws.region"));
+        Assertions.assertEquals("arn:aws:iam::1:role/r", opts.get("client.assume-role.arn"));
+        Assertions.assertEquals("eu-west-1", opts.get("client.assume-role.region"));
+        Assertions.assertEquals("eid", opts.get("client.assume-role.external-id"));
+    }
+
+    @Test
+    public void appendGlueEmitsEndpointAndClientRegionAlways() {
+        // WHY: legacy always puts glue.endpoint (AwsProperties.GLUE_CATALOG_ENDPOINT) and client.region. MUTATION:
+        // dropping either -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(opts,
+                props("glue.access_key", "a", "glue.secret_key", "b", "glue.region", "ap-south-1",
+                        "glue.endpoint", "https://glue.ap-south-1.amazonaws.com"),
+                Optional.empty());
+        Assertions.assertEquals("https://glue.ap-south-1.amazonaws.com", opts.get("glue.endpoint"));
+        Assertions.assertEquals("ap-south-1", opts.get("client.region"));
+    }
+
+    @Test
+    public void appendGlueRegionFallsBackToEndpointRegexThenUsEast1() {
+        // WHY: legacy resolves the region from glue.region first, else extracts it from the endpoint host via
+        // ENDPOINT_PATTERN, else us-east-1. MUTATION: not extracting from the endpoint, or wrong fallback -> red.
+        Map<String, String> fromEndpoint = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(fromEndpoint,
+                props("glue.access_key", "a", "glue.secret_key", "b",
+                        "glue.endpoint", "https://glue-fips.ca-central-1.api.aws"),
+                Optional.empty());
+        Assertions.assertEquals("ca-central-1", fromEndpoint.get("client.region"));
+
+        Map<String, String> defaulted = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(defaulted,
+                props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://not-a-glue-host"),
+                Optional.empty());
+        Assertions.assertEquals("us-east-1", defaulted.get("client.region"));
+    }
+
+    @Test
+    public void appendGluePutsWarehousePlaceholderOnlyWhenAbsent() {
+        // WHY: legacy putIfAbsent(WAREHOUSE_LOCATION, "s3://doris") — fills the placeholder only when the user
+        // did not supply a warehouse. MUTATION: an unconditional put would clobber the user's warehouse -> red.
+        Map<String, String> defaulted = new HashMap<>();
+        IcebergCatalogFactory.appendGlueProperties(defaulted,
+                props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://glue.x.amazonaws.com"),
+                Optional.empty());
+        Assertions.assertEquals("s3://doris", defaulted.get("warehouse"));
+
+        Map<String, String> userWh = new HashMap<>();
+        userWh.put("warehouse", "s3://mybucket/wh");
+        IcebergCatalogFactory.appendGlueProperties(userWh,
+                props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://glue.x.amazonaws.com"),
+                Optional.empty());
+        Assertions.assertEquals("s3://mybucket/wh", userWh.get("warehouse"));
+    }
+
+    // ---------------------------------------------------------------------
+    // appendJdbcProperties — mirror IcebergJdbcMetaStoreProperties
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void appendJdbcEmitsUriWithAliasPriority() {
+        // WHY: legacy uri alias priority is {uri, iceberg.jdbc.uri} (uri wins). MUTATION: wrong order -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendJdbcProperties(opts,
+                props("uri", "jdbc:mysql://h/db", "iceberg.jdbc.uri", "jdbc:other"));
+        Assertions.assertEquals("jdbc:mysql://h/db", opts.get("uri"));
+    }
+
+    @Test
+    public void appendJdbcAddsDottedKeysOnlyWhenSet() {
+        // WHY: legacy addIfNotBlank maps each iceberg.jdbc.<x> to the dotted jdbc.<x> only when non-blank.
+        // MUTATION: wrong emitted key spelling or emitting a blank value -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendJdbcProperties(opts,
+                props("uri", "jdbc:mysql://h/db", "iceberg.jdbc.user", "u", "iceberg.jdbc.password", "p",
+                        "iceberg.jdbc.init-catalog-tables", "true", "iceberg.jdbc.schema-version", "V1",
+                        "iceberg.jdbc.strict-mode", "false"));
+        Assertions.assertEquals("u", opts.get("jdbc.user"));
+        Assertions.assertEquals("p", opts.get("jdbc.password"));
+        Assertions.assertEquals("true", opts.get("jdbc.init-catalog-tables"));
+        Assertions.assertEquals("V1", opts.get("jdbc.schema-version"));
+        Assertions.assertEquals("false", opts.get("jdbc.strict-mode"));
+
+        Map<String, String> bare = new HashMap<>();
+        IcebergCatalogFactory.appendJdbcProperties(bare, props("uri", "jdbc:mysql://h/db"));
+        Assertions.assertNull(bare.get("jdbc.user"), "an unset jdbc.user must NOT be emitted");
+    }
+
+    // ---------------------------------------------------------------------
+    // buildCatalogProperties — orchestrator (impl per flavor, type removed, jdbc catalog_name removed)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildCatalogPropertiesSetsImplAndRemovesType() {
+        // WHY: every flavor must set the correct catalog-impl and the iceberg SDK forbids both "type" and
+        // "catalog-impl", so "type" (= iceberg.catalog.type's SDK alias) must be removed. The Doris-side
+        // iceberg.catalog.type key is a separate raw key carried by copy-all and is harmless. MUTATION: not
+        // setting impl, or leaving "type" -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh", "type", "hadoop"),
+                "hadoop", Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.hadoop.HadoopCatalog", opts.get("catalog-impl"));
+        Assertions.assertNull(opts.get("type"), "the SDK 'type' key must be removed before building");
+    }
+
+    @Test
+    public void buildCatalogPropertiesRemovesJdbcCatalogNameFromMap() {
+        // WHY: iceberg.jdbc.catalog_name is the positional catalog NAME, removed from the options map by legacy
+        // initCatalog. MUTATION: leaving it in the map -> red (iceberg would treat it as an unknown option).
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "jdbc", "uri", "jdbc:mysql://h/db", "warehouse", "s3://b/wh",
+                        "iceberg.jdbc.catalog_name", "mycat"),
+                "jdbc", Optional.empty());
+        Assertions.assertEquals("org.apache.iceberg.jdbc.JdbcCatalog", opts.get("catalog-impl"));
+        Assertions.assertNull(opts.get("iceberg.jdbc.catalog_name"),
+                "the jdbc catalog_name must be consumed positionally, not left in the options map");
+    }
+
+    @Test
+    public void buildCatalogPropertiesHmsEmitsNoS3FileIoKeys() {
+        // WHY: legacy iceberg HMS does NOT call toFileIOProperties — object-store access rides the HiveConf, not
+        // the s3.* options. MUTATION: appending the base S3FileIO for HMS -> s3.endpoint present -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "hms"), "hms",
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3").accessKey("AK")));
+        Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog", opts.get("catalog-impl"));
+        Assertions.assertNull(opts.get("s3.endpoint"), "HMS must not emit S3FileIO options");
+        Assertions.assertNull(opts.get("s3.access-key-id"));
+    }
+
+    // ---------------------------------------------------------------------
+    // resolveCatalogName — jdbc positional vs default
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void resolveCatalogNameUsesJdbcCatalogNameForJdbc() {
+        // WHY: legacy passes iceberg.jdbc.catalog_name as the catalog NAME (overriding the Doris catalog name).
+        // MUTATION: returning the default name for jdbc -> red.
+        Assertions.assertEquals("mycat", IcebergCatalogFactory.resolveCatalogName(
+                props("iceberg.jdbc.catalog_name", "mycat"), "jdbc", "doris_cat"));
+    }
+
+    @Test
+    public void resolveCatalogNameThrowsWhenJdbcCatalogNameMissing() {
+        // WHY: iceberg.jdbc.catalog_name is required (legacy @ConnectorProperty required=true); a missing value
+        // must fail loud rather than silently fall back to the Doris catalog name. MUTATION: returning the default
+        // -> no exception -> red.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergCatalogFactory.resolveCatalogName(props(), "jdbc", "doris_cat"));
+        Assertions.assertTrue(ex.getMessage().contains("iceberg.jdbc.catalog_name"));
+    }
+
+    @Test
+    public void resolveCatalogNameUsesDefaultForNonJdbc() {
+        // WHY: every non-jdbc flavor uses the Doris catalog name. MUTATION: reading catalog_name for hms -> red.
+        Assertions.assertEquals("doris_cat", IcebergCatalogFactory.resolveCatalogName(
+                props("iceberg.jdbc.catalog_name", "ignored"), "hms", "doris_cat"));
+    }
+
+    // ---------------------------------------------------------------------
+    // buildHadoopConfiguration / assembleHiveConf — storage + HiveConf sinks
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildHadoopConfigurationAppliesStorageThenRawPassthrough() {
+        // WHY: the conf carries the pre-computed storage config plus the raw fs./dfs./hadoop. passthrough for
+        // inline keys. MUTATION: dropping the passthrough or the storage map -> red.
+        Map<String, String> storage = new HashMap<>();
+        storage.put("fs.s3a.endpoint", "https://s3");
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(
+                props("dfs.nameservices", "ns1", "unrelated.key", "x"), storage);
+        Assertions.assertEquals("https://s3", conf.get("fs.s3a.endpoint"));
+        Assertions.assertEquals("ns1", conf.get("dfs.nameservices"));
+        Assertions.assertNull(conf.get("unrelated.key"), "non fs./dfs./hadoop. keys must not be copied into the conf");
+    }
+
+    @Test
+    public void assembleHiveConfLayersOverridesOverBase() {
+        // WHY: the external hive-site.xml base is seeded first, then the metastore-spi overrides win
+        // (last-write-wins), so a connection key in the overrides correctly overrides the file. MUTATION:
+        // reversing the order -> the base value would win -> red.
+        Map<String, String> base = new HashMap<>();
+        base.put("hive.metastore.uris", "thrift://from-file:9083");
+        base.put("base.only", "kept");
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put("hive.metastore.uris", "thrift://override:9083");
+        HiveConf conf = IcebergCatalogFactory.assembleHiveConf(base, overrides);
+        Assertions.assertEquals("thrift://override:9083", conf.get("hive.metastore.uris"));
+        Assertions.assertEquals("kept", conf.get("base.only"));
     }
 }
