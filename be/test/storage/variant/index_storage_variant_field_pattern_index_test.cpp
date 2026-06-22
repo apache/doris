@@ -581,8 +581,6 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_inverted_index_not_attempted(read_result.value());
 }
 
-// Expected-red: this is separate from the DORIS-26471 BF case fix. Today the extracted typed-path
-// column still uses segment ZoneMap pruning even when this test passes a different target cast.
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
        TargetCastTypeMismatchSkipsVariantPathZoneMapPruning) {
     const auto index_case =
@@ -616,7 +614,10 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
-    EXPECT_EQ(read_result->rows_read, 2);
+    // The target cast type intentionally differs from the stored typed path. Storage-level
+    // predicate evaluation must be skipped entirely; residual expression filtering happens above
+    // this helper in real query execution.
+    EXPECT_EQ(read_result->rows_read, 4);
     expect_raw_rows_read(read_result.value(), 4);
     expect_segment_pruned(read_result.value(), 0);
     expect_zone_map_filtered(read_result.value(), 0);

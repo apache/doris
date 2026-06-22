@@ -528,6 +528,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
+        if (!_segment->can_apply_predicate_safely(predicate->column_id(), *_schema,
+                                                  _opts.target_cast_type_for_variants, _opts)) {
+            continue;
+        }
         _col_predicates.emplace_back(predicate);
     }
     _tablet_id = opts.tablet_id;
@@ -2266,8 +2270,13 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     FieldType field_type = _schema->column(cid)->type();
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // Use variant cast dst type
-        field_type = _opts.target_cast_type_for_variants[_schema->column(cid)->name()]
-                             ->get_storage_field_type();
+        auto target_cast_type =
+                _opts.target_cast_type_for_variants.find(_schema->column(cid)->name());
+        if (target_cast_type == _opts.target_cast_type_for_variants.end() ||
+            target_cast_type->second == nullptr) {
+            return false;
+        }
+        field_type = target_cast_type->second->get_storage_field_type();
     }
     switch (predicate->type()) {
     case PredicateType::EQ:
