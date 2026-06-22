@@ -235,4 +235,22 @@ TEST_F(KuromojiSearchModeTest, SearchModeKeepsShortCompound) {
               (std::vector<std::string> {YAMA + KAWA}));
 }
 
+TEST_F(KuromojiSearchModeTest, SearchModeKeepsUnknownGroupWhole) {
+    // "abc" is an out-of-vocabulary run that segments as one unknown group token
+    // in normal/search mode.
+    EXPECT_EQ(surfaces("abc", KuromojiMode::Search), (std::vector<std::string> {"abc"}));
+}
+
+TEST_F(KuromojiSearchModeTest, ExtendedModeSplitsUnknownIntoUnigrams) {
+    // Extended mode additionally decomposes an unknown word into per-character
+    // unigrams (mirroring Lucene JapaneseTokenizer's EXTENDED mode).
+    EXPECT_EQ(surfaces("abc", KuromojiMode::Extended), (std::vector<std::string> {"a", "b", "c"}));
+}
+
+TEST_F(KuromojiSearchModeTest, ExtendedModeStillDecompoundsKnownCompound) {
+    // Extended mode keeps search-mode behavior for known compounds.
+    EXPECT_EQ(surfaces(TOU + KYO + TO, KuromojiMode::Extended),
+              (std::vector<std::string> {TOU, KYO, TO}));
+}
+
 } // namespace doris::segment_v2::kuromoji
