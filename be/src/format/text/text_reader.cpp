@@ -168,6 +168,12 @@ Status TextReader::_validate_line(const Slice& line, bool* success) {
     return Status::OK();
 }
 
+bool TextReader::_empty_line_as_record() const {
+    return _params.__isset.num_of_columns_from_file && _params.num_of_columns_from_file == 1 &&
+           !(_options.null_len == 2 && _options.null_format[0] == '\\' &&
+             _options.null_format[1] == 'N');
+}
+
 Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
     // Hot path of hive text load, see CsvReader::_deserialize_nullable_string. The
     // column type was verified by the checked assert_cast in

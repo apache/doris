@@ -73,6 +73,12 @@ b	2.2
 
 -- !test_empty_null_defined_text3 --
 
+-- !test_single_col_null_format_text_count --
+4
+
+-- !test_single_col_null_format_text_values --
+4	3	1	1	1	1
+
 -- !1 --
 a	1.1
 b	2.2
@@ -146,4 +152,10 @@ b	2.2
 3	\N
 
 -- !test_empty_null_defined_text3 --
+
+-- !test_single_col_null_format_text_count --
+4
+
+-- !test_single_col_null_format_text_values --
+4	3	1	1	1	1
 
