@@ -34,7 +34,9 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
@@ -1748,5 +1750,23 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(EqualTo.class, expression);
         Assertions.assertInstanceOf(Not.class, expression.child(0));
         Assertions.assertInstanceOf(IsNull.class, expression.child(0).child(0));
+    }
+
+    @Test
+    public void testIsTrueAndIsFalseExpression() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Expression expression = nereidsParser.parseExpression("X IS TRUE");
+        Assertions.assertInstanceOf(IsTrue.class, expression);
+
+        expression = nereidsParser.parseExpression("X IS FALSE");
+        Assertions.assertInstanceOf(IsFalse.class, expression);
+
+        expression = nereidsParser.parseExpression("X IS NOT TRUE");
+        Assertions.assertInstanceOf(Not.class, expression);
+        Assertions.assertInstanceOf(IsTrue.class, expression.child(0));
+
+        expression = nereidsParser.parseExpression("X IS NOT FALSE");
+        Assertions.assertInstanceOf(Not.class, expression);
+        Assertions.assertInstanceOf(IsFalse.class, expression.child(0));
     }
 }
