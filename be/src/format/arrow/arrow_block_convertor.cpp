@@ -111,9 +111,6 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         }
     }
     *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));
-    if (config::enable_arrow_validate_full) {
-        RETURN_IF_ERROR(to_doris_status((*out)->ValidateFull()));
-    }
     return Status::OK();
 }
 
