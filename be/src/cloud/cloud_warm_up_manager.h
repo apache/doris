@@ -21,10 +21,12 @@
 #include <gen_cpp/BackendService.h>
 
 #include <condition_variable>
+#include <cstddef>
 #include <deque>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
@@ -37,6 +39,16 @@ namespace doris {
 enum class DownloadType {
     BE,
     S3,
+};
+
+// Filter for event-driven warmup jobs.
+// nullopt = cluster-level (no table filter, warm up all tables)
+// has_value = table-level filter (only warm up tables in the set)
+using EventDrivenJobFilter = std::optional<std::unordered_set<int64_t>>;
+
+struct JobReplicaInfo {
+    int64_t job_id;
+    TReplicaInfo replica;
 };
 
 struct JobMeta {
@@ -75,7 +87,8 @@ public:
     // Cancel the job
     Status clear_job(int64_t job_id);
 
-    Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false);
+    Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false,
+                     const std::vector<int64_t>* table_ids = nullptr);
 
     // If `sync_wait_timeout_ms` <= 0, the function will send the warm-up RPC
     // and return immediately without waiting for the warm-up to complete.
@@ -85,7 +98,7 @@ public:
     // @param rs_meta Metadata of the rowset to be warmed up.
     // @param sync_wait_timeout_ms Timeout in milliseconds to wait for the warm-up
     //                              to complete. Non-positive value means no waiting.
-    void warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms = -1);
+    void warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms = -1);
 
     void recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
@@ -98,17 +111,27 @@ public:
     std::unordered_map<int64_t, std::pair<std::string, int32_t>> get_all_balanced_tablets() const;
 
 private:
+    struct WarmUpRowsetFailure {
+        int code;
+        std::string reason;
+    };
+
+    static Status _build_warm_up_rowset_result(const std::vector<WarmUpRowsetFailure>& failures,
+                                               size_t replica_count, int64_t tablet_id,
+                                               int64_t table_id, const std::string& rowset_id);
+
     void schedule_remove_balanced_tablet(int64_t tablet_id);
     static void clean_up_expired_mappings(void* arg);
     void handle_jobs();
 
-    Status _do_warm_up_rowset(RowsetMeta& rs_meta, std::vector<TReplicaInfo>& replicas,
-                              int64_t sync_wait_timeout_ms, bool skip_existence_check);
+    Status _do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
+                              std::vector<JobReplicaInfo>& replicas, int64_t sync_wait_timeout_ms,
+                              bool skip_existence_check);
 
-    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, bool bypass_cache,
-                                               bool& cache_hit);
+    std::vector<JobReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
+                                                 bool bypass_cache, bool& cache_hit);
 
-    void _warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms);
+    void _warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms);
     void _recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
@@ -132,6 +155,8 @@ private:
     using Cache = std::unordered_map<int64_t, CacheEntry>;
     // job_id -> cache
     std::unordered_map<int64_t, Cache> _tablet_replica_cache;
+    // job_id -> table filter (nullopt = cluster-level, no filter)
+    std::unordered_map<int64_t, EventDrivenJobFilter> _event_driven_filters;
     std::unique_ptr<ThreadPool> _thread_pool;
     std::unique_ptr<ThreadPoolToken> _thread_pool_token;
 
