@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -27,6 +28,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -383,6 +385,50 @@ public class IcebergScanPlanProviderTest {
         // No identity partition columns -> the key must be absent (NOT an empty string, which the parent would
         // split into a single "" key). MUTATION: always emitting the key -> red.
         Assertions.assertFalse(props.containsKey("path_partition_keys"));
+    }
+
+    @Test
+    public void getScanNodePropertiesEmitsFieldIdSchemaEvolutionDictKeyedOffRequestedColumns() throws Exception {
+        // T06: the provider must emit iceberg.schema_evolution (the field-id dict) UNCONDITIONALLY, keyed off the
+        // pruned requested columns, and populateScanLevelParams must round-trip it onto the real params. Without
+        // it BE name-matches schema-evolved files (NULL/garbage on rename) or DCHECK-aborts. MUTATION: not
+        // emitting the prop -> absent -> red. MUTATION: keying off all columns -> the entry includes "name" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        List<ConnectorColumnHandle> columns =
+                Collections.singletonList(new IcebergColumnHandle("id", 1));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), columns, Optional.empty());
+        Assertions.assertTrue(props.containsKey("iceberg.schema_evolution"));
+
+        // Round-trip through populateScanLevelParams (the exact path PluginDrivenScanNode drives).
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        Assertions.assertEquals(-1L, params.getCurrentSchemaId());
+        Assertions.assertEquals(1, params.getHistorySchemaInfoSize());
+        // Keyed off the requested column "id" only (CI #969249: the -1 entry == the scan slots).
+        Assertions.assertEquals(1, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void getScanNodePropertiesEmitsSchemaEvolutionDictForPartitionedTableToo() {
+        // The dict is emitted alongside path_partition_keys (it is unconditional, like legacy
+        // createScanRangeLocations). MUTATION: gating the dict on unpartitioned -> absent here -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("pt", schema, spec);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertTrue(props.containsKey("iceberg.schema_evolution"));
+        Assertions.assertEquals("p", props.get("path_partition_keys"));
     }
 
     @Test

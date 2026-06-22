@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -101,6 +102,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
     // Session var: when a table has only (dangling) position deletes, ignore them and still push count down.
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
+
+    // FIX-SCHEMA-EVOLUTION (T06): scan-level prop carrying the base64 TBinaryProtocol-serialized schema
+    // dictionary (current_schema_id + the single history_schema_info entry). getScanNodeProperties builds it
+    // from the live table + requested columns; populateScanLevelParams applies it to the real params.
+    // Transport via the props map because getScanPlanProvider() returns a fresh provider per call (no shared
+    // instance state between the two SPI methods). Mirrors paimon's paimon.schema_evolution.
+    private static final String SCHEMA_EVOLUTION_PROP = "iceberg.schema_evolution";
 
     // Self-contained mirror of fe-core TimeUtils.timeZoneAliasMap (cannot import TimeUtils). Doris stores the
     // session time_zone un-canonicalized (e.g. SET time_zone='CST' keeps "CST"), and legacy resolves it via
@@ -449,8 +457,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *       those slots as partition columns and excludes them from the file-decode set; without it BE
      *       double-fills the partition columns (decode-from-file AND append-from-path) and DCHECKs (CI #968880).
      *       Emitted only when the table is partitioned (an empty value would split into a single "" key).</li>
+     *   <li>{@code iceberg.schema_evolution} (T06) — the base64 field-id schema dictionary
+     *       ({@code current_schema_id = -1} + one {@code history_schema_info} entry), built from the requested
+     *       columns so BE field-id-matches file&harr;table columns across rename/reorder (see
+     *       {@link IcebergSchemaUtils}). Emitted unconditionally (legacy {@code createScanRangeLocations}
+     *       always sets the dict). {@link #populateScanLevelParams} applies it.</li>
      * </ul>
-     * Location / serialized-table / schema-evolution keys land in later tasks.
+     * Location / serialized-table keys land in later tasks.
      */
     @Override
     public Map<String, String> getScanNodeProperties(
@@ -465,7 +478,39 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (!partitionKeys.isEmpty()) {
             props.put("path_partition_keys", String.join(",", partitionKeys));
         }
+        props.put(SCHEMA_EVOLUTION_PROP,
+                IcebergSchemaUtils.encodeSchemaEvolutionProp(table, requestedLowerNames(columns)));
         return props;
+    }
+
+    /**
+     * The lowercased names of the requested (pruned) columns — the authoritative Doris scan slots the field-id
+     * dictionary keys its {@code -1} entry off (so its top-level names == the BE scan-slot names BY
+     * CONSTRUCTION; CI #969249). The names come straight from the {@link IcebergColumnHandle}s
+     * {@code IcebergConnectorMetadata.getColumnHandles} produced (already lowercased). An empty list (count-only
+     * scan / no column handles) makes the dictionary fall back to all top-level columns.
+     */
+    private static List<String> requestedLowerNames(List<ConnectorColumnHandle> columns) {
+        if (columns == null || columns.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> names = new ArrayList<>(columns.size());
+        for (ConnectorColumnHandle column : columns) {
+            names.add(((IcebergColumnHandle) column).getName());
+        }
+        return names;
+    }
+
+    /**
+     * Apply the scan-level field-id schema dictionary (T06) built in {@link #getScanNodeProperties} to the real
+     * {@link TFileScanRangeParams} (the same props map is round-tripped by the generic
+     * {@code PluginDrivenScanNode}). Delegates to {@link IcebergSchemaUtils#applySchemaEvolution}, which fails
+     * loud on a decode error (the prop is produced by us — silently dropping it would re-introduce the silent
+     * wrong-rows BLOCKER on schema-evolved native reads).
+     */
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
+        IcebergSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
     }
 
     /**

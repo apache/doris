@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
 import org.apache.iceberg.PartitionSpec;
@@ -518,5 +519,37 @@ public class IcebergConnectorMetadataTest {
 
         Assertions.assertTrue(ops.log.isEmpty(),
                 "no seam call may run when executeAuthenticated fails before invoking the task");
+    }
+
+    // ---------------------------------------------------------------------
+    // getColumnHandles — pruned-column source for the T06 field-id dict
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void getColumnHandlesKeysByLowercasedNameAndCarriesIcebergFieldId() {
+        // The generic PluginDrivenScanNode looks each query slot up here by (lowercased) name to build the
+        // pruned column list the T06 field-id dictionary keys its -1 entry off. So the map MUST be keyed by the
+        // lowercased name (== the Doris slot name from parseSchema) and the handle MUST carry the iceberg field
+        // id (the permanent rename-safe join key). MUTATION: key by the raw iceberg case -> the slot lookup
+        // misses -> empty columns -> dict falls back to all-fields. MUTATION: carry the ordinal not the field
+        // id -> the dict's field ids are wrong -> BE field-id match fails.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Schema mixed = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "Name", Types.StringType.get()));
+        ops.table = new FakeIcebergTable(
+                "t1", mixed, PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", Collections.emptyMap());
+
+        Map<String, ConnectorColumnHandle> handles =
+                metadataWith(ops).getColumnHandles(null, new IcebergTableHandle("db1", "t1"));
+
+        Assertions.assertEquals(2, handles.size());
+        Assertions.assertTrue(handles.containsKey("id"));
+        Assertions.assertTrue(handles.containsKey("name"));
+        Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("id")).getFieldId());
+        Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("name")).getFieldId());
+        // The remote load must go through the seam (auth-wrapped), mirroring getTableSchema.
+        Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
+                "getColumnHandles must load the table via the seam using the handle coordinates");
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.ConnectorContext;
 
@@ -35,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -160,6 +162,36 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
 
         return new ConnectorTableSchema(tableName, columns, "ICEBERG", tableProps);
+    }
+
+    /**
+     * Column handles keyed by (lowercased) column name, mirroring {@code PaimonConnectorMetadata}. The generic
+     * {@code PluginDrivenScanNode.buildColumnHandles} looks each query slot up here by name, so the provider
+     * receives the PRUNED set of requested columns — which the T06 field-id schema dictionary keys its
+     * {@code current_schema_id = -1} entry off (the CI #969249 fix: the dict's top-level names == the BE
+     * scan-slot names BY CONSTRUCTION). The field id is the iceberg {@code NestedField.fieldId()} (a permanent
+     * invariant). The name is lowercased with {@code Locale.ROOT} to byte-match {@link #parseSchema} (so the
+     * handle key == the Doris slot name).
+     */
+    @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        // Mirror getTableSchema: wrap the remote load in the auth context.
+        Table table;
+        try {
+            table = context.executeAuthenticated(
+                    () -> catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName()));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+        }
+        List<Types.NestedField> fields = table.schema().columns();
+        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
+        for (Types.NestedField field : fields) {
+            String name = field.name().toLowerCase(Locale.ROOT);
+            handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
+        }
+        return handles;
     }
 
     @Override
