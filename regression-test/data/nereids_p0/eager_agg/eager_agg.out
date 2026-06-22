@@ -4,12 +4,23 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+<<<<<<< HEAD:regression-test/data/nereids_p0/eager_agg/eager_agg.out
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
 --------------PhysicalOlapScan[store_sales]
 --------------PhysicalOlapScan[web_sales]
 --------PhysicalOlapScan[date_dim]
+=======
+--------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[web_sales(ws)]
+--------PhysicalOlapScan[date_dim(dt)]
+>>>>>>> 403a466421b ([feature](eager-agg) Bilateral push-down for eager aggregation (#63690)):regression-test/data/query_p0/eager_agg/eager_agg.out
 
 Hint log:
 Used: leading({ ss broadcast ws } broadcast dt )
@@ -46,12 +57,23 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+<<<<<<< HEAD:regression-test/data/nereids_p0/eager_agg/eager_agg.out
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
 --------------PhysicalOlapScan[store_sales]
 --------------PhysicalOlapScan[web_sales]
 --------PhysicalOlapScan[date_dim]
+=======
+--------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[web_sales(ws)]
+--------PhysicalOlapScan[date_dim(dt)]
+>>>>>>> 403a466421b ([feature](eager-agg) Bilateral push-down for eager aggregation (#63690)):regression-test/data/query_p0/eager_agg/eager_agg.out
 
 Hint log:
 Used: leading({ ss broadcast ws } broadcast dt )
@@ -128,12 +150,23 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+<<<<<<< HEAD:regression-test/data/nereids_p0/eager_agg/eager_agg.out
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
 --------------PhysicalOlapScan[store_sales]
 --------------PhysicalOlapScan[web_sales]
 --------PhysicalOlapScan[date_dim]
+=======
+--------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[web_sales(ws)]
+--------PhysicalOlapScan[date_dim(dt)]
+>>>>>>> 403a466421b ([feature](eager-agg) Bilateral push-down for eager aggregation (#63690)):regression-test/data/query_p0/eager_agg/eager_agg.out
 
 Hint log:
 Used: leading({ ss broadcast ws } broadcast dt )
@@ -287,9 +320,17 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
+<<<<<<< HEAD:regression-test/data/nereids_p0/eager_agg/eager_agg.out
 ----------PhysicalOlapScan[store_sales]
 ----------PhysicalOlapScan[date_dim]
 --------PhysicalOlapScan[web_sales]
+=======
+----------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[date_dim(dt)]
+--------PhysicalOlapScan[web_sales(ws)]
+>>>>>>> 403a466421b ([feature](eager-agg) Bilateral push-down for eager aggregation (#63690)):regression-test/data/query_p0/eager_agg/eager_agg.out
 
 Hint log:
 Used: leading({ ss broadcast dt } broadcast ws )
