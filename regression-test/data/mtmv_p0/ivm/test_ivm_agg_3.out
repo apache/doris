@@ -55,3 +55,15 @@
 -- !negval_after_zero_complete --
 4	0
 
+-- !emptydelta_unchanged --
+2	30
+
+-- !types_after_complete --
+25	8.333333333333334	250.50	83.5000	7.5	2.5	-5	100.75	3
+
+-- !types_after_insert_incremental --
+25	6.25	325.50	81.3750	11.5	2.875	-5	100.75	4
+
+-- !types_after_insert_complete --
+25	6.25	325.50	81.3750	11.5	2.875	-5	100.75	4
+
