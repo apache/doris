@@ -23,7 +23,6 @@
 #include <glog/logging.h>
 
 #include <cstdint>
-#include <memory>
 #include <string>
 
 #include "common/cast_set.h"

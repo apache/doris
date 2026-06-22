@@ -1186,10 +1186,9 @@ TEST_F(ColumnVariantTest, field_test) {
     cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
-    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
-    cols.clear();
-    EXPECT_TRUE(!obj->empty());
-    test_func(obj);
+    auto* loaded_obj = assert_cast<ColumnVariant*>(cols[0].get());
+    EXPECT_TRUE(!loaded_obj->empty());
+    test_func(loaded_obj);
 }
 
 // is seri
@@ -2184,27 +2183,26 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
-    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
-    cols.clear();
-    EXPECT_TRUE(!obj->empty());
-    auto sparse_col = obj->get_sparse_column();
+    auto* loaded_obj = assert_cast<ColumnVariant*>(cols[0].get());
+    EXPECT_TRUE(!loaded_obj->empty());
+    auto sparse_col = loaded_obj->get_sparse_column();
     auto cloned_sparse = sparse_col->clone_empty();
     const auto& offsets =
-            static_cast<const ColumnVariant&>(*obj).serialized_sparse_column_offsets();
+            static_cast<const ColumnVariant&>(*loaded_obj).serialized_sparse_column_offsets();
     for (size_t i = 0; i != offsets.size(); ++i) {
         auto start = offsets[i - 1];
         auto end = offsets[i];
-        ColumnVariant::fill_path_column_from_sparse_data(*obj->get_subcolumn({}) /*root*/, nullptr,
-                                                         StringRef {"array"},
+        ColumnVariant::fill_path_column_from_sparse_data(*loaded_obj->get_subcolumn({}) /*root*/,
+                                                         nullptr, StringRef {"array"},
                                                          cloned_sparse->get_ptr(), start, end);
     }
 
     EXPECT_NE(cloned_sparse->size(), sparse_col->size());
 
-    ColumnVariant::fill_path_column_from_sparse_data(*obj->get_subcolumn({}) /*root*/, nullptr,
-                                                     StringRef {"array"}, sparse_col->get_ptr(), 0,
-                                                     sparse_col->size());
-    EXPECT_ANY_THROW(obj->check_consistency());
+    ColumnVariant::fill_path_column_from_sparse_data(*loaded_obj->get_subcolumn({}) /*root*/,
+                                                     nullptr, StringRef {"array"},
+                                                     sparse_col->get_ptr(), 0, sparse_col->size());
+    EXPECT_ANY_THROW(loaded_obj->check_consistency());
 }
 
 TEST_F(ColumnVariantTest, not_finalized) {

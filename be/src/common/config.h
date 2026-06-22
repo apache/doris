@@ -1640,6 +1640,9 @@ DECLARE_String(s3_client_http_scheme);
 
 DECLARE_mBool(ignore_schema_change_check);
 
+/** Only use in fuzzy test **/
+DECLARE_mInt64(string_overflow_size);
+
 // The min thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
 // The max thread num for BufferedReaderPrefetchThreadPool

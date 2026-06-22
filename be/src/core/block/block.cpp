@@ -1247,21 +1247,6 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_rese
     return temp_block;
 }
 
-void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
-    for (auto idx : char_type_idx) {
-        if (idx < data.size()) {
-            auto& col_and_name = this->get_by_position(idx);
-            if (col_and_name.column->is_exclusive()) {
-                col_and_name.column->assume_mutable()->shrink_padding_chars();
-            } else {
-                auto mutable_col = IColumn::mutate(std::move(col_and_name.column));
-                mutable_col->shrink_padding_chars();
-                col_and_name.column = std::move(mutable_col);
-            }
-        }
-    }
-}
-
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {

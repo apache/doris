@@ -87,8 +87,6 @@ public:
         _nested_column->sanity_check();
     }
 
-    void shrink_padding_chars() override;
-
     bool is_variable_length() const override { return _nested_column->is_variable_length(); }
 
     std::string get_name() const override { return "Nullable(" + _nested_column->get_name() + ")"; }

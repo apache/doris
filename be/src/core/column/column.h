@@ -113,9 +113,6 @@ public:
         return nullptr;
     }
 
-    // Shrink trailing padding bytes for string-like columns and their nested subcolumns.
-    virtual void shrink_padding_chars() {}
-
     // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 

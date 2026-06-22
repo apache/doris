@@ -569,15 +569,9 @@ Status PointQueryExecutor::_lookup_row_data() {
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-                    auto st =
-                            segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot, row_id,
-                                                            column, storage_read_options, iter);
-                    if (st.ok() && _tablet->tablet_schema()
-                                           ->column_by_uid(slot->col_unique_id())
-                                           .has_char_type()) {
-                        column->shrink_padding_chars();
-                    }
-                    RETURN_IF_ERROR(st);
+                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                    row_id, column,
+                                                                    storage_read_options, iter));
                 }
             }
         }

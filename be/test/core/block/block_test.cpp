@@ -66,15 +66,11 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "testutil/column_helper.h"
-#include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
 
 namespace {
-
-static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
-        "ColumnStr.convert_column_if_overflow.max_string_size";
 
 class ThrowOnCloneColumn final : public COWHelper<IColumnDummy, ThrowOnCloneColumn> {
 private:
@@ -1026,14 +1022,9 @@ TEST(BlockTest, merge_ignore_overflow_keeps_owned_accumulation_convertible) {
             ColumnHelper::create_block<DataTypeString>(std::vector<std::string> {"abcde", "fghij"});
     auto output_block = ColumnHelper::create_block<DataTypeString>(std::vector<std::string> {});
 
-    const auto origin_enable_debug_points = config::enable_debug_points;
-    config::enable_debug_points = true;
-    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
-                                             {{"max_string_size", "9"}});
-    Defer defer([origin_enable_debug_points]() {
-        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
-        config::enable_debug_points = origin_enable_debug_points;
-    });
+    auto string_overflow_size = config::string_overflow_size;
+    config::string_overflow_size = 9;
+    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
 
     ColumnPtr converted_column;
     {

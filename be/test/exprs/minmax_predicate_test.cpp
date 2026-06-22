@@ -28,14 +28,8 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/internal/gtest-internal.h"
 #include "testutil/column_helper.h"
-#include "util/debug_points.h"
-#include "util/defer_op.h"
 
 namespace doris {
-
-static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
-        "ColumnStr.convert_column_if_overflow.max_string_size";
-
 class MinmaxPredicateTest : public testing::Test {
 protected:
     MinmaxPredicateTest() {}
@@ -153,14 +147,9 @@ TEST_F(MinmaxPredicateTest, String) {
     ASSERT_EQ("ab", *(std::string*)minmax_num_func.get_min());
     ASSERT_EQ("op", *(std::string*)minmax_num_func.get_max());
 
-    auto origin_enable_debug_points = config::enable_debug_points;
-    config::enable_debug_points = true;
-    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
-                                             {{"max_string_size", "10"}});
-    Defer defer([origin_enable_debug_points]() {
-        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
-        config::enable_debug_points = origin_enable_debug_points;
-    });
+    auto string_overflow_size = config::string_overflow_size;
+    config::string_overflow_size = 10;
+    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
 
     auto string64_column = column->clone()->convert_column_if_overflow();
     ASSERT_TRUE(string64_column->is_column_string64());

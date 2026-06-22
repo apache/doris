@@ -700,11 +700,6 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
     return Status::OK();
 }
 
-void ColumnMap::shrink_padding_chars() {
-    keys_column->shrink_padding_chars();
-    values_column->shrink_padding_chars();
-}
-
 void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);
