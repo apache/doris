@@ -18,6 +18,9 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
@@ -39,6 +42,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -305,6 +310,50 @@ class IvmDeltaRewriteHelper {
             }
         }
         return false;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Static helpers for IVM delta scan identification and conversion
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Returns true if the scan is an incremental delta scan (LogicalOlapTableStreamScan
+     * with isIncrementalScan=true), replacing the old scan.isDelta() check.
+     */
+    boolean isIncrementalDeltaScan(LogicalOlapScan scan) {
+        return scan instanceof LogicalOlapTableStreamScan
+                && ((LogicalOlapTableStreamScan) scan).isIncrementalScan();
+    }
+
+    /**
+     * Converts a delta stream scan back to a regular LogicalOlapScan with the given
+     * snapshot TSO for the snapshot side of the join delta plan.
+     *
+     * <p>This replaces the old {@code scan.withIsDelta(false).withTso(tso)} pattern.
+     * The returned scan uses the original OlapTable (not the stream wrapper) and
+     * carries a mock TSO (BE does not support TSO snapshot reads yet).
+     */
+    LogicalOlapScan toSnapshotScan(LogicalOlapTableStreamScan deltaScan, long tso) {
+        OlapTable originTable;
+        TableIf table = deltaScan.getTable();
+        if (table instanceof OlapTableStreamWrapper) {
+            originTable = ((OlapTableStreamWrapper) table).getBaseTable();
+        } else if (table instanceof OlapTable) {
+            originTable = (OlapTable) table;
+        } else {
+            throw new AnalysisException(
+                    "IVM: unexpected table type in delta scan: " + table.getClass().getSimpleName());
+        }
+        return new LogicalOlapScan(
+                deltaScan.getRelationId(),
+                originTable,
+                deltaScan.getQualifier(),
+                deltaScan.getManuallySpecifiedPartitions(),
+                deltaScan.getSelectedTabletIds(),
+                deltaScan.getHints(),
+                deltaScan.getTableSample(),
+                deltaScan.getOperativeSlots()
+        ).withTso(tso);
     }
 
 }

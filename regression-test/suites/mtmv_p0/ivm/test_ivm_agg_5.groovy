@@ -34,15 +34,14 @@ suite("test_ivm_agg_5") {
         CREATE TABLE test_ivm_agg_bare_grpby_base (
             k1 INT,
             k2 VARCHAR(32),
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -50,10 +49,10 @@ suite("test_ivm_agg_5") {
     // Initial: grp 'a' has 2 rows (k1=1,3), grp 'b' has 2 rows (k1=2,4)
     sql """
         INSERT INTO test_ivm_agg_bare_grpby_base VALUES
-            (1, 'a', 10, 0),
-            (2, 'b', 20, 0),
-            (3, 'a', 30, 0),
-            (4, 'b', 40, 0);
+            (1, 'a', 10),
+            (2, 'b', 20),
+            (3, 'a', 30),
+            (4, 'b', 40);
     """
 
     sql """
@@ -75,7 +74,7 @@ suite("test_ivm_agg_5") {
 
     // Insert new group 'c' — INCREMENTAL adds one group. Delta: 'a'(+2), 'b'(+2), 'c'(+1).
     // Counts: 'a'→4, 'b'→4, 'c'→1. All three groups present.
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (5, 'c', 50, 0);"""
+    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (5, 'c', 50);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
@@ -84,7 +83,7 @@ suite("test_ivm_agg_5") {
 
     // Scenario B: Partial delete — 'a' has 2 rows (k1=1,3), delete k1=3 → group survives
     // Reset to fresh COMPLETE after inserting k1=5,6 to control counts precisely.
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (6, 'c', 60, 0);"""
+    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (6, 'c', 60);"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
     // After COMPLETE: 'a'(k1=1,3): cnt=2; 'b'(k1=2,4): cnt=2; 'c'(k1=5,6): cnt=2
@@ -92,9 +91,9 @@ suite("test_ivm_agg_5") {
     // Delete one 'a' row (k1=3, op=1) and add new 'a' row (k1=7, op=0) as dirty trigger.
     // Delta: 'a'→k1=1(+1)+k1=3(-1)+k1=7(+1)=+1, 'b'→+2, 'c'→+2.
     // 'a' new cnt = 2+1 = 3 > 0, survives. All groups remain.
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (3, 'a', 30, 1);"""
+    sql """DELETE FROM test_ivm_agg_bare_grpby_base WHERE k1 = 3;"""
     // Dirty partition so INCREMENTAL runs (need at least one op=0 row to be new)
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (7, 'a', 70, 0);"""
+    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (7, 'a', 70);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
@@ -112,10 +111,10 @@ suite("test_ivm_agg_5") {
 
     // Delete both 'b' rows in a single batch: k1=2 and k1=4, both op=1.
     // delta for 'b': k1=2(-1) + k1=4(-1) = -2. new_cnt = 2+(-2) = 0 → DELETE_SIGN=1 → gone!
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (2, 'b', 20, 1);"""
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (4, 'b', 40, 1);"""
+    sql """DELETE FROM test_ivm_agg_bare_grpby_base WHERE k1 = 2;"""
+    sql """DELETE FROM test_ivm_agg_bare_grpby_base WHERE k1 = 4;"""
     // Dirty partition so INCREMENTAL actually runs
-    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (8, 'a', 80, 0);"""
+    sql """INSERT INTO test_ivm_agg_bare_grpby_base VALUES (8, 'a', 80);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_grpby_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_grpby_mv")
@@ -136,15 +135,14 @@ suite("test_ivm_agg_5") {
         CREATE TABLE test_ivm_agg_bare_multikey_base (
             k1 INT,
             k2 INT,
-            v1 VARCHAR(32),
-            binlog_op TINYINT
+            v1 VARCHAR(32)
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -152,10 +150,10 @@ suite("test_ivm_agg_5") {
     // Each group has exactly 1 row — single-row group edge case
     sql """
         INSERT INTO test_ivm_agg_bare_multikey_base VALUES
-            (1, 10, 'x', 0),
-            (2, 10, 'y', 0),
-            (3, 20, 'x', 0),
-            (4, 20, 'y', 0);
+            (1, 10, 'x'),
+            (2, 10, 'y'),
+            (3, 20, 'x'),
+            (4, 20, 'y');
     """
 
     sql """
@@ -178,8 +176,8 @@ suite("test_ivm_agg_5") {
     // Only one INCREMENTAL follows, so counts are not inflated by a prior INCREMENTAL.
     // Delta: (20,'y') → k1=4(op=1→dml=-1) → delta_cnt=-1 → new_count=1+(-1)=0 → gone.
     // Delta: (30,'z') → k1=5(op=0→dml=+1) → new group appears.
-    sql """INSERT INTO test_ivm_agg_bare_multikey_base VALUES (4, 20, 'y', 1);"""
-    sql """INSERT INTO test_ivm_agg_bare_multikey_base VALUES (5, 30, 'z', 0);"""
+    sql """DELETE FROM test_ivm_agg_bare_multikey_base WHERE k1 = 4;"""
+    sql """INSERT INTO test_ivm_agg_bare_multikey_base VALUES (5, 30, 'z');"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_bare_multikey_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_bare_multikey_mv")

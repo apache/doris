@@ -17,53 +17,46 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.mtmv.BaseTableInfo;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-
-import java.util.HashMap;
-import java.util.Map;
 
 public class IvmInfoTest {
 
     @Test
-    public void testCopyConstructorDeepCopiesStreams() {
+    public void testCopyConstructor() {
         IvmInfo info = new IvmInfo();
         info.setEnableIvm(true);
         info.setBinlogBroken(true);
         info.setRunningIvmRefresh(true);
-        BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
-        IvmStreamRef streamRef = new IvmStreamRef(42L);
-        streamRef.setLatestTso(100L);
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
-        streams.put(baseTableInfo, streamRef);
-        info.setBaseTableStreams(streams);
+        info.setPlanSignature("abc123");
 
         IvmInfo copy = new IvmInfo(info);
 
         Assertions.assertTrue(copy.isEnableIvm());
         Assertions.assertTrue(copy.isBinlogBroken());
         Assertions.assertTrue(copy.isRunningIvmRefresh());
-        Assertions.assertEquals(1, copy.getBaseTableStreams().size());
-        IvmStreamRef copiedRef = copy.getBaseTableStreams().get(baseTableInfo);
-        Assertions.assertNotSame(streamRef, copiedRef);
-        Assertions.assertEquals(42L, copiedRef.getConsumedTso());
-        Assertions.assertEquals(100L, copiedRef.getLatestTso());
-
-        copiedRef.setConsumedTso(200L);
-        Assertions.assertEquals(42L, streamRef.getConsumedTso());
+        Assertions.assertEquals("abc123", copy.getPlanSignature());
     }
 
     @Test
-    public void testCopyConstructorHandlesNullStreams() {
+    public void testCopyConstructorDeepCopiesIndependent() {
         IvmInfo info = new IvmInfo();
-        info.setBaseTableStreams(null);
+        info.setPlanSignature("original");
 
         IvmInfo copy = new IvmInfo(info);
+        copy.setPlanSignature("modified");
 
-        Assertions.assertNotNull(copy.getBaseTableStreams());
-        Assertions.assertTrue(copy.getBaseTableStreams().isEmpty());
+        // Modifications to copy should not affect original
+        Assertions.assertEquals("original", info.getPlanSignature());
+        Assertions.assertEquals("modified", copy.getPlanSignature());
+    }
+
+    @Test
+    public void testDefaultValues() {
+        IvmInfo info = new IvmInfo();
+        Assertions.assertFalse(info.isEnableIvm());
+        Assertions.assertFalse(info.isBinlogBroken());
+        Assertions.assertFalse(info.isRunningIvmRefresh());
+        Assertions.assertNull(info.getPlanSignature());
     }
 }

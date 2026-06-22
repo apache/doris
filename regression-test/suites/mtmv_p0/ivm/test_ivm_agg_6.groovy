@@ -40,23 +40,22 @@ suite("test_ivm_agg_6") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_minmax_zero_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     sql """
         INSERT INTO test_ivm_agg_mtmv_minmax_zero_base VALUES
-            (1, 10, 0),
-            (2, 20, 0);
+            (1, 10),
+            (2, 20);
     """
 
     sql """
@@ -80,8 +79,8 @@ suite("test_ivm_agg_6") {
 
     // Step 2: Delete ALL rows via binlog_op=1
     // Non-null count for MIN/MAX drops to 0 → guard bypassed → MIN/MAX = NULL
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_zero_base VALUES (1, 10, 1);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_zero_base VALUES (2, 20, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_minmax_zero_base WHERE k1 = 1;"""
+    sql """DELETE FROM test_ivm_agg_mtmv_minmax_zero_base WHERE k1 = 2;"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_zero_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_zero_mv")
@@ -105,22 +104,21 @@ suite("test_ivm_agg_6") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_minmax_nullkeep_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
     // Row k1=1 has non-null v1=10; k1=2 has NULL v1
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_nullkeep_base VALUES (1, 10, 0);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_nullkeep_base (k1, v1, binlog_op) VALUES (2, NULL, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_nullkeep_base VALUES (1, 10);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_minmax_nullkeep_base (k1, v1) VALUES (2, NULL);"""
 
     sql """
         CREATE MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_nullkeep_mv
@@ -147,7 +145,7 @@ suite("test_ivm_agg_6") {
     // Guard bypassed → MIN/MAX = NULL, sum=NULL
     // NOTE: cnt is inflated (2 instead of expected 1) because the delta scan re-reads
     // the unchanged k1=2 row — a known limitation of the full-table delta scan.
-    sql """INSERT INTO test_ivm_agg_mtmv_minmax_nullkeep_base VALUES (1, 10, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_minmax_nullkeep_base WHERE k1 = 1;"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_nullkeep_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_nullkeep_mv")

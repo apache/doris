@@ -23,10 +23,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -57,6 +59,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        Config.enable_table_stream = true;
     }
 
     @Override
@@ -261,7 +264,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
     }
 
     private void createIvmDupTable(String tableName) throws Exception {
@@ -918,7 +921,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         createTable("create table test.ivm_mow_base (k1 int, v1 int)\n"
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true', "
                 + "'enable_unique_key_merge_on_write' = 'true');");
         createMtmv("CREATE MATERIALIZED VIEW ivm_mow_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
@@ -1080,12 +1083,12 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
         createTable("create table test.ivm_outer_filter_right (k1 int, v2 int)\n"
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
-                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
 
         CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_outer_filter_mv\n"
                         + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
@@ -1313,5 +1316,109 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                         + " AS SELECT k1, row_number() OVER (ORDER BY k1) rn FROM ivm_win_base;"));
         Assertions.assertTrue(ex.getMessage().contains("IVM does not support window functions"),
                 "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testCreateIncrementalMVAutoCreatesStream() throws Exception {
+        createTable("create table test.ivm_stream_base (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_stream_base;");
+        MTMV mtmv = getMtmv("ivm_stream_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        String streamName = IvmUtil.streamName(mtmv.getId(), "ivm_stream_base");
+        TableIf streamTable = db.getTableNullable(streamName);
+        Assertions.assertNotNull(streamTable,
+                "Stream table should be auto-created for IVM base table");
+    }
+
+    @Test
+    public void testCreateIncrementalMVAutoCreatesStreamForMultipleBaseTables() throws Exception {
+        createTable("create table test.ivm_multi_stream_base1 (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createTable("create table test.ivm_multi_stream_base2 (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_multi_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_multi_stream_base1.k1, ivm_multi_stream_base1.v1 "
+                + "FROM ivm_multi_stream_base1 "
+                + "INNER JOIN ivm_multi_stream_base2 "
+                + "ON ivm_multi_stream_base1.k1 = ivm_multi_stream_base2.k1;");
+        MTMV mtmv = getMtmv("ivm_multi_stream_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        for (String baseName : new String[]{"ivm_multi_stream_base1", "ivm_multi_stream_base2"}) {
+            String streamName = IvmUtil.streamName(mtmv.getId(), baseName);
+            TableIf streamTable = db.getTableNullable(streamName);
+            Assertions.assertNotNull(streamTable,
+                    "Stream table should be auto-created for base table " + baseName);
+        }
+    }
+
+    @Test
+    public void testCreateIncrementalMVSkipsStreamForExcludedTriggerTable() throws Exception {
+        createTable("create table test.ivm_excl_stream_base1 (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createTable("create table test.ivm_excl_stream_base2 (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_excl_stream_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1', "
+                + "'excluded_trigger_tables' = 'test.ivm_excl_stream_base2')\n"
+                + " AS SELECT ivm_excl_stream_base1.k1, ivm_excl_stream_base1.v1 "
+                + "FROM ivm_excl_stream_base1 "
+                + "INNER JOIN ivm_excl_stream_base2 "
+                + "ON ivm_excl_stream_base1.k1 = ivm_excl_stream_base2.k1;");
+        MTMV mtmv = getMtmv("ivm_excl_stream_mv");
+        Assertions.assertTrue(mtmv.isIvm());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        String stream1 = IvmUtil.streamName(mtmv.getId(), "ivm_excl_stream_base1");
+        Assertions.assertNotNull(db.getTableNullable(stream1),
+                "Stream should be created for non-excluded table");
+        String stream2 = IvmUtil.streamName(mtmv.getId(), "ivm_excl_stream_base2");
+        Assertions.assertNull(db.getTableNullable(stream2),
+                "Stream should NOT be created for excluded table");
+    }
+
+    @Test
+    public void testCreateNonIncrementalMvDoesNotCreateStream() throws Exception {
+        createTable("create table test.ivm_no_stream_base (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true');");
+        createMtmv("CREATE MATERIALIZED VIEW ivm_no_stream_mv\n"
+                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_no_stream_base;");
+        MTMV mtmv = getMtmv("ivm_no_stream_mv");
+        Assertions.assertFalse(mtmv.isIvm());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        String streamName = IvmUtil.streamName(mtmv.getId(), "ivm_no_stream_base");
+        Assertions.assertNull(db.getTableNullable(streamName),
+                "Stream should NOT be auto-created for non-IVM MV");
     }
 }

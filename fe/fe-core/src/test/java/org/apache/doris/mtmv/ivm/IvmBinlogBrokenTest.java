@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
@@ -36,6 +37,11 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 public class IvmBinlogBrokenTest extends TestWithFeService {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        Config.enable_table_stream = true;
+    }
 
     @Test
     public void testTruncateMarksBinlogBroken() throws Exception {

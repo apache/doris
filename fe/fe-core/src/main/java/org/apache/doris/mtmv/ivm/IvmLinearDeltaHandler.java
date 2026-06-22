@@ -23,13 +23,16 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -45,11 +48,17 @@ import java.util.List;
 class IvmLinearDeltaHandler {
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
+    /** Regular scan is a snapshot — no delta to process, return as-is with null dmlFactor. */
+    IvmDeltaRewriteResult rewriteOlapScan(LogicalOlapScan scan) {
+        return new IvmDeltaRewriteResult(scan, null);
+    }
+
     /**
-     * Wraps delta scan with Project(scan_output + dml_factor).
+     * Wraps incremental stream scan with Project(scan_output + dml_factor).
+     * Returns null dmlFactor for non-incremental stream scans.
      */
-    IvmDeltaRewriteResult rewriteScan(LogicalOlapScan scan) {
-        if (!scan.isDelta()) {
+    IvmDeltaRewriteResult rewriteOlapTableStreamScan(LogicalOlapTableStreamScan scan) {
+        if (!scan.isIncrementalScan()) {
             return new IvmDeltaRewriteResult(scan, null);
         }
         Expression factorExpr = buildDmlFactorExpr(scan);
@@ -64,15 +73,15 @@ class IvmLinearDeltaHandler {
     }
 
     /**
-     * Builds the dml_factor expression for the given scan.
+     * Builds the dml_factor expression from the stream change type column.
+     * APPEND, UPDATE_AFTER → dml_factor = +1, DELETE, UPDATE_BEFORE → dml_factor = -1
      */
     private Expression buildDmlFactorExpr(LogicalOlapScan scan) {
-        if (scan.getTable().getColumn(Column.IVM_MOCK_BINLOG_OPERATION_COL) == null) {
-            return new TinyIntLiteral((byte) 1);
-        }
-        Slot opSlot = helper.findSlotByName(scan.getOutput(), Column.IVM_MOCK_BINLOG_OPERATION_COL);
+        Slot opSlot = IvmDeltaRewriteHelper.INSTANCE.findSlotByName(
+                scan.getOutput(), Column.STREAM_CHANGE_TYPE_COL);
         return new If(
-                new EqualTo(opSlot, new TinyIntLiteral((byte) 0)),
+                new Or(new EqualTo(new VarcharLiteral("APPEND"), opSlot),
+                        new EqualTo(new VarcharLiteral("UPDATE_AFTER"), opSlot)),
                 new TinyIntLiteral((byte) 1),
                 new TinyIntLiteral((byte) -1));
     }

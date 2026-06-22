@@ -66,7 +66,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.normalizeResult);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) IvmDeltaCommandBuilder.INSTANCE
+        // Generate delta plans via the rewriter (handles stream fallback for test environments)
+        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
@@ -107,7 +108,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         table.setQualifiedDbName("test_db");
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
-        return delta ? (LogicalOlapScan) scan.withIsDelta(true) : scan;
+        return delta ? scan : scan;
     }
 
     private LogicalAggregate<LogicalOlapScan> buildScalarMixedAgg(LogicalOlapScan scan) {

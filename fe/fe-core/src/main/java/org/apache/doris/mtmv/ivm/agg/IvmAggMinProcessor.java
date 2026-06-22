@@ -20,6 +20,8 @@ package org.apache.doris.mtmv.ivm.agg;
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -42,8 +44,11 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression deletedExtremeKeepsOldValueValid(Expression deltaDeletedExtreme, Slot oldExtreme) {
-        return new GreaterThan(deltaDeletedExtreme, oldExtreme);
+    protected Expression deletedExtremeKeepsOldValueValid(Expression deltaDeletedExtreme,
+            Slot oldExtreme, Expression deltaInsertExtreme) {
+        return new Or(
+                new GreaterThan(deltaDeletedExtreme, oldExtreme),
+                new LessThanEqual(deltaInsertExtreme, oldExtreme));
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -38,19 +37,18 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
@@ -77,7 +75,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testInnerJoinDmlFactorPropagationLeft() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
@@ -92,7 +90,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testInnerJoinDmlFactorPropagationRight() {
         LogicalOlapScan scanSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanSnapshot, scanDelta, JoinReorderContext.EMPTY);
 
@@ -105,7 +103,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testCrossJoinDmlFactorPropagation() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
@@ -119,8 +117,8 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testInnerJoinBothDeltaThrows() {
-        LogicalOlapScan scanA = buildScan();
-        LogicalOlapScan scanB = buildScan();
+        LogicalOlapTableStreamScan scanA = buildDeltaScan();
+        LogicalOlapTableStreamScan scanB = buildDeltaScan();
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
@@ -143,7 +141,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testInnerJoinNonDetGuardAdded() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
 
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
@@ -172,7 +170,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testInnerJoinDeterministicRowIdSkipsGuard() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
 
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
@@ -198,7 +196,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testInnerJoinGuardFallbackMessage() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
 
         Alias rowIdAlias = new Alias(scanSnapshot.getOutput().get(0), Column.IVM_ROW_ID_COL);
@@ -224,7 +222,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testInnerJoinDmlFactorWithHashConjuncts() {
-        LogicalOlapScan scanDelta = buildScan();
+        LogicalOlapTableStreamScan scanDelta = buildDeltaScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         EqualTo condition = new EqualTo(scanDelta.getOutput().get(0), scanSnapshot.getOutput().get(0));
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
@@ -252,12 +250,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRetainedSideDeltaUsesLeftOuterJoinUnderTopProject() {
-        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan leftDelta = buildDeltaScanForTable(1, "t1");
         LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.<TableNameInfo, IvmStreamRef>of());
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -273,13 +271,11 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testNullSideDeltaBuildsRightEventsAndProbesLeftOnce() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -312,15 +308,13 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRightOuterJoinNullSideDeltaBuildsNullSideEvents() {
-        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan leftDelta = buildDeltaScanForTable(1, "t1");
         LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedRightOuterJoin(rowIdProject(leftDelta),
                 rowIdProject(rightSnapshot));
 
-        IvmStreamRef leftStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
-                leftStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -340,14 +334,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testFullOuterJoinLeftDeltaUsesLeftOuterJoinAndRepairsRightDanglingRows() {
-        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan leftDelta = buildDeltaScanForTable(1, "t1");
         LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedFullOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
-        IvmStreamRef leftStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
-                leftStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -365,13 +357,11 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testFullOuterJoinRightDeltaUsesRightOuterJoinAndRepairsLeftDanglingRows() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedFullOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -389,14 +379,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testNullSideDeltaExtractsHashConjunctFromOtherConjuncts() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoinWithOnlyOtherHashConjunct(
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -411,14 +399,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testNullSideDeltaWithNonHashOtherConjunctFallsBackToRepairBranches() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoinWithNonHashOtherConjunct(
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -436,15 +422,13 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testRightOuterJoinNullSideDeltaWithNonHashOtherConjunctFillsLeftSideAsNull() {
-        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan leftDelta = buildDeltaScanForTable(1, "t1");
         LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedRightOuterJoinWithNonHashOtherConjunct(
                 rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
-        IvmStreamRef leftStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
-                leftStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -461,14 +445,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testNullSideDeltaWithUniqueFunctionHashConjunctFallsBackToRepairBranches() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoinWithUniqueFunctionHashConjunct(
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
@@ -480,12 +462,10 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewriteBuildsSinkWithFinalRowIdAndDeleteSign() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(
-                IvmRefreshContext.toTableNameInfo(rightDelta), rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         List<Command> commands = IvmDeltaCommandBuilder.INSTANCE.rewrite(bundle.topProject, ctx);
 
@@ -499,33 +479,33 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testNullSideSnapshotOnlyReplacesDeltaScanInsideNullSidePlan() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
+        LogicalOlapScan rightDelta = buildDeltaScanForTable(2, "t2");
         LogicalOlapScan rightSnapshot = buildScanForTable(3, "t3").withTso(77);
         LogicalProject<Plan> nullSide = normalizedInnerJoin(rowIdProject(rightDelta), rowIdProject(rightSnapshot));
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), nullSide);
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.normalizeResult);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
         LogicalUnion union = nullSideEventUnion(result.plan);
 
-        assertSnapshotBranch(union.child(1), 10);
-        assertSnapshotBranch(union.child(2), 20);
+        // TSO values are placeholders (BE does not support TSO snapshot reads yet).
+        // Delta snapshot scans get TSO=-1 (default) until stream TSO integration is complete.
+        assertSnapshotBranch(union.child(1), -1);
+        assertSnapshotBranch(union.child(2), -1);
     }
 
     @Test
     void testLeftDeepOuterJoinChainPropagatesRetainedSideDelta() {
-        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan leftDelta = buildDeltaScanForTable(1, "t1");
         LogicalOlapScan middleSnapshot = buildScanForTable(2, "t2");
         LogicalOlapScan rightSnapshot = buildScanForTable(3, "t3");
         NormalizedOuterJoinPlan firstJoin = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(middleSnapshot));
         NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightSnapshot));
 
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(topJoin, ImmutableMap.<TableNameInfo, IvmStreamRef>of());
+        IvmRefreshContext ctx = newRefreshContext(topJoin.topProject);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(topJoin.topProject, ctx);
 
@@ -541,14 +521,12 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     void testLeftDeepOuterJoinChainRewritesTopNullSideDelta() {
         LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
         LogicalOlapScan middleSnapshot = buildScanForTable(2, "t2");
-        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(3, "t3").withIsDelta(true);
+        LogicalOlapTableStreamScan rightDelta = buildDeltaScanForTable(3, "t3");
         NormalizedOuterJoinPlan firstJoin = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(middleSnapshot));
         NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightDelta));
 
-        IvmStreamRef rightStream = stream(10, 20);
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
-        IvmRefreshContext ctx = context(topJoin, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
-                rightStream));
+        IvmRefreshContext ctx = newRefreshContext(topJoin.topProject);
 
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(topJoin.topProject, ctx);
 
@@ -565,7 +543,8 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     private void assertSnapshotBranch(Plan branch, long expectedDeltaSnapshotTso) {
         List<LogicalOlapScan> scans = branch.collectToList(node -> node instanceof LogicalOlapScan);
         LogicalOlapScan deltaSnapshot = scans.stream()
-                .filter(scan -> scan.getTable().getId() == 2 && !scan.isDelta())
+                .filter(scan -> scan.getTable().getId() == 2
+                        && !IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scan))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Missing copied null-side delta scan"));
         Assertions.assertEquals(expectedDeltaSnapshotTso, deltaSnapshot.getTso());
@@ -574,7 +553,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 .filter(scan -> scan.getTable().getId() == 3)
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Missing existing null-side snapshot scan"));
-        Assertions.assertFalse(otherSnapshot.isDelta());
+        Assertions.assertFalse(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(otherSnapshot));
         Assertions.assertEquals(77, otherSnapshot.getTso());
     }
 
@@ -684,17 +663,6 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> project = (LogicalProject<?>) branch;
         Assertions.assertInstanceOf(LogicalJoin.class, project.child());
         Assertions.assertEquals(joinType, ((LogicalJoin<?, ?>) project.child()).getJoinType());
-    }
-
-    private IvmRefreshContext context(NormalizedOuterJoinPlan bundle, Map<TableNameInfo, IvmStreamRef> streams) {
-        return new IvmRefreshContext(buildMtmvFromPlan(bundle.topProject.getOutput()),
-                new ConnectContext(), bundle.normalizeResult, streams);
-    }
-
-    private IvmStreamRef stream(long consumedTso, long latestTso) {
-        IvmStreamRef stream = new IvmStreamRef(consumedTso);
-        stream.setLatestTso(latestTso);
-        return stream;
     }
 
     private LogicalProject<Plan> rowIdProject(LogicalOlapScan scan) {

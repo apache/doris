@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -49,7 +50,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -740,34 +740,75 @@ class IvmJoinDeltaHandler {
 
     /**
      * Replace the single null-side delta scan with its pre- or post-refresh snapshot.
+     *
+     * <p>The delta scan is wrapped by a {@link LogicalProject} that remaps
+     * stream output slots to the old {@link LogicalOlapScan} ExprIds via
+     * {@link Alias} targets. This method identifies that {@code Project(StreamScan)}
+     * pair, replaces the stream scan with a snapshot {@link LogicalOlapScan}, and
+     * rebuilds the project aliases to reference the new scan's output slots.
+     *
+     * TODO: Once streams are auto-created (Phase 1), compute TSO from
+     * OlapTableStream.getStreamUpdate() instead of using placeholder values.
      */
     private Plan copyDeltaScanAsSnapshot(Plan plan, boolean postSnapshot, IvmRefreshContext context) {
-        List<Long> missingTableIds = new ArrayList<>();
         int[] deltaScanCount = new int[1];
         Plan snapshot = plan.rewriteDownShortCircuit(node -> {
-            if (!(node instanceof LogicalOlapScan)) {
-                return node;
+            if (node instanceof LogicalProject) {
+                LogicalProject<?> project = (LogicalProject<?>) node;
+                Plan child = project.child();
+                if (child instanceof LogicalOlapScan
+                        && IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) child)) {
+                    LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) child;
+                    deltaScanCount[0]++;
+                    // TODO: get TSO from stream
+                    long tso = 0L;
+                    LogicalOlapScan snapshotScan = IvmDeltaRewriteHelper.INSTANCE.toSnapshotScan(streamScan, tso);
+                    return rebuildProjectForSnapshot(project, snapshotScan);
+                }
             }
-            LogicalOlapScan scan = (LogicalOlapScan) node;
-            if (!scan.isDelta()) {
-                return node;
-            }
-            deltaScanCount[0]++;
-            IvmStreamRef ref = context.getBaseTableStream(scan);
-            if (ref == null) {
-                missingTableIds.add(scan.getTable().getId());
-                return node;
-            }
-            long tso = postSnapshot ? ref.getLatestTso() : ref.getConsumedTso();
-            return scan.withIsDelta(false).withTso(tso);
+            return node;
         });
-        if (!missingTableIds.isEmpty()) {
-            throw new AnalysisException("IVM: no stream ref found for base table id: " + missingTableIds.get(0));
-        }
         if (deltaScanCount[0] != 1) {
             throw new AnalysisException("IVM: expected exactly one null-side delta scan, got " + deltaScanCount[0]);
         }
         return snapshot;
+    }
+
+    /**
+     * Rebuild a delta-wrapper Project so its Alias sources point to the new
+     * snapshot scan's output slots instead of the stream scan's slots.
+     * The Alias target ExprIds (old OlapScan ExprIds) are preserved.
+     */
+    private LogicalProject<?> rebuildProjectForSnapshot(LogicalProject<?> oldProject,
+            LogicalOlapScan snapshotScan) {
+        Map<String, Slot> snapshotSlotByName = new HashMap<>();
+        for (Slot slot : snapshotScan.getOutput()) {
+            snapshotSlotByName.put(slot.getName(), slot);
+        }
+        ImmutableList.Builder<NamedExpression> newProjects
+                = ImmutableList.builderWithExpectedSize(oldProject.getProjects().size());
+        for (NamedExpression expr : oldProject.getProjects()) {
+            if (expr instanceof Alias) {
+                Alias alias = (Alias) expr;
+                Expression childExpr = alias.child();
+                if (childExpr instanceof Slot) {
+                    Slot snapshotSlot = snapshotSlotByName.get(((Slot) childExpr).getName());
+                    if (snapshotSlot != null) {
+                        newProjects.add(new Alias(alias.getExprId(), snapshotSlot, alias.getName()));
+                    }
+                }
+            } else if (expr instanceof Slot) {
+                // Passthrough SlotReference (e.g. stream-only columns added by
+                // replaceOlapScanWithStreamScan). Wrap with Alias to preserve
+                // the old ExprId so parent plan references stay valid.
+                Slot oldSlot = (Slot) expr;
+                Slot snapshotSlot = snapshotSlotByName.get(oldSlot.getName());
+                if (snapshotSlot != null) {
+                    newProjects.add(new Alias(oldSlot.getExprId(), snapshotSlot, oldSlot.getName()));
+                }
+            }
+        }
+        return new LogicalProject<>(newProjects.build(), snapshotScan);
     }
 
     /**

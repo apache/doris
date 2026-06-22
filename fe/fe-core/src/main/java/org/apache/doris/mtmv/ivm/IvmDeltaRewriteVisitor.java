@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -59,9 +60,17 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
                 "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
     }
 
+    /** Regular scan is a snapshot — no delta to process. */
     @Override
     public IvmDeltaRewriteResult visitLogicalOlapScan(LogicalOlapScan scan, IvmRefreshContext ctx) {
-        return linearHandler.rewriteScan(scan);
+        return linearHandler.rewriteOlapScan(scan);
+    }
+
+    /** Stream scan is a delta source — build dml_factor if isIncrementalScan. */
+    @Override
+    public IvmDeltaRewriteResult visitLogicalOlapTableStreamScan(
+            LogicalOlapTableStreamScan scan, IvmRefreshContext ctx) {
+        return linearHandler.rewriteOlapTableStreamScan(scan);
     }
 
     @Override

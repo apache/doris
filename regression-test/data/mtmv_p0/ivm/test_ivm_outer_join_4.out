@@ -9,6 +9,7 @@
 1	\N	10	\N
 2	2	20	200
 4	\N	40	\N
+
 -- !after_right_matches_left_incremental --
 \N	3	\N	300
 1	\N	10	\N
@@ -32,3 +33,4 @@
 2	2	20	200
 3	3	30	300
 4	\N	40	\N
+

@@ -31,15 +31,14 @@ suite("test_ivm_agg_2") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_allnull_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -47,8 +46,8 @@ suite("test_ivm_agg_2") {
     // All values are NULL
     sql """
         INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES
-            (1, NULL, 0),
-            (2, NULL, 0);
+            (1, NULL),
+            (2, NULL);
     """
 
     sql """
@@ -77,7 +76,7 @@ suite("test_ivm_agg_2") {
     """
 
     // Insert a non-NULL value → transitions from all-NULL to mixed
-    sql """INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES (3, 100, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES (3, 100);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
@@ -99,7 +98,7 @@ suite("test_ivm_agg_2") {
     """
 
     // Insert another NULL (should not change aggregates)
-    sql """INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES (4, NULL, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_allnull_base VALUES (4, NULL);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_allnull_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_allnull_mv")
@@ -133,15 +132,14 @@ suite("test_ivm_agg_2") {
         CREATE TABLE test_ivm_agg_mtmv_grpdel_base (
             k1 INT,
             grp INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -149,9 +147,9 @@ suite("test_ivm_agg_2") {
     // Initial data: grp=1 has 2 rows, grp=2 has 1 row
     sql """
         INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES
-            (1, 1, 10, 0),
-            (2, 1, 20, 0),
-            (3, 2, 30, 0);
+            (1, 1, 10),
+            (2, 1, 20),
+            (3, 2, 30);
     """
 
     sql """
@@ -177,9 +175,9 @@ suite("test_ivm_agg_2") {
 
     // Step 2: Delete the only row in grp=2 (binlog_op=1) and add a dirty row in grp=1
     // After INCREMENTAL, grp=2 should disappear (group_count=0 → DELETE_SIGN=1)
-    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (3, 2, 30, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_grpdel_base WHERE k1 = 3;"""
     // Dirty the partition so INCREMENTAL actually runs
-    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (4, 1, 40, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (4, 1, 40);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_grpdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_grpdel_mv")
@@ -201,8 +199,8 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 4: Re-insert into grp=2 (resurrect the group) and fix k1=3 back to op=0
-    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (3, 2, 30, 0);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (5, 2, 50, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (3, 2, 30);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_grpdel_base VALUES (5, 2, 50);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_grpdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_grpdel_mv")
@@ -235,15 +233,14 @@ suite("test_ivm_agg_2") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_scalardel_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -251,8 +248,8 @@ suite("test_ivm_agg_2") {
     // Initial data: 2 rows
     sql """
         INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES
-            (1, 10, 0),
-            (2, 20, 0);
+            (1, 10),
+            (2, 20);
     """
 
     sql """
@@ -306,10 +303,10 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 3: Delete all rows via binlog_op=1
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (1, 10, 1);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (2, 20, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_scalardel_base WHERE k1 = 1;"""
+    sql """DELETE FROM test_ivm_agg_mtmv_scalardel_base WHERE k1 = 2;"""
     // Dirty partition for INCREMENTAL
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (3, 99, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (3, 99);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalardel_mv")
@@ -331,9 +328,9 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 5: Now test true empty table — delete ALL rows including k1=3
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (3, 99, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_scalardel_base WHERE k1 = 3;"""
     // Insert and immediately delete a dummy row to dirty the partition
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (4, 0, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (4, 0);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalardel_mv")
@@ -354,8 +351,8 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 6: Insert fresh rows to recover from "all deleted" state
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (5, 50, 0);"""
-    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (6, 60, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (5, 50);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_scalardel_base VALUES (6, 60);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_scalardel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_scalardel_mv")
@@ -386,15 +383,14 @@ suite("test_ivm_agg_2") {
     sql """
         CREATE TABLE test_ivm_agg_mtmv_maxdel_base (
             k1 INT,
-            v1 INT,
-            binlog_op TINYINT
+            v1 INT
         )
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -402,9 +398,9 @@ suite("test_ivm_agg_2") {
     // Initial data: v1 values 10, 20, 30 — MAX is 30 (k1=3)
     sql """
         INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES
-            (1, 10, 0),
-            (2, 20, 0),
-            (3, 30, 0);
+            (1, 10),
+            (2, 20),
+            (3, 30);
     """
 
     // Scalar agg MV with MAX (and MIN+COUNT for completeness)
@@ -428,7 +424,7 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 2: Safe INCREMENTAL — insert a non-boundary row
-    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (4, 25, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (4, 25);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_maxdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_maxdel_mv")
@@ -440,9 +436,9 @@ suite("test_ivm_agg_2") {
 
     // Step 3: Delete the MAX value (k1=3, v1=30, op=1)
     // The MAX guard should fire: deltaDelMax=30 == old_max=30, so deltaDelMax < old_max is FALSE
-    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (3, 30, 1);"""
+    sql """DELETE FROM test_ivm_agg_mtmv_maxdel_base WHERE k1 = 3;"""
     // Dirty partition
-    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (5, 15, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (5, 15);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_maxdel_mv INCREMENTAL"""
 
@@ -480,7 +476,7 @@ suite("test_ivm_agg_2") {
     """
 
     // Step 5: Fix k1=3 back to op=0, safe INCREMENTAL should succeed
-    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (3, 30, 0);"""
+    sql """INSERT INTO test_ivm_agg_mtmv_maxdel_base VALUES (3, 30);"""
 
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_maxdel_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_maxdel_mv")

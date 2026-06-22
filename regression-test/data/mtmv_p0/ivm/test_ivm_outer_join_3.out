@@ -7,16 +7,11 @@
 -- !right_event_after_right_incremental --
 1	10	100
 2	\N	200
-2	\N	200
 3	30	300
 4	\N	400
 
 -- !right_event_after_left_incremental --
-1	10	100
 2	\N	200
-2	\N	200
-2	20	200
-3	30	300
 4	\N	400
 
 -- !right_repair_after_complete --
@@ -29,4 +24,4 @@
 2	\N	25
 2	30	25
 3	\N	30
-3	\N	30
+

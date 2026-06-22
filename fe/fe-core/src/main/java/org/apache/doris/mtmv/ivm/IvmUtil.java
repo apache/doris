@@ -134,6 +134,17 @@ public class IvmUtil {
         return found;
     }
 
+    /** IVM stream name prefix for auto-created streams. */
+    public static final String IVM_STREAM_PREFIX = "__doris_ivm_stream_";
+
+    /**
+     * Computes the deterministic stream name for a base table backing an IVM-enabled MTMV.
+     * Format: __doris_ivm_stream_{mvId}_{baseTableName}
+     */
+    public static String streamName(long mvId, String baseTableName) {
+        return IVM_STREAM_PREFIX + mvId + "_" + baseTableName;
+    }
+
     /**
      * Finds the IVM row_id slot in the given output list, or returns null if not found.
      * Throws AnalysisException if multiple row_id slots are present.
