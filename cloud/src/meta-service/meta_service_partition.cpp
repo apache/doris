@@ -337,10 +337,34 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
                 msg = fmt::format("failed to get table version, err={}", err);
                 return;
             }
+        } else {
+            // set table version in response
+            int64_t table_id = request->table_id();
+            std::string ver_key = table_version_key({instance_id, request->db_id(), table_id});
+            std::string ver_val;
+            // snapshot read: the returned table version is only a hint for FE's version
+            // cache; the real increment is done by update_table_version() via atomic_add.
+            // A non-snapshot read would add ver_key to the read-conflict set and make
+            // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+            err = txn->get(ver_key, &ver_val, true);
+            int64_t table_version = 0;
+            if (err == TxnErrorCode::TXN_OK) {
+                if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    ss << "malformed table version value, err=" << err
+                       << " table_id=" << request->table_id();
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                msg = ss.str();
+                return;
+            }
+            response->set_table_version(table_version + 1);
         }
-        // The non-versioned table version returned to FE is an advisory cache hint; it is read
-        // after commit in a separate snapshot txn (see below), so reading the version key does not
-        // add a read conflict with update_table_version()'s atomic_add on the same key.
         // init table version, for create and truncate table
         update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
         commit_index_log.set_update_table_version(true);
@@ -368,30 +392,19 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     }
 
     // set table version in response
-    if (request->has_is_new_table() && request->is_new_table()) {
-        if (is_versioned_read) {
-            Versionstamp vs;
-            err = txn->get_versionstamp(&vs);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                ss << "failed to get kv txn versionstamp, table_id=" << request->table_id()
-                   << " err=" << err;
-                msg = ss.str();
-                LOG(WARNING) << msg;
-                return;
-            }
-            int64_t version = vs.version();
-            response->set_table_version(version);
-        } else {
-            // Best-effort advisory hint: read the post-commit table version in a separate
-            // snapshot txn. Failure is ignored so it never fails the committed request.
-            std::map<int64_t, int64_t> table_versions;
-            get_committed_table_versions(instance_id, request->db_id(), {request->table_id()},
-                                         &table_versions);
-            if (table_versions[request->table_id()] > 0) {
-                response->set_table_version(table_versions[request->table_id()]);
-            }
+    if (request->has_is_new_table() && request->is_new_table() && is_versioned_read) {
+        Versionstamp vs;
+        err = txn->get_versionstamp(&vs);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to get kv txn versionstamp, table_id=" << request->table_id()
+               << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
         }
+        int64_t version = vs.version();
+        response->set_table_version(version);
     }
 }
 
@@ -842,10 +855,36 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
             msg = fmt::format("failed to get table version, err={}", err);
             return;
         }
+    } else {
+        // set table version in response
+        std::string ver_key =
+                table_version_key({instance_id, request->db_id(), request->table_id()});
+        std::string ver_val;
+        // snapshot read: the returned table version is only a hint for FE's version
+        // cache; the real increment is done by update_table_version() via atomic_add.
+        // A non-snapshot read would add ver_key to the read-conflict set and make
+        // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+        err = txn->get(ver_key, &ver_val, true);
+        int64_t table_version = 0;
+        if (err == TxnErrorCode::TXN_OK) {
+            if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                std::stringstream ss;
+                ss << "malformed table version value, err=" << err
+                   << " table_id=" << request->table_id();
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            std::stringstream ss;
+            ss << "failed to get table version, err=" << err << " table_id=" << request->table_id();
+            msg = ss.str();
+            return;
+        }
+        response->set_table_version(table_version + 1);
     }
-    // The non-versioned table version returned to FE is an advisory cache hint; it is read after
-    // commit in a separate snapshot txn (see below), so reading the version key does not add a
-    // read conflict with update_table_version()'s atomic_add on the same key.
     update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
 
     if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
@@ -885,15 +924,6 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
         }
         int64_t version = vs.version();
         response->set_table_version(version);
-    } else {
-        // Best-effort advisory hint: read the post-commit table version in a separate snapshot
-        // txn. Failure is ignored so it never fails the committed request.
-        std::map<int64_t, int64_t> table_versions;
-        get_committed_table_versions(instance_id, request->db_id(), {request->table_id()},
-                                     &table_versions);
-        if (table_versions[request->table_id()] > 0) {
-            response->set_table_version(table_versions[request->table_id()]);
-        }
     }
 }
 
@@ -1018,10 +1048,37 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
                 msg = fmt::format("failed to get table version, err={}", err);
                 return;
             }
+        } else {
+            // set table version in response
+            std::string ver_key =
+                    table_version_key({instance_id, request->db_id(), request->table_id()});
+            std::string ver_val;
+            // snapshot read: the returned table version is only a hint for FE's version
+            // cache; the real increment is done by update_table_version() via atomic_add.
+            // A non-snapshot read would add ver_key to the read-conflict set and make
+            // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+            err = txn->get(ver_key, &ver_val, true);
+            int64_t table_version = 0;
+            if (err == TxnErrorCode::TXN_OK) {
+                if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    std::stringstream ss;
+                    ss << "malformed table version value, err=" << err
+                       << " table_id=" << request->table_id();
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                std::stringstream ss;
+                ss << "failed to get table version, err=" << err
+                   << " table_id=" << request->table_id();
+                msg = ss.str();
+                return;
+            }
+            response->set_table_version(table_version + 1);
         }
-        // The non-versioned table version returned to FE is an advisory cache hint; it is read
-        // after commit in a separate snapshot txn (see below), so reading the version key does not
-        // add a read conflict with update_table_version()'s atomic_add on the same key.
         update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
         drop_partition_log.set_update_table_version(true);
     }
@@ -1049,31 +1106,21 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
 
     // set table version in response
-    if (request->has_need_update_table_version() && request->need_update_table_version()) {
-        if (is_versioned_read) {
-            Versionstamp vs;
-            err = txn->get_versionstamp(&vs);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::READ>(err);
-                std::stringstream ss;
-                ss << "failed to get kv txn versionstamp, table_id=" << request->table_id()
-                   << " err=" << err;
-                msg = ss.str();
-                LOG(WARNING) << msg;
-                return;
-            }
-            int64_t version = vs.version();
-            response->set_table_version(version);
-        } else {
-            // Best-effort advisory hint: read the post-commit table version in a separate
-            // snapshot txn. Failure is ignored so it never fails the committed request.
-            std::map<int64_t, int64_t> table_versions;
-            get_committed_table_versions(instance_id, request->db_id(), {request->table_id()},
-                                         &table_versions);
-            if (table_versions[request->table_id()] > 0) {
-                response->set_table_version(table_versions[request->table_id()]);
-            }
+    if (request->has_need_update_table_version() && request->need_update_table_version() &&
+        is_versioned_read) {
+        Versionstamp vs;
+        err = txn->get_versionstamp(&vs);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            std::stringstream ss;
+            ss << "failed to get kv txn versionstamp, table_id=" << request->table_id()
+               << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
         }
+        int64_t version = vs.version();
+        response->set_table_version(version);
     }
 }
 

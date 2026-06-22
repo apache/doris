@@ -85,32 +85,6 @@ void MetaServiceImpl::update_table_version(Transaction* txn, std::string_view in
     }
 }
 
-void MetaServiceImpl::get_committed_table_versions(std::string_view instance_id, int64_t db_id,
-                                                   const std::vector<int64_t>& table_ids,
-                                                   std::map<int64_t, int64_t>* table_versions) {
-    // Best-effort advisory read for FE's version cache. We deliberately use a *separate* snapshot
-    // transaction, run after the caller has committed, so that (1) reading the version key never
-    // enters the commit txn's read-conflict range -- which previously caused KV_TXN_CONFLICT
-    // between concurrent commits on the same table -- and (2) we observe the post-commit value, so
-    // the hint never lags behind a committed update. Any failure here is ignored (entry left as 0)
-    // and must never fail the caller's already-committed transaction.
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    for (int64_t table_id : table_ids) {
-        int64_t table_version = 0;
-        if (err == TxnErrorCode::TXN_OK) {
-            std::string ver_key = table_version_key({instance_id, db_id, table_id});
-            std::string ver_val;
-            if (txn->get(ver_key, &ver_val, true) == TxnErrorCode::TXN_OK) {
-                if (!txn->decode_atomic_int(ver_val, &table_version)) {
-                    table_version = 0;
-                }
-            }
-        }
-        (*table_versions)[table_id] = table_version;
-    }
-}
-
 bool MetaServiceImpl::is_version_read_enabled(std::string_view instance_id) const {
     return resource_mgr_->is_version_read_enabled(instance_id);
 }

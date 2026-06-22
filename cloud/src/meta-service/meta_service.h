@@ -473,15 +473,6 @@ private:
     void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
                               int64_t table_id);
 
-    // Best-effort read of the current (post-commit) table versions, used only as an advisory
-    // hint for FE's version cache. Opens a separate snapshot transaction so reading the version
-    // key never adds a read conflict (which would make concurrent commits on the same table fail
-    // with KV_TXN_CONFLICT) and never affects the caller's transaction. Always inserts an entry
-    // per table_id (0 when the value is unavailable).
-    void get_committed_table_versions(std::string_view instance_id, int64_t db_id,
-                                      const std::vector<int64_t>& table_ids,
-                                      std::map<int64_t, int64_t>* table_versions);
-
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;
 

@@ -1848,10 +1848,34 @@ void MetaServiceImpl::commit_txn_immediately(
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
-            // Non-versioned table versions are filled in after commit (see below) via a separate
-            // snapshot txn, so reading the version key does not add a read conflict with the
-            // atomic_add done by update_table_version() on the same key.
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
         }
@@ -2032,15 +2056,6 @@ void MetaServiceImpl::commit_txn_immediately(
                 int64_t table_id = i.first;
                 table_version_map[table_id] = version;
             }
-        } else {
-            // Best-effort advisory hint: read the post-commit table versions in a separate
-            // snapshot txn. Failure leaves the version at 0 and never fails the committed txn.
-            std::vector<int64_t> table_ids;
-            table_ids.reserve(table_id_tablet_ids.size());
-            for (auto& i : table_id_tablet_ids) {
-                table_ids.push_back(i.first);
-            }
-            get_committed_table_versions(instance_id, db_id, table_ids, &table_version_map);
         }
 
         // calculate table stats from tablets stats
@@ -2052,9 +2067,7 @@ void MetaServiceImpl::commit_txn_immediately(
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
             stats_pb->set_table_id(table_id);
-            if (pair.second > 0) {
-                stats_pb->set_table_version(pair.second);
-            }
+            stats_pb->set_table_version(pair.second);
             if (auto it = table_stats.find(table_id); it != table_stats.end()) {
                 get_pb_from_tablestats(it->second, stats_pb);
                 VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
@@ -2542,10 +2555,34 @@ void MetaServiceImpl::commit_txn_eventually(
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
-            // Non-versioned table versions are filled in after commit (see below) via a separate
-            // snapshot txn, so reading the version key does not add a read conflict with the
-            // atomic_add done by update_table_version() on the same key.
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
         }
@@ -2599,15 +2636,6 @@ void MetaServiceImpl::commit_txn_eventually(
                 int64_t table_id = i.first;
                 table_version_map[table_id] = version;
             }
-        } else {
-            // Best-effort advisory hint: read the post-commit table versions in a separate
-            // snapshot txn. Failure leaves the version at 0 and never fails the committed txn.
-            std::vector<int64_t> table_ids;
-            table_ids.reserve(table_id_tablet_ids.size());
-            for (auto& i : table_id_tablet_ids) {
-                table_ids.push_back(i.first);
-            }
-            get_committed_table_versions(instance_id, db_id, table_ids, &table_version_map);
         }
 
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::abort_txn_after_mark_txn_commited");
@@ -2644,9 +2672,7 @@ void MetaServiceImpl::commit_txn_eventually(
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
             stats_pb->set_table_id(table_id);
-            if (pair.second > 0) {
-                stats_pb->set_table_version(pair.second);
-            }
+            stats_pb->set_table_version(pair.second);
             if (auto it = table_stats.find(table_id); it != table_stats.end()) {
                 get_pb_from_tablestats(it->second, stats_pb);
                 VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
@@ -3022,10 +3048,34 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                     LOG(WARNING) << msg;
                     return;
                 }
+            } else {
+                // set table versions in response
+                int64_t table_id = i.first;
+                std::string ver_key = table_version_key({instance_id, db_id, table_id});
+                std::string ver_val;
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
+                int64_t table_version = 0;
+                if (err == TxnErrorCode::TXN_OK) {
+                    if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                        ss << "malformed table version value, err=" << err
+                           << " table_id=" << i.first;
+                        msg = ss.str();
+                        LOG(WARNING) << msg;
+                        return;
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                    msg = ss.str();
+                    return;
+                }
+                table_version_map[table_id] = table_version + 1;
             }
-            // Non-versioned table versions are filled in after commit (see below) via a separate
-            // snapshot txn, so reading the version key does not add a read conflict with the
-            // atomic_add done by update_table_version() on the same key.
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
         }
@@ -3191,15 +3241,6 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 int64_t table_id = i.first;
                 table_version_map[table_id] = version;
             }
-        } else {
-            // Best-effort advisory hint: read the post-commit table versions in a separate
-            // snapshot txn. Failure leaves the version at 0 and never fails the committed txn.
-            std::vector<int64_t> table_ids;
-            table_ids.reserve(table_id_tablet_ids.size());
-            for (auto& i : table_id_tablet_ids) {
-                table_ids.push_back(i.first);
-            }
-            get_committed_table_versions(instance_id, db_id, table_ids, &table_version_map);
         }
 
         // calculate table stats from tablets stats
@@ -3211,9 +3252,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             TableStatsPB* stats_pb = response->add_table_stats();
             auto table_id = pair.first;
             stats_pb->set_table_id(table_id);
-            if (pair.second > 0) {
-                stats_pb->set_table_version(pair.second);
-            }
+            stats_pb->set_table_version(table_version_map[table_id]);
             if (auto it = table_stats.find(table_id); it != table_stats.end()) {
                 get_pb_from_tablestats(it->second, stats_pb);
                 VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
