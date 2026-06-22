@@ -174,8 +174,8 @@ Status parse_matrix_def(std::string_view content, MatrixInput* out) {
         if (!have_header) {
             int fwd = 0;
             int bwd = 0;
-            if (tok.size() < 2 || !parse_dec(tok[0], &fwd) || !parse_dec(tok[1], &bwd) || fwd <= 0 ||
-                bwd <= 0) {
+            if (tok.size() < 2 || !parse_dec(tok[0], &fwd) || !parse_dec(tok[1], &bwd) ||
+                fwd <= 0 || bwd <= 0) {
                 st = Status::InvalidArgument("kuromoji ipadic: bad matrix.def header");
                 return;
             }

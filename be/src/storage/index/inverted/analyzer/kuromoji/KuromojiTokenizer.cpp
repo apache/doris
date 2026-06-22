@@ -67,10 +67,10 @@ std::string_view feature_field(std::string_view feat, int idx) {
 // Lucene/OpenSearch's ja stoptags: particles, auxiliary verbs, conjunctions,
 // symbols, fillers. (Full stoptags fidelity is a later refinement.)
 bool is_stop_pos(std::string_view pos1) {
-    return pos1 == "\xE5\x8A\xA9\xE8\xA9\x9E" ||             // 助詞 (particle)
-           pos1 == "\xE5\x8A\xA9\xE5\x8B\x95\xE8\xA9\x9E" || // 助動詞 (auxiliary verb)
-           pos1 == "\xE6\x8E\xA5\xE7\xB6\x9A\xE8\xA9\x9E" || // 接続詞 (conjunction)
-           pos1 == "\xE8\xA8\x98\xE5\x8F\xB7" ||             // 記号 (symbol)
+    return pos1 == "\xE5\x8A\xA9\xE8\xA9\x9E" ||                       // 助詞 (particle)
+           pos1 == "\xE5\x8A\xA9\xE5\x8B\x95\xE8\xA9\x9E" ||           // 助動詞 (auxiliary verb)
+           pos1 == "\xE6\x8E\xA5\xE7\xB6\x9A\xE8\xA9\x9E" ||           // 接続詞 (conjunction)
+           pos1 == "\xE8\xA8\x98\xE5\x8F\xB7" ||                       // 記号 (symbol)
            pos1 == "\xE3\x83\x95\xE3\x82\xA3\xE3\x83\xA9\xE3\x83\xBC"; // フィラー (filler)
 }
 
@@ -120,10 +120,10 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
                 continue; // part-of-speech stop filtering
             }
             const std::string_view base = feature_field(feat, 6);
-            std::string term = (base.empty() || base == "*")
-                                       ? text.substr(m.byte_start, m.byte_len)
-                                       : std::string(base);
-            term = kuromoji::cjk_width_normalize(term); // full-width ASCII -> ASCII before lowercase
+            std::string term = (base.empty() || base == "*") ? text.substr(m.byte_start, m.byte_len)
+                                                             : std::string(base);
+            term = kuromoji::cjk_width_normalize(
+                    term); // full-width ASCII -> ASCII before lowercase
             if (this->lowercase) {
                 ascii_lower(term);
             }

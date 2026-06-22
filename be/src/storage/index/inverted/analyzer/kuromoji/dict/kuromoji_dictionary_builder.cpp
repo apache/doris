@@ -74,7 +74,8 @@ WordIdRun append_words(const std::vector<BuilderWord>& words, std::vector<WordEn
             e.feature_offset = KMJ_NO_FEATURE;
         } else {
             e.feature_offset = static_cast<uint32_t>(features.size());
-            const auto len = static_cast<uint16_t>(std::min<std::size_t>(w.feature.size(), 0xFFFFU));
+            const auto len =
+                    static_cast<uint16_t>(std::min<std::size_t>(w.feature.size(), 0xFFFFU));
             features.push_back(static_cast<uint8_t>(len & 0xFFU));
             features.push_back(static_cast<uint8_t>((len >> 8) & 0xFFU));
             const auto* p = reinterpret_cast<const uint8_t*>(w.feature.data());

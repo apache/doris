@@ -80,6 +80,7 @@ header:
     - "be/src/util/sse2neo.h"
     - "be/src/util/sse2neon.h"
     - "be/src/util/utf8_check.cpp"
+    - "be/src/storage/index/inverted/analyzer/kuromoji/dict/darts.h"
     - "be/src/pch/*"
     - "be/test/data"
     - "be/test/expected_result"

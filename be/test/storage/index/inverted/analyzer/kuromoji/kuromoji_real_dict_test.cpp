@@ -68,8 +68,9 @@ TEST(KuromojiRealDictTest, SegmentsRealJapanese) {
     ASSERT_TRUE(KuromojiDictionary::load(real_dict_dir(), &dict).ok());
 
     // 東京都に住んでいます ("I live in Tokyo"), 10 code points.
-    const std::string text = "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
-                             "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
+    const std::string text =
+            "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
+            "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
     const std::vector<std::string> toks = segment_surfaces(*dict, text);
 
     // Lossless coverage: morphemes concatenate back to the input.
@@ -122,7 +123,8 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
     }
     const char* home = std::getenv("DORIS_HOME");
     const std::string saved = doris::config::inverted_index_dict_path;
-    doris::config::inverted_index_dict_path = std::string(home != nullptr ? home : ".") + "/be/dict";
+    doris::config::inverted_index_dict_path =
+            std::string(home != nullptr ? home : ".") + "/be/dict";
 
     std::vector<std::string> toks;
     {
@@ -132,8 +134,9 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
                         doris::INVERTED_INDEX_PARSER_KUROMOJI_SEARCH, "true", "none");
         ASSERT_NE(analyzer, nullptr);
 
-        const std::string text = "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
-                                 "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
+        const std::string text =
+                "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
+                "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
         lucene::util::SStringReader<char> reader;
         reader.init(text.data(), text.size(), false);
         std::unique_ptr<lucene::analysis::TokenStream> ts(

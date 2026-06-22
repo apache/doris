@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_ipadic_parser.h"
+
 #include <gtest/gtest.h>
 
 #include <string>
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
-#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_ipadic_parser.h"
 
 namespace doris::segment_v2::kuromoji {
 
@@ -35,10 +36,9 @@ TEST(KuromojiIpadicParserTest, LexiconLine) {
     std::string surface;
     BuilderWord w;
     // Real IPADIC row shape: surface,left,right,cost,<9 feature cols>.
-    ASSERT_TRUE(parse_lexicon_line(
-                        "\xE4\xBB\x95\xE8\x88\x9E\xE3\x81\x84,1285,1285,5543,"
-                        "noun,general,*,*,*,*,base,reading,pron",
-                        &surface, &w)
+    ASSERT_TRUE(parse_lexicon_line("\xE4\xBB\x95\xE8\x88\x9E\xE3\x81\x84,1285,1285,5543,"
+                                   "noun,general,*,*,*,*,base,reading,pron",
+                                   &surface, &w)
                         .ok());
     EXPECT_EQ(surface, "\xE4\xBB\x95\xE8\x88\x9E\xE3\x81\x84"); // 仕舞い
     EXPECT_EQ(w.left_id, 1285);
@@ -88,8 +88,8 @@ TEST(KuromojiIpadicParserTest, CharDef) {
 
     EXPECT_EQ(cd.catmap[0x4E00], CAT_KANJI);
     EXPECT_EQ(cd.catmap[0x9FA5], CAT_KANJI);
-    EXPECT_EQ(cd.catmap[0x0041], CAT_ALPHA);  // 'A'
-    EXPECT_EQ(cd.catmap[0x3007], CAT_SYMBOL); // first category is primary
+    EXPECT_EQ(cd.catmap[0x0041], CAT_ALPHA);   // 'A'
+    EXPECT_EQ(cd.catmap[0x3007], CAT_SYMBOL);  // first category is primary
     EXPECT_EQ(cd.catmap[0x0040], CAT_DEFAULT); // unmapped -> DEFAULT
 }
 
