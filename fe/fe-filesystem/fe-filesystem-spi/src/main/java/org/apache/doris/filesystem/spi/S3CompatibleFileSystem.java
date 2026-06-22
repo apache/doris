@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /**
@@ -53,6 +54,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
+    private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
 
     private final boolean usePathStyle;
 
@@ -848,6 +850,247 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     }
 
     /**
+     * Returns object-store list prefixes that are safe to push down for a glob pattern.
+     *
+     * <p>Unlike {@link #longestNonGlobPrefix(String)}, this expands bounded glob constructs
+     * ({@code {...}} alternation and positive {@code [...]} character classes) before the first
+     * unbounded wildcard. That lets patterns such as
+     * {@code date=2025-{0[3-9],1[0-2]}-01/mp_id=8/*} list the concrete date/mp prefixes instead
+     * of scanning everything under {@code date=2025-}. If expansion would be too large or a glob
+     * construct is not safely enumerable, it falls back to the conservative longest static prefix.
+     */
+    protected static List<String> expandedGlobListPrefixes(String globPattern) {
+        List<String> prefixes = expandGlobListPrefixes(globPattern, true);
+        return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
+    }
+
+    private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
+        List<String> prefixes = new ArrayList<>();
+        prefixes.add("");
+        int i = 0;
+        while (i < globPattern.length()) {
+            char c = globPattern.charAt(i);
+            if (c == '*' || c == '?') {
+                return compactPrefixes(prefixes);
+            }
+            if (c == '\\') {
+                if (i + 1 < globPattern.length()) {
+                    appendLiteral(prefixes, globPattern.charAt(i + 1));
+                    i += 2;
+                } else {
+                    appendLiteral(prefixes, c);
+                    i++;
+                }
+                continue;
+            }
+            if (c == '[') {
+                PrefixExpansion charClass = expandCharacterClass(globPattern, i);
+                if (charClass == null) {
+                    return allowPartialPrefix ? compactPrefixes(prefixes) : null;
+                }
+                prefixes = appendAlternatives(prefixes, charClass.values);
+                if (prefixes == null) {
+                    return null;
+                }
+                i = charClass.nextIndex;
+                continue;
+            }
+            if (c == '{') {
+                PrefixExpansion brace = expandBraceGroup(globPattern, i);
+                if (brace == null) {
+                    return allowPartialPrefix ? compactPrefixes(prefixes) : null;
+                }
+                prefixes = appendAlternatives(prefixes, brace.values);
+                if (prefixes == null) {
+                    return null;
+                }
+                i = brace.nextIndex;
+                continue;
+            }
+            appendLiteral(prefixes, c);
+            i++;
+        }
+        return compactPrefixes(prefixes);
+    }
+
+    private static void appendLiteral(List<String> prefixes, char c) {
+        for (int i = 0; i < prefixes.size(); i++) {
+            prefixes.set(i, prefixes.get(i) + c);
+        }
+    }
+
+    private static List<String> appendAlternatives(List<String> prefixes, List<String> alternatives) {
+        long expandedSize = (long) prefixes.size() * alternatives.size();
+        if (expandedSize > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+            return null;
+        }
+        List<String> expanded = new ArrayList<>((int) expandedSize);
+        for (String prefix : prefixes) {
+            for (String alternative : alternatives) {
+                expanded.add(prefix + alternative);
+            }
+        }
+        return expanded;
+    }
+
+    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex) {
+        int closeIndex = findClosingBracket(globPattern, openIndex);
+        if (closeIndex < 0 || closeIndex == openIndex + 1) {
+            return null;
+        }
+        int i = openIndex + 1;
+        char first = globPattern.charAt(i);
+        if (first == '!' || first == '^') {
+            return null;
+        }
+        List<String> values = new ArrayList<>();
+        while (i < closeIndex) {
+            char current = globPattern.charAt(i);
+            if (current == '\\') {
+                if (i + 1 >= closeIndex) {
+                    return null;
+                }
+                values.add(String.valueOf(globPattern.charAt(i + 1)));
+                i += 2;
+                continue;
+            }
+            if (i + 2 < closeIndex && globPattern.charAt(i + 1) == '-') {
+                char rangeEnd = globPattern.charAt(i + 2);
+                int step = current <= rangeEnd ? 1 : -1;
+                for (char ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
+                    values.add(String.valueOf(ch));
+                    if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                        return null;
+                    }
+                }
+                i += 3;
+                continue;
+            }
+            values.add(String.valueOf(current));
+            i++;
+        }
+        return new PrefixExpansion(values, closeIndex + 1);
+    }
+
+    private static int findClosingBracket(String globPattern, int openIndex) {
+        for (int i = openIndex + 1; i < globPattern.length(); i++) {
+            char c = globPattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == ']') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex) {
+        int closeIndex = findClosingBrace(globPattern, openIndex);
+        if (closeIndex < 0) {
+            return null;
+        }
+        List<String> alternatives = splitBraceAlternatives(
+                globPattern.substring(openIndex + 1, closeIndex));
+        if (alternatives.isEmpty()) {
+            return null;
+        }
+        List<String> values = new ArrayList<>();
+        for (String alternative : alternatives) {
+            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false);
+            if (expandedAlternative == null) {
+                return null;
+            }
+            values.addAll(expandedAlternative);
+            if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                return null;
+            }
+        }
+        return new PrefixExpansion(values, closeIndex + 1);
+    }
+
+    private static int findClosingBrace(String globPattern, int openIndex) {
+        int depth = 0;
+        for (int i = openIndex; i < globPattern.length(); i++) {
+            char c = globPattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static List<String> splitBraceAlternatives(String content) {
+        List<String> alternatives = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                if (depth == 0) {
+                    return Collections.emptyList();
+                }
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                alternatives.add(content.substring(start, i));
+                start = i + 1;
+            }
+        }
+        if (depth != 0) {
+            return Collections.emptyList();
+        }
+        alternatives.add(content.substring(start));
+        return alternatives;
+    }
+
+    private static List<String> compactPrefixes(List<String> prefixes) {
+        TreeSet<String> sorted = new TreeSet<>(prefixes);
+        List<String> compact = new ArrayList<>();
+        for (String prefix : sorted) {
+            if (prefix.isEmpty()) {
+                return List.of("");
+            }
+            boolean covered = false;
+            for (String existing : compact) {
+                if (prefix.startsWith(existing)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (!covered) {
+                compact.add(prefix);
+            }
+        }
+        return compact;
+    }
+
+    private static class PrefixExpansion {
+        private final List<String> values;
+        private final int nextIndex;
+
+        private PrefixExpansion(List<String> values, int nextIndex) {
+            this.values = values;
+            this.nextIndex = nextIndex;
+        }
+    }
+
+    /**
      * Expands {@code {N..M}} numeric range syntax in a glob pattern to the equivalent
      * comma-separated alternation {@code {N,N+1,...,M}} that Java's PathMatcher understands.
      * Supports simple non-negative ranges like {@code {1..3}}, reverse ranges like {@code {3..1}},
@@ -924,6 +1167,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
         String listPrefix = longestNonGlobPrefix(expandedKeyPattern);
+        List<String> listPrefixes = expandedGlobListPrefixes(expandedKeyPattern);
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
@@ -933,51 +1177,56 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String nextMatchAfterLimit = "";
         String lastMatchedKey = "";
         boolean isTruncated;
-        String continuationToken = null;
-        String listUri = base + listPrefix;
 
         try {
-            do {
-                RemoteObjects response = objStorage.listObjectsWithOptions(listUri, ObjectListOptions.builder()
-                        .continuationToken(continuationToken)
-                        .startAfter(continuationToken == null ? startAfter : null)
-                        .build());
-                for (RemoteObject obj : response.getObjectList()) {
-                    if (reachLimit) {
-                        // After hitting limit: find the first matching key so callers know more data exists.
-                        if (nextMatchAfterLimit.isEmpty()
-                                && matcher.matcher(obj.getKey()).matches()) {
-                            nextMatchAfterLimit = obj.getKey();
+            for (String currentListPrefix : listPrefixes) {
+                String continuationToken = null;
+                String listUri = base + currentListPrefix;
+                do {
+                    RemoteObjects response = objStorage.listObjectsWithOptions(listUri, ObjectListOptions.builder()
+                            .continuationToken(continuationToken)
+                            .startAfter(continuationToken == null ? startAfter : null)
+                            .build());
+                    for (RemoteObject obj : response.getObjectList()) {
+                        if (reachLimit) {
+                            // After hitting limit: find the first matching key so callers know more data exists.
+                            if (nextMatchAfterLimit.isEmpty()
+                                    && matcher.matcher(obj.getKey()).matches()) {
+                                nextMatchAfterLimit = obj.getKey();
+                            }
+                            continue;
                         }
-                        continue;
+
+                        if (!matcher.matcher(obj.getKey()).matches()) {
+                            continue;
+                        }
+
+                        files.add(new FileEntry(
+                                Location.of(base + obj.getKey()),
+                                obj.getSize(),
+                                false,
+                                obj.getModificationTime(),
+                                null));
+                        totalSize += obj.getSize();
+                        lastMatchedKey = obj.getKey();
+
+                        if ((maxFiles > 0 && files.size() >= maxFiles)
+                                || (maxBytes > 0 && totalSize >= maxBytes)) {
+                            reachLimit = true;
+                        }
                     }
 
-                    if (!matcher.matcher(obj.getKey()).matches()) {
-                        continue;
+                    isTruncated = response.isTruncated();
+                    if (isTruncated) {
+                        continuationToken = response.getContinuationToken();
                     }
-
-                    files.add(new FileEntry(
-                            Location.of(base + obj.getKey()),
-                            obj.getSize(),
-                            false,
-                            obj.getModificationTime(),
-                            null));
-                    totalSize += obj.getSize();
-                    lastMatchedKey = obj.getKey();
-
-                    if ((maxFiles > 0 && files.size() >= maxFiles)
-                            || (maxBytes > 0 && totalSize >= maxBytes)) {
-                        reachLimit = true;
-                    }
+                    // Continue paginating after limit until we find the next matching key,
+                    // so callers can use it as a pagination cursor.
+                } while (isTruncated && (!reachLimit || nextMatchAfterLimit.isEmpty()));
+                if (reachLimit && !nextMatchAfterLimit.isEmpty()) {
+                    break;
                 }
-
-                isTruncated = response.isTruncated();
-                if (isTruncated) {
-                    continuationToken = response.getContinuationToken();
-                }
-                // Continue paginating after limit until we find the next matching key,
-                // so callers can use it as a pagination cursor.
-            } while (isTruncated && (!reachLimit || nextMatchAfterLimit.isEmpty()));
+            }
         } catch (Exception e) {
             throw new IOException("Failed to list object storage objects at " + uri + ": " + e.getMessage(), e);
         }

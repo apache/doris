@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -52,6 +53,10 @@ public class S3FileSystem extends S3CompatibleFileSystem {
 
     protected static String longestNonGlobPrefix(String globPattern) {
         return S3CompatibleFileSystem.longestNonGlobPrefix(globPattern);
+    }
+
+    protected static List<String> expandedGlobListPrefixes(String globPattern) {
+        return S3CompatibleFileSystem.expandedGlobListPrefixes(globPattern);
     }
 
     protected static String globToRegex(String glob) {

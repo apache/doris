@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -27,6 +28,7 @@ import org.apache.doris.filesystem.spi.RequestBody;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
@@ -553,6 +555,89 @@ class S3FileSystemTest {
     @Test
     void longestNonGlobPrefix_emptyForLeadingStar() {
         Assertions.assertEquals("", S3FileSystem.longestNonGlobPrefix("*.csv"));
+    }
+
+    @Test
+    void expandedGlobListPrefixes_expandsJiraDatePattern() {
+        List<String> prefixes = S3FileSystem.expandedGlobListPrefixes(
+                "asin_trend/sale/month/date=2025-{0[3-9],1[0-2]}-01/mp_id=8/0/0/436/*");
+
+        Assertions.assertEquals(10, prefixes.size());
+        Assertions.assertEquals(
+                "asin_trend/sale/month/date=2025-03-01/mp_id=8/0/0/436/",
+                prefixes.get(0));
+        Assertions.assertEquals(
+                "asin_trend/sale/month/date=2025-12-01/mp_id=8/0/0/436/",
+                prefixes.get(9));
+    }
+
+    @Test
+    void globListWithLimit_listsExpandedDatePrefixesInsteadOfBroadDatePrefix() throws IOException {
+        Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(List.of(), false, null));
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/asin_trend/sale/month/"
+                                + "date=2025-03-01/mp_id=8/0/0/436/"),
+                        ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject(
+                                "asin_trend/sale/month/date=2025-03-01/mp_id=8/0/0/436/a.parquet",
+                                "a.parquet", null, 11L, 0L)),
+                        false, null));
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/asin_trend/sale/month/"
+                                + "date=2025-10-01/mp_id=8/0/0/436/"),
+                        ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject(
+                                "asin_trend/sale/month/date=2025-10-01/mp_id=8/0/0/436/b.parquet",
+                                "b.parquet", null, 12L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(Location.of("s3://bucket/asin_trend/sale/month/"
+                + "date=2025-{0[3-9],1[0-2]}-01/mp_id=8/0/0/436/*"), null, 0L, 0L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("asin_trend/sale/month/date=2025-", listing.getPrefix());
+
+        ArgumentCaptor<String> pathCaptor = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mockStorage, Mockito.atLeastOnce()).listObjects(
+                pathCaptor.capture(), ArgumentMatchers.isNull());
+        java.util.Set<String> listedPaths = new java.util.HashSet<>(pathCaptor.getAllValues());
+        Assertions.assertFalse(listedPaths.contains("s3://bucket/asin_trend/sale/month/date=2025-"));
+        Assertions.assertTrue(listedPaths.contains("s3://bucket/asin_trend/sale/month/"
+                + "date=2025-03-01/mp_id=8/0/0/436/"));
+        Assertions.assertTrue(listedPaths.contains("s3://bucket/asin_trend/sale/month/"
+                + "date=2025-12-01/mp_id=8/0/0/436/"));
+    }
+
+    @Test
+    void globListWithLimit_findsNextMatchAcrossExpandedPrefixesAfterLimit() throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/date=2025-01/file"),
+                        ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("date=2025-01/file-a.csv",
+                                        "file-a.csv", null, 10L, 0L),
+                                new RemoteObject("date=2025-01/file-b.csv",
+                                        "file-b.csv", null, 20L, 0L)),
+                        false, null));
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/date=2025-02/file"),
+                        ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject("date=2025-02/file-c.csv",
+                                "file-c.csv", null, 30L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("s3://bucket/date=2025-0[12]/file*.csv"), null, 0L, 2L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("date=2025-02/file-c.csv", listing.getMaxFile());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("s3://bucket/date=2025-02/file"), ArgumentMatchers.isNull());
     }
 
     // ------------------------------------------------------------------
