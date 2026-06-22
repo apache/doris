@@ -22,6 +22,7 @@
 #include <string_view>
 #include <vector>
 
+#include "common/config.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -214,8 +215,23 @@ void expect_int_index_probe_count(const IndexReadResult& result, int64_t expecte
 
 class IndexStorageVariantFieldPatternIndexTest : public IndexStorageTestFixture {
 protected:
+    void SetUp() override {
+        IndexStorageTestFixture::SetUp();
+        _old_zone_map_row_num_threshold = config::zone_map_row_num_threshold;
+        // Page zone map pruning assertions rely on 2048-row pages retaining zone maps.
+        config::zone_map_row_num_threshold = 20;
+    }
+
+    void TearDown() override {
+        config::zone_map_row_num_threshold = _old_zone_map_row_num_threshold;
+        IndexStorageTestFixture::TearDown();
+    }
+
     void run_typed_int_field_pattern_index_lifecycle(IndexCompactionKind compaction_kind,
                                                      int64_t tablet_id);
+
+private:
+    int32_t _old_zone_map_row_num_threshold = 20;
 };
 
 void IndexStorageVariantFieldPatternIndexTest::run_typed_int_field_pattern_index_lifecycle(

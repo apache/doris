@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/predicate/predicate_creator.h"
@@ -91,6 +92,18 @@ std::vector<std::string> interleaved_dynamic_variant_rows(size_t pairs, int64_t 
 
 class IndexStorageVariantDynamicPathPruningTest : public IndexStorageTestFixture {
 protected:
+    void SetUp() override {
+        IndexStorageTestFixture::SetUp();
+        _old_zone_map_row_num_threshold = config::zone_map_row_num_threshold;
+        // Page zone map pruning assertions rely on 2048-row pages retaining zone maps.
+        config::zone_map_row_num_threshold = 20;
+    }
+
+    void TearDown() override {
+        config::zone_map_row_num_threshold = _old_zone_map_row_num_threshold;
+        IndexStorageTestFixture::TearDown();
+    }
+
     void verify_dynamic_path_filter(const std::vector<RowsetSharedPtr>& rowsets,
                                     const std::function<void(const IndexReadResult&)>& verify) {
         auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets);
@@ -111,6 +124,9 @@ protected:
         verify(read_result.value());
         expect_inverted_index_not_attempted(read_result.value());
     }
+
+private:
+    int32_t _old_zone_map_row_num_threshold = 20;
 };
 
 TEST_F(IndexStorageVariantDynamicPathPruningTest,
