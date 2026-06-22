@@ -1024,6 +1024,10 @@ Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_ve
 }
 
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
+    if (is_row_binlog_tablet() && compaction_type != CompactionType::BINLOG_COMPACTION) {
+        return false;
+    }
+
     if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
         // base compaction can only be done for tablet in TABLET_RUNNING state.
         // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
@@ -1031,7 +1035,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
     }
 
     if (compaction_type == CompactionType::BINLOG_COMPACTION &&
-        (!config::enable_feature_binlog || !enable_row_binlog())) {
+        (!config::enable_feature_binlog || !is_row_binlog_tablet())) {
         return false;
     }
 
@@ -1215,8 +1219,13 @@ void Tablet::calculate_cumulative_point() {
     std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     int64_t ret_cumulative_point;
-    _cumulative_compaction_policy->calculate_cumulative_point(
-            this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
+    if (is_row_binlog_tablet()) {
+        _binlog_compaction_policy->calculate_cumulative_point(
+                this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
+    } else {
+        _cumulative_compaction_policy->calculate_cumulative_point(
+                this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
+    }
 
     if (ret_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
