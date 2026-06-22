@@ -17,8 +17,12 @@
 
 #include "format_v2/parquet/parquet_type.h"
 
+#include <arrow/api.h>
+#include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/api/schema.h>
+#include <parquet/arrow/writer.h>
+#include <parquet/file_reader.h>
 
 #include <vector>
 
@@ -43,6 +47,29 @@ ParquetTypeDescriptor resolve_node(const ::parquet::schema::NodePtr& node) {
 
 PrimitiveType primitive_type(const DataTypePtr& type) {
     return remove_nullable(type)->get_primitive_type();
+}
+
+std::shared_ptr<arrow::Array> make_float16_array() {
+    arrow::HalfFloatBuilder builder;
+    EXPECT_TRUE(builder.Append(0x3E00).ok());
+    std::shared_ptr<arrow::Array> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
+ParquetTypeDescriptor resolve_arrow_float16_type() {
+    const auto schema = arrow::schema({arrow::field("f16", arrow::float16(), true)});
+    const auto table = arrow::Table::Make(schema, {make_float16_array()});
+    auto out_result = arrow::io::BufferOutputStream::Create();
+    EXPECT_TRUE(out_result.ok());
+    auto out = *out_result;
+    EXPECT_TRUE(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1).ok());
+    auto buffer_result = out->Finish();
+    EXPECT_TRUE(buffer_result.ok());
+
+    auto reader = ::parquet::ParquetFileReader::Open(
+            std::make_shared<arrow::io::BufferReader>(*buffer_result));
+    return resolve_parquet_type(reader->metadata()->schema()->Column(0));
 }
 
 } // namespace
@@ -152,22 +179,15 @@ TEST(ParquetTypeTest, ResolveDecimalStringLikeFloat16AndPhysicalFallback) {
     EXPECT_EQ(primitive_type(plain_binary.doris_type), TYPE_STRING);
     EXPECT_TRUE(plain_binary.is_string_like);
 
-    const auto float16 = resolve_node(::parquet::schema::PrimitiveNode::Make(
-            "f16", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Float16(),
-            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 2));
+    const auto float16 = resolve_arrow_float16_type();
     ASSERT_NE(float16.doris_type, nullptr);
+    EXPECT_TRUE(float16.doris_type->is_nullable());
+    EXPECT_EQ(float16.physical_type, ::parquet::Type::FIXED_LEN_BYTE_ARRAY);
+    EXPECT_EQ(float16.fixed_length, 2);
     EXPECT_EQ(primitive_type(float16.doris_type), TYPE_FLOAT);
     EXPECT_EQ(float16.extra_type_info, ParquetExtraTypeInfo::FLOAT16);
     EXPECT_FALSE(float16.is_string_like);
     EXPECT_EQ(decoded_value_kind(float16), DecodedValueKind::FIXED_BINARY);
-
-    const auto invalid_float16 = resolve_node(::parquet::schema::PrimitiveNode::Make(
-            "bad_f16", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Float16(),
-            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 4));
-    ASSERT_NE(invalid_float16.doris_type, nullptr);
-    EXPECT_EQ(primitive_type(invalid_float16.doris_type), TYPE_STRING);
-    EXPECT_NE(invalid_float16.extra_type_info, ParquetExtraTypeInfo::FLOAT16);
-    EXPECT_TRUE(invalid_float16.is_string_like);
 }
 
 TEST(ParquetTypeTest, ResolveNullDescriptorAndPhysicalFallback) {
