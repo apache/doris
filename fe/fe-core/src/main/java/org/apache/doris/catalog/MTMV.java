@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
@@ -44,18 +45,26 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParserBaseVisitor;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections4.MapUtils;
+import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.tree.ParseTree;
+import org.antlr.v4.runtime.tree.RuleNode;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -194,6 +203,80 @@ public class MTMV extends OlapTable {
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
+        }
+    }
+
+    public void alterAddColumn(Column newColumn, String exprSql, String newQuerySql) {
+        writeMvLock();
+        try {
+            querySql = StringUtils.isBlank(newQuerySql)
+                    ? rewriteQuerySqlForAddColumn(querySql, exprSql, newColumn.getName())
+                    : newQuerySql;
+
+            MaterializedIndexMeta baseIndexMeta = getIndexMetaByIndexId(getBaseIndexId());
+            List<Column> newSchema = new ArrayList<>(baseIndexMeta.getSchema());
+            Column copied = new Column(newColumn);
+            copied.setUniqueId(baseIndexMeta.incAndGetMaxColUniqueId());
+            newSchema.add(copied);
+            baseIndexMeta.setSchema(newSchema);
+            baseIndexMeta.setSchemaVersion(baseIndexMeta.getSchemaVersion() + 1);
+            rebuildFullSchema();
+            this.schemaChangeVersion++;
+            this.refreshSnapshot = new MTMVRefreshSnapshot();
+        } catch (Exception e) {
+            throw new RuntimeException("alter materialized view add column failed", e);
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public static String rewriteQuerySqlForAddColumn(String originQuerySql, String exprSql, String columnName) {
+        SelectColumnClauseIndexFinder finder = new SelectColumnClauseIndexFinder();
+        ParserRuleContext tree = NereidsParser.toAst(originQuerySql, DorisParser::singleStatement);
+        finder.visit(tree);
+        Pair<Integer, Integer> selectColumnClauseIndex = finder.getIndex();
+        String escapedColumnName = columnName.replace("`", "``");
+        String newSelectColumnClause = originQuerySql.substring(selectColumnClauseIndex.first,
+                selectColumnClauseIndex.second + 1)
+                + ", " + exprSql + " AS `" + escapedColumnName + "`";
+        return StringUtils.overlay(originQuerySql, newSelectColumnClause,
+                selectColumnClauseIndex.first, selectColumnClauseIndex.second + 1);
+    }
+
+    private static class SelectColumnClauseIndexFinder extends DorisParserBaseVisitor<Void> {
+        private boolean found = false;
+        private Pair<Integer, Integer> index;
+
+        @Override
+        public Void visitChildren(RuleNode node) {
+            if (found) {
+                return null;
+            }
+            int n = node.getChildCount();
+            for (int i = 0; i < n; ++i) {
+                ParseTree child = node.getChild(i);
+                child.accept(this);
+            }
+            return null;
+        }
+
+        @Override
+        public Void visitCte(DorisParser.CteContext ctx) {
+            return null;
+        }
+
+        @Override
+        public Void visitSelectColumnClause(DorisParser.SelectColumnClauseContext ctx) {
+            if (found) {
+                return null;
+            }
+            found = true;
+            index = Pair.of(ctx.getStart().getStartIndex(), ctx.getStop().getStopIndex());
+            return null;
+        }
+
+        public Pair<Integer, Integer> getIndex() {
+            return index;
         }
     }
 

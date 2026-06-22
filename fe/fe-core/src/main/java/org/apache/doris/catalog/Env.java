@@ -192,6 +192,7 @@ import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVAddColumnInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
@@ -7567,6 +7568,14 @@ public class Env {
 
     public StatisticsJobAppender getStatisticsJobAppender() {
         return statisticsJobAppender;
+    }
+
+    public void alterMTMVAddColumnInfo(AlterMTMVAddColumnInfo info) {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(),
+                info.getColumn().translateToCatalogStyleForSchemaChange(),
+                info.getExprSql(),
+                info.getRewrittenQuerySql(), MTMVAlterOpType.ALTER_ADD_COLUMN);
+        this.alter.processAlterMTMV(alter, false);
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {

@@ -21,5 +21,6 @@ public enum MTMVAlterOpType {
     ALTER_REFRESH_INFO,
     ALTER_STATUS,
     ALTER_PROPERTY,
+    ALTER_ADD_COLUMN,
     ADD_TASK;
 }
