@@ -156,17 +156,23 @@ public abstract class AbstractMaterializedViewWindowRule extends AbstractMateria
             return new LogicalProject<>(toNamedExpressions(expressionsRewritten), mvScan);
         }
         List<Expression> groupByExpressions = new ArrayList<>();
-        List<NamedExpression> aggregateOutputExpressions = new ArrayList<>();
+        List<NamedExpression> aggregateFunctionOutputs = new ArrayList<>();
         for (Expression expression : expressionsRewritten) {
             if (expression.containsType(AggregateFunction.class)) {
-                aggregateOutputExpressions.add(toNamedExpression(expression));
-            } else if (!(expression instanceof Literal)) {
-                if (!groupByExpressions.contains(expression)) {
-                    groupByExpressions.add(expression);
-                    aggregateOutputExpressions.add(toNamedExpression(expression));
-                }
+                aggregateFunctionOutputs.add(toNamedExpression(expression));
+            } else if (!(expression instanceof Literal) && !groupByExpressions.contains(expression)) {
+                groupByExpressions.add(expression);
             }
         }
+        // LogicalAggregate.computeOutput() preserves outputExpressions order; put
+        // group-by
+        // outputs first so the [groupBy, agg] slot layout matches the projection below.
+        List<NamedExpression> aggregateOutputExpressions = new ArrayList<>(
+                groupByExpressions.size() + aggregateFunctionOutputs.size());
+        for (Expression groupBy : groupByExpressions) {
+            aggregateOutputExpressions.add(toNamedExpression(groupBy));
+        }
+        aggregateOutputExpressions.addAll(aggregateFunctionOutputs);
         LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(groupByExpressions, aggregateOutputExpressions,
                 mvScan);
         List<Slot> aggregateOutput = aggregate.getOutput();
