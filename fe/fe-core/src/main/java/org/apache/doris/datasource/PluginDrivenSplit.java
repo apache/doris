@@ -80,8 +80,15 @@ public class PluginDrivenSplit extends FileSplit {
 
     private static List<String> buildPartitionValues(ConnectorScanRange scanRange) {
         Map<String, String> partValues = scanRange.getPartitionValues();
-        if (partValues == null || partValues.isEmpty()) {
+        if (partValues == null) {
             return null;
+        }
+        if (partValues.isEmpty()) {
+            // A partition-bearing range (metadata-sourced partitions, e.g. Iceberg) with no values must NOT
+            // collapse to null: FileQueryScanNode reads null as "parse partition values from the file path",
+            // which throws for non-Hive-laid-out files. Return a non-null empty list so it uses the (empty)
+            // values verbatim. Non-partition-bearing ranges keep the legacy empty->null collapse (no regression).
+            return scanRange.isPartitionBearing() ? new ArrayList<>() : null;
         }
         return new ArrayList<>(partValues.values());
     }

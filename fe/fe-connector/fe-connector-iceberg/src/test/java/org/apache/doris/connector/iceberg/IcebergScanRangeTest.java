@@ -18,10 +18,18 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -70,5 +78,171 @@ public class IcebergScanRangeTest {
         // No connector-specific per-range properties exist yet (T03 introduces them); must be non-null.
         Assertions.assertNotNull(range.getProperties());
         Assertions.assertTrue(range.getProperties().isEmpty());
+    }
+
+    // ---- T03: populateRangeParams -> TIcebergFileDesc (mirrors legacy IcebergScanNode.setIcebergParams) ----
+
+    private static TFileRangeDesc populate(IcebergScanRange range, TFileRangeDesc rangeDesc) {
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        formatDesc.setTableFormatType("iceberg");   // the generic node sets this from getTableFormatType()
+        range.populateRangeParams(formatDesc, rangeDesc);
+        rangeDesc.setTableFormatParams(formatDesc);
+        return rangeDesc;
+    }
+
+    @Test
+    public void populateRangeParamsV2PartitionedDataFile() {
+        Map<String, String> parts = new LinkedHashMap<>();
+        parts.put("p", "1");
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/p=1/f.parquet").start(0L).length(512L).fileSize(512L)
+                .fileFormat("parquet").formatVersion(2)
+                .partitionSpecId(0).partitionDataJson("[\"1\"]")
+                .partitionValues(parts).build();
+
+        TFileRangeDesc rangeDesc = populate(range, new TFileRangeDesc());
+        TIcebergFileDesc fd = rangeDesc.getTableFormatParams().getIcebergParams();
+
+        // Core v2 carriers. MUTATION: dropping any field (T01 default populateRangeParams dumps to jdbc_params
+        // and never sets iceberg_params) -> red.
+        Assertions.assertTrue(rangeDesc.getTableFormatParams().isSetIcebergParams());
+        Assertions.assertEquals(2, fd.getFormatVersion());
+        Assertions.assertEquals("s3://b/db/t/p=1/f.parquet", fd.getOriginalFilePath());
+        Assertions.assertTrue(fd.isSetPartitionSpecId());
+        Assertions.assertEquals(0, fd.getPartitionSpecId());
+        Assertions.assertEquals("[\"1\"]", fd.getPartitionDataJson());
+        // v2: no v1 content, no v3 row-lineage.
+        Assertions.assertFalse(fd.isSetContent());
+        Assertions.assertFalse(fd.isSetFirstRowId());
+        Assertions.assertFalse(fd.isSetLastUpdatedSequenceNumber());
+        // native parquet -> per-range FORMAT_PARQUET; non-count path -> table_level_row_count = -1.
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, rangeDesc.getFormatType());
+        Assertions.assertEquals(-1L, rangeDesc.getTableFormatParams().getTableLevelRowCount());
+        // identity partition columns -> columns-from-path (value present, not null).
+        Assertions.assertEquals(Collections.singletonList("p"), rangeDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("1"), rangeDesc.getColumnsFromPath());
+        Assertions.assertEquals(Collections.singletonList(false), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void populateRangeParamsV1SetsDataContentAndOrcFormat() {
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.orc").fileFormat("orc").formatVersion(1).build();
+
+        TIcebergFileDesc fd = populate(range, new TFileRangeDesc()).getTableFormatParams().getIcebergParams();
+
+        // v1 only: content = FileContent.DATA.id() (== 0). MUTATION: setting content unconditionally (v2+) -> red.
+        Assertions.assertTrue(fd.isSetContent());
+        Assertions.assertEquals(0, fd.getContent());
+        Assertions.assertEquals(1, fd.getFormatVersion());
+        // orc data file -> per-range FORMAT_ORC.
+        Assertions.assertEquals(TFileFormatType.FORMAT_ORC,
+                populate(range, new TFileRangeDesc()).getFormatType());
+    }
+
+    @Test
+    public void populateRangeParamsV3SetsRowLineage() {
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3)
+                .firstRowId(100L).lastUpdatedSequenceNumber(5L).build();
+
+        TIcebergFileDesc fd = populate(range, new TFileRangeDesc()).getTableFormatParams().getIcebergParams();
+
+        // v3 row-lineage carriers. MUTATION: gating these on v2 / never setting them -> red.
+        Assertions.assertTrue(fd.isSetFirstRowId());
+        Assertions.assertEquals(100L, fd.getFirstRowId());
+        Assertions.assertTrue(fd.isSetLastUpdatedSequenceNumber());
+        Assertions.assertEquals(5L, fd.getLastUpdatedSequenceNumber());
+        // v3 is NOT v1 -> no DATA content marker.
+        Assertions.assertFalse(fd.isSetContent());
+    }
+
+    @Test
+    public void populateRangeParamsV3NullRowLineageFallsBackToMinusOne() {
+        // The v2->v3 upgrade case: a data file added before the upgrade has no first_row_id; legacy emits -1.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3)
+                .firstRowId(null).lastUpdatedSequenceNumber(null).build();
+
+        TIcebergFileDesc fd = populate(range, new TFileRangeDesc()).getTableFormatParams().getIcebergParams();
+
+        Assertions.assertEquals(-1L, fd.getFirstRowId());
+        Assertions.assertEquals(-1L, fd.getLastUpdatedSequenceNumber());
+    }
+
+    @Test
+    public void populateRangeParamsUnpartitionedOmitsPartitionFields() {
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2).build();
+
+        TFileRangeDesc rangeDesc = populate(range, new TFileRangeDesc());
+        TIcebergFileDesc fd = rangeDesc.getTableFormatParams().getIcebergParams();
+
+        // Unpartitioned: spec-id / data-json absent; no columns-from-path. MUTATION: emitting empty lists -> red.
+        Assertions.assertFalse(fd.isSetPartitionSpecId());
+        Assertions.assertFalse(fd.isSetPartitionDataJson());
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPath());
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPathKeys());
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void populateRangeParamsUnsetsParentPathParsedColumnsFromPath() {
+        // The generic FileQueryScanNode pre-fills columns-from-path by PARSING the path (iceberg does NOT
+        // Hive-path-encode partitions -> garbage). populateRangeParams must UNSET those before (not) re-setting,
+        // exactly like legacy setIcebergParams. MUTATION: skipping the unset -> the stale parsed values survive.
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setColumnsFromPath(Arrays.asList("stale"));
+        rangeDesc.setColumnsFromPathKeys(Arrays.asList("stalekey"));
+        rangeDesc.setColumnsFromPathIsNull(Arrays.asList(false));
+
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2).build();
+        populate(range, rangeDesc);
+
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPath());
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPathKeys());
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void populateRangeParamsNullPartitionValueUsesIsNullList() {
+        // A genuine-null identity partition value: value rendered as "" with the parallel is_null = true (NO
+        // __HIVE_DEFAULT_PARTITION__ sentinel — iceberg conveys null purely via the is_null list).
+        Map<String, String> parts = new LinkedHashMap<>();
+        parts.put("p", null);
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
+                .partitionSpecId(0).partitionValues(parts).build();
+
+        TFileRangeDesc rangeDesc = populate(range, new TFileRangeDesc());
+
+        Assertions.assertEquals(Collections.singletonList("p"), rangeDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList(""), rangeDesc.getColumnsFromPath());
+        Assertions.assertEquals(Collections.singletonList(true), rangeDesc.getColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void isPartitionBearingTracksPartitionSpecId() {
+        // A file with a partition spec id is partition-bearing (metadata-sourced partitions) -> the engine must
+        // NOT path-parse an empty partition map (which throws for iceberg's non-key=value layout). An
+        // unpartitioned file (no spec id) is not partition-bearing -> keeps the legacy empty->null collapse.
+        // MUTATION: returning the SPI default false for a partitioned file -> empty-map path-parse throw -> red.
+        IcebergScanRange partitioned = new IcebergScanRange.Builder()
+                .path("x").partitionSpecId(0).partitionValues(Collections.emptyMap()).build();
+        Assertions.assertTrue(partitioned.isPartitionBearing());
+        IcebergScanRange unpartitioned = new IcebergScanRange.Builder().path("x").build();
+        Assertions.assertFalse(unpartitioned.isPartitionBearing());
+    }
+
+    @Test
+    public void getPartitionValuesExposesTheIdentityMap() {
+        Map<String, String> parts = new LinkedHashMap<>();
+        parts.put("p", "1");
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("x").partitionValues(parts).build();
+        // The parent PluginDrivenSplit reads getPartitionValues() to route columns-from-path through
+        // normalizeColumnsFromPath (not path-parsing). MUTATION: returning emptyMap -> red.
+        Assertions.assertEquals(parts, range.getPartitionValues());
     }
 }

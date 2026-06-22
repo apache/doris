@@ -62,6 +62,17 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Thrift types for constructing TTableFormatFileDesc / TIcebergFileDesc in populateRangeParams
+             (P6.2-T03). provided scope: the host FE supplies fe-thrift at runtime, so it is NOT bundled into
+             the plugin-zip (mirrors fe-connector-paimon); fe-connector-api's own fe-thrift is provided too
+             and provided scope is non-transitive, hence the direct re-declaration. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Iceberg SDK: catalog API, types, schema. Supplies the rest/hadoop/jdbc flavor catalog-impls
              (RESTCatalog / HadoopCatalog / JdbcCatalog), loaded by name via CatalogUtil. -->
         <dependency>

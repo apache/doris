@@ -25,9 +25,13 @@ import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
@@ -40,7 +44,9 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -149,18 +155,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // Enumerate FileScanTasks via the iceberg SDK (split byte-offsets come from TableScanUtil.splitFiles)
-        // and emit one minimal IcebergScanRange per task. Delete files, native-vs-JNI fileFormat, the field-id
-        // history dict, COUNT/batch, and vended credentials land in P6.2-T03..T09.
+        // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers (mirrors legacy
+        // IcebergScanNode.createIcebergSplit). Delete files (T04), COUNT (T05), the field-id history dict (T06,
+        // scan-level), MVCC pin (T07), and vended credentials (T09) land later.
+        int formatVersion = getFormatVersion(table);
+        List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        ZoneId zone = resolveSessionZone(session);
+        boolean partitioned = table.spec().isPartitioned();
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = splitFiles(scan, session)) {
             for (FileScanTask task : tasks) {
                 DataFile dataFile = task.file();
-                ranges.add(new IcebergScanRange.Builder()
-                        .path(dataFile.path().toString())
-                        .start(task.start())
-                        .length(task.length())
-                        .fileSize(dataFile.fileSizeInBytes())
-                        .build());
+                ranges.add(buildRange(table, dataFile, task, formatVersion, partitioned, orderedPartitionKeys, zone));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to enumerate iceberg file scan tasks, error message is:"
@@ -168,6 +174,120 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         LOG.debug("Iceberg planScan produced {} ranges for table {}", ranges.size(), table.name());
         return ranges;
+    }
+
+    /**
+     * Build the BE-ready {@link IcebergScanRange} for one {@link FileScanTask}, mirroring legacy
+     * {@code IcebergScanNode.createIcebergSplit} + {@code setIcebergParams}: the file path/offset/size, the
+     * per-file format (native parquet/orc), the table format version, the v3 row-lineage fields, and — for a
+     * partitioned table — the partition spec-id, the all-fields {@code partition_data_json}, and the ordered
+     * identity {@code partitionValues} that become columns-from-path.
+     */
+    private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
+            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone) {
+        Integer partitionSpecId = null;
+        String partitionDataJson = null;
+        Map<String, String> partitionValues = Collections.emptyMap();
+        if (partitioned && dataFile.partition() instanceof PartitionData) {
+            PartitionData partitionData = (PartitionData) dataFile.partition();
+            int specId = dataFile.specId();
+            PartitionSpec spec = table.specs().get(specId);
+            partitionSpecId = specId;
+            partitionDataJson = IcebergPartitionUtils.getPartitionDataJson(partitionData, spec, zone);
+            // Order the identity values as the path_partition_keys list (legacy getOrderedPathPartitionKeys),
+            // filtered to keys this file carries — so columns-from-path matches legacy ordering exactly.
+            Map<String, String> identityMap =
+                    IcebergPartitionUtils.getIdentityPartitionInfoMap(partitionData, spec, table, zone);
+            Map<String, String> ordered = new LinkedHashMap<>();
+            for (String key : orderedPartitionKeys) {
+                if (identityMap.containsKey(key)) {
+                    ordered.put(key, identityMap.get(key));
+                }
+            }
+            partitionValues = ordered;
+        }
+        // Fail loud on a non-orc/parquet data file, mirroring legacy IcebergScanNode.getFileFormatType() (which
+        // throws DdlException at plan start). Without this guard the per-range format would silently stay the
+        // node default FORMAT_JNI and BE would route the file to its system-table JNI reader. (System tables,
+        // which legitimately use JNI, are the separate P6.5 path, not this normal-read path.)
+        String fileFormat = dataFile.format().name().toLowerCase(Locale.ROOT);
+        if (!"parquet".equals(fileFormat) && !"orc".equals(fileFormat)) {
+            throw new IllegalStateException(
+                    String.format("Unsupported format name: %s for iceberg table.", fileFormat));
+        }
+        Long firstRowId = null;
+        Long lastUpdatedSequenceNumber = null;
+        if (formatVersion >= 3) {
+            // -1 means a file carried over from a v2->v3 upgrade (no row lineage). The sequence-number guard is
+            // asymmetric (legacy): it also requires first_row_id to be present.
+            firstRowId = dataFile.firstRowId() != null ? dataFile.firstRowId() : -1L;
+            lastUpdatedSequenceNumber =
+                    dataFile.fileSequenceNumber() != null && dataFile.firstRowId() != null
+                            ? dataFile.fileSequenceNumber() : -1L;
+        }
+        return new IcebergScanRange.Builder()
+                .path(dataFile.path().toString())
+                .start(task.start())
+                .length(task.length())
+                .fileSize(dataFile.fileSizeInBytes())
+                .fileFormat(fileFormat)
+                .formatVersion(formatVersion)
+                .partitionSpecId(partitionSpecId)
+                .partitionDataJson(partitionDataJson)
+                .firstRowId(firstRowId)
+                .lastUpdatedSequenceNumber(lastUpdatedSequenceNumber)
+                .partitionValues(partitionValues)
+                .build();
+    }
+
+    /**
+     * Scan-node-level (not per-range) properties consumed by the generic {@code PluginDrivenScanNode}:
+     * <ul>
+     *   <li>{@code file_format_type=jni} — makes the parent default the per-range format to {@code FORMAT_JNI},
+     *       which each native range overrides to parquet/orc in {@code populateRangeParams} (mirrors paimon).</li>
+     *   <li>{@code path_partition_keys} — the lowercased, comma-joined identity partition columns, so FE marks
+     *       those slots as partition columns and excludes them from the file-decode set; without it BE
+     *       double-fills the partition columns (decode-from-file AND append-from-path) and DCHECKs (CI #968880).
+     *       Emitted only when the table is partitioned (an empty value would split into a single "" key).</li>
+     * </ul>
+     * Location / serialized-table / schema-evolution keys land in later tasks.
+     */
+    @Override
+    public Map<String, String> getScanNodeProperties(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        Table table = resolveTable((IcebergTableHandle) handle);
+        Map<String, String> props = new LinkedHashMap<>();
+        props.put("file_format_type", "jni");
+        List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        if (!partitionKeys.isEmpty()) {
+            props.put("path_partition_keys", String.join(",", partitionKeys));
+        }
+        return props;
+    }
+
+    /**
+     * Reads the real table format version, mirroring legacy {@code IcebergUtils.getFormatVersion} (and the
+     * connector's {@code IcebergConnectorMetadata.getFormatVersion}): from a {@link BaseTable}'s current
+     * metadata when available, else the {@code format-version} table property, defaulting to 2.
+     */
+    private static int getFormatVersion(Table table) {
+        int formatVersion = 2;
+        if (table instanceof BaseTable) {
+            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        } else if (table != null && table.properties() != null) {
+            String version = table.properties().get(TableProperties.FORMAT_VERSION);
+            if (version != null) {
+                try {
+                    formatVersion = Integer.parseInt(version);
+                } catch (NumberFormatException ignored) {
+                    // keep the default
+                }
+            }
+        }
+        return formatVersion;
     }
 
     /**

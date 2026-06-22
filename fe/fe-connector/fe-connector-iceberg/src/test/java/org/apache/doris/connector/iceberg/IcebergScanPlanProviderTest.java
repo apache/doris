@@ -25,6 +25,10 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -43,6 +47,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,19 +73,28 @@ public class IcebergScanPlanProviderTest {
     // --- in-memory iceberg table helpers (offline; DataFile metadata only, no real data files) ---
 
     private static Table createTable(String name, Schema schema, PartitionSpec spec) {
+        return createTable(name, schema, spec, Collections.emptyMap());
+    }
+
+    private static Table createTable(String name, Schema schema, PartitionSpec spec, Map<String, String> props) {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
-        return catalog.createTable(TableIdentifier.of("db1", name), schema, spec);
+        return catalog.createTable(TableIdentifier.of("db1", name), schema, spec, null, props);
     }
 
     private static DataFile dataFile(PartitionSpec spec, String path, long sizeBytes, List<Long> splitOffsets,
             String partitionPath) {
+        return dataFile(spec, path, sizeBytes, splitOffsets, partitionPath, FileFormat.PARQUET);
+    }
+
+    private static DataFile dataFile(PartitionSpec spec, String path, long sizeBytes, List<Long> splitOffsets,
+            String partitionPath, FileFormat format) {
         DataFiles.Builder builder = DataFiles.builder(spec)
                 .withPath(path)
                 .withFileSizeInBytes(sizeBytes)
                 .withRecordCount(Math.max(1, sizeBytes / 100))
-                .withFormat(FileFormat.PARQUET);
+                .withFormat(format);
         if (splitOffsets != null) {
             builder.withSplitOffsets(splitOffsets);
         }
@@ -88,6 +102,21 @@ public class IcebergScanPlanProviderTest {
             builder.withPartitionPath(partitionPath);
         }
         return builder.build();
+    }
+
+    /** Run a range's BE-param population end-to-end (the generic node pre-sets table_format_type). */
+    private static TFileRangeDesc populate(ConnectorScanRange range) {
+        TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
+        formatDesc.setTableFormatType(range.getTableFormatType());
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(formatDesc, rangeDesc);
+        rangeDesc.setTableFormatParams(formatDesc);
+        return rangeDesc;
+    }
+
+    private static ConnectorScanRange byPath(List<ConnectorScanRange> ranges, String suffix) {
+        return ranges.stream().filter(r -> r.getPath().get().endsWith(suffix)).findFirst()
+                .orElseThrow(() -> new AssertionError("no range ending in " + suffix));
     }
 
     private static RecordingIcebergCatalogOps opsReturning(Table table) {
@@ -276,6 +305,116 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(ZoneOffset.UTC,
                 IcebergScanPlanProvider.resolveSessionZone(
                         new FakeScanSession("Not/AZone", Collections.emptyMap())));
+    }
+
+    // --- T03 BE-ready range params: per-file carriers + path_partition_keys + native format ---
+
+    @Test
+    public void planScanPopulatesPerFilePartitionAndFormatCarriers() {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=1/a.parquet", 512, null, "p=1", FileFormat.PARQUET))
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=2/b.orc", 512, null, "p=2", FileFormat.ORC))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(2, ranges.size());
+
+        // parquet file -> per-file FORMAT_PARQUET + its own partition spec-id/data-json/columns-from-path.
+        // MUTATION: T02's bare range (no carriers) -> iceberg_params unset / format JNI -> red.
+        TFileRangeDesc parquet = populate(byPath(ranges, "a.parquet"));
+        TIcebergFileDesc fdp = parquet.getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, parquet.getFormatType());
+        Assertions.assertEquals(2, fdp.getFormatVersion());
+        Assertions.assertEquals("s3://b/db/pt/p=1/a.parquet", fdp.getOriginalFilePath());
+        Assertions.assertTrue(fdp.isSetPartitionSpecId());
+        Assertions.assertEquals("[\"1\"]", fdp.getPartitionDataJson());
+        Assertions.assertEquals(Collections.singletonList("p"), parquet.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("1"), parquet.getColumnsFromPath());
+        Assertions.assertEquals(Collections.singletonList(false), parquet.getColumnsFromPathIsNull());
+
+        // orc file -> per-file FORMAT_ORC (proves the format is taken per data file, not table-uniform) +
+        // its own partition value "2".
+        TFileRangeDesc orc = populate(byPath(ranges, "b.orc"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_ORC, orc.getFormatType());
+        Assertions.assertEquals("[\"2\"]", orc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
+        Assertions.assertEquals(Collections.singletonList("2"), orc.getColumnsFromPath());
+    }
+
+    @Test
+    public void getScanNodePropertiesEmitsPathPartitionKeysAndJniFormat() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()),
+                Types.NestedField.required(3, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").identity("region").build();
+        Table table = createTable("pt", schema, spec);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty());
+
+        // path_partition_keys = lowercased, comma-joined identity columns (the CI #968880 double-fill guard);
+        // file_format_type=jni makes the parent default to FORMAT_JNI, overridden per native range.
+        // MUTATION: omitting path_partition_keys -> BE double-fills partition columns -> DCHECK -> this red.
+        Assertions.assertEquals("p,region", props.get("path_partition_keys"));
+        Assertions.assertEquals("jni", props.get("file_format_type"));
+    }
+
+    @Test
+    public void getScanNodePropertiesOmitsPathPartitionKeysForUnpartitionedTable() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // No identity partition columns -> the key must be absent (NOT an empty string, which the parent would
+        // split into a single "" key). MUTATION: always emitting the key -> red.
+        Assertions.assertFalse(props.containsKey("path_partition_keys"));
+    }
+
+    @Test
+    public void planScanReadsRealFormatVersionAndEmitsV3RowLineage() {
+        Map<String, String> v3 = new HashMap<>();
+        v3.put("format-version", "3");
+        Table table = createTable("v3t", SCHEMA, PartitionSpec.unpartitioned(), v3);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/v3t/f.parquet", 512, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "v3t"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, ranges.size());
+        TIcebergFileDesc fd = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+
+        // format_version read from real table metadata (NOT hard-coded). v3 always emits row lineage (>= -1 for
+        // files carried over from a v2->v3 upgrade). MUTATION: hard-coding v2 / never emitting lineage -> red.
+        Assertions.assertEquals(3, fd.getFormatVersion());
+        Assertions.assertTrue(fd.isSetFirstRowId());
+        Assertions.assertTrue(fd.isSetLastUpdatedSequenceNumber());
+    }
+
+    @Test
+    public void planScanRejectsUnsupportedFileFormatFailLoud() {
+        // Legacy IcebergScanNode.getFileFormatType() throws DdlException("Unsupported format name: <fmt> ...") at plan
+        // start for a non-orc/parquet table; the connector must keep that fail-loud guard instead of silently
+        // shipping the file to BE's iceberg JNI reader (which expects a serialized system-table split).
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f.avro", 512, null, null, FileFormat.AVRO))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        // MUTATION: leaving the else-branch silent (FORMAT_JNI default) -> no throw -> red.
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class, () -> provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty()));
+        Assertions.assertTrue(ex.getMessage().contains("Unsupported format name: avro"),
+                "message should mirror legacy: " + ex.getMessage());
     }
 
     /** A minimal {@link ConnectorSession} exposing a time zone + session split-size properties (no Mockito). */
