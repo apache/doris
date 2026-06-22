@@ -22,9 +22,11 @@
 #include <memory>
 #include <ostream>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gtest/gtest_pred_impl.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_retention.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
@@ -293,5 +295,20 @@ TEST_F(VRetentionTest, testSerialize) {
 
     agg_function->destroy(place2);
     agg_function->destroy(place3);
+}
+
+TEST_F(VRetentionTest, testMaxEventsBoundary) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+
+    // 32 boolean params is the maximum allowed (RetentionState::MAX_EVENTS) and must succeed.
+    DataTypes max_types(RetentionState::MAX_EVENTS, std::make_shared<DataTypeUInt8>());
+    auto fn = factory.get("retention", max_types, nullptr, false, -1);
+    EXPECT_NE(fn, nullptr);
+
+    // 33 boolean params overflow the fixed-size events[32] array; the function must be rejected
+    // at construction time instead of corrupting the heap.
+    DataTypes too_many_types(RetentionState::MAX_EVENTS + 1, std::make_shared<DataTypeUInt8>());
+    EXPECT_THROW({ factory.get("retention", too_many_types, nullptr, false, -1); },
+                 doris::Exception);
 }
 } // namespace doris::vectorized
