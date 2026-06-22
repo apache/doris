@@ -54,6 +54,10 @@ enum class SchemaBuildMode {
     // is the compatibility path for Arrow/parquet-format legacy two-level LIST encodings where the
     // repeated node itself is the array element instead of a wrapper that should be stripped.
     REPEATED_NODE_AS_LIST_ELEMENT,
+    // Build the current repeated group as a STRUCT element of an enclosing LIST, ignoring LIST/MAP
+    // annotations on the repeated group itself. This keeps compatibility with the old Doris
+    // Parquet schema parser for Hive/legacy wrappers named "array" or "<list_name>_tuple".
+    REPEATED_NODE_AS_STRUCT_ELEMENT,
 };
 
 // Result of applying Parquet LIST backward compatibility rules to the single repeated child of a
@@ -69,10 +73,10 @@ struct ListElementResolution {
     // itself is the element, and includes the wrapper's only child when standard 3-level LIST
     // encoding is stripped.
     SchemaBuildContext element_context;
-    // True when element_node is the repeated child itself. The builder then uses
-    // REPEATED_NODE_AS_LIST_ELEMENT so the repeated level is not interpreted as a second unrelated
-    // array at the same boundary.
-    bool element_is_repeated_node = false;
+    // Build mode for element_node. Non-NORMAL modes mean element_node is the repeated child itself,
+    // and the repeated level must not be interpreted as a second unrelated array at the same
+    // boundary.
+    SchemaBuildMode element_build_mode = SchemaBuildMode::NORMAL;
 };
 
 // Resolved repeated entry group of a MAP-annotated group. The entry wrapper is a physical Parquet
@@ -166,11 +170,12 @@ void propagate_child_levels(ParquetColumnSchema* column_schema) {
 // Important cases:
 // - repeated primitive: the primitive itself is the element (legacy two-level LIST).
 // - repeated group with multiple children: the group itself is a STRUCT element.
-// - repeated group named "array" or "<list_name>_tuple" and without a logical annotation: the
-//   group itself is a STRUCT element per Parquet backward compatibility rules, even when it has
-//   one child.
-// - repeated group with a logical annotation, or whose only child is repeated: the group itself is
-//   the element. This preserves nested LIST/MAP and repeated fields inside struct elements.
+// - repeated group named "array" or "<list_name>_tuple": the group itself is a STRUCT element per
+//   Parquet backward compatibility rules, even when it has one child or its own logical annotation.
+//   This also keeps v2 file-local schema aligned with Doris' old schema parser used by HDFS TVF.
+// - other repeated group with a logical annotation, or whose only child is repeated: the group
+//   itself is the element. This preserves nested LIST/MAP and repeated fields inside struct
+//   elements.
 // - otherwise, strip the one-child repeated wrapper as standard three-level LIST encoding.
 Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
                                  const SchemaBuildContext& list_context,
@@ -191,7 +196,7 @@ Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
     if (repeated_node.is_primitive()) {
         result->element_node = &repeated_node;
         result->element_context = result->repeated_context;
-        result->element_is_repeated_node = true;
+        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT;
         return Status::OK();
     }
 
@@ -202,12 +207,16 @@ Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
     }
     const bool repeated_group_has_logical_annotation = has_logical_annotation(repeated_group);
     if (repeated_group.field_count() > 1 ||
-        (!repeated_group_has_logical_annotation &&
-         has_structural_list_name(list_group.name(), repeated_group.name())) ||
-        repeated_group_has_logical_annotation) {
+        has_structural_list_name(list_group.name(), repeated_group.name())) {
         result->element_node = &repeated_node;
         result->element_context = result->repeated_context;
-        result->element_is_repeated_node = true;
+        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_STRUCT_ELEMENT;
+        return Status::OK();
+    }
+    if (repeated_group_has_logical_annotation) {
+        result->element_node = &repeated_node;
+        result->element_context = result->repeated_context;
+        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT;
         return Status::OK();
     }
 
@@ -215,13 +224,12 @@ Status resolve_list_element_node(const ::parquet::schema::GroupNode& list_group,
     if (only_child.is_repeated()) {
         result->element_node = &repeated_node;
         result->element_context = result->repeated_context;
-        result->element_is_repeated_node = true;
+        result->element_build_mode = SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT;
         return Status::OK();
     }
 
     result->element_node = &only_child;
     result->element_context = child_context(result->repeated_context, only_child, 0);
-    result->element_is_repeated_node = false;
     return Status::OK();
 }
 
@@ -317,6 +325,7 @@ Status build_repeated_field_as_list_schema(const ::parquet::SchemaDescriptor& sc
     RETURN_IF_ERROR(build_node_schema_with_mode(schema, repeated_node, repeated_context,
                                                 &element_child,
                                                 SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT));
+    element_child->name = "element";
     list_schema->type = std::make_shared<DataTypeArray>(element_child->type);
     list_schema->children.push_back(std::move(element_child));
     propagate_child_levels(list_schema.get());
@@ -374,7 +383,7 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
     }
 
     const auto& group = static_cast<const ::parquet::schema::GroupNode&>(node);
-    if (is_list_node(node)) {
+    if (is_list_node(node) && mode != SchemaBuildMode::REPEATED_NODE_AS_STRUCT_ELEMENT) {
         if (mode == SchemaBuildMode::NORMAL && node.is_repeated()) {
             return Status::NotSupported("Unsupported repeated parquet LIST column {}", node.name());
         }
@@ -386,11 +395,10 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
         column_schema->repeated_repetition_level =
                 list_element.repeated_context.repeated_repetition_level;
         std::unique_ptr<ParquetColumnSchema> child;
-        RETURN_IF_ERROR(build_node_schema_with_mode(
-                schema, *list_element.element_node, list_element.element_context, &child,
-                list_element.element_is_repeated_node
-                        ? SchemaBuildMode::REPEATED_NODE_AS_LIST_ELEMENT
-                        : SchemaBuildMode::NORMAL));
+        RETURN_IF_ERROR(build_node_schema_with_mode(schema, *list_element.element_node,
+                                                    list_element.element_context, &child,
+                                                    list_element.element_build_mode));
+        child->name = "element";
         column_schema->type =
                 nullable_if_needed(std::make_shared<DataTypeArray>(child->type), node);
         column_schema->children.push_back(std::move(child));
@@ -399,7 +407,7 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
         return Status::OK();
     }
 
-    if (is_map_node(node)) {
+    if (is_map_node(node) && mode != SchemaBuildMode::REPEATED_NODE_AS_STRUCT_ELEMENT) {
         if (mode == SchemaBuildMode::NORMAL && node.is_repeated()) {
             return Status::NotSupported("Unsupported repeated parquet MAP column {}", node.name());
         }
@@ -417,6 +425,7 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
                     child_context(map_entry.entry_context, *map_entry.entry_group->field(child_idx),
                                   child_idx),
                     &child, SchemaBuildMode::NORMAL));
+            child->name = child_idx == 0 ? "key" : "value";
             column_schema->children.push_back(std::move(child));
         }
         if (column_schema->children.size() != 2) {
