@@ -30,6 +30,7 @@
 #include "benchmark_string.hpp"
 #include "benchmark_string_replace.hpp"
 #include "benchmark_zone_map_index.hpp"
+#include "benchmark_trim.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "core/block/block.h"
 #include "core/column/column_string.h"

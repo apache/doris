@@ -129,11 +129,11 @@ inline AlignedArray mm_is_in_prepare(const char* symbols, size_t num_chars) {
     return result;
 }
 
-inline __m128i mm_is_in_execute(__m128i bytes, const AlignedArray& needles) {
+inline __m128i mm_is_in_execute(__m128i bytes, const AlignedArray& needles, size_t num_chars) {
     __m128i accumulator = _mm_setzero_si128();
 
-    for (const auto& needle : needles) {
-        __m128i eq = _mm_cmpeq_epi8(bytes, reinterpret_cast<const __m128i&>(needle));
+    for (size_t i = 0; i < num_chars; ++i) {
+        __m128i eq = _mm_cmpeq_epi8(bytes, reinterpret_cast<const __m128i&>(needles[i]));
         accumulator = _mm_or_si128(accumulator, eq);
     }
 
@@ -190,7 +190,7 @@ inline const char* find_first_symbols_sse2(const char* const begin, const char* 
     for (; pos + 15 < end; pos += 16) {
         __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
 
-        __m128i eq = mm_is_in_execute(bytes, needles);
+        __m128i eq = mm_is_in_execute(bytes, needles, num_chars);
 
         uint16_t bit_mask = maybe_negate<positive>(uint16_t(_mm_movemask_epi8(eq)));
         if (bit_mask) return pos + __builtin_ctz(bit_mask);
@@ -330,7 +330,69 @@ inline const char* find_first_symbols_sse42(const char* const begin, const char*
     return return_mode == ReturnMode::End ? end : nullptr;
 }
 
-/// NOTE No SSE 4.2 implementation for find_last_symbols_or_null. Not worth to do.
+template <bool positive, ReturnMode return_mode>
+inline const char* find_last_symbols_sse2(const char* const begin, const char* const end,
+                                          const char* symbols, size_t num_chars) {
+    if (begin >= end) return return_mode == ReturnMode::End ? end : nullptr;
+
+    const char* pos = end;
+
+#if defined(__SSE2__)
+    const auto needles = mm_is_in_prepare(symbols, num_chars);
+    for (; pos - 16 >= begin; pos -= 16) {
+        __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos - 16));
+
+        __m128i eq = mm_is_in_execute(bytes, needles, num_chars);
+
+        uint16_t bit_mask = maybe_negate<positive>(uint16_t(_mm_movemask_epi8(eq)));
+        if (bit_mask) return pos - 1 - (__builtin_clz(bit_mask) - 16);
+    }
+#endif
+
+    for (const char* p = pos; p != begin;) {
+        --p;
+        if (maybe_negate<positive>(is_in(*p, symbols, num_chars))) return p;
+    }
+
+    return return_mode == ReturnMode::End ? end : nullptr;
+}
+
+template <bool positive, ReturnMode return_mode>
+inline const char* find_last_symbols_sse42(const char* const begin, const char* const end,
+                                           const SearchSymbols& symbols) {
+    if (begin >= end) return return_mode == ReturnMode::End ? end : nullptr;
+
+    const char* pos = end;
+
+    const auto num_chars = symbols.str.size();
+
+#if defined(__SSE4_2__)
+    constexpr int mode = _SIDD_UBYTE_OPS | _SIDD_CMP_EQUAL_ANY | _SIDD_MOST_SIGNIFICANT;
+
+    const __m128i set = symbols.simd_vector;
+
+    for (; static_cast<size_t>(pos - begin) >= 16; pos -= 16) {
+        __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos - 16));
+
+        if constexpr (positive) {
+            if (_mm_cmpestrc(set, num_chars, bytes, 16, mode))
+                return pos - 16 + _mm_cmpestri(set, num_chars, bytes, 16, mode);
+        } else {
+            if (_mm_cmpestrc(set, num_chars, bytes, 16, mode | _SIDD_NEGATIVE_POLARITY))
+                return pos - 16 +
+                       _mm_cmpestri(set, num_chars, bytes, 16, mode | _SIDD_NEGATIVE_POLARITY);
+        }
+    }
+#endif
+
+    // Scalar tail: scan remaining bytes from pos-1 down to begin
+    for (const char* p = pos; p != begin;) {
+        --p;
+        if (maybe_negate<positive>(is_in(*p, symbols.str.data(), num_chars))) return p;
+    }
+
+    return return_mode == ReturnMode::End ? end : nullptr;
+}
 
 template <bool positive, ReturnMode return_mode, char... symbols>
 inline const char* find_first_symbols_dispatch(const char* begin, const char* end)
@@ -356,6 +418,18 @@ inline const char* find_first_symbols_dispatch(const std::string_view haystack,
 #endif
         return find_first_symbols_sse2<positive, return_mode>(
                 haystack.begin(), haystack.end(), symbols.str.data(), symbols.str.size());
+}
+
+template <bool positive, ReturnMode return_mode>
+inline const char* find_last_symbols_dispatch(const char* begin, const char* end,
+                                              const SearchSymbols& symbols) {
+#if defined(__SSE4_2__)
+    if (symbols.str.size() >= 5)
+        return find_last_symbols_sse42<positive, return_mode>(begin, end, symbols);
+    else
+#endif
+        return find_last_symbols_sse2<positive, return_mode>(begin, end, symbols.str.data(),
+                                                             symbols.str.size());
 }
 
 } // namespace detail
@@ -460,6 +534,12 @@ inline char* find_last_not_symbols_or_null(char* begin, char* end) {
     return const_cast<char*>(
             ::detail::find_last_symbols_sse2<false, ::detail::ReturnMode::Nullptr, symbols...>(
                     begin, end));
+}
+
+inline const char* find_last_not_symbols_or_null(const char* begin, const char* end,
+                                                 const SearchSymbols& symbols) {
+    return ::detail::find_last_symbols_dispatch<false, ::detail::ReturnMode::Nullptr>(begin, end,
+                                                                                      symbols);
 }
 
 /// Slightly resembles boost::split. The drawback of boost::split is that it fires a false positive in clang static analyzer.
