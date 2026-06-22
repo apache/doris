@@ -243,7 +243,20 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     out->reserve(path.size());
     for (int idx : path) {
         const VNode& nd = nodes[static_cast<std::size_t>(idx)];
-        out->push_back(KuromojiMorpheme {nd.start, nd.end - nd.start, nd.known, nd.word_id});
+        // Extended mode decomposes each unknown (out-of-vocabulary) word into its
+        // per-code-point unigrams, mirroring Lucene JapaneseTokenizer's EXTENDED
+        // mode. Every code point in an unknown node shares its character category
+        // (group nodes are built from a same-category run), so the unigrams reuse
+        // the node's unknown word_id. Known words are left intact.
+        if (_mode == KuromojiMode::Extended && !nd.known) {
+            for (uint32_t p = nd.start; p < nd.end;) {
+                const uint32_t len = decode_utf8(text, p).len;
+                out->push_back(KuromojiMorpheme {p, len, false, nd.word_id});
+                p += len;
+            }
+        } else {
+            out->push_back(KuromojiMorpheme {nd.start, nd.end - nd.start, nd.known, nd.word_id});
+        }
     }
 }
 
