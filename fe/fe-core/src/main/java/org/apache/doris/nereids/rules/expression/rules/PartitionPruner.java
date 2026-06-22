@@ -195,9 +195,10 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         partitionPredicate = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(
                 partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
-            // The partition column predicate is always true and can be deleted, the partition cannot be pruned
+            // No effective partition predicate is available. Keep all partitions and do not record
+            // an applied predicate.
             return new PartitionPruneResult<>(Utils.fastToImmutableList(idToPartitions.keySet()),
-                    Optional.of(originalPartitionPredicate), false);
+                    Optional.empty(), false);
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
             // The partition column predicate is always false, and all partitions can be pruned.
             return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), true);
