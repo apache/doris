@@ -101,6 +101,9 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
         Statistics stats = plan.getStats();
         if (stats == null) {
             stats = plan.accept(derive, new StatsDerive.DeriveContext());
+            if (stats == null) {
+                return false;
+            }
         }
         if (stats.getRowCount() <= 0) {
             return false;
