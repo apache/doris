@@ -52,7 +52,10 @@ public class IcebergScanRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
 
+    // The BE-facing data-file path: scheme-normalized (oss/cos/obs/s3a -> s3) so BE's S3 factory can open it.
     private final String path;
+    // The RAW iceberg data-file path; BE matches position-delete entries against it (original_file_path).
+    private final String originalPath;
     private final long start;
     private final long length;
     private final long fileSize;
@@ -70,6 +73,9 @@ public class IcebergScanRange implements ConnectorScanRange {
 
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
+        // Default the raw original path to the (possibly already-raw) path when a caller does not split them
+        // — keeps single-arg .path(...) callers (and the prior behavior) intact.
+        this.originalPath = builder.originalPath != null ? builder.originalPath : builder.path;
         this.start = builder.start;
         this.length = builder.length;
         this.fileSize = builder.fileSize;
@@ -168,9 +174,10 @@ public class IcebergScanRange implements ConnectorScanRange {
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
-        // original_file_path = the raw (un-normalized) data-file path; BE matches position-delete entries
-        // against it (legacy setOriginalFilePath uses the raw originalPath, not the normalized location).
-        fileDesc.setOriginalFilePath(path);
+        // original_file_path = the RAW (un-normalized) data-file path; BE matches position-delete entries
+        // against it (legacy setOriginalFilePath:304 uses the raw originalPath, not the normalized location).
+        // This stays raw even though the range path (getPath) is scheme-normalized for BE to open.
+        fileDesc.setOriginalFilePath(originalPath);
         if (partitionSpecId != null) {
             fileDesc.setPartitionSpecId(partitionSpecId);
         }
@@ -236,6 +243,7 @@ public class IcebergScanRange implements ConnectorScanRange {
      */
     public static class Builder {
         private String path;
+        private String originalPath;
         private long start;
         private long length = -1;
         private long fileSize = -1;
@@ -253,6 +261,12 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder path(String path) {
             this.path = path;
+            return this;
+        }
+
+        /** The RAW iceberg data-file path (for original_file_path); defaults to {@link #path} when unset. */
+        public Builder originalPath(String originalPath) {
+            this.originalPath = originalPath;
             return this;
         }
 

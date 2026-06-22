@@ -235,8 +235,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     dataFile.fileSequenceNumber() != null && dataFile.firstRowId() != null
                             ? dataFile.fileSequenceNumber() : -1L;
         }
+        // The range path BE opens is scheme-normalized (legacy createIcebergSplit:852 normalizes via the
+        // 2-arg LocationPath.of(path, storagePropertiesMap)); original_file_path stays raw so BE can match
+        // position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
+        String rawDataPath = dataFile.path().toString();
         return new IcebergScanRange.Builder()
-                .path(dataFile.path().toString())
+                .path(normalizePath(rawDataPath))
+                .originalPath(rawDataPath)
                 .start(task.start())
                 .length(task.length())
                 .fileSize(dataFile.fileSizeInBytes())
@@ -282,7 +287,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code LocationPath.of(path,config).toStorageLocation()}). Package-private for direct unit testing.
      */
     IcebergScanRange.DeleteFile convertDelete(DeleteFile delete) {
-        String path = normalizeDeletePath(delete.path().toString());
+        String path = normalizePath(delete.path().toString());
         FileContent content = delete.content();
         if (content == FileContent.POSITION_DELETES) {
             Long lowerBound = readPositionBound(delete.lowerBounds());
@@ -335,14 +340,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Normalize a raw delete-file path to BE's canonical scheme via the engine seam (legacy delete paths go
-     * through {@code LocationPath.of(path,config).toStorageLocation()}; the connector cannot import fe-core's
-     * {@code LocationPath}). Delete paths live entirely inside {@code iceberg_params} — the parent
-     * ({@code PluginDrivenScanNode}) never touches them — so the connector must normalize them itself. The
-     * 1-arg static-map form is byte-equivalent to legacy for non-vended catalogs; the vended-credential
-     * (2-arg) form is T09. A {@code null} context (offline unit tests) preserves the raw path (paimon parity).
+     * Normalize a raw iceberg storage path (the data file BE opens, or a delete file) to BE's canonical
+     * scheme via the engine seam (legacy goes through {@code LocationPath.of(path, storagePropertiesMap)
+     * .toStorageLocation()}; the connector cannot import fe-core's {@code LocationPath}). BE's
+     * scheme-dispatched S3 factory only opens {@code s3://}, so an un-normalized {@code oss://}/{@code cos://}
+     * /{@code obs://}/{@code s3a://} path fails the native read (data file) or silently drops the deletes
+     * (merge-on-read wrong rows). Mirrors paimon's {@code normalizeUri} (FIX-URI-NORMALIZE), which normalizes
+     * both the data-file and deletion-vector paths. The static-map form is byte-equivalent to legacy for
+     * non-vended catalogs; the vended-credential (2-arg) form is T09. A {@code null} context (offline unit
+     * tests) preserves the raw path (paimon parity).
      */
-    private String normalizeDeletePath(String rawPath) {
+    private String normalizePath(String rawPath) {
         return context != null ? context.normalizeStorageUri(rawPath) : rawPath;
     }
 

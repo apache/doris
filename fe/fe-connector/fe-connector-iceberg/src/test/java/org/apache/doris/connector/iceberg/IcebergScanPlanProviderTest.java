@@ -672,4 +672,32 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonList("s3://b/db/t1/pos-delete.parquet"),
                 provider.getDeleteFiles(rangeDesc.getTableFormatParams()));
     }
+
+    // --- data-path normalization (the gap the T04 parity review surfaced; legacy createIcebergSplit:852) ---
+
+    @Test
+    public void planScanNormalizesDataFilePathButKeepsOriginalFilePathRaw() {
+        // The range path BE opens MUST be scheme-normalized (oss/cos/obs/s3a -> s3), mirroring legacy
+        // createIcebergSplit:852 (2-arg LocationPath.of) + paimon FIX-URI-NORMALIZE — otherwise BE's s3-only
+        // factory cannot open an object-store data file at the P6.6 cutover. But original_file_path stays RAW:
+        // BE matches position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "oss://bucket/db/t1/f.parquet", 1024, null, null))
+                .commit();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, ranges.size());
+
+        // MUTATION: emitting the raw oss:// range path (the pre-fix behavior) -> red.
+        Assertions.assertEquals("s3://bucket/db/t1/f.parquet", ranges.get(0).getPath().get());
+        Assertions.assertTrue(context.normalizedUris.contains("oss://bucket/db/t1/f.parquet"));
+        // MUTATION: normalizing original_file_path too -> BE position-delete matching breaks -> red.
+        TIcebergFileDesc fd = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals("oss://bucket/db/t1/f.parquet", fd.getOriginalFilePath());
+    }
 }
