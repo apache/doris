@@ -73,6 +73,32 @@ jobs:
           unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
+      - name: Install Codex goal binary
+        run: |
+          codex_cmd="$(command -v codex)"
+          codex_target="$(readlink -f "$codex_cmd")"
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+
+          downloaded=false
+          for object in "$OSS_CODEX_GOAL_OBJECT" "$OSS_CODEX_GOAL_FALLBACK_OBJECT"; do
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$object" "$tmp_dir/codex-goal"; then
+              downloaded=true
+              break
+            fi
+          done
+          test "$downloaded" = "true"
+          test -s "$tmp_dir/codex-goal"
+          sudo install -m 0755 "$tmp_dir/codex-goal" "$codex_target"
+          "$codex_cmd" exec --help | grep -q -- '--goal'
+          "$codex_cmd" --version
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_CODEX_GOAL_OBJECT: oss://doris-community-ci/codex-goal
+          OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
+
       - name: Configure Codex auth
         run: |
           install -m 700 -d "$RUNNER_TEMP/codex-home"
@@ -241,6 +267,8 @@ jobs:
       - name: Prepare review prompt
         run: |
           cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
+          This review task is executed in Codex goal mode. The review goal is complete only after every changed file and relevant surrounding code path has been examined, every suspicious point has a clear conclusion, and there is no remaining possibility of producing any new valuable review comment.
+
           You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN.
           The current directory is the code repository for the PR to be reviewed.
           You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
@@ -257,8 +285,29 @@ jobs:
           - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
           - PR changed files: PLACEHOLDER_CONTEXT_DIR/pr_changed_files.txt
           - Required AGENTS.md files: PLACEHOLDER_CONTEXT_DIR/required_agents.txt
+          - Shared subagent review ledger: PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md
 
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          The active review goal's progress tracking MUST include, and must stay current throughout the review:
+          - Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
+          - Spawn the required focused subagents and assign each subagent a dedicated section in the shared ledger before it reviews.
+          - Require every subagent to append only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
+          - Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section.
+          - Run at least one final convergence round where every live subagent reviews the current ledger and proposed final comment set.
+          - Continue reviewing if any subagent reports a new valuable candidate during convergence; repeat verification and convergence until every subagent says `NO_NEW_VALUABLE_FINDINGS` for the same current ledger/comment set.
+          - Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete.
+          The active review goal MUST remain incomplete until every suspicious point found during review has a clear conclusion: submitted as an inline issue, dismissed as already covered by existing review context, or dismissed with concrete code evidence explaining why it is not a bug.
+          You MUST use the available subagent or multi-agent spawn tool for this review; do not merely simulate subagent output in your own text. If tool discovery is needed, search for the subagent/multi-agent tool first. Spawn at least two subagents before final submission:
+          - one subagent assigned to the `optimizer-rewrite` ledger section and focused on optimizer/rewrite correctness, semantic equivalence, and parallel join/aggregate paths.
+          - one subagent assigned to the `tests-session-config` ledger section and focused on regression tests, expected outputs, session/config propagation, compatibility, and basic CI/style failures.
+          The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent. Subagents must read the whole ledger before reviewing, avoid duplicating existing candidates, and append their findings only under their assigned subagent section. They must not rewrite the whole ledger, edit another subagent section, edit the main merged sections, edit repository source files, or submit GitHub comments.
+          Each subagent must record candidate findings in its own ledger section with stable IDs, path/line, claim, evidence, duplicate relationship if any, and recommendation. If a candidate overlaps an existing ledger item, the subagent should add a duplicate note in its own section that references the existing candidate ID instead of modifying the existing candidate. This section-owned append-only rule is mandatory to avoid concurrent patch conflicts.
+          The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. Statuses must distinguish at least: proposed_by_subagent, accepted_for_inline_comment, dismissed_with_evidence, duplicate_of_existing_thread, duplicate_of_candidate, and needs_more_evidence.
+          Before final submission, the main agent MUST send the current ledger and proposed final comment set to every live subagent and require a convergence response. A subagent may either append a new valuable candidate under its assigned section or reply exactly `NO_NEW_VALUABLE_FINDINGS` for the current ledger/comment set. The main agent MUST NOT complete the goal, final summary, or GitHub review until every live subagent has returned `NO_NEW_VALUABLE_FINDINGS` in the same convergence round after the last accepted or dismissed candidate update.
+          Subagents must only report candidate findings with evidence. The main agent must read their results and the shared ledger, independently verify or dismiss every candidate with concrete code evidence, deduplicate against existing review threads, and submit the final GitHub review itself. The final summary must include a short "Subagent conclusions" section describing which subagent candidates became inline comments, which were dismissed, which duplicates were merged, and which convergence round ended with all subagents reporting `NO_NEW_VALUABLE_FINDINGS`.
+          If and only if the runtime exposes no subagent or multi-agent tool after explicit discovery, state that limitation in the final summary and continue the review manually.
+          You MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
+          Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review.
           Before inspecting the PR diff or related code, you MUST read the contents of every AGENTS.md file listed below. These paths are computed from the PR changed file ancestors in this checkout. Searching for or listing paths is not sufficient; read each listed file directly.
           Required AGENTS.md files for this PR:
           PLACEHOLDER_REQUIRED_AGENTS_BLOCK
@@ -297,6 +346,82 @@ jobs:
           required_agents = required_agents_path.read_text().rstrip()
           prompt_path.write_text(prompt.replace("PLACEHOLDER_REQUIRED_AGENTS_BLOCK", required_agents))
           PY
+
+          cat > "$REVIEW_CONTEXT_DIR/subagent_review_findings.md" <<'LEDGER'
+          # Shared Subagent Review Ledger
+
+          This is the shared source of truth for subagent-assisted review.
+
+          Rules:
+          - Subagents must read this whole file before reviewing.
+          - Each subagent may append only to its assigned section under `Subagent Candidate Sections`.
+          - Subagents must not rewrite this file, edit another subagent section, edit main-owned sections, edit repository source files, or submit GitHub comments.
+          - Avoid duplicates. If a candidate overlaps an existing candidate, add a duplicate note in your own section that references the existing candidate ID.
+          - The main agent owns final status, final deduplication, GitHub review submission, and GitHub API verification.
+          - The goal is not complete until all live subagents have reviewed the current ledger and proposed final comment set in the same convergence round and replied `NO_NEW_VALUABLE_FINDINGS`.
+
+          Candidate statuses:
+          - proposed_by_subagent
+          - accepted_for_inline_comment
+          - dismissed_with_evidence
+          - duplicate_of_existing_thread
+          - duplicate_of_candidate
+          - needs_more_evidence
+
+          Candidate format:
+
+          - ID:
+            Owner:
+            Status:
+            Path:
+            Line:
+            Claim:
+            Evidence:
+            Duplicate relationship:
+            Recommendation:
+
+          ## Subagent Candidate Sections
+
+          ### optimizer-rewrite
+
+          Subagent assignment: optimizer/rewrite correctness, semantic equivalence, and parallel join/aggregate paths.
+          Append only below this line and above the next subagent heading.
+
+          ### tests-session-config
+
+          Subagent assignment: regression tests, expected outputs, session/config propagation, compatibility, and basic CI/style failures.
+          Append only below this line and above the main-owned sections.
+
+          ## Main Merged Findings
+
+          Main-owned format:
+
+          - ID:
+            Source IDs:
+            Owner: main
+            Status:
+            Path:
+            Line:
+            Claim:
+            Evidence:
+            Duplicate relationship:
+            Main verification:
+            Proposed inline body:
+
+          ## Dismissed Or Duplicate Points
+
+          ## Proposed Final Comment Set
+
+          ## Convergence Rounds
+          LEDGER
+
+          cat > "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" <<EOF
+          You are performing an automated code review inside a GitHub Actions runner.
+          This invocation is already running in Codex goal mode. Before inspecting the PR diff or related code, read ${REVIEW_CONTEXT_REL}/review_prompt.txt verbatim and follow that file as the complete review instruction set.
+          This review must use the available subagent or multi-agent spawn tool for focused review passes. All subagents and the main agent must maintain ${REVIEW_CONTEXT_REL}/subagent_review_findings.md as the shared source of truth. Each subagent may append only to its assigned ledger section; the main agent owns merged statuses, duplicate suppression, proposed final comments, GitHub review submission, and GitHub API verification.
+          The review goal's completion process must include shared-ledger review, subagent spawning with assigned ledger sections, candidate verification, duplicate merge, a final subagent convergence round, GitHub review submission, and GitHub API verification. Do not complete the goal unless every live subagent has replied NO_NEW_VALUABLE_FINDINGS for the same current ledger/comment set after the last candidate update.
+          Keep reviewing until every suspicious point has a clear conclusion, every substantiated issue has been submitted as a GitHub inline review comment, and no new valuable review comment remains possible.
+          EOF
         env:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
@@ -314,13 +439,13 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ inputs.head_sha }}
         run: |
-          PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
+          GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-          codex exec "$PROMPT" \
+          codex exec --goal "$GOAL_PROMPT" \
             --cd "$GITHUB_WORKSPACE" \
             --model "gpt-5.5" \
             --config "model_reasoning_effort=\"${REASONING_EFFORT}\"" \
@@ -398,8 +523,8 @@ jobs:
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
           REASONING_EFFORT: xhigh
         run: |
-          if [ ! -s "$REVIEW_CONTEXT_DIR/review_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
-            echo "Review prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
+          if [ ! -s "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" ] || [ ! -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+            echo "Goal prompt or Codex JSONL event stream is missing; skipping Litefuse I/O recording."
             exit 0
           fi
 
@@ -411,7 +536,7 @@ jobs:
           chmod 700 "$helper"
 
           python3 "$helper" \
-            --input-file "$REVIEW_CONTEXT_DIR/review_prompt.txt" \
+            --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
             --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
             --output-file "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
             --trace-name "doris-ai-review" \
