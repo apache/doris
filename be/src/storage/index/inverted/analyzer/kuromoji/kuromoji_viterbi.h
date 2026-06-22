@@ -46,7 +46,8 @@ struct KuromojiMorpheme {
 // compound-decomposition penalty: long tokens (all-kanji runs longer than 2
 // chars, or other runs longer than 7 chars) are penalized so the lattice prefers
 // segmenting a long compound into its shorter parts, improving search recall.
-// Normal mode applies no penalty.
+// Extended mode additionally splits unknown (out-of-vocabulary) words into
+// per-code-point unigrams. Normal mode applies no penalty.
 class KuromojiViterbi {
 public:
     explicit KuromojiViterbi(const KuromojiDictionary& dict,
