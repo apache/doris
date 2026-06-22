@@ -44,7 +44,7 @@ public:
     void reset(lucene::util::Reader* reader) override;
 
 private:
-    [[maybe_unused]] KuromojiMode mode_;
+    KuromojiMode mode_;
     const kuromoji::KuromojiDictionary* dict_ {nullptr};
     int32_t buffer_index_ {0};
     int32_t data_length_ {0};

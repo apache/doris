@@ -108,7 +108,7 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
         // Viterbi morphological segmentation, then OpenSearch-default-style filtering:
         // drop stop part-of-speech (particles/auxiliaries/...), emit the dictionary
         // base form for conjugated words, and lowercase embedded ASCII.
-        kuromoji::KuromojiViterbi viterbi(*dict_);
+        kuromoji::KuromojiViterbi viterbi(*dict_, mode_);
         std::vector<kuromoji::KuromojiMorpheme> morphemes;
         viterbi.segment(text, &morphemes);
         tokens_text_.reserve(morphemes.size());

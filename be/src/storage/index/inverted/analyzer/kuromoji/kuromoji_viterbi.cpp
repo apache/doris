@@ -28,6 +28,15 @@ namespace {
 constexpr int64_t KMJ_INF = std::numeric_limits<int64_t>::max() / 4;
 constexpr uint32_t MAX_UNKNOWN_GROUP_CHARS = 1024;
 
+// Search/Extended-mode compound-decomposition penalties, matching Lucene's
+// JapaneseTokenizer. Lengths are counted in code points. A token longer than the
+// length threshold is penalized so the minimum-cost path prefers its shorter
+// parts: all-kanji runs over KANJI_LENGTH chars, other runs over OTHER_LENGTH.
+constexpr uint32_t SEARCH_MODE_KANJI_LENGTH = 2;
+constexpr int64_t SEARCH_MODE_KANJI_PENALTY = 3000;
+constexpr uint32_t SEARCH_MODE_OTHER_LENGTH = 7;
+constexpr int64_t SEARCH_MODE_OTHER_PENALTY = 1700;
+
 struct DecodedCp {
     char32_t cp;
     uint32_t len;
@@ -59,6 +68,34 @@ DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
                 4};
     }
     return {b0, 1};
+}
+
+// Lucene JapaneseTokenizer's search-mode penalty for the token covering
+// [start, end) bytes: penalize long compounds so the Viterbi prefers their
+// shorter parts. Returns 0 for tokens at or under the length thresholds.
+int64_t compute_penalty(const KuromojiDictionary& dict, std::string_view text, uint32_t start,
+                        uint32_t end) {
+    uint32_t length = 0;
+    bool all_kanji = true;
+    for (uint32_t p = start; p < end;) {
+        const DecodedCp d = decode_utf8(text, p);
+        if (dict.char_category(d.cp) != CAT_KANJI) {
+            all_kanji = false;
+        }
+        p += d.len;
+        ++length;
+    }
+    if (length > SEARCH_MODE_KANJI_LENGTH) {
+        if (all_kanji) {
+            return static_cast<int64_t>(length - SEARCH_MODE_KANJI_LENGTH) *
+                   SEARCH_MODE_KANJI_PENALTY;
+        }
+        if (length > SEARCH_MODE_OTHER_LENGTH) {
+            return static_cast<int64_t>(length - SEARCH_MODE_OTHER_LENGTH) *
+                   SEARCH_MODE_OTHER_PENALTY;
+        }
+    }
+    return 0;
 }
 
 // A lattice node spanning [start, end) bytes of the input.
@@ -111,8 +148,12 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         if (best_prev < 0) {
             return;
         }
+        // Search/Extended mode penalizes long compounds so shorter parts win.
+        const int64_t penalty =
+                _mode == KuromojiMode::Normal ? 0 : compute_penalty(_dict, text, s, e);
         const auto idx = static_cast<int>(nodes.size());
-        nodes.push_back(VNode {s, e, lid, rid, wcost, known, wid, best + wcost, best_prev});
+        nodes.push_back(
+                VNode {s, e, lid, rid, wcost, known, wid, best + wcost + penalty, best_prev});
         ending_at[e].push_back(idx);
     };
 

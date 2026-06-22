@@ -21,6 +21,7 @@
 #include <string_view>
 #include <vector>
 
+#include "storage/index/inverted/analyzer/kuromoji/KuromojiMode.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 
 namespace doris::segment_v2::kuromoji {
@@ -39,16 +40,24 @@ struct KuromojiMorpheme {
 // Viterbi morphological segmenter. It builds a lattice over the input (known
 // words from the system dictionary via common-prefix search, unknown words from
 // the character-category rules) and returns the minimum-cost path, where cost is
-// the sum of word costs and connection costs. It segments in normal mode;
-// compound decomposition (search mode) is not implemented.
+// the sum of word costs and connection costs.
+//
+// In Search/Extended mode it additionally applies Lucene JapaneseTokenizer's
+// compound-decomposition penalty: long tokens (all-kanji runs longer than 2
+// chars, or other runs longer than 7 chars) are penalized so the lattice prefers
+// segmenting a long compound into its shorter parts, improving search recall.
+// Normal mode applies no penalty.
 class KuromojiViterbi {
 public:
-    explicit KuromojiViterbi(const KuromojiDictionary& dict) : _dict(dict) {}
+    explicit KuromojiViterbi(const KuromojiDictionary& dict,
+                             KuromojiMode mode = KuromojiMode::Normal)
+            : _dict(dict), _mode(mode) {}
 
     void segment(std::string_view text, std::vector<KuromojiMorpheme>* out) const;
 
 private:
     const KuromojiDictionary& _dict;
+    KuromojiMode _mode;
 };
 
 } // namespace doris::segment_v2::kuromoji
