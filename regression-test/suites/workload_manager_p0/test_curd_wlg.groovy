@@ -417,10 +417,15 @@ suite("test_crud_wlg") {
     // test bypass
     sql "create workload group if not exists bypass_group $forComputeGroupStr properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
     sql "set workload_group=bypass_group;"
+    // Disable the FE SQL cache here: `select count(1) from ${table_name}` is run repeatedly in this
+    // suite, so it can be served from the result cache and skip the Coordinator/query-queue path
+    // entirely, which makes this "queue is full" assertion flaky (the rejection never fires).
+    sql "set enable_sql_cache=false;"
     test {
         sql "select count(1) from ${table_name};"
         exception "query waiting queue is full"
     }
+    sql "set enable_sql_cache=true;"
 
     sql "set bypass_workload_group = true;"
     sql "select count(1) from information_schema.active_queries;"
