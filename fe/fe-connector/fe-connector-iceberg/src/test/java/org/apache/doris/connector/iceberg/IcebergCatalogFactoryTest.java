@@ -667,6 +667,86 @@ public class IcebergCatalogFactoryTest {
     }
 
     // ---------------------------------------------------------------------
+    // buildS3TablesCatalogProperties — bespoke s3tables options (NO catalog-impl, NO type removal)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void buildS3TablesCatalogPropertiesEmitsS3FileIoAndWarehouseNoImpl() {
+        // WHY: s3tables is NOT built via CatalogUtil — legacy IcebergS3TablesMetaStoreProperties hands the
+        // 3-arg S3TablesCatalog.initialize a props map = getOrigProps + warehouse(=table-bucket ARN) +
+        // manifest-cache + S3FileIO creds, and adds NEITHER "catalog-impl" NOR removes "type" (those are the
+        // CatalogUtil path's concern). MUTATION: adding catalog-impl, removing type, or dropping S3FileIO -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "type", "iceberg",
+                        "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3")
+                        .endpoint("https://s3.us-east-1.amazonaws.com").region("us-east-1")
+                        .accessKey("AK").secretKey("SK").sessionToken("TK").usePathStyle("true")));
+        Assertions.assertEquals("arn:aws:s3tables:us-east-1:1:bucket/b", opts.get("warehouse"),
+                "the table-bucket ARN warehouse must be carried through for the 3-arg initialize");
+        Assertions.assertEquals("AK", opts.get("s3.access-key-id"));
+        Assertions.assertEquals("SK", opts.get("s3.secret-access-key"));
+        Assertions.assertEquals("TK", opts.get("s3.session-token"));
+        Assertions.assertEquals("https://s3.us-east-1.amazonaws.com", opts.get("s3.endpoint"));
+        Assertions.assertEquals("us-east-1", opts.get("client.region"));
+        Assertions.assertEquals("true", opts.get("s3.path-style-access"));
+        Assertions.assertNull(opts.get("catalog-impl"),
+                "bespoke s3tables initialize must not receive a catalog-impl");
+        Assertions.assertEquals("iceberg", opts.get("type"),
+                "bespoke s3tables path does not perform the CatalogUtil 'type' removal");
+    }
+
+    @Test
+    public void buildS3TablesCatalogPropertiesEmitsAssumeRoleWhenNoStaticCreds() {
+        // WHY: with no static AK/SK but a role ARN, the FileIO credential block is the generic-S3 assume-role
+        // keys (client.factory + aws.region + client.assume-role.{region,arn,external-id}) — the same path the
+        // legacy putS3FileIOCredentialProperties ASSUME_ROLE branch emits. MUTATION: missing assume-role keys
+        // OR leaking static AK/SK -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
+                        .roleArn("arn:aws:iam::1:role/r").externalId("eid")));
+        Assertions.assertEquals("org.apache.iceberg.aws.AssumeRoleAwsClientFactory", opts.get("client.factory"));
+        Assertions.assertEquals("arn:aws:iam::1:role/r", opts.get("client.assume-role.arn"));
+        Assertions.assertEquals("us-west-2", opts.get("client.assume-role.region"));
+        Assertions.assertEquals("eid", opts.get("client.assume-role.external-id"));
+        Assertions.assertEquals("us-west-2", opts.get("client.region"));
+        Assertions.assertNull(opts.get("s3.access-key-id"), "no static creds were supplied");
+    }
+
+    @Test
+    public void buildS3TablesCatalogPropertiesExplicitStaticCredsSuppressAssumeRole() {
+        // WHY: s3tables uses legacy putS3FileIOCredentialProperties, whose getCredentialType is EXPLICIT-wins —
+        // static AK/SK present returns BEFORE any assume-role keys, EVEN when a role ARN is ALSO configured. This
+        // differs from the generic toS3FileIOProperties (rest/hadoop/jdbc) which always emits assume-role-if-role.
+        // The s3tables path must NOT reuse the always-emit appendS3FileIOProperties helper. MUTATION: emitting the
+        // assume-role block (client.factory / client.assume-role.*) when static creds are present -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
+                        .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/r")));
+        Assertions.assertEquals("AK", opts.get("s3.access-key-id"));
+        Assertions.assertEquals("SK", opts.get("s3.secret-access-key"));
+        Assertions.assertNull(opts.get("client.factory"),
+                "EXPLICIT static creds must suppress the assume-role block on the s3tables path");
+        Assertions.assertNull(opts.get("client.assume-role.arn"));
+    }
+
+    @Test
+    public void buildS3TablesCatalogPropertiesWithoutStorageOmitsS3FileIo() {
+        // WHY: with no bound S3-compatible storage the props carry only the base (warehouse + manifest-cache);
+        // no S3FileIO keys are fabricated (the connector fails loud before building the client). MUTATION:
+        // emitting any s3.* / client.region without a storage -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b"),
+                Optional.empty());
+        Assertions.assertEquals("arn:aws:s3tables:us-east-1:1:bucket/b", opts.get("warehouse"));
+        Assertions.assertNull(opts.get("s3.access-key-id"));
+        Assertions.assertNull(opts.get("client.region"));
+        Assertions.assertNull(opts.get("catalog-impl"));
+    }
+
+    // ---------------------------------------------------------------------
     // resolveCatalogName — jdbc positional vs default
     // ---------------------------------------------------------------------
 

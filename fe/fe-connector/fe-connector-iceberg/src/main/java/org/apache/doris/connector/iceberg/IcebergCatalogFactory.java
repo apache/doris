@@ -165,13 +165,43 @@ public final class IcebergCatalogFactory {
      * {@code S3} provider (legacy {@code instanceof S3Properties}). Every put is blank-guarded. PURE.
      */
     public static void appendS3FileIOProperties(Map<String, String> opts, S3CompatibleFileSystemProperties s3) {
+        putS3FileIODialect(opts, s3);
+        if ("S3".equals(s3.providerName())) {
+            appendAssumeRoleProperties(opts, s3);
+        }
+    }
+
+    /**
+     * Emits ONLY the {@code s3.*} + {@link AwsClientProperties#CLIENT_REGION} S3FileIO dialect keys (no
+     * credential-type block), shared by {@link #appendS3FileIOProperties} (rest/hadoop/jdbc/glue) and the
+     * s3tables emitter. Every put is blank-guarded.
+     */
+    private static void putS3FileIODialect(Map<String, String> opts, S3CompatibleFileSystemProperties s3) {
         putIfNotBlank(opts, S3FileIOProperties.ENDPOINT, s3.getEndpoint());
         putIfNotBlank(opts, S3FileIOProperties.PATH_STYLE_ACCESS, s3.getUsePathStyle());
         putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, s3.getRegion());
         putIfNotBlank(opts, S3FileIOProperties.ACCESS_KEY_ID, s3.getAccessKey());
         putIfNotBlank(opts, S3FileIOProperties.SECRET_ACCESS_KEY, s3.getSecretKey());
         putIfNotBlank(opts, S3FileIOProperties.SESSION_TOKEN, s3.getSessionToken());
-        if ("S3".equals(s3.providerName())) {
+    }
+
+    /**
+     * Emits the s3tables S3FileIO credential block mirroring legacy
+     * {@code IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties} — the EXPLICIT-wins ladder,
+     * which is DISTINCT from the generic {@link #appendS3FileIOProperties} ({@code toS3FileIOProperties}) used by
+     * rest/hadoop/jdbc/glue: the {@code s3.*} dialect always, then ONLY the credential-type addition.
+     * {@code EXPLICIT} (static AK/SK present) adds NOTHING — the static keys suffice and, per legacy
+     * {@code getCredentialType}, EXPLICIT precedes ASSUME_ROLE so a role ARN is ignored when static creds are set.
+     * {@code ASSUME_ROLE} (role ARN, no static) adds the assume-role block. {@code PROVIDER_CHAIN} would set
+     * {@code client.credentials-provider} for a non-DEFAULT mode in legacy; the connector cannot resolve that
+     * (the documented gap), so nothing is emitted. PURE.
+     */
+    private static void appendS3TablesFileIOProperties(Map<String, String> opts, S3CompatibleFileSystemProperties s3) {
+        putS3FileIODialect(opts, s3);
+        if (s3.hasStaticCredentials()) {
+            return;
+        }
+        if (s3.hasAssumeRole()) {
             appendAssumeRoleProperties(opts, s3);
         }
     }
@@ -299,6 +329,30 @@ public final class IcebergCatalogFactory {
         }
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
         opts.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        return opts;
+    }
+
+    /**
+     * Assembles the iceberg catalog OPTIONS map for the BESPOKE {@code s3tables} flavor, mirroring the legacy
+     * fe-core {@code AbstractIcebergProperties.initializeCatalog} base + {@code IcebergS3TablesMetaStoreProperties}
+     * {@code buildS3CatalogProperties}: the common base (copy-all + warehouse=table-bucket ARN + manifest cache)
+     * plus the {@code S3FileIO} dialect ({@code client.region} + {@code s3.*}) and the EXPLICIT-wins credential
+     * block ({@link #appendS3TablesFileIOProperties}) — which, unlike the generic rest/hadoop/jdbc FileIO path,
+     * suppresses the assume-role keys when static AK/SK are present (legacy {@code putS3FileIOCredentialProperties}
+     * returns early for EXPLICIT). PURE: a function of {@code props} + {@code chosenS3}.
+     *
+     * <p>Unlike {@link #buildCatalogProperties}, this does NOT add a {@code catalog-impl} and does NOT remove the
+     * {@code type} key: s3tables is built by the connector via {@code new S3TablesCatalog().initialize(name, opts,
+     * client)} (the 3-arg path), NOT by {@code CatalogUtil.buildIcebergCatalog}, so neither the catalog-impl nor
+     * the type-exclusion the SDK demands of the {@code CatalogUtil} path applies. The only hard requirement of the
+     * 3-arg initialize is a non-blank {@code warehouse} (the table-bucket ARN), carried here by the base copy-all.
+     * The control-plane {@code S3TablesClient} (region + credentials + endpoint + http) is built LIVE by the
+     * connector ({@code IcebergConnector.buildS3TablesClient}); it is not part of this pure options map.
+     */
+    public static Map<String, String> buildS3TablesCatalogProperties(Map<String, String> props,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        Map<String, String> opts = buildBaseCatalogProperties(props);
+        chosenS3.ifPresent(s3 -> appendS3TablesFileIOProperties(opts, s3));
         return opts;
     }
 

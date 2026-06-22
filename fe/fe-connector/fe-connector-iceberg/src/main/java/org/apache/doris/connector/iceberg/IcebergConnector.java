@@ -36,9 +36,23 @@ import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3tables.S3TablesClient;
+import software.amazon.awssdk.services.s3tables.S3TablesClientBuilder;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
+import software.amazon.s3tables.iceberg.S3TablesCatalog;
+import software.amazon.s3tables.iceberg.S3TablesProperties;
+import software.amazon.s3tables.iceberg.imports.HttpClientProperties;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collections;
@@ -46,6 +60,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -62,8 +77,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Phase 1 provides read-only metadata operations (list databases, list tables,
  * get schema). Write operations, scan planning, actions (compaction, snapshot
- * management), and transaction support remain in fe-core temporarily. {@code s3tables}/{@code dlf}
- * use the generic {@code CatalogUtil} path here; their bespoke instantiation lands in P6-T06/T07.</p>
+ * management), and transaction support remain in fe-core temporarily. {@code s3tables} uses its bespoke
+ * 3-arg {@code S3TablesCatalog.initialize(name, opts, client)} path (P6-T06); {@code dlf} still falls through
+ * to the generic {@code CatalogUtil} placeholder until its subtree port (P6-T07).</p>
  */
 public class IcebergConnector implements Connector {
 
@@ -113,9 +129,17 @@ public class IcebergConnector implements Connector {
 
         Optional<S3CompatibleFileSystemProperties> chosenS3 =
                 IcebergCatalogFactory.chooseS3Compatible(context.getStorageProperties());
+        String catalogName = IcebergCatalogFactory.resolveCatalogName(properties, flavor, context.getCatalogName());
+
+        // s3tables is bespoke: it is NOT built via CatalogUtil.buildIcebergCatalog. Legacy
+        // IcebergS3TablesMetaStoreProperties hand-builds an S3TablesClient and calls the 3-arg
+        // S3TablesCatalog.initialize(name, opts, client). Routed before the CatalogUtil flavor switch.
+        if (IcebergConnectorProperties.TYPE_S3_TABLES.equals(flavor)) {
+            return createS3TablesCatalog(catalogName, chosenS3);
+        }
+
         Map<String, String> catalogProps =
                 IcebergCatalogFactory.buildCatalogProperties(properties, flavor, chosenS3);
-        String catalogName = IcebergCatalogFactory.resolveCatalogName(properties, flavor, context.getCatalogName());
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         Configuration conf;
@@ -143,7 +167,7 @@ public class IcebergConnector implements Connector {
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
             default:
-                // rest / hadoop (and the s3tables/dlf placeholders): a storage Configuration from the
+                // rest / hadoop (and the dlf placeholder): a storage Configuration from the
                 // fe-filesystem-bound storage + raw fs./dfs./hadoop. passthrough.
                 conf = IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
                 break;
@@ -151,7 +175,98 @@ public class IcebergConnector implements Connector {
 
         LOG.info("Creating Iceberg catalog '{}' flavor='{}' impl='{}'",
                 catalogName, flavor, catalogProps.get(CatalogProperties.CATALOG_IMPL));
-        return buildCatalogAuthenticated(catalogName, catalogProps, conf, flavor);
+        return buildCatalogAuthenticated(flavor,
+                () -> CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, conf));
+    }
+
+    /**
+     * Creates the bespoke {@code s3tables} catalog, mirroring legacy {@code IcebergS3TablesMetaStoreProperties}: a
+     * hand-built {@link S3TablesClient} (region + credentials + optional {@code s3tables.endpoint} override + the
+     * s3tables-SDK http config) is passed to the 3-arg {@code S3TablesCatalog.initialize(name, opts, client)} —
+     * NOT to {@code CatalogUtil.buildIcebergCatalog}. The 2-arg {@code initialize(name, opts)} is intentionally
+     * avoided: its {@code DefaultS3TablesAwsClientFactory} honors only a {@code client.credentials-provider} class
+     * and would silently drop static {@code s3.access-key-id}/{@code s3.secret-access-key} (falling back to the
+     * SDK default chain). A bound S3-compatible storage is required to derive region + credentials; a missing one
+     * (or a blank region) fails loud here, before any AWS call.
+     */
+    private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        if (!chosenS3.isPresent()) {
+            throw new DorisConnectorException(
+                    "Iceberg s3tables catalog requires S3-compatible storage properties (region + credentials)");
+        }
+        S3CompatibleFileSystemProperties s3 = chosenS3.get();
+        if (StringUtils.isBlank(s3.getRegion())) {
+            throw new DorisConnectorException(
+                    "Iceberg s3tables catalog requires a region (set s3.region or a region-bearing endpoint)");
+        }
+        Map<String, String> catalogProps =
+                IcebergCatalogFactory.buildS3TablesCatalogProperties(properties, chosenS3);
+        LOG.info("Creating Iceberg s3tables catalog '{}' region='{}'", catalogName, s3.getRegion());
+        return buildCatalogAuthenticated(IcebergConnectorProperties.TYPE_S3_TABLES, () -> {
+            S3TablesClient client = buildS3TablesClient(s3);
+            S3TablesCatalog catalog = new S3TablesCatalog();
+            catalog.initialize(catalogName, catalogProps, client);
+            return catalog;
+        });
+    }
+
+    /**
+     * Hand-builds the control-plane {@link S3TablesClient}, mirroring legacy
+     * {@code IcebergS3TablesMetaStoreProperties.buildS3TablesClient}: region + credentials provider + the optional
+     * {@code s3tables.endpoint} override + the s3tables-SDK http-client tuning ({@link HttpClientProperties}). The
+     * credentials provider is derived from the typed fe-filesystem storage by {@link #buildAwsCredentialsProvider}.
+     */
+    private S3TablesClient buildS3TablesClient(S3CompatibleFileSystemProperties s3) {
+        S3TablesClientBuilder builder = S3TablesClient.builder()
+                .region(Region.of(s3.getRegion()))
+                .credentialsProvider(buildAwsCredentialsProvider(s3));
+        String endpoint = properties.get(S3TablesProperties.S3TABLES_ENDPOINT);
+        if (StringUtils.isNotBlank(endpoint)) {
+            builder.endpointOverride(URI.create(endpoint));
+        }
+        new HttpClientProperties(properties).applyHttpClientConfigurations(builder);
+        return builder.build();
+    }
+
+    /**
+     * Derives the AWS SDK v2 credentials provider for the s3tables control-plane client from the typed
+     * fe-filesystem storage, mirroring legacy
+     * {@code IcebergAwsClientCredentialsProperties.createAwsCredentialsProvider}: static AK/SK ->
+     * {@link StaticCredentialsProvider} (with a session token when present); a role ARN ->
+     * {@link StsAssumeRoleCredentialsProvider} (role session name {@code aws-sdk-java-v2-fe}, optional external
+     * id); otherwise the SDK default chain ({@link DefaultCredentialsProvider}).
+     *
+     * <p>DEVIATION (UT-invisible, P6.6 docker gate): legacy resolves the non-DEFAULT {@code PROVIDER_CHAIN}
+     * provider modes through fe-core {@code AwsCredentialsProviderFactory.createV2}, which the connector may not
+     * import; both the no-credential case and the STS base credentials therefore fall back to
+     * {@link DefaultCredentialsProvider} (the common instance-profile / env case is unaffected). Same family as
+     * the documented REST/glue {@code PROVIDER_CHAIN} gap.
+     */
+    private static AwsCredentialsProvider buildAwsCredentialsProvider(S3CompatibleFileSystemProperties s3) {
+        if (s3.hasStaticCredentials()) {
+            if (StringUtils.isBlank(s3.getSessionToken())) {
+                return StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(s3.getAccessKey(), s3.getSecretKey()));
+            }
+            return StaticCredentialsProvider.create(
+                    AwsSessionCredentials.create(s3.getAccessKey(), s3.getSecretKey(), s3.getSessionToken()));
+        }
+        if (s3.hasAssumeRole()) {
+            StsClient stsClient = StsClient.builder()
+                    .region(Region.of(s3.getRegion()))
+                    .credentialsProvider(DefaultCredentialsProvider.create())
+                    .build();
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(b -> {
+                        b.roleArn(s3.getRoleArn()).roleSessionName("aws-sdk-java-v2-fe");
+                        if (StringUtils.isNotBlank(s3.getExternalId())) {
+                            b.externalId(s3.getExternalId());
+                        }
+                    })
+                    .build();
+        }
+        return DefaultCredentialsProvider.create();
     }
 
     /**
@@ -168,8 +283,7 @@ public class IcebergConnector implements Connector {
         return merged;
     }
 
-    private Catalog buildCatalogAuthenticated(String catalogName, Map<String, String> catalogProps,
-            Configuration conf, String flavor) {
+    private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {
         // Pin the thread-context classloader to the plugin loader for the duration of catalog creation
         // (FIX-PAIMON-HADOOP-CLASSLOADER parity): Hadoop's FileSystem ServiceLoader + SecurityUtil static init
         // resolve through the TCCL; without the pin they read the parent 'app' loader and split-brain against
@@ -177,7 +291,7 @@ public class IcebergConnector implements Connector {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            return context.executeAuthenticated(() -> CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, conf));
+            return context.executeAuthenticated(builder);
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to create Iceberg catalog (flavor=" + flavor + "): " + e.getMessage(), e);
