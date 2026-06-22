@@ -42,9 +42,10 @@ under the License.
         <module>fe-connector-spi</module>
         <module>fe-connector-metastore-api</module>
         <module>fe-connector-metastore-spi</module>
-        <!-- Paimon per-engine metastore backends (ServiceLoader providers); depended on by
-             fe-connector-paimon. Maven topologically orders the reactor by the dependency graph. -->
+        <!-- Per-engine metastore backends (ServiceLoader providers); depended on by their connectors.
+             Maven topologically orders the reactor by the dependency graph. -->
         <module>fe-connector-metastore-paimon</module>
+        <module>fe-connector-metastore-iceberg</module>
         <module>fe-connector-es</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>

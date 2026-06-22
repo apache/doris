@@ -47,14 +47,18 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Shared metastore connection-fact parsers + MetaStoreProvider SPI (D-059 Q2=B): the
-             per-flavor property / HiveConf / DLF-conf assembly ported in P6-T05/T07 reuses
-             HmsMetaStorePropertiesImpl.toHiveConfOverrides and DlfMetaStorePropertiesImpl.toDlfCatalogConf
-             instead of re-deriving them in the connector. Transitively pulls metastore-api + fe-kerberos
-             (facts carriers); Hadoop/fs-free. Mirrors fe-connector-paimon. -->
+        <!-- Iceberg per-engine metastore backends + the shared MetaStoreProvider SPI (D-059 Q2=B): the
+             per-flavor property / HiveConf / DLF-conf assembly ported in P6-T05/T07 reuses the shared
+             Abstract{Hms,Dlf}MetaStoreProperties conf (toHiveConfOverrides / toDlfCatalogConf) via
+             bindForType("hms"/"dlf"), and P6-T10 wires validateProperties to bindForType(flavor).validate().
+             Post P6-T10 the concrete iceberg impls + their ServiceLoader providers live in
+             fe-connector-metastore-iceberg (mirroring fe-connector-metastore-paimon); it transitively pulls
+             the extension point + framework + conf bases (metastore-spi), the contracts (metastore-api), and
+             fe-kerberos. All bundled child-first into the plugin-zip, so only iceberg's providers are
+             discoverable here (NOT paimon's). Hadoop/fs-free. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-metastore-spi</artifactId>
+            <artifactId>fe-connector-metastore-iceberg</artifactId>
             <version>${project.version}</version>
         </dependency>
 
