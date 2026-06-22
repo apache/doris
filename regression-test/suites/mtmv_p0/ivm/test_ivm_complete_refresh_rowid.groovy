@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_ivm_complete_refresh_rowid", "mtmv") {
-    String tableName = "test_ivm_complete_refresh_rowid_base"
-    String mvName = "test_ivm_complete_refresh_rowid_mv"
+    String tableName = "ivm_rowid_base"
+    String mvName = "ivm_rowid_mv"
 
     sql """SET show_hidden_columns = false;"""
     sql """drop materialized view if exists ${mvName};"""

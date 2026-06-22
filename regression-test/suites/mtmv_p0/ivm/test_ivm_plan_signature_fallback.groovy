@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_ivm_plan_signature_fallback", "nonConcurrent") {
-    def tableName = "test_ivm_plan_signature_fallback_t"
-    def mvName = "test_ivm_plan_signature_fallback_mv"
+    def tableName = "ivm_sigfb_t"
+    def mvName = "ivm_sigfb_mv"
     def signatureSaltDebugPoint = "IvmPlanSignatureGenerator.generate.signature_salt"
 
     GetDebugPoint().disableDebugPointForAllFEs(signatureSaltDebugPoint)
