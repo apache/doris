@@ -80,6 +80,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
@@ -1295,6 +1296,11 @@ public class Alter {
                 case ALTER_PROPERTY:
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
+                case ALTER_ADD_COLUMN:
+                    mtmv.alterAddColumn(
+                            alterMTMV.getNewColumn(),
+                            alterMTMV.getExprSql(), alterMTMV.getNewQuerySql());
+                    break;
                 case ADD_TASK:
                     alterSuccess = mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(),
                             alterMTMV.getPartitionSnapshots(),
@@ -1310,6 +1316,10 @@ public class Alter {
             }
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
+            }
+            // keep FE-side plan/cache consistent after MTMV schema change
+            if (alterSuccess && alterMTMV.getOpType() == MTMVAlterOpType.ALTER_ADD_COLUMN) {
+                Env.getCurrentEnv().notifyTableMetaChange(mtmv);
             }
             // 4. log it and replay it in the follower
             if (!isReplay && alterSuccess) {

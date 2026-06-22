@@ -90,7 +90,8 @@ materializedViewStatement
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
         | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
-        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
+        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN)
+        | ADD COLUMN colName=identifier AS expression)                                          #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
         (ON tableName=multipartIdentifier)?                                                     #dropMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV

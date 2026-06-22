@@ -909,6 +909,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterLoadErrorUrlOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVAddColumnInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
@@ -1857,6 +1858,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Map<String, String> properties = ctx.propertyClause() != null
                     ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
             alterMTMVInfo = new AlterMTMVReplaceInfo(mvName, newName, properties);
+        } else if (ctx.colName != null) {
+            String columnName = ctx.colName.getText();
+            String exprSql = getOriginSql(ctx.expression());
+            alterMTMVInfo = new AlterMTMVAddColumnInfo(mvName, columnName, exprSql);
         }
         return new AlterMTMVCommand(alterMTMVInfo);
     }
