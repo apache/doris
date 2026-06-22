@@ -65,6 +65,39 @@ bool value_in_range(const Field& value, const Field& min_value, const Field& max
     return field_greater_equal(value, min_value) && field_less_equal(value, max_value);
 }
 
+std::optional<Field> zero_field(PrimitiveType type) {
+    switch (type) {
+    case TYPE_BOOLEAN:
+        return Field::create_field<TYPE_BOOLEAN>(UInt8(0));
+    case TYPE_TINYINT:
+        return Field::create_field<TYPE_TINYINT>(Int8(0));
+    case TYPE_SMALLINT:
+        return Field::create_field<TYPE_SMALLINT>(Int16(0));
+    case TYPE_INT:
+        return Field::create_field<TYPE_INT>(Int32(0));
+    case TYPE_BIGINT:
+        return Field::create_field<TYPE_BIGINT>(Int64(0));
+    case TYPE_LARGEINT:
+        return Field::create_field<TYPE_LARGEINT>(Int128(0));
+    case TYPE_FLOAT:
+        return Field::create_field<TYPE_FLOAT>(Float32(0));
+    case TYPE_DOUBLE:
+        return Field::create_field<TYPE_DOUBLE>(Float64(0));
+    case TYPE_DECIMAL32:
+        return Field::create_field<TYPE_DECIMAL32>(Decimal32(0));
+    case TYPE_DECIMAL64:
+        return Field::create_field<TYPE_DECIMAL64>(Decimal64(0));
+    case TYPE_DECIMAL128I:
+        return Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(0));
+    case TYPE_DECIMALV2:
+        return Field::create_field<TYPE_DECIMALV2>(DecimalV2Value());
+    case TYPE_DECIMAL256:
+        return Field::create_field<TYPE_DECIMAL256>(Decimal256(0));
+    default:
+        return std::nullopt;
+    }
+}
+
 } // namespace
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
@@ -144,6 +177,58 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
     }
 
     return std::nullopt;
+}
+
+std::optional<ExprLiteral> extract_zonemap_expr_and_literal(const VExprSPtrs& args) {
+    if (args.size() != 2) {
+        return std::nullopt;
+    }
+
+    if (args[0]->can_derive_zonemap()) {
+        DataTypePtr literal_type;
+        auto literal = field_from_literal_expr(args[1], &literal_type);
+        if (!literal.has_value()) {
+            return std::nullopt;
+        }
+        return ExprLiteral {.expr = args[0],
+                            .expr_type = args[0]->data_type(),
+                            .literal = std::move(*literal),
+                            .literal_type = std::move(literal_type),
+                            .literal_on_left = false};
+    }
+
+    if (args[1]->can_derive_zonemap()) {
+        DataTypePtr literal_type;
+        auto literal = field_from_literal_expr(args[0], &literal_type);
+        if (!literal.has_value()) {
+            return std::nullopt;
+        }
+        return ExprLiteral {.expr = args[1],
+                            .expr_type = args[1]->data_type(),
+                            .literal = std::move(*literal),
+                            .literal_type = std::move(literal_type),
+                            .literal_on_left = true};
+    }
+
+    return std::nullopt;
+}
+
+ZoneMapMonotonicity abs_monotonicity(const ExprDerivedZoneMap& argument_zonemap) {
+    const auto& zone_map = argument_zonemap.zone_map;
+    if (!zone_map.has_not_null) {
+        return ZoneMapMonotonicity::kConstant;
+    }
+    auto zero = zero_field(zone_map.min_value.get_type());
+    if (!zero.has_value()) {
+        return ZoneMapMonotonicity::kUnsupported;
+    }
+    if (field_less_equal(zone_map.max_value, *zero)) {
+        return ZoneMapMonotonicity::kDecreasing;
+    }
+    if (field_greater_equal(zone_map.min_value, *zero)) {
+        return ZoneMapMonotonicity::kIncreasing;
+    }
+    return ZoneMapMonotonicity::kNotMonotonic;
 }
 
 bool range_stats_usable_for_zonemap(const segment_v2::ZoneMap& zone_map,

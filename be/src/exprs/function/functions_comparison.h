@@ -81,27 +81,23 @@ inline Op symmetric_op(Op op) {
 
 inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
                                     Op op) {
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+    auto expr_literal = expr_zonemap::extract_zonemap_expr_and_literal(arguments);
+    DORIS_CHECK(expr_literal.has_value());
 
-    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
-                                                              slot_literal->slot_type);
-    if (slot_type == nullptr) {
+    auto derived_zonemap = expr_literal->expr->derive_zonemap(ctx);
+    if (derived_zonemap == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
-    const auto* zone_map_ref = ctx.zone_map(slot_literal->slot_index);
-    if (zone_map_ref == nullptr) {
-        return unsupported_zonemap_filter(ctx);
-    }
-    const auto& zone_map = *zone_map_ref;
+    const auto& zone_map = derived_zonemap->zone_map;
     if (!zone_map.has_not_null) {
         return ZoneMapFilterResult::kNoMatch;
     }
-    if (!expr_zonemap::range_stats_usable_for_zonemap(zone_map, slot_type)) {
+    if (!expr_zonemap::range_stats_usable_for_zonemap(zone_map, derived_zonemap->data_type)) {
         return unsupported_zonemap_filter(ctx);
     }
 
-    const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
-    const auto& literal = slot_literal->literal;
+    const auto effective_op = expr_literal->literal_on_left ? symmetric_op(op) : op;
+    const auto& literal = expr_literal->literal;
     switch (effective_op) {
     case Op::EQ:
         return expr_zonemap::field_less(literal, zone_map.min_value) ||
@@ -135,21 +131,21 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
 }
 
 inline bool can_evaluate(const VExprSPtrs& arguments) {
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
-    if (!slot_literal.has_value()) {
+    auto expr_literal = expr_zonemap::extract_zonemap_expr_and_literal(arguments);
+    if (!expr_literal.has_value()) {
         return false;
     }
 
     // A NULL literal makes the comparison evaluate to NULL instead of a byte range predicate on
     // the slot. This zonemap evaluator only derives bounds from non-NULL literals, so reject this
     // shape here before evaluate_zonemap_filter is called.
-    if (slot_literal->literal.is_null()) {
+    if (expr_literal->literal.is_null()) {
         return false;
     }
 
-    DORIS_CHECK(slot_literal->slot_type != nullptr);
-    DORIS_CHECK(slot_literal->literal_type != nullptr);
-    if (!expr_zonemap::data_types_compatible(slot_literal->slot_type, slot_literal->literal_type)) {
+    DORIS_CHECK(expr_literal->expr_type != nullptr);
+    DORIS_CHECK(expr_literal->literal_type != nullptr);
+    if (!expr_zonemap::data_types_compatible(expr_literal->expr_type, expr_literal->literal_type)) {
         // The optimizer may generate a bare slot/literal comparison whose logical types differ
         // only by attributes such as DATETIMEV2 scale. Expr zonemap evaluates stored Field
         // values without running expression casts, so conservatively skip this optimization.

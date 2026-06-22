@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -79,6 +80,8 @@ struct FunctionAttr {
 class Field;
 class VExpr;
 class ZoneMapEvalContext;
+enum class ZoneMapMonotonicity;
+struct ExprDerivedZoneMap;
 
 // Only use dispose the variadic argument
 template <typename T>
@@ -236,6 +239,11 @@ public:
     virtual bool can_evaluate_zonemap_filter(const VExprSPtrs& /*function_arguments*/) const {
         return false;
     }
+
+    virtual bool can_derive_zonemap() const { return false; }
+
+    virtual ZoneMapMonotonicity get_zonemap_monotonicity(
+            const ExprDerivedZoneMap& argument_zonemap) const;
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -509,6 +517,13 @@ public:
 
     bool can_evaluate_zonemap_filter(const VExprSPtrs& function_arguments) const override {
         return function->can_evaluate_zonemap_filter(function_arguments);
+    }
+
+    bool can_derive_zonemap() const override { return function->can_derive_zonemap(); }
+
+    ZoneMapMonotonicity get_zonemap_monotonicity(
+            const ExprDerivedZoneMap& argument_zonemap) const override {
+        return function->get_zonemap_monotonicity(argument_zonemap);
     }
 
 private:

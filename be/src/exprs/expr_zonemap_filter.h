@@ -54,7 +54,19 @@ struct SlotLiteral {
     bool literal_on_left;
 };
 
+struct ExprLiteral {
+    VExprSPtr expr;
+    DataTypePtr expr_type;
+    Field literal;
+    DataTypePtr literal_type;
+    bool literal_on_left;
+};
+
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+std::optional<ExprLiteral> extract_zonemap_expr_and_literal(const VExprSPtrs& args);
+
+ZoneMapMonotonicity abs_monotonicity(const ExprDerivedZoneMap& argument_zonemap);
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
                                                   int precision, int scale);

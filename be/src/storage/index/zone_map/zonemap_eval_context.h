@@ -50,6 +50,19 @@ public:
     int64_t in_zonemap_range_only_count = 0;
 };
 
+enum class ZoneMapMonotonicity {
+    kIncreasing,
+    kDecreasing,
+    kConstant,
+    kNotMonotonic,
+    kUnsupported,
+};
+
+struct ExprDerivedZoneMap {
+    DataTypePtr data_type;
+    segment_v2::ZoneMap zone_map;
+};
+
 class ZoneMapEvalContext {
 public:
     struct SlotZoneMap {

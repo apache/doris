@@ -83,6 +83,11 @@ ZoneMapFilterResult VExpr::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx
     return unsupported_zonemap_filter(ctx);
 }
 
+std::shared_ptr<ExprDerivedZoneMap> VExpr::derive_zonemap(const ZoneMapEvalContext& ctx) const {
+    static_cast<void>(ctx);
+    return nullptr;
+}
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(readability-function-size)
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,

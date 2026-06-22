@@ -62,7 +62,7 @@ class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
 class ZoneMapEvalContext;
-
+struct ExprDerivedZoneMap;
 namespace segment_v2 {
 class IndexIterator;
 class ColumnIterator;
@@ -184,6 +184,8 @@ public:
 
     virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
     virtual bool can_evaluate_zonemap_filter() const { return false; }
+    virtual std::shared_ptr<ExprDerivedZoneMap> derive_zonemap(const ZoneMapEvalContext& ctx) const;
+    virtual bool can_derive_zonemap() const { return false; }
 
     // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {

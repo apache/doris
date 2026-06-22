@@ -40,6 +40,7 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vcompound_pred.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -71,13 +72,22 @@ Field int_field(int32_t value) {
     return Field::create_field<TYPE_INT>(value);
 }
 
+Field bigint_field(int64_t value) {
+    return Field::create_field<TYPE_BIGINT>(value);
+}
+
 DataTypePtr int_type() {
     return std::make_shared<DataTypeInt32>();
+}
+
+DataTypePtr bigint_type() {
+    return std::make_shared<DataTypeInt64>();
 }
 
 VExprSPtr make_slot(int column_id, const DataTypePtr& data_type) {
     auto slot = std::make_shared<VSlotRef>();
     slot->set_node_type(TExprNodeType::SLOT_REF);
+    slot->set_slot_id(-1);
     slot->set_column_id(column_id);
     slot->data_type() = data_type;
     return slot;
@@ -85,6 +95,32 @@ VExprSPtr make_slot(int column_id, const DataTypePtr& data_type) {
 
 VExprSPtr make_int_literal(int32_t value) {
     return std::make_shared<VLiteral>(create_texpr_node_from(int_field(value), TYPE_INT, 0, 0));
+}
+
+VExprSPtr make_bigint_literal(int64_t value) {
+    return std::make_shared<VLiteral>(
+            create_texpr_node_from(bigint_field(value), TYPE_BIGINT, 0, 0));
+}
+
+VExprSPtr make_abs_expr(const VExprSPtr& child, const DataTypePtr& return_type) {
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_num_children(1);
+    node.__set_type(return_type->to_thrift());
+    node.__set_is_nullable(return_type->is_nullable());
+    TFunction fn;
+    TFunctionName fn_name;
+    fn_name.__set_function_name("abs");
+    fn.__set_name(fn_name);
+    node.__set_fn(fn);
+
+    auto expr = VectorizedFnCall::create_shared(node);
+    expr->add_child(child);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    VExprContext context(expr);
+    EXPECT_TRUE(expr->prepare(&state, row_desc, &context).ok());
+    return expr;
 }
 
 Field datetimev2_field(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
@@ -332,6 +368,54 @@ TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesBoundariesAndAllOperators) {
               greater_equal.evaluate_zonemap_filter(ctx, {make_int_literal(9), slot}));
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               greater_equal.evaluate_zonemap_filter(ctx, {make_int_literal(10), slot}));
+}
+
+TEST(ExprZonemapFilterTest, AbsDerivedZonemapPrunesMonotonicNegativeRange) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto abs_expr = make_abs_expr(slot, bigint_type());
+    auto ctx = make_context(make_int_zonemap(-30, -10), type);
+
+    ASSERT_TRUE(abs_expr->can_derive_zonemap());
+    auto derived_zonemap = abs_expr->derive_zonemap(ctx);
+    ASSERT_NE(nullptr, derived_zonemap);
+    EXPECT_EQ(TYPE_BIGINT, derived_zonemap->zone_map.min_value.get_type());
+    EXPECT_EQ(10, derived_zonemap->zone_map.min_value.get<TYPE_BIGINT>());
+    EXPECT_EQ(30, derived_zonemap->zone_map.max_value.get<TYPE_BIGINT>());
+
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    EXPECT_TRUE(greater.can_evaluate_zonemap_filter({abs_expr, make_bigint_literal(100)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_zonemap_filter(ctx, {abs_expr, make_bigint_literal(100)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              greater.evaluate_zonemap_filter(ctx, {abs_expr, make_bigint_literal(20)}));
+}
+
+TEST(ExprZonemapFilterTest, AbsDerivedZonemapSupportsLiteralOnLeftPositiveRange) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto abs_expr = make_abs_expr(slot, bigint_type());
+    auto ctx = make_context(make_int_zonemap(10, 30), type);
+
+    FunctionComparison<LessOp, NameLess> less;
+    EXPECT_TRUE(less.can_evaluate_zonemap_filter({make_bigint_literal(100), abs_expr}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(ctx, {make_bigint_literal(100), abs_expr}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_zonemap_filter(ctx, {make_bigint_literal(20), abs_expr}));
+}
+
+TEST(ExprZonemapFilterTest, AbsDerivedZonemapFallsBackWhenRangeCrossesZero) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto abs_expr = make_abs_expr(slot, bigint_type());
+    auto ctx = make_context(make_int_zonemap(-5, 20), type);
+
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    EXPECT_TRUE(greater.can_evaluate_zonemap_filter({abs_expr, make_bigint_literal(100)}));
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              greater.evaluate_zonemap_filter(ctx, {abs_expr, make_bigint_literal(100)}));
+    EXPECT_EQ(1, ctx.stats.unusable_zonemap_eval_count);
 }
 
 TEST(ExprZonemapFilterTest, ComparisonZonemapHandlesNullAndUnsupportedInputs) {

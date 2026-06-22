@@ -218,6 +218,83 @@ bool VectorizedFnCall::can_evaluate_zonemap_filter() const {
            _function->can_evaluate_zonemap_filter(_children);
 }
 
+bool VectorizedFnCall::can_derive_zonemap() const {
+    return _function != nullptr && !_function->is_blockable() && _function->can_derive_zonemap() &&
+           _children.size() == 1 && _children[0]->can_derive_zonemap();
+}
+
+std::shared_ptr<ExprDerivedZoneMap> VectorizedFnCall::derive_zonemap(
+        const ZoneMapEvalContext& ctx) const {
+    if (!can_derive_zonemap()) {
+        return nullptr;
+    }
+    auto child_zonemap = _children[0]->derive_zonemap(ctx);
+    if (child_zonemap == nullptr) {
+        return nullptr;
+    }
+
+    if (!child_zonemap->zone_map.has_not_null) {
+        segment_v2::ZoneMap derived_zonemap;
+        derived_zonemap.has_null = child_zonemap->zone_map.has_null;
+        return std::make_shared<ExprDerivedZoneMap>(ExprDerivedZoneMap {
+                .data_type = _data_type, .zone_map = std::move(derived_zonemap)});
+    }
+
+    const auto monotonicity = _function->get_zonemap_monotonicity(*child_zonemap);
+    if (monotonicity == ZoneMapMonotonicity::kUnsupported ||
+        monotonicity == ZoneMapMonotonicity::kNotMonotonic) {
+        return nullptr;
+    }
+
+    auto boundary_column = child_zonemap->data_type->create_column();
+    boundary_column->insert(child_zonemap->zone_map.min_value);
+    boundary_column->insert(child_zonemap->zone_map.max_value);
+
+    Block boundary_block;
+    boundary_block.insert(
+            {std::move(boundary_column), child_zonemap->data_type, _children[0]->expr_name()});
+    const uint32_t result_index = boundary_block.columns();
+    boundary_block.insert({nullptr, _data_type, expr_name()});
+    ColumnNumbers arguments = {0};
+    auto status = _function->execute(nullptr, boundary_block, arguments, result_index, 2);
+    if (!status.ok()) {
+        return nullptr;
+    }
+
+    auto result_column =
+            boundary_block.get_by_position(result_index).column->convert_to_full_column_if_const();
+    if (result_column->size() != 2) {
+        return nullptr;
+    }
+    Field result_min_candidate;
+    Field result_max_candidate;
+    result_column->get(0, result_min_candidate);
+    result_column->get(1, result_max_candidate);
+    if (result_min_candidate.is_null() || result_max_candidate.is_null()) {
+        return nullptr;
+    }
+
+    segment_v2::ZoneMap derived_zonemap;
+    derived_zonemap.has_null = child_zonemap->zone_map.has_null;
+    derived_zonemap.has_not_null = true;
+    switch (monotonicity) {
+    case ZoneMapMonotonicity::kIncreasing:
+    case ZoneMapMonotonicity::kConstant:
+        derived_zonemap.min_value = std::move(result_min_candidate);
+        derived_zonemap.max_value = std::move(result_max_candidate);
+        break;
+    case ZoneMapMonotonicity::kDecreasing:
+        derived_zonemap.min_value = std::move(result_max_candidate);
+        derived_zonemap.max_value = std::move(result_min_candidate);
+        break;
+    case ZoneMapMonotonicity::kNotMonotonic:
+    case ZoneMapMonotonicity::kUnsupported:
+        return nullptr;
+    }
+    return std::make_shared<ExprDerivedZoneMap>(
+            ExprDerivedZoneMap {.data_type = _data_type, .zone_map = std::move(derived_zonemap)});
+}
+
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
                                      const Selector* selector, size_t count,
                                      ColumnPtr& result_column, ColumnPtr* arg_column) const {

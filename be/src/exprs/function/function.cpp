@@ -411,4 +411,9 @@ ZoneMapFilterResult IFunctionBase::evaluate_zonemap_filter(
     return unsupported_zonemap_filter(ctx);
 }
 
+ZoneMapMonotonicity IFunctionBase::get_zonemap_monotonicity(
+        const ExprDerivedZoneMap& argument_zonemap) const {
+    return ZoneMapMonotonicity::kUnsupported;
+}
+
 } // namespace doris
