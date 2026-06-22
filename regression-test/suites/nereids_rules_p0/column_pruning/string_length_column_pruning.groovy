@@ -294,14 +294,14 @@ suite("string_length_column_pruning") {
         order by id
     """
 
-    // [map_arr_struct_col, VALUES, *, verified] strips [map_arr_struct_col, VALUES, OFFSET].
-    // KEYS (data path) remains in predicateAccessPaths.
+    // [map_arr_struct_col, VALUES, *, verified] strips [map_arr_struct_col, VALUES, OFFSET]
+    // from allAccessPaths. The predicate keeps VALUES.OFFSET so cardinality() can read the
+    // value-array offsets during predicate evaluation.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
         contains "nested columns"
         contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified]"
-        contains "predicate access paths: [map_arr_struct_col.KEYS]"
-        notContains "map_arr_struct_col.VALUES.OFFSET"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.OFFSET]"
         notContains "type=bigint"
     }
 
@@ -311,15 +311,15 @@ suite("string_length_column_pruning") {
         order by 1
     """
 
-    // [map_arr_struct_col, VALUES, *, verified] strips [map_arr_struct_col, VALUES, NULL].
-    // KEYS (data path) remains in predicateAccessPaths.
+    // [map_arr_struct_col, VALUES, *, verified] strips [map_arr_struct_col, VALUES, NULL]
+    // from allAccessPaths. The predicate keeps VALUES.NULL so IS NULL can read the value-array
+    // null map during predicate evaluation.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
         contains "nested columns"
         contains "map_arr_struct_col.KEYS"
         contains "map_arr_struct_col.VALUES.*.verified"
-        contains "predicate access paths: [map_arr_struct_col.KEYS]"
-        notContains "map_arr_struct_col.VALUES.NULL"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.NULL]"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────

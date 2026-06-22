@@ -89,6 +89,15 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_BITMAP || type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT;
 }
 
+bool is_current_level_meta_access_path(const TColumnAccessPath& path) {
+    if (path.data_access_path.path.size() != 1) {
+        return false;
+    }
+    const auto& component = path.data_access_path.path[0];
+    return StringCaseEqual()(component, ColumnIterator::ACCESS_OFFSET) ||
+           StringCaseEqual()(component, ColumnIterator::ACCESS_NULL);
+}
+
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::shared_ptr<ColumnReader>* reader) {
@@ -2163,6 +2172,11 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths =
             DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
+    const bool has_current_level_predicate_meta_path =
+            std::ranges::any_of(sub_predicate_access_paths, is_current_level_meta_access_path);
+    auto removed =
+            std::ranges::remove_if(sub_predicate_access_paths, is_current_level_meta_access_path);
+    sub_predicate_access_paths.erase(removed.begin(), removed.end());
 
     // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY)
     _check_and_set_meta_read_mode(sub_all_access_paths);
@@ -2190,16 +2204,22 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
         }
     }
 
-    if (!no_predicate_sub_column) {
+    if (no_predicate_sub_column) {
+        // Current-level predicate meta paths (OFFSET/NULL) are consumed by the array itself and
+        // removed before forwarding paths to the item iterator. If they are the only predicate
+        // paths, the item iterator may still be needed later for lazy materialization, but it must
+        // not be promoted to READING_FOR_PREDICATE. Only propagate the predicate flag when the
+        // parent predicate really applies to the item/whole value instead of array metadata only.
+        if (_reading_flag == ReadingFlag::READING_FOR_PREDICATE &&
+            !has_current_level_predicate_meta_path) {
+            _item_iterator->set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
+        }
+    } else {
         for (auto& path : sub_predicate_access_paths) {
             if (path.data_access_path.path[0] == ACCESS_ALL) {
                 path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
-    } else if (_reading_flag == ReadingFlag::READING_FOR_PREDICATE) {
-        // if no sub-column in predicate_access_paths, but current column is READING_FOR_PREDICATE,
-        // then we should set item_iterator to READING_FOR_PREDICATE too.
-        _item_iterator->set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
     }
 
     if (!no_sub_column_to_skip || !no_predicate_sub_column) {

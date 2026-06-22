@@ -273,7 +273,11 @@ public class NestedColumnPruning implements CustomRewriter {
             // Expand both sets before stripping so covering is complete.
             expandMapStarPaths(slot, allAccessPaths);
             expandMapStarPaths(slot, predicateAccessPaths);
-            MetaPathStriper.strip(slotId, predicateAccessPaths, allAccessPaths);
+            // Predicate meta paths must only be stripped by paths that are also evaluated in the
+            // predicate phase.  A non-predicate data path may cover the same container for lazy
+            // materialization, but predicate evaluation still needs the container metadata (for
+            // example array offsets for cardinality()) before row filtering.
+            MetaPathStriper.strip(slotId, predicateAccessPaths, predicateAccessPaths);
             MetaPathStriper.strip(slotId, allAccessPaths, allAccessPaths);
         }
 
@@ -326,17 +330,20 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Keep predicate access paths as a subset of final all access paths after NULL/OFFSET cleanup.
-     * Predicate paths are built from filter expressions first, but later all-path rewrites may drop
-     * metadata-only paths or collapse paths to whole-column access. Any predicate path not present
-     * in final all paths must be removed before sending access info to BE.
+     * Keep predicate data access paths as a subset of final all access paths after NULL/OFFSET
+     * cleanup. Predicate paths are built from filter expressions first, but later all-path rewrites
+     * may drop metadata-only paths or collapse paths to whole-column access. Any predicate data path
+     * not present in final all paths must be removed before sending access info to BE. Predicate
+     * metadata paths are kept because predicate evaluation still needs them even when final lazy
+     * materialization reads the covering data path later.
      *
      * <p>Examples:
      * <ul>
-     *   <li>All paths {@code [s]}, predicate paths {@code [s.city.NULL]} becomes no predicate
-     *       paths after parent NULL removal.</li>
+     *   <li>All paths {@code [s]}, predicate paths {@code [s.city.NULL]} still keeps
+     *       {@code [s.city.NULL]} for predicate-phase NULL evaluation.</li>
      *   <li>All paths {@code [s.city.NULL, s.zip]}, predicate paths
-     *       {@code [s.NULL, s.city.NULL]} becomes {@code [s.city.NULL]}.</li>
+     *       {@code [s.NULL, s.city.NULL, s.other]} becomes
+     *       {@code [s.NULL, s.city.NULL]}.</li>
      * </ul>
      */
     private static void retainPredicatePathsInFinalAllAccessPaths(
@@ -347,11 +354,21 @@ public class NestedColumnPruning implements CustomRewriter {
 
         List<ColumnAccessPath> toRemove = new ArrayList<>();
         for (ColumnAccessPath predicatePath : predicatePaths) {
-            if (!allPaths.contains(predicatePath)) {
+            if (!allPaths.contains(predicatePath) && !isMetaPath(predicatePath)) {
                 toRemove.add(predicatePath);
             }
         }
         predicatePaths.removeAll(toRemove);
+    }
+
+    private static boolean isMetaPath(ColumnAccessPath path) {
+        List<String> components = path.getPath();
+        if (components.isEmpty()) {
+            return false;
+        }
+        String lastComponent = components.get(components.size() - 1);
+        return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
+                || AccessPathInfo.ACCESS_OFFSET.equals(lastComponent);
     }
 
     private static List<ColumnAccessPath> buildColumnAccessPaths(
