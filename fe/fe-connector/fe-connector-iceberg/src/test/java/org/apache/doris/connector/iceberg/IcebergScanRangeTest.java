@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -135,9 +137,107 @@ public class IcebergScanRangeTest {
         Assertions.assertTrue(fd.isSetContent());
         Assertions.assertEquals(0, fd.getContent());
         Assertions.assertEquals(1, fd.getFormatVersion());
+        // v1 has no delete files: delete_files stays unset (legacy only sets it for v2+). MUTATION: emitting
+        // an empty delete_files list for v1 -> red.
+        Assertions.assertFalse(fd.isSetDeleteFiles());
         // orc data file -> per-range FORMAT_ORC.
         Assertions.assertEquals(TFileFormatType.FORMAT_ORC,
                 populate(range, new TFileRangeDesc()).getFormatType());
+    }
+
+    // ---- T04: merge-on-read delete files -> TIcebergFileDesc.delete_files ----
+
+    @Test
+    public void populateRangeParamsV2NoDeletesEmitsEmptyDeleteFilesList() {
+        // A v2 table with no deletes: legacy setIcebergParams calls setDeleteFiles(new ArrayList<>()) before
+        // the (empty) loop, so the list is SET but empty, and content is NOT the v1 DATA marker.
+        // MUTATION: leaving delete_files unset for v2 (the T03 behavior) -> red; setting content=DATA -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2).build();
+
+        TIcebergFileDesc fd = populate(range, new TFileRangeDesc()).getTableFormatParams().getIcebergParams();
+
+        Assertions.assertTrue(fd.isSetDeleteFiles());
+        Assertions.assertTrue(fd.getDeleteFiles().isEmpty());
+        Assertions.assertFalse(fd.isSetContent());
+    }
+
+    @Test
+    public void populateRangeParamsV2EmitsPositionDeleteFile() {
+        // A position delete (content 1) with parquet format + [lower,upper] bounds. MUTATION: dropping the
+        // bounds, wrong content id, or wrong format -> red.
+        IcebergScanRange.DeleteFile posDelete = IcebergScanRange.DeleteFile.positionDelete(
+                "s3://b/db/t/pos-delete.parquet", TFileFormatType.FORMAT_PARQUET, 10L, 99L);
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
+                .deleteFiles(Collections.singletonList(posDelete)).build();
+
+        TIcebergFileDesc fd = populate(range, new TFileRangeDesc()).getTableFormatParams().getIcebergParams();
+
+        Assertions.assertEquals(1, fd.getDeleteFilesSize());
+        TIcebergDeleteFileDesc d = fd.getDeleteFiles().get(0);
+        Assertions.assertEquals("s3://b/db/t/pos-delete.parquet", d.getPath());
+        Assertions.assertEquals(1, d.getContent());
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, d.getFileFormat());
+        Assertions.assertTrue(d.isSetPositionLowerBound());
+        Assertions.assertEquals(10L, d.getPositionLowerBound());
+        Assertions.assertTrue(d.isSetPositionUpperBound());
+        Assertions.assertEquals(99L, d.getPositionUpperBound());
+        // A position delete carries neither equality field-ids nor a deletion-vector blob ref.
+        Assertions.assertFalse(d.isSetFieldIds());
+        Assertions.assertFalse(d.isSetContentOffset());
+        Assertions.assertFalse(d.isSetContentSizeInBytes());
+    }
+
+    @Test
+    public void populateRangeParamsV2EmitsPositionDeleteWithoutBounds() {
+        // No bounds present -> position_lower/upper_bound left UNSET (legacy emits them only when present).
+        // MUTATION: defaulting an absent bound to 0 / -1 instead of unset -> red.
+        IcebergScanRange.DeleteFile posDelete = IcebergScanRange.DeleteFile.positionDelete(
+                "s3://b/db/t/pos-delete.orc", TFileFormatType.FORMAT_ORC, null, null);
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
+                .deleteFiles(Collections.singletonList(posDelete)).build();
+
+        TIcebergDeleteFileDesc d = populate(range, new TFileRangeDesc())
+                .getTableFormatParams().getIcebergParams().getDeleteFiles().get(0);
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_ORC, d.getFileFormat());
+        Assertions.assertFalse(d.isSetPositionLowerBound());
+        Assertions.assertFalse(d.isSetPositionUpperBound());
+    }
+
+    @Test
+    public void populateRangeParamsV2EmitsDeletionVectorAndEqualityDelete() {
+        // A deletion vector (content 3, PUFFIN): blob content_offset/size set, file_format UNSET, bounds
+        // carried (it IS a position delete). An equality delete (content 2): field-ids set, no bounds/blob.
+        IcebergScanRange.DeleteFile dv = IcebergScanRange.DeleteFile.deletionVector(
+                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L);
+        IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
+                "s3://b/db/t/eq-delete.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3, 7));
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
+                .deleteFiles(Arrays.asList(dv, eq)).build();
+
+        List<TIcebergDeleteFileDesc> deletes = populate(range, new TFileRangeDesc())
+                .getTableFormatParams().getIcebergParams().getDeleteFiles();
+        Assertions.assertEquals(2, deletes.size());
+
+        TIcebergDeleteFileDesc dvDesc = deletes.get(0);
+        Assertions.assertEquals(3, dvDesc.getContent());
+        // MUTATION: emitting file_format for a PUFFIN DV (legacy setDeleteFileFormat skips PUFFIN) -> red.
+        Assertions.assertFalse(dvDesc.isSetFileFormat());
+        Assertions.assertEquals(16L, dvDesc.getContentOffset());
+        Assertions.assertEquals(64L, dvDesc.getContentSizeInBytes());
+        Assertions.assertEquals(5L, dvDesc.getPositionLowerBound());
+        Assertions.assertEquals(42L, dvDesc.getPositionUpperBound());
+
+        TIcebergDeleteFileDesc eqDesc = deletes.get(1);
+        Assertions.assertEquals(2, eqDesc.getContent());
+        Assertions.assertEquals(Arrays.asList(3, 7), eqDesc.getFieldIds());
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, eqDesc.getFileFormat());
+        Assertions.assertFalse(eqDesc.isSetContentOffset());
+        Assertions.assertFalse(eqDesc.isSetPositionLowerBound());
     }
 
     @Test

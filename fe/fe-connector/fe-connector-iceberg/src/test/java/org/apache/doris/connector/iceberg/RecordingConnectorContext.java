@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -51,9 +52,21 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** Storage properties the fake returns from {@link #getStorageProperties()} (default: none). */
     List<StorageProperties> storageProperties = Collections.emptyList();
 
+    /** Raw URIs the connector routed through {@link #normalizeStorageUri(String)} (delete-path normalization). */
+    final List<String> normalizedUris = new ArrayList<>();
+
     @Override
     public String getCatalogName() {
         return "test";
+    }
+
+    @Override
+    public String normalizeStorageUri(String rawUri) {
+        normalizedUris.add(rawUri);
+        // Canonicalize the scheme the way DefaultConnectorContext does for native paths
+        // (oss/cos/obs/s3a -> s3), so a test can prove the connector routes delete paths through this seam.
+        // Identity for already-canonical s3:// paths, so the existing scan/read tests are unaffected.
+        return rawUri == null ? null : rawUri.replaceFirst("^(oss|cos|obs|s3a)://", "s3://");
     }
 
     @Override

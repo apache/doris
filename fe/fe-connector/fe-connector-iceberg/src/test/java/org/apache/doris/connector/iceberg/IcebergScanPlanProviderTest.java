@@ -27,22 +27,30 @@ import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.MetadataColumns;
+import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
@@ -471,5 +479,197 @@ public class IcebergScanPlanProviderTest {
         public Map<String, String> getSessionProperties() {
             return sessionProperties;
         }
+    }
+
+    // --- T04: merge-on-read delete files (convertDelete classification + path normalize + EXPLAIN read-back) ---
+
+    private static DeleteFile positionDeleteFile(String path, FileFormat format, Long lower, Long upper) {
+        FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes()
+                .withPath(path)
+                .withFormat(format)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(4L);
+        if (lower != null || upper != null) {
+            int posField = MetadataColumns.DELETE_FILE_POS.fieldId();
+            Map<Integer, ByteBuffer> lowerMap = lower == null ? null : Collections.singletonMap(posField,
+                    Conversions.toByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), lower));
+            Map<Integer, ByteBuffer> upperMap = upper == null ? null : Collections.singletonMap(posField,
+                    Conversions.toByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), upper));
+            builder.withMetrics(new Metrics(4L, null, null, null, null, lowerMap, upperMap));
+        }
+        return builder.build();
+    }
+
+    private static DeleteFile deletionVectorFile(String path, long offset, long size) {
+        return FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes()
+                .withPath(path)
+                .withFormat(FileFormat.PUFFIN)
+                .withFileSizeInBytes(256L)
+                .withRecordCount(4L)
+                .withReferencedDataFile("s3://b/db/t1/f1.parquet")
+                .withContentOffset(offset)
+                .withContentSizeInBytes(size)
+                .build();
+    }
+
+    private static DeleteFile equalityDeleteFile(String path, FileFormat format, int... fieldIds) {
+        return FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofEqualityDeletes(fieldIds)
+                .withPath(path)
+                .withFormat(format)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(4L)
+                .build();
+    }
+
+    private static IcebergScanPlanProvider provider() {
+        return new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps());
+    }
+
+    private static TIcebergDeleteFileDesc deleteDesc(String path, int content) {
+        TIcebergDeleteFileDesc d = new TIcebergDeleteFileDesc();
+        d.setPath(path);
+        d.setContent(content);
+        return d;
+    }
+
+    @Test
+    public void convertDeletePositionDeleteCarriesBoundsAndFormat() {
+        // POSITION_DELETES (non-PUFFIN) -> content 1, parquet/orc format, [lower,upper] bounds decoded from the
+        // delete file's DELETE_FILE_POS bounds. MUTATION: wrong content id / dropped bounds / wrong format -> red.
+        DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, 3L, 17L);
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+
+        Assertions.assertEquals(1, d.getContent());
+        Assertions.assertEquals("s3://b/db/t1/pos.parquet", d.getPath());
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, d.getFileFormat());
+        Assertions.assertEquals(3L, d.getPositionLowerBound());
+        Assertions.assertEquals(17L, d.getPositionUpperBound());
+        Assertions.assertFalse(d.isSetFieldIds());
+        Assertions.assertFalse(d.isSetContentOffset());
+    }
+
+    @Test
+    public void convertDeletePositionDeleteWithoutBoundsLeavesThemUnset() {
+        // No DELETE_FILE_POS bounds present -> position_lower/upper_bound stay unset (legacy emits them only
+        // when present; it stores a -1 sentinel and skips emission). MUTATION: emitting 0/-1 -> red.
+        DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.orc", FileFormat.ORC, null, null);
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+
+        Assertions.assertEquals(TFileFormatType.FORMAT_ORC, d.getFileFormat());
+        Assertions.assertFalse(d.isSetPositionLowerBound());
+        Assertions.assertFalse(d.isSetPositionUpperBound());
+    }
+
+    @Test
+    public void convertDeleteDeletionVectorCarriesBlobRefAndUnsetsFormat() {
+        // A PUFFIN position delete is a DELETION VECTOR -> content 3, content_offset/size set, file_format UNSET
+        // (legacy setDeleteFileFormat skips PUFFIN). MUTATION: classifying it as content 1 / emitting a format
+        // for the puffin blob -> red (BE would mis-read the DV blob).
+        DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L);
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+
+        Assertions.assertEquals(3, d.getContent());
+        Assertions.assertFalse(d.isSetFileFormat());
+        Assertions.assertEquals(16L, d.getContentOffset());
+        Assertions.assertEquals(64L, d.getContentSizeInBytes());
+    }
+
+    @Test
+    public void convertDeleteEqualityDeleteCarriesFieldIds() {
+        // EQUALITY_DELETES -> content 2 + the equality field-ids from delete metadata (correct independent of
+        // the T06 data-schema dictionary). MUTATION: wrong content id / dropped field-ids -> red (BE projects
+        // the wrong columns for the equality match).
+        DeleteFile delete = equalityDeleteFile("s3://b/db/t1/eq.parquet", FileFormat.PARQUET, 1, 2);
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+
+        Assertions.assertEquals(2, d.getContent());
+        Assertions.assertEquals(Arrays.asList(1, 2), d.getFieldIds());
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, d.getFileFormat());
+        Assertions.assertFalse(d.isSetPositionLowerBound());
+        Assertions.assertFalse(d.isSetContentOffset());
+    }
+
+    @Test
+    public void convertDeleteNormalizesDeletePathViaContext() {
+        // Delete paths live inside iceberg_params (the parent does not normalize them), so the connector must
+        // route them through the engine seam (legacy LocationPath.toStorageLocation). BE's S3 factory only
+        // opens s3://, so an un-normalized oss:// deletion path silently drops merge-on-read deletes -> wrong
+        // rows. MUTATION: handing BE the raw oss:// path -> red.
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps(), context);
+        DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
+
+        TIcebergDeleteFileDesc d = provider.convertDelete(delete).toThrift();
+
+        Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
+        Assertions.assertTrue(context.normalizedUris.contains("oss://bucket/db/t1/pos.parquet"));
+    }
+
+    @Test
+    public void getDeleteFilesReadsBackAllPathsIncludingEquality() {
+        // The VERBOSE EXPLAIN read-back returns EVERY delete path (incl equality) — the equality/non-equality
+        // split legacy keeps in deleteFilesByReferencedDataFile is only for the write/rewrite path, not this
+        // deleteFileNum count. MUTATION: filtering out equality deletes here -> red.
+        TIcebergFileDesc fd = new TIcebergFileDesc();
+        fd.setDeleteFiles(Arrays.asList(
+                deleteDesc("s3://b/pos.parquet", 1),
+                deleteDesc("s3://b/eq.parquet", 2),
+                deleteDesc("s3://b/dv.puffin", 3)));
+        TTableFormatFileDesc tf = new TTableFormatFileDesc();
+        tf.setIcebergParams(fd);
+
+        Assertions.assertEquals(Arrays.asList("s3://b/pos.parquet", "s3://b/eq.parquet", "s3://b/dv.puffin"),
+                provider().getDeleteFiles(tf));
+    }
+
+    @Test
+    public void getDeleteFilesEmptyWhenNoIcebergParamsOrNoDeletes() {
+        IcebergScanPlanProvider provider = provider();
+        // null params / no iceberg params / iceberg params without delete_files all -> empty (legacy guards).
+        Assertions.assertTrue(provider.getDeleteFiles(null).isEmpty());
+        Assertions.assertTrue(provider.getDeleteFiles(new TTableFormatFileDesc()).isEmpty());
+        TTableFormatFileDesc tf = new TTableFormatFileDesc();
+        tf.setIcebergParams(new TIcebergFileDesc());
+        Assertions.assertTrue(provider.getDeleteFiles(tf).isEmpty());
+    }
+
+    @Test
+    public void planScanAttachesRealPositionDeleteEndToEnd() {
+        // End-to-end on a real v2 table: a position delete committed via RowDelta must reach delete_files,
+        // proving task.deletes() flows through planScan -> buildRange -> populateRangeParams. MUTATION:
+        // never reading task.deletes() (T03 behavior) -> delete_files empty -> red.
+        Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .commit();
+        DeleteFile posDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t1/pos-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(2L)
+                .withReferencedDataFile("s3://b/db/t1/f1.parquet")
+                .build();
+        table.newRowDelta().addDeletes(posDelete).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, ranges.size());
+
+        TFileRangeDesc rangeDesc = populate(ranges.get(0));
+        TIcebergFileDesc fd = rangeDesc.getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(1, fd.getDeleteFilesSize());
+        TIcebergDeleteFileDesc d = fd.getDeleteFiles().get(0);
+        Assertions.assertEquals("s3://b/db/t1/pos-delete.parquet", d.getPath());
+        Assertions.assertEquals(1, d.getContent());
+        // The EXPLAIN read-back sees the same delete path.
+        Assertions.assertEquals(Collections.singletonList("s3://b/db/t1/pos-delete.parquet"),
+                provider.getDeleteFiles(rangeDesc.getTableFormatParams()));
     }
 }

@@ -24,10 +24,18 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
@@ -35,11 +43,13 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -155,9 +165,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         // Enumerate FileScanTasks via the iceberg SDK (split byte-offsets come from TableScanUtil.splitFiles)
-        // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers (mirrors legacy
-        // IcebergScanNode.createIcebergSplit). Delete files (T04), COUNT (T05), the field-id history dict (T06,
-        // scan-level), MVCC pin (T07), and vended credentials (T09) land later.
+        // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers — incl. the
+        // merge-on-read delete files (T04) — mirroring legacy IcebergScanNode.createIcebergSplit. COUNT (T05),
+        // the field-id history dict (T06, scan-level), MVCC pin (T07), and vended credentials (T09) land later.
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
@@ -237,7 +247,103 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .firstRowId(firstRowId)
                 .lastUpdatedSequenceNumber(lastUpdatedSequenceNumber)
                 .partitionValues(partitionValues)
+                .deleteFiles(buildDeleteFiles(task))
                 .build();
+    }
+
+    /**
+     * Translate a scan task's merge-on-read deletes ({@code task.deletes()}) into the typed delete carriers,
+     * mirroring legacy {@code IcebergScanNode.getDeleteFileFilters} + {@code IcebergDeleteFileFilter}. Empty
+     * for v1 / no-delete files (v1 has no delete files, so {@code task.deletes()} is always empty there).
+     */
+    private List<IcebergScanRange.DeleteFile> buildDeleteFiles(FileScanTask task) {
+        List<DeleteFile> deletes = task.deletes();
+        if (deletes == null || deletes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<IcebergScanRange.DeleteFile> result = new ArrayList<>(deletes.size());
+        for (DeleteFile delete : deletes) {
+            result.add(convertDelete(delete));
+        }
+        return result;
+    }
+
+    /**
+     * Convert one iceberg {@link DeleteFile} into a BE-facing carrier, a faithful port of legacy
+     * {@code getDeleteFileFilters} + {@code IcebergDeleteFileFilter.create*} + {@code setIcebergParams}:
+     * <ul>
+     *   <li>{@code POSITION_DELETES} whose format is {@code PUFFIN} → a deletion vector (content 3) carrying
+     *       the blob {@code content_offset}/{@code content_size_in_bytes} (plus any position bounds);</li>
+     *   <li>other {@code POSITION_DELETES} → a position delete (content 1) with the [lower,upper] bounds;</li>
+     *   <li>{@code EQUALITY_DELETES} → an equality delete (content 2) with the delete-file's equality
+     *       field-ids (read straight from delete metadata — correct independent of the T06 data dictionary).</li>
+     * </ul>
+     * The delete path is normalized through the engine seam (legacy
+     * {@code LocationPath.of(path,config).toStorageLocation()}). Package-private for direct unit testing.
+     */
+    IcebergScanRange.DeleteFile convertDelete(DeleteFile delete) {
+        String path = normalizeDeletePath(delete.path().toString());
+        FileContent content = delete.content();
+        if (content == FileContent.POSITION_DELETES) {
+            Long lowerBound = readPositionBound(delete.lowerBounds());
+            Long upperBound = readPositionBound(delete.upperBounds());
+            if (delete.format() == FileFormat.PUFFIN) {
+                return IcebergScanRange.DeleteFile.deletionVector(path, lowerBound, upperBound,
+                        delete.contentOffset(), delete.contentSizeInBytes());
+            }
+            return IcebergScanRange.DeleteFile.positionDelete(path, deleteFileFormat(delete.format()),
+                    lowerBound, upperBound);
+        } else if (content == FileContent.EQUALITY_DELETES) {
+            return IcebergScanRange.DeleteFile.equalityDelete(path, deleteFileFormat(delete.format()),
+                    delete.equalityFieldIds());
+        }
+        // Defensive (legacy parity): delete files are only position or equality; DATA content here is a bug.
+        throw new IllegalStateException("Unknown delete content: " + content);
+    }
+
+    /**
+     * Decode the position [lower|upper] bound from a delete file's bounds map, mirroring legacy
+     * {@code IcebergDeleteFileFilter.createPositionDelete}: read the {@code DELETE_FILE_POS} field's bytes and
+     * decode them. Returns {@code null} when the bound is absent, or is the {@code -1} sentinel (legacy stores
+     * {@code orElse(-1L)} and emits the thrift bound only when present), so {@link #convertDelete} sets the
+     * thrift bound only when a real one exists.
+     */
+    private static Long readPositionBound(Map<Integer, ByteBuffer> bounds) {
+        if (bounds == null) {
+            return null;
+        }
+        ByteBuffer buf = bounds.get(MetadataColumns.DELETE_FILE_POS.fieldId());
+        if (buf == null) {
+            return null;
+        }
+        Long value = Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), buf);
+        return (value == null || value == -1L) ? null : value;
+    }
+
+    /**
+     * Map an iceberg delete-file format to BE's file-format type, mirroring legacy {@code setDeleteFileFormat}:
+     * only parquet/orc are emitted; any other format (notably {@code PUFFIN} deletion vectors) leaves the
+     * thrift {@code file_format} unset ({@code null} here).
+     */
+    private static TFileFormatType deleteFileFormat(FileFormat format) {
+        if (format == FileFormat.PARQUET) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (format == FileFormat.ORC) {
+            return TFileFormatType.FORMAT_ORC;
+        }
+        return null;
+    }
+
+    /**
+     * Normalize a raw delete-file path to BE's canonical scheme via the engine seam (legacy delete paths go
+     * through {@code LocationPath.of(path,config).toStorageLocation()}; the connector cannot import fe-core's
+     * {@code LocationPath}). Delete paths live entirely inside {@code iceberg_params} — the parent
+     * ({@code PluginDrivenScanNode}) never touches them — so the connector must normalize them itself. The
+     * 1-arg static-map form is byte-equivalent to legacy for non-vended catalogs; the vended-credential
+     * (2-arg) form is T09. A {@code null} context (offline unit tests) preserves the raw path (paimon parity).
+     */
+    private String normalizeDeletePath(String rawPath) {
+        return context != null ? context.normalizeStorageUri(rawPath) : rawPath;
     }
 
     /**
@@ -266,6 +372,36 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             props.put("path_partition_keys", String.join(",", partitionKeys));
         }
         return props;
+    }
+
+    /**
+     * Read back the delete-file paths carried by one range's {@code iceberg_params}, for the VERBOSE
+     * per-backend EXPLAIN block ({@code deleteFileNum}/{@code deleteSplitNum}). Verbatim port of legacy
+     * {@code IcebergScanNode.getDeleteFiles} (and the shape of paimon's {@code getDeleteFiles}): every
+     * delete file's path, including equality deletes (the equality-vs-non-equality split legacy keeps in
+     * {@code deleteFilesByReferencedDataFile} is only for the write/rewrite path, not this count). Returns
+     * empty when the range carries no iceberg params or no delete files (v1 / no-delete table).
+     */
+    @Override
+    public List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (tableFormatParams == null || !tableFormatParams.isSetIcebergParams()) {
+            return deleteFiles;
+        }
+        TIcebergFileDesc icebergParams = tableFormatParams.getIcebergParams();
+        if (icebergParams == null || !icebergParams.isSetDeleteFiles()) {
+            return deleteFiles;
+        }
+        List<TIcebergDeleteFileDesc> icebergDeleteFiles = icebergParams.getDeleteFiles();
+        if (icebergDeleteFiles == null) {
+            return deleteFiles;
+        }
+        for (TIcebergDeleteFileDesc deleteFile : icebergDeleteFiles) {
+            if (deleteFile != null && deleteFile.isSetPath()) {
+                deleteFiles.add(deleteFile.getPath());
+            }
+        }
+        return deleteFiles;
     }
 
     /**
