@@ -148,7 +148,13 @@ public class VariableMgr {
             "enable_eliminate_sort_node",
             "drop_table_if_ctas_failed",
             "trace_nereids",
-            "enable_sync_mv_cost_based_rewrite");
+            "enable_sync_mv_cost_based_rewrite",
+            "enable_vectorized_engine",
+            "enable_common_expr_pushdown",
+            "enable_common_expr_pushdown_for_inverted_index",
+            "enable_phrase_query_sequential_opt",
+            "enable_rust_lance_reader",
+            "shuffled_agg_node_ids");
 
     private static boolean isRemovedSessionVar(String varName) {
         return varName != null && REMOVED_SESSION_VAR_NAMES.contains(varName.toLowerCase());
@@ -239,7 +245,11 @@ public class VariableMgr {
                 field.setShort(obj, Short.parseShort(value));
                 break;
             case "int":
-                field.setInt(obj, Integer.parseInt(value));
+                int intValue = Integer.parseInt(value);
+                if (SessionVariable.RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+                    intValue = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+                }
+                field.setInt(obj, intValue);
                 break;
             case "long":
                 field.setLong(obj, Long.parseLong(value));

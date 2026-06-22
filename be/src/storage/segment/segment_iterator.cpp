@@ -51,7 +51,6 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
-#include "core/column/predicate_column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -90,6 +89,7 @@
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
+#include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
@@ -663,8 +663,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
                     // Here, cid will not go out of bounds
                     // because the size of _current_return_columns equals _schema->tablet_columns().size()
                     _current_return_columns[cid] = Schema::get_predicate_column_ptr(
-                            storage_column_type->get_storage_field_type(),
-                            storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
+                            storage_column_type, _opts.io_ctx.reader_type));
             _current_return_columns[cid]->set_rowset_segment_id(
                     {_segment->rowset_id(), _segment->id()});
             _current_return_columns[cid]->reserve(nrows_reserve_limit);
@@ -1051,15 +1050,19 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     size_t pre_size = _row_bitmap.cardinality();
     size_t rows_of_segment = _segment->num_rows();
-    if (static_cast<double>(pre_size) < static_cast<double>(rows_of_segment) * 0.3) {
+    const auto& user_params = _ann_topn_runtime->user_params();
+    if (user_params.should_fallback_ann_index_by_small_candidate(pre_size, rows_of_segment)) {
         VLOG_DEBUG << fmt::format(
-                "Ann topn predicate input rows {} < 30% of segment rows {}, will not use ann index "
-                "to "
-                "filter",
-                pre_size, rows_of_segment);
+                "Ann topn predicate input rows {} reach small candidate threshold, "
+                "rows_of_segment: {}, absolute_threshold: {}, percent_threshold: {}, "
+                "will not use ann index to filter",
+                pre_size, rows_of_segment, user_params.ann_index_candidate_rows_threshold,
+                user_params.ann_index_candidate_rows_percent_threshold);
         // Disable index-only scan on ann indexed column.
         _need_read_data_indices[src_cid] = true;
         _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        _opts.stats->ann_topn_fallback_by_small_candidate_cnt += 1;
+        _opts.stats->ann_topn_fallback_small_candidate_rows += pre_size;
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
@@ -1206,6 +1209,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
+            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
+                // skip untrustworthy tso placeholder zonemap
+                // if possible already be pruned as a whole before,
+                // so just skip
+                continue;
+            }
             // do not check zonemap if predicate does not support zonemap
             if (!_opts.col_id_to_predicates.at(cid)->support_zonemap()) {
                 VLOG_DEBUG << "skip zonemap for column " << cid;
@@ -1302,8 +1311,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
     }
 
     // Function filter no apply inverted index
-    if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(pred.get()) != nullptr ||
-        dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(pred.get()) != nullptr) {
+    if (dynamic_cast<LikeColumnPredicate*>(pred.get()) != nullptr) {
         return false;
     }
 
@@ -1366,7 +1374,7 @@ Status SegmentIterator::_apply_index_expr() {
         bool ann_range_search_executed = false;
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
-                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
+                _common_expr_to_slotref_map, num_rows(), _row_bitmap, ann_index_stats,
                 enable_ann_index_result_cache, &ann_range_search_executed));
         if (ann_range_search_executed) {
             _opts.stats->ann_index_range_search_cnt++;
@@ -1384,6 +1392,10 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
         _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
+        _opts.stats->ann_range_fallback_by_small_candidate_cnt +=
+                ann_index_stats.range_fallback_by_small_candidate_cnt;
+        _opts.stats->ann_range_fallback_small_candidate_rows +=
+                ann_index_stats.range_fallback_small_candidate_rows;
         _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
 
@@ -1437,7 +1449,7 @@ bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
-    return type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
+    return type == PredicateType::BF;
 }
 
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
@@ -2204,7 +2216,7 @@ bool SegmentIterator::_prune_column(ColumnId cid, MutableColumnPtr& column, bool
     if (!fill_defaults) {
         return true;
     }
-    if (column->is_nullable()) {
+    if (is_column_nullable(*column)) {
         auto nullable_col_ptr = reinterpret_cast<ColumnNullable*>(column.get());
         nullable_col_ptr->get_null_map_column().insert_many_defaults(num_of_defaults);
         nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(num_of_defaults);
@@ -2495,15 +2507,14 @@ void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& col
     const Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
 
     if (_is_pred_column[lsn_col_idx]) {
-        auto* lsn_column = assert_cast<PredicateColumnType<TYPE_LARGEINT>*>(
-                _current_return_columns[lsn_col_idx].get());
+        auto* lsn_column = assert_cast<ColumnInt128*>(_current_return_columns[lsn_col_idx].get());
         std::vector<Int128> binlog_lsns;
         binlog_lsns.reserve(num_rows);
         for (size_t j = 0; j < num_rows; j++) {
             const Int128 row_id = lsn_column->get_data()[j];
             binlog_lsns.emplace_back(make_row_binlog_lsn(commit_tso, row_id));
         }
-        _current_return_columns[lsn_col_idx]->clear();
+        lsn_column->clear();
         for (const auto& binlog_lsn : binlog_lsns) {
             lsn_column->insert_data(reinterpret_cast<const char*>(&binlog_lsn), 0);
         }
@@ -2542,14 +2553,13 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
 
     DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
     Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
-    Int64 commit_time = extract_tso_physical_time(commit_tso);
 
     if (_is_pred_column[tso_col_idx]) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)
         if (auto* tso_nullable = check_and_get_column<ColumnNullable>(
                     _current_return_columns[tso_col_idx].get())) {
             _current_return_columns[tso_col_idx]->clear();
-            auto value = commit_time;
+            auto value = commit_tso;
             for (size_t j = 0; j < num_rows; j++) {
                 tso_nullable->get_nested_column_ptr()->insert_data(
                         reinterpret_cast<const char*>(&value), 0);
@@ -2558,10 +2568,9 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
             return;
         }
 
-        auto* tso_column = assert_cast<PredicateColumnType<TYPE_BIGINT>*>(
-                _current_return_columns[tso_col_idx].get());
-        _current_return_columns[tso_col_idx]->clear();
-        auto value = commit_time;
+        auto* tso_column = assert_cast<ColumnInt64*>(_current_return_columns[tso_col_idx].get());
+        tso_column->clear();
+        auto value = commit_tso;
         for (size_t j = 0; j < num_rows; j++) {
             tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);
         }
@@ -2575,13 +2584,13 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
     if (auto* tso_nullable = check_and_get_column<ColumnNullable>(column.get())) {
         auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
         for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_time);
+            col_ptr->insert_value(commit_tso);
             tso_nullable->get_null_map_data().emplace_back(0);
         }
     } else {
         auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
         for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_time);
+            col_ptr->insert_value(commit_tso);
         }
     }
     _current_return_columns[tso_col_idx] = std::move(column);
@@ -2910,7 +2919,7 @@ Status SegmentIterator::copy_column_data_by_selector(IColumn* input_col_ptr,
                                                      MutableColumnPtr& output_col,
                                                      uint16_t* sel_rowid_idx, uint16_t select_size,
                                                      size_t batch_size) {
-    if (output_col->is_nullable() != input_col_ptr->is_nullable()) {
+    if (is_column_nullable(*output_col) != is_column_nullable(*input_col_ptr)) {
         LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
                      << " input_column: " << input_col_ptr->dump_structure()
                      << " select_size: " << select_size;
@@ -3488,7 +3497,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& col
         return false;
     }
 
-    if (column->is_nullable()) {
+    if (is_column_nullable(*column)) {
         auto* nullable_col_ptr = reinterpret_cast<ColumnNullable*>(column.get());
         nullable_col_ptr->get_null_map_column().insert_many_defaults(nrows_read);
         nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(nrows_read);

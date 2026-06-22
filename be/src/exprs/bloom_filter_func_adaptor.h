@@ -80,11 +80,19 @@ private:
 
 template <typename fixed_len_to_uint32_method, class T>
 struct CommonFindOp {
-    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                           const uint8_t* nullmap, uint16_t* offsets, int number,
+    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                           const doris::IColumn& column, const uint8_t* nullmap,
+                                           uint16_t* offsets, int number,
                                            const bool is_parse_column) {
-        return find_batch_olap<fixed_len_to_uint32_method, T>(bloom_filter, data, nullmap, offsets,
-                                                              number, is_parse_column);
+        // This path reinterpret-casts the column's raw data as a contiguous T[], which is only
+        // valid for fixed-length types. String types (StringRef/String) are not laid out this way
+        // and must go through StringFindOp instead.
+        static_assert(!std::is_same_v<T, StringRef> && !std::is_same_v<T, String>,
+                      "find_batch_olap_engine does not support string types; use StringFindOp");
+        const T* __restrict data = reinterpret_cast<const T*>(column.get_raw_data().data);
+        return find_batch_olap_impl<fixed_len_to_uint32_method>(
+                bloom_filter, [data](int i) { return data[i]; }, nullmap, offsets, number,
+                is_parse_column);
     }
 
     template <typename Func>
@@ -105,7 +113,7 @@ struct CommonFindOp {
     static void insert_batch(BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                              size_t start) {
         const auto size = column->size();
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
             const auto& nullmap = nullable->get_null_map_column().get_data();
@@ -138,7 +146,7 @@ struct CommonFindOp {
                            uint8_t* results, const uint8_t* __restrict filter) {
         const T* __restrict data = nullptr;
         const uint8_t* __restrict nullmap = nullptr;
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             if (nullable->has_null()) {
                 nullmap = nullable->get_null_map_column().get_data().data();
@@ -171,6 +179,16 @@ template <typename fixed_len_to_uint32_method>
 struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
     using CommonFindOp<fixed_len_to_uint32_method, StringRef>::for_each_with_filter;
 
+    static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                           const doris::IColumn& column, const uint8_t* nullmap,
+                                           uint16_t* offsets, int number,
+                                           const bool is_parse_column) {
+        const auto& col = assert_cast<const ColumnString&>(column);
+        return find_batch_olap_impl<fixed_len_to_uint32_method>(
+                bloom_filter, [&col](int i) { return col.get_data_at(i); }, nullmap, offsets,
+                number, is_parse_column);
+    }
+
     static void insert_batch(BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                              size_t start) {
         auto _insert_batch_col_str = [&](const auto& col, const uint8_t* __restrict nullmap,
@@ -184,7 +202,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
             }
         };
 
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
@@ -209,7 +227,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
 
     static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
                            uint8_t* results, const uint8_t* __restrict filter) {
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = assert_cast<const ColumnString&>(nullable->get_nested_column());
             const auto& nullmap = nullable->get_null_map_column().get_data();

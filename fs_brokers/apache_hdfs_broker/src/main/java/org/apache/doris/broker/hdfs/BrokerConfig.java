@@ -29,13 +29,10 @@ public class BrokerConfig extends ConfigBase {
     public static int hdfs_write_buffer_size_kb = 1024;
 
     @ConfField
+    // Do not set this value too small.
+    // Otherwise, a file system still being read/written by some thread in the fileSystemRecycleBin
+    // may be abnormally closed due to the small value, causing BE execution failure.
     public static int client_expire_seconds = 3600;
-
-    @ConfField
-    public static boolean enable_input_stream_expire_check = false;
-
-    @ConfField
-    public static int input_stream_expire_seconds = 300;
 
     @ConfField
     public static int broker_ipc_port = 8000;

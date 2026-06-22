@@ -85,6 +85,12 @@ struct BatchLoadArgs {
     bool is_tmp;
 };
 
+FSFileCacheStorage::FSFileCacheStorage() {
+    for (auto& shard : _writer_shards) {
+        shard = std::make_unique<WriterShard>();
+    }
+}
+
 FDCache* FDCache::instance() {
     return ExecEnv::GetInstance()->file_cache_open_fd_cache();
 }
@@ -188,9 +194,10 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
 Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     FileWriter* writer = nullptr;
     {
-        std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
-        if (auto iter = _key_to_writer.find(file_writer_map_key); iter != _key_to_writer.end()) {
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        if (auto iter = shard.map.find(file_writer_map_key); iter != shard.map.end()) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache_v3(key.hash);
@@ -203,7 +210,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             FileWriterOptions opts {.sync_file_data = false};
             RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
             writer = file_writer.get();
-            _key_to_writer.emplace(file_writer_map_key, std::move(file_writer));
+            shard.map.emplace(file_writer_map_key, std::move(file_writer));
         }
     }
     DCHECK_NE(writer, nullptr);
@@ -213,10 +220,11 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
 Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
-        std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
-        auto iter = _key_to_writer.find(file_writer_map_key);
-        if (iter == _key_to_writer.end()) {
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        auto iter = shard.map.find(file_writer_map_key);
+        if (iter == shard.map.end()) {
             return Status::InternalError(
                     "file cache finalize missing writer, hash={}, offset={}, type={}, "
                     "expiration={}",
@@ -224,7 +232,7 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
                     key.meta.expiration_time);
         }
         file_writer = std::move(iter->second);
-        _key_to_writer.erase(iter);
+        shard.map.erase(iter);
     }
     if (file_writer->state() != FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(file_writer->close());
@@ -281,6 +289,10 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 }
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
+    // Large clear-cache tests only need to verify the synchronous remove handoff and in-memory
+    // index cleanup. They can return early here to avoid test-only disk churn.
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("FSFileCacheStorage::remove", Status::OK(), &key);
+
     const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
     const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));

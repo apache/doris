@@ -45,7 +45,7 @@ suite("test_char_replace") {
  		"replication_allocation" = "tag.location.default: 1"
 	);
     """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 
@@ -67,7 +67,7 @@ suite("test_char_replace") {
     qt_sql "SELECT count() FROM ${indexTblName} where a match 'jpg'";
     qt_sql "SELECT count() FROM ${indexTblName} where a match '1'";
     qt_sql "SELECT count() FROM ${indexTblName} where a match '0'";
-    
+
     qt_sql "SELECT count() FROM ${indexTblName} where b match 'hm'";
     qt_sql "SELECT count() FROM ${indexTblName} where b match 'bg'";
     qt_sql "SELECT count() FROM ${indexTblName} where b match 'jpg'";

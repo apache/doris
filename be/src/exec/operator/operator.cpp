@@ -17,6 +17,8 @@
 
 #include "exec/operator/operator.h"
 
+#include <algorithm>
+
 #include "common/status.h"
 #include "exec/common/util.hpp"
 #include "exec/exchange/local_exchange_sink_operator.h"
@@ -245,7 +247,7 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
     if (state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     };
@@ -358,7 +360,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 input_block.rows(), rows, input_block.dump_structure());
     }
     auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
+        if (is_column_nullable(*to) && !is_column_nullable(*from)) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);

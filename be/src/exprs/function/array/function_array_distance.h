@@ -128,17 +128,17 @@ public:
         }
 
         // Check outer nullable
-        if (raw->is_nullable()) {
+        if (const auto* nullable_raw = check_and_get_column<ColumnNullable>(raw)) {
             if (raw->has_null()) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "{} for function {} cannot be null", arg_name, func_name);
             }
-            raw = assert_cast<const ColumnNullable*>(raw)->get_nested_column_ptr().get();
+            raw = nullable_raw->get_nested_column_ptr().get();
         }
 
         // Check inner nullable (array elements)
         const auto& array_col = assert_cast<const ColumnArray&>(*raw);
-        if (array_col.get_data_ptr()->is_nullable() && array_col.get_data_ptr()->has_null()) {
+        if (is_column_nullable(*array_col.get_data_ptr()) && array_col.get_data_ptr()->has_null()) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "{} for function {} cannot have null", arg_name, func_name);
         }

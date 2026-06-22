@@ -95,7 +95,7 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
         PROPERTIES (
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "false"
-        )       
+        )
     """
 
     Random rd = new Random()
@@ -113,7 +113,7 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
+            ($order_key, $part_key, $sub_key, $line_num,
             $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
             """
         sql """ INSERT INTO ${tableNameUk} VALUES
@@ -126,20 +126,7 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
-            $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
-            """
-        sql """ INSERT INTO ${tableNameUk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
-            $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
-            """
-
-        order_key = rd.nextInt(10)
-        part_key = rd.nextInt(10)
-        city = RandomStringUtils.randomAlphabetic(10)
-        name = UUID.randomUUID().toString()
-        sql """ INSERT INTO ${tableNamePk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
+            ($order_key, $part_key, $sub_key, $line_num,
             $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
             """
         sql """ INSERT INTO ${tableNameUk} VALUES
@@ -152,28 +139,41 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
+            ($order_key, $part_key, $sub_key, $line_num,
             $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
             """
         sql """ INSERT INTO ${tableNameUk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
+            ($order_key, $part_key, $sub_key, $line_num,
             $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
             """
-        
+
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
+            ($order_key, $part_key, $sub_key, $line_num,
             $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
             """
         sql """ INSERT INTO ${tableNameUk} VALUES
-            ($order_key, $part_key, $sub_key, $line_num, 
+            ($order_key, $part_key, $sub_key, $line_num,
             $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
             """
 
-        // insert batch key 
+        order_key = rd.nextInt(10)
+        part_key = rd.nextInt(10)
+        city = RandomStringUtils.randomAlphabetic(10)
+        name = UUID.randomUUID().toString()
+        sql """ INSERT INTO ${tableNamePk} VALUES
+            ($order_key, $part_key, $sub_key, $line_num,
+            $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
+            """
+        sql """ INSERT INTO ${tableNameUk} VALUES
+            ($order_key, $part_key, $sub_key, $line_num,
+            $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
+            """
+
+        // insert batch key
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
         city = RandomStringUtils.randomAlphabetic(10)
@@ -192,7 +192,7 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
         """
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         // count(*)
         def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
@@ -239,14 +239,14 @@ suite("test_pk_uk_case_unique_with_mow", "inverted_index") {
                             ORDER BY
                             l_returnflag,
                             l_linestatus
-                        """  
+                        """
         assertEquals(result0.size(), result1.size())
         for (int i = 0; i < result0.size(); ++i) {
             for (int j = 0; j < result0[0].size(); j++) {
                 logger.info("result: " + result0[i][j] + "|" + result1[i][j])
                 assertEquals(result0[i][j], result1[i][j])
             }
-        }       
+        }
 
         // delete
         if (idx % 10 == 0) {

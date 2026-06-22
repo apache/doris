@@ -114,7 +114,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns&
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             _build_column_has_null[i] = false;
-            if (_right_output_slot_flags[i] && column.is_nullable()) {
+            if (_right_output_slot_flags[i] && is_column_nullable(column)) {
                 const auto& nullable = assert_cast<const ColumnNullable&>(column);
                 _build_column_has_null[i] = !simd::contain_one(
                         nullable.get_null_map_data().data() + 1, nullable.size() - 1);
@@ -264,7 +264,7 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     // Remove nullable wrapper for comparison - keep original for null check
     ColumnPtr probe_col_for_compare = probe_col_ptr;
     const uint8_t* asof_probe_null_map = nullptr;
-    if (probe_col_ptr->is_nullable()) {
+    if (is_column_nullable(*probe_col_ptr)) {
         const auto* nullable_probe_col = assert_cast<const ColumnNullable*>(probe_col_ptr.get());
         asof_probe_null_map = nullable_probe_col->get_null_map_data().data();
         probe_col_for_compare = nullable_probe_col->get_nested_column_ptr();

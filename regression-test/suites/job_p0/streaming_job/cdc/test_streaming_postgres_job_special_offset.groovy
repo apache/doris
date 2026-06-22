@@ -143,6 +143,37 @@ suite("test_streaming_postgres_job_special_offset", "p0,external,pg,external_doc
             def jobStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             return jobStatus[0][0] == "PAUSED"
         })
+
+        // PAUSE cancels the FE task but does NOT stop the in-flight cdc_client reader started before
+        // the pause: it keeps polling up to max_interval (default 10s) and would stream-load whatever
+        // rows we insert next, defeating the ALTER-offset reposition (this is the historical source of
+        // flakiness). No new reader is dispatched while PAUSED, so drain the lingering one
+        // deterministically: insert a disposable probe row, then wait until the row count stays stable
+        // for a window longer than max_interval. An active reader would have loaded the probe within
+        // max_interval, so a stable window proves no reader is consuming anymore. Finally delete the
+        // probe from both sides so it never pollutes the before/after-mark assertions or the .out.
+        def probeId = 10
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (${probeId}, 'drain_probe')"""
+        }
+        int stablePolls = 0
+        long lastCnt = -1L
+        Awaitility.await().atMost(120, SECONDS).pollInterval(3, SECONDS).until({
+            long c = sql("""SELECT count(*) FROM ${currentDb}.${table1}""")[0][0] as long
+            if (c == lastCnt) {
+                stablePolls++
+            } else {
+                stablePolls = 0
+                lastCnt = c
+            }
+            // 5 * 3s = 15s stable > max_interval (10s) => the lingering reader has fully drained.
+            return stablePolls >= 5
+        })
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE id = ${probeId}"""
+        }
+        sql """DELETE FROM ${currentDb}.${table1} WHERE id = ${probeId}"""
+
         def alterLsn = ""
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // insert data BEFORE the LSN mark

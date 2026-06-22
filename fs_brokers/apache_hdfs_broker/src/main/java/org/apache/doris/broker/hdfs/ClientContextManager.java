@@ -22,7 +22,9 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -34,10 +36,14 @@ import org.apache.doris.thrift.TBrokerOperationStatusCode;
 
 public class ClientContextManager {
 
-    private static Logger logger = Logger
-        .getLogger(ClientContextManager.class.getName());
-    private ScheduledExecutorService clientCheckExecutorService;
-    private ScheduledExecutorService inputStreamCheckExecuterService;
+    private static Logger logger = Logger.getLogger(ClientContextManager.class.getName());
+    private ScheduledExecutorService clientContextCheckExecutorService = Executors.newScheduledThreadPool(2,
+        new ThreadFactory() {
+            private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) { return new Thread(r, "clientContextCleanup-pool-" + threadNumber.getAndIncrement()); }
+        });
     private ConcurrentHashMap<String, ClientResourceContext> clientContexts;
     private ConcurrentHashMap<TBrokerFD, String> fdToClientMap;
     private int clientExpirationSeconds = BrokerConfig.client_expire_seconds;
@@ -45,12 +51,7 @@ public class ClientContextManager {
     public ClientContextManager() {
         clientContexts = new ConcurrentHashMap<>();
         fdToClientMap = new ConcurrentHashMap<>();
-        this.clientCheckExecutorService = Executors.newScheduledThreadPool(2);
-        this.clientCheckExecutorService.schedule(new CheckClientExpirationTask(), 0, TimeUnit.SECONDS);
-        if (BrokerConfig.enable_input_stream_expire_check) {
-            this.inputStreamCheckExecuterService = Executors.newScheduledThreadPool(2);
-            this.inputStreamCheckExecuterService.schedule(new CheckInputStreamExpirationTask(), 0, TimeUnit.SECONDS);
-        }
+        this.clientContextCheckExecutorService.schedule(new CheckClientExpirationTask(), 0, TimeUnit.SECONDS);
     }
 
     public void onPing(String clientId) {
@@ -110,12 +111,14 @@ public class ClientContextManager {
         }
         ClientResourceContext clientContext = clientContexts.get(clientId);
         BrokerInputStream brokerInputStream = clientContext.inputStreams.remove(fd);
-        try {
-            if (brokerInputStream != null) {
+        if (brokerInputStream != null) {
+            try {
                 brokerInputStream.inputStream.close();
+            } catch (Exception e) {
+                logger.error("errors while close file data input stream", e);
+            } finally {
+                brokerInputStream.brokerFileSystem.decrementActiveStreams();
             }
-        } catch (Exception e) {
-            logger.error("errors while close file data input stream", e);
         }
     }
 
@@ -126,30 +129,13 @@ public class ClientContextManager {
         }
         ClientResourceContext clientContext = clientContexts.get(clientId);
         BrokerOutputStream brokerOutputStream = clientContext.outputStreams.remove(fd);
-        try {
-            if (brokerOutputStream != null) {
+        if (brokerOutputStream != null) {
+            try {
                 brokerOutputStream.outputStream.close();
-            }
-        } catch (Exception e) {
-            logger.error("errors while close file data output stream", e);
-        }
-    }
-
-    public synchronized void remoteExpireInputStreams() {
-        int inputStreamExpireSeconds = BrokerConfig.input_stream_expire_seconds;
-        TBrokerFD fd;
-        for (ClientResourceContext clientContext : clientContexts.values()) {
-            Iterator<Entry<TBrokerFD, BrokerInputStream>> iter = clientContext.inputStreams.entrySet().iterator();
-            while (iter.hasNext()) {
-                Entry<TBrokerFD, BrokerInputStream> entry = iter.next();
-                fd = entry.getKey();
-                if (entry.getValue().checkExpire(inputStreamExpireSeconds)) {
-                    ClientContextManager.this.removeInputStream(fd);
-                    iter.remove();
-                    logger.info(fd + " in client [" + clientContext.clientId
-                            + "] is expired, remove it from contexts. last update time is "
-                            + entry.getValue().getLastPingTimestamp());
-                }
+            } catch (Exception e) {
+                logger.error("errors while close file data output stream", e);
+            } finally {
+                brokerOutputStream.brokerFileSystem.decrementActiveStreams();
             }
         }
     }
@@ -159,7 +145,7 @@ public class ClientContextManager {
         public void run() {
             try {
                 for (ClientResourceContext clientContext : clientContexts.values()) {
-                    if (System.currentTimeMillis() - clientContext.lastAccessTimestamp > clientExpirationSeconds * 1000) {
+                    if (System.currentTimeMillis() - clientContext.lastAccessTimestamp > clientExpirationSeconds * 1000L) {
                         for (TBrokerFD fd : clientContext.inputStreams.keySet()) {
                             ClientContextManager.this.removeInputStream(fd);
                         }
@@ -173,18 +159,7 @@ public class ClientContextManager {
                     }
                 }
             } finally {
-                ClientContextManager.this.clientCheckExecutorService.schedule(this, 60, TimeUnit.SECONDS);
-            }
-        }
-    }
-
-    class CheckInputStreamExpirationTask implements Runnable {
-        @Override
-        public void run() {
-            try {
-                ClientContextManager.this.remoteExpireInputStreams();
-            } finally {
-                ClientContextManager.this.inputStreamCheckExecuterService.schedule(this, 60, TimeUnit.SECONDS);
+                ClientContextManager.this.clientContextCheckExecutorService.schedule(this, 60, TimeUnit.SECONDS);
             }
         }
     }
@@ -198,6 +173,7 @@ public class ClientContextManager {
             this.outputStream = outputStream;
             this.brokerFileSystem = brokerFileSystem;
             this.brokerFileSystem.updateLastUpdateAccessTime();
+            this.brokerFileSystem.incrementActiveStreams();
         }
 
         public FSDataOutputStream getOutputStream() {
@@ -214,31 +190,21 @@ public class ClientContextManager {
 
         private final FSDataInputStream inputStream;
         private final BrokerFileSystem brokerFileSystem;
-        private AtomicLong lastPingTimestamp;
 
         public BrokerInputStream(FSDataInputStream inputStream, BrokerFileSystem brokerFileSystem) {
             this.inputStream = inputStream;
             this.brokerFileSystem = brokerFileSystem;
             this.brokerFileSystem.updateLastUpdateAccessTime();
-            this.lastPingTimestamp = new AtomicLong(System.currentTimeMillis());
+            this.brokerFileSystem.incrementActiveStreams();
         }
 
         public FSDataInputStream getInputStream() {
             this.brokerFileSystem.updateLastUpdateAccessTime();
-            this.lastPingTimestamp.set(System.currentTimeMillis());
             return inputStream;
         }
 
         public void updateLastUpdateAccessTime() {
             this.brokerFileSystem.updateLastUpdateAccessTime();
-        }
-
-        public boolean checkExpire(long expireSecond) {
-            return System.currentTimeMillis() - lastPingTimestamp.get() > expireSecond * 1000;
-        }
-
-        public long getLastPingTimestamp() {
-            return lastPingTimestamp.get();
         }
     }
 

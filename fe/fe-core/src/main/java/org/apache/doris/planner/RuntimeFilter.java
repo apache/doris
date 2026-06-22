@@ -130,8 +130,6 @@ public final class RuntimeFilter {
     // The type of filter to build.
     private TRuntimeFilterType runtimeFilterType;
 
-    private boolean bitmapFilterNotIn = false;
-
     private TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType;
 
     private boolean bloomFilterSizeCalculatedByNdv = false;
@@ -259,10 +257,6 @@ public final class RuntimeFilter {
         return finalized;
     }
 
-    public void setBitmapFilterNotIn(boolean bitmapFilterNotIn) {
-        this.bitmapFilterNotIn = bitmapFilterNotIn;
-    }
-
     /**
      * Serializes a runtime filter to Thrift.
      */
@@ -306,10 +300,6 @@ public final class RuntimeFilter {
 
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
-        if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
-            tFilter.setBitmapTargetExpr(ExprToThriftVisitor.treeToThrift(targets.get(0).expr));
-            tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
-        }
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
             tFilter.setMinMaxType(tMinMaxRuntimeFilterType);
         }

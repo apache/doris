@@ -26,7 +26,6 @@ enum class RuntimeFilterType {
     MINMAX_FILTER,
     BLOOM_FILTER,
     IN_OR_BLOOM_FILTER,
-    BITMAP_FILTER,
     MIN_FILTER, // only min
     MAX_FILTER  // only max
 };
@@ -56,14 +55,9 @@ struct RuntimeFilterParams {
     bool build_bf_by_runtime_size {};
     // Whether an estimated size by NDV is used to build bloom filter
     bool bloom_filter_size_calculated_by_ndv {};
-
-    // Bitmap filter
-    // Whether a join expression is `not in`
-    bool bitmap_filter_not_in {};
 };
 
 class MinMaxFuncBase;
 class HybridSetBase;
 class BloomFilterFuncBase;
-class BitmapFilterFuncBase;
 } // namespace doris

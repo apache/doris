@@ -105,12 +105,12 @@ public:
 
     // Helper function to extract null map from column (including ColumnConst cases)
     static const NullMap* get_null_map(const ColumnPtr& col) {
-        if (col->is_nullable()) {
-            return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
+            return &nullable->get_null_map_data();
         }
         // Handle Const(Nullable) case
         if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
-            const_col != nullptr && const_col->is_concrete_nullable()) {
+            const_col != nullptr && const_col->is_nullable()) {
             return &static_cast<const ColumnNullable&>(const_col->get_data_column())
                             .get_null_map_data();
         }
@@ -274,7 +274,7 @@ inline size_t calculate_false_number(ColumnPtr column) {
         return calculate_false_number(
                        assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr()) *
                rows;
-    } else if (column->is_nullable()) {
+    } else if (is_column_nullable(*column)) {
         const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
         const auto* data = assert_cast<const ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                    ->get_data()

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -85,8 +86,7 @@ public:
 
         int gap = 0;
         if (!output_slot_ref_indexs.empty()) {
-            auto max_id =
-                    std::max_element(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end());
+            auto max_id = std::ranges::max_element(output_slot_ref_indexs);
             gap = *max_id + 1;
             _set_column_ref_column_id(children[0], gap);
         }
@@ -134,6 +134,7 @@ public:
             if (type_array->is_nullable()) {
                 // get the nullmap of nullable column
                 // hold the null column instead of a reference 'cause `column_array` will be assigned and freed below.
+                DORIS_CHECK(is_column_nullable(*column_array));
                 auto column_array_nullmap =
                         assert_cast<const ColumnNullable&>(*column_array).get_null_map_column_ptr();
 

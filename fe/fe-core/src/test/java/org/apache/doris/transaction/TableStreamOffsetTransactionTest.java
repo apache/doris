@@ -54,12 +54,13 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
                 + "  k1 int,\n"
                 + "  k2 int\n"
                 + ")\n"
-                + "duplicate key(k1)\n"
+                + "unique key(k1)\n"
                 + "partition by range(k1)\n"
                 + "(partition p1 values less than (\"100\"),\n"
                 + " partition p2 values less than (\"200\"))\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\"=\"1\")";
+                + "properties(\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
+                + "\"binlog.format\"=\"ROW\",\"binlog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
         String createTargetTable = "create table test_stream.tbl_target (\n"
@@ -72,7 +73,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         createTable(createTargetTable);
 
         String createStream = "create stream if not exists test_stream.s1 on table test_stream.tbl_stream_base\n"
-                + "properties('type' = 'default', 'show_initial_rows' = 'true')";
+                + "properties('show_initial_rows' = 'true')";
         createTable(createStream);
     }
 
@@ -85,12 +86,16 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
 
         List<Long> partitionIds = new ArrayList<>(baseTable.getPartitionIds());
         Map<Long, Long> historicalPartitionOffset = new HashMap<>();
+        Map<Long, Long> historicalPartitionTSO = new HashMap<>();
         Map<Long, Long> partitionOffset = new HashMap<>();
         for (Long partitionId : partitionIds) {
             historicalPartitionOffset.put(partitionId, 100L);
+            historicalPartitionTSO.put(partitionId, 1000L + partitionId);
             partitionOffset.put(partitionId, 0L);
         }
+        Map<Long, Long> expectedPartitionOffset = new HashMap<>(historicalPartitionTSO);
         Deencapsulation.setField(stream, "historicalPartitionOffset", historicalPartitionOffset);
+        Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
         Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
 
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(new HashMap<>(),
@@ -115,12 +120,14 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", transactionState, commitTime);
 
         Map<Long, Long> updatedHistoricalPartitionOffset = Deencapsulation.getField(stream, "historicalPartitionOffset");
+        Map<Long, Long> updatedHistoricalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
         Map<Long, Long> updatedPartitionOffset = Deencapsulation.getField(stream, "partitionOffset");
         Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
 
         for (Long pid : partitionIds) {
             Assertions.assertFalse(updatedHistoricalPartitionOffset.containsKey(pid));
-            Assertions.assertEquals(update.getNext().get(pid), updatedPartitionOffset.get(pid));
+            Assertions.assertFalse(updatedHistoricalPartitionTSO.containsKey(pid));
+            Assertions.assertEquals(expectedPartitionOffset.get(pid), updatedPartitionOffset.get(pid));
             Assertions.assertEquals(commitTime, partitionConsumptionTime.get(pid));
         }
     }

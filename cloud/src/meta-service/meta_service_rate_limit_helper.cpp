@@ -360,7 +360,7 @@ std::optional<CgroupMemoryInfo> get_cgroup_memory_info() {
             }
             auto metrics = read_metrics_map(*dir / "memory.stat");
             int64_t adjusted_usage = *usage;
-            adjusted_usage -= metrics["inactive_file"];
+            adjusted_usage -= metrics["inactive_file"] + metrics["active_file"];
             adjusted_usage -= metrics["slab_reclaimable"];
             adjusted_usage = std::max<int64_t>(0, adjusted_usage);
             return CgroupMemoryInfo {limit_bytes, adjusted_usage};

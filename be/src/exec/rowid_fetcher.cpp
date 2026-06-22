@@ -318,6 +318,28 @@ struct IteratorItem {
     StorageReadOptions storage_read_options;
 };
 
+static void set_slot_access_paths(const SlotDescriptor& slot, const TabletSchema& schema,
+                                  StorageReadOptions& storage_read_options) {
+    int32_t unique_id = slot.col_unique_id();
+    const int field_index =
+            unique_id >= 0 ? schema.field_index(unique_id) : schema.field_index(slot.col_name());
+    if (field_index >= 0) {
+        const auto& column = schema.column(field_index);
+        unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
+    }
+    if (unique_id < 0) {
+        return;
+    }
+
+    if (!slot.all_access_paths().empty()) {
+        storage_read_options.all_access_paths[unique_id] = slot.all_access_paths();
+    }
+
+    if (!slot.predicate_access_paths().empty()) {
+        storage_read_options.predicate_access_paths[unique_id] = slot.predicate_access_paths();
+    }
+}
+
 struct SegItem {
     BaseTabletSPtr tablet;
     BetaRowsetSharedPtr rowset;
@@ -474,6 +496,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_ids, column,
                     iterator_item.storage_read_options, iterator_item.iterator));
@@ -1111,6 +1134,7 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_ids, column,
                     iterator_item.storage_read_options, iterator_item.iterator));

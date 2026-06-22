@@ -17,7 +17,6 @@
 
 #include "exec/common/variant_util.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -101,6 +100,7 @@
 #include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
+#include "util/jsonb_utils.h"
 
 namespace doris::variant_util {
 
@@ -349,13 +349,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
             return Status::OK();
         }
         // set variant root column/type to from column/type
-        CHECK(arg.column->is_nullable());
+        CHECK(is_column_nullable(*arg.column));
         auto to_type = remove_nullable(type);
         const auto& data_type_object = assert_cast<const DataTypeVariant&>(*to_type);
         auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count(),
                                              data_type_object.enable_doc_mode());
 
-        variant->create_root(arg.type, std::move(*arg.column).mutate());
+        variant->create_root(arg.type, IColumn::mutate(arg.column));
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
                 assert_cast<const ColumnNullable*>(arg.column.get())->get_null_map_column_ptr());
@@ -397,6 +397,37 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
                               arg.column->get_name(), (*result)->get_name());
     return Status::OK();
+}
+
+ColumnPtr jsonb_root_to_json_string_column(const IColumn& root) {
+    auto root_column = root.convert_to_full_column_if_const();
+    const IColumn* jsonb_column = root_column.get();
+    const NullMap* null_map = nullptr;
+    if (root_column->is_nullable()) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*root_column);
+        jsonb_column = &nullable.get_nested_column();
+        null_map = &nullable.get_null_map_data();
+    }
+
+    const auto& column = assert_cast<const ColumnString&>(*jsonb_column);
+    auto result = ColumnString::create();
+    result->reserve(column.size());
+    for (size_t i = 0; i < column.size(); ++i) {
+        if (null_map != nullptr && (*null_map)[i]) {
+            result->insert_default();
+            continue;
+        }
+
+        const auto jsonb = column.get_data_at(i);
+        if (jsonb.size == 0) {
+            result->insert_default();
+            continue;
+        }
+
+        const auto json = JsonbToJson::jsonb_to_json_string(jsonb.data, jsonb.size);
+        result->insert_data(json.data(), json.size());
+    }
+    return result->get_ptr();
 }
 
 void get_column_by_type(const DataTypePtr& data_type, const std::string& name, TabletColumn& column,
@@ -2152,14 +2183,14 @@ Status _parse_and_materialize_variant_columns(Block& block,
                                               const std::vector<ParseConfig>& configs) {
     for (size_t i = 0; i < variant_pos.size(); ++i) {
         auto column_ref = block.get_by_position(variant_pos[i]).column;
-        bool is_nullable = column_ref->is_nullable();
-        MutableColumnPtr owner_column = std::move(*column_ref).mutate();
+        bool is_nullable = is_column_nullable(*column_ref);
+        MutableColumnPtr owner_column = IColumn::mutate(std::move(column_ref));
         ColumnPtr nullable_null_map;
         MutableColumnPtr var_column;
         if (is_nullable) {
             const auto& nullable = assert_cast<const ColumnNullable&>(*owner_column);
             nullable_null_map = nullable.get_null_map_column_ptr();
-            var_column = std::move(*nullable.get_nested_column_ptr()).mutate();
+            var_column = IColumn::mutate(nullable.get_nested_column_ptr());
         } else {
             var_column = std::move(owner_column);
         }
@@ -2175,21 +2206,11 @@ Status _parse_and_materialize_variant_columns(Block& block,
         VLOG_DEBUG << "parse scalar variant column: " << var.get_root_type()->get_name();
         ColumnPtr scalar_root_column;
         if (var.get_root_type()->get_primitive_type() == TYPE_JSONB) {
-            // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
-            // json str and parse them into variant
-            RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
-                                        var.get_root()->is_nullable()
-                                                ? make_nullable(std::make_shared<DataTypeString>())
-                                                : std::make_shared<DataTypeString>(),
-                                        &scalar_root_column));
-            if (scalar_root_column->is_nullable()) {
-                scalar_root_column = assert_cast<const ColumnNullable*>(scalar_root_column.get())
-                                             ->get_nested_column_ptr();
-            }
+            scalar_root_column = jsonb_root_to_json_string_column(*var.get_root());
         } else {
             const auto& root = *var.get_root();
             scalar_root_column =
-                    root.is_nullable()
+                    is_column_nullable(root)
                             ? assert_cast<const ColumnNullable&>(root).get_nested_column_ptr()
                             : var.get_root();
         }
