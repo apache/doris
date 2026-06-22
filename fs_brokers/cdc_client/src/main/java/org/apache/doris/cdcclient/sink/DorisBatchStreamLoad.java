@@ -79,6 +79,8 @@ public class DorisBatchStreamLoad implements Serializable {
     private static final String COMMIT_URL_PATTERN = "http://%s/api/streaming/commit_offset";
     private static final String REPORT_FAILURE_URL_PATTERN =
             "http://%s/api/streaming/report_task_failure";
+    // best-effort notification: short timeout so an unreachable FE can't pin the data-write thread
+    private static final int REPORT_FAILURE_TIMEOUT_MS = 60 * 1000;
     private String hostPort;
     @Setter private String frontendAddress;
     private Map<String, BatchRecordBuffer> bufferMap = new ConcurrentHashMap<>();
@@ -627,7 +629,7 @@ public class DorisBatchStreamLoad implements Serializable {
                             .addTokenAuth(token)
                             .setUrl(url)
                             .setEntity(new StringEntity(param));
-            try (CloseableHttpClient client = HttpUtil.getHttpClient();
+            try (CloseableHttpClient client = HttpUtil.getHttpClient(REPORT_FAILURE_TIMEOUT_MS);
                     CloseableHttpResponse resp = client.execute(builder.build())) {
                 LOG.info(
                         "report task failure jobId={} taskId={} status={}",

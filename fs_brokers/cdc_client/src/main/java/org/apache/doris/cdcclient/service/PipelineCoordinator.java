@@ -63,6 +63,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import io.debezium.data.Envelope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,8 +82,10 @@ public class PipelineCoordinator {
     // taskId -> list of split offsets (accumulates all splits processed in one task)
     private final Map<String, List<Map<String, String>>> taskOffsetCache =
             new ConcurrentHashMap<>();
-    // taskId -> writeFailReason
-    private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
+    // taskId -> writeFailReason, bounded so old entries are evicted instead of accumulating
+    // unbounded
+    private final Cache<String, String> taskErrorMaps =
+            CacheBuilder.newBuilder().maximumSize(1000).build();
     private final Map<String, AtomicLong> taskProgressMap = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
     private static final int QUEUE_CAPACITY = 128;
@@ -744,13 +748,15 @@ public class PipelineCoordinator {
     }
 
     public String getTaskFailReason(String taskId) {
-        String taskReason = taskErrorMaps.remove(taskId);
+        String taskReason = taskErrorMaps.getIfPresent(taskId);
+        taskErrorMaps.invalidate(taskId);
         return taskReason == null ? "" : taskReason;
     }
 
     public StreamingTaskStatus getTaskStatus(String taskId) {
         // On failure, drop progress so FE won't renew the deadline on a failed task.
-        String reason = taskErrorMaps.remove(taskId);
+        String reason = taskErrorMaps.getIfPresent(taskId);
+        taskErrorMaps.invalidate(taskId);
         if (StringUtils.isNotEmpty(reason)) {
             return new StreamingTaskStatus(-1, reason);
         }
