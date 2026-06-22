@@ -113,8 +113,12 @@ public class ThriftPlansBuilder {
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
 
+        int broadcastRuntimeFilterProducerNum = coordinatorContext.connectContext == null
+                ? 0
+                : coordinatorContext.connectContext.getSessionVariable()
+                        .getRuntimeFilterBroadcastJoinProducerNum();
         RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder = RuntimeFiltersThriftBuilder.compute(
-                coordinatorContext.runtimeFilters, distributedPlans);
+                coordinatorContext.runtimeFilters, distributedPlans, broadcastRuntimeFilterProducerNum);
         Supplier<List<TTopnFilterDesc>> topNFilterThriftSupplier
                 = topNFilterToThrift(coordinatorContext.topnFilters);
 
@@ -134,7 +138,8 @@ public class ThriftPlansBuilder {
                 TPipelineFragmentParams currentFragmentParam = fragmentToThriftIfAbsent(
                         currentFragmentPlan, instanceJob, workerToCurrentFragment,
                         instancesPerWorker, exchangeSenderNum, sharedFileScanRangeParams,
-                        workerProcessInstanceNum, fragmentToNotifyClose, coordinatorContext);
+                        workerProcessInstanceNum, fragmentToNotifyClose, coordinatorContext,
+                        runtimeFiltersThriftBuilder);
 
                 TPipelineInstanceParams instanceParam = instanceToThrift(
                         currentFragmentParam, instanceJob, currentInstanceIndex++);
@@ -344,7 +349,8 @@ public class ThriftPlansBuilder {
             Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap,
             Multiset<DistributedPlanWorker> workerProcessInstanceNum,
             Set<Integer> fragmentToNotifyClose,
-            CoordinatorContext coordinatorContext) {
+            CoordinatorContext coordinatorContext,
+            RuntimeFiltersThriftBuilder runtimeFiltersThriftBuilder) {
         DistributedPlanWorker worker = assignedJob.getAssignedWorker();
         return workerToFragmentParams.computeIfAbsent(worker, w -> {
             PlanFragment fragment = fragmentPlan.getFragmentJob().getFragment();
@@ -399,6 +405,7 @@ public class ThriftPlansBuilder {
             params.setSendQueryStatisticsWithEveryBatch(fragment.isTransferQueryStatisticsWithEveryBatch());
 
             TPlanFragment planThrift = fragment.toThrift();
+            runtimeFiltersThriftBuilder.pruneBroadcastRuntimeFilterProducers(planThrift, worker);
             planThrift.query_cache_param = fragment.queryCacheParam;
             params.setFragment(planThrift);
             params.setLocalParams(Lists.newArrayList());
