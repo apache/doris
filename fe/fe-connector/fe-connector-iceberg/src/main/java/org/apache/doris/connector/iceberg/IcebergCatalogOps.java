@@ -17,18 +17,23 @@
 
 package org.apache.doris.connector.iceberg;
 
+import com.google.common.base.Splitter;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Injection seam over the remote Iceberg {@link Catalog} calls.
@@ -77,9 +82,23 @@ public interface IcebergCatalogOps {
         private static final Logger LOG = LogManager.getLogger(CatalogBackedIcebergCatalogOps.class);
 
         private final Catalog catalog;
+        // Listing-parity gating mirrored from legacy IcebergMetadataOps (threaded from IcebergConnector):
+        private final boolean restFlavor;
+        private final boolean nestedNamespaceEnabled;
+        private final boolean viewEnabled;
+        private final Optional<String> externalCatalogName;
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog) {
+            this(catalog, false, false, true, Optional.empty());
+        }
+
+        public CatalogBackedIcebergCatalogOps(Catalog catalog, boolean restFlavor,
+                boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName) {
             this.catalog = catalog;
+            this.restFlavor = restFlavor;
+            this.nestedNamespaceEnabled = nestedNamespaceEnabled;
+            this.viewEnabled = viewEnabled;
+            this.externalCatalogName = externalCatalogName;
         }
 
         @Override
@@ -88,8 +107,25 @@ public interface IcebergCatalogOps {
                 LOG.warn("Iceberg catalog does not support namespaces");
                 return Collections.emptyList();
             }
+            return listNestedNamespaces(rootNamespace());
+        }
+
+        /**
+         * Lists databases under {@code parentNs}, mirroring legacy {@code IcebergMetadataOps}: for a REST
+         * flavor with {@code iceberg.rest.nested-namespace-enabled=true} it RECURSES, emitting each child's
+         * dotted {@code toString()} followed by its descendants; otherwise it returns each child's last
+         * level only. Assumes the catalog is a {@link SupportsNamespaces} (guarded by the callers).
+         */
+        private List<String> listNestedNamespaces(Namespace parentNs) {
             SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-            return nsCatalog.listNamespaces(Namespace.empty()).stream()
+            if (restFlavor && nestedNamespaceEnabled) {
+                return nsCatalog.listNamespaces(parentNs).stream()
+                        .flatMap(childNs -> Stream.concat(
+                                Stream.of(childNs.toString()),
+                                listNestedNamespaces(childNs).stream()))
+                        .collect(Collectors.toList());
+            }
+            return nsCatalog.listNamespaces(parentNs).stream()
                     .map(ns -> ns.level(ns.length() - 1))
                     .collect(Collectors.toList());
         }
@@ -99,25 +135,70 @@ public interface IcebergCatalogOps {
             if (!(catalog instanceof SupportsNamespaces)) {
                 return false;
             }
-            return ((SupportsNamespaces) catalog).namespaceExists(Namespace.of(dbName));
+            return ((SupportsNamespaces) catalog).namespaceExists(toNamespace(dbName));
         }
 
         @Override
         public List<String> listTableNames(String dbName) {
-            Namespace ns = Namespace.of(dbName);
-            return catalog.listTables(ns).stream()
+            Namespace ns = toNamespace(dbName);
+            List<String> tableNames = catalog.listTables(ns).stream()
                     .map(TableIdentifier::name)
+                    .collect(Collectors.toList());
+            // iceberg's listTables also returns views, so subtract the view names when the catalog is a
+            // (view-enabled) ViewCatalog — mirrors legacy IcebergMetadataOps.listTableNames.
+            if (!isViewCatalogEnabled()) {
+                return tableNames;
+            }
+            List<String> views = ((ViewCatalog) catalog).listViews(ns).stream()
+                    .map(TableIdentifier::name)
+                    .collect(Collectors.toList());
+            if (views.isEmpty()) {
+                return tableNames;
+            }
+            return tableNames.stream()
+                    .filter(name -> !views.contains(name))
                     .collect(Collectors.toList());
         }
 
         @Override
         public boolean tableExists(String dbName, String tableName) {
-            return catalog.tableExists(TableIdentifier.of(dbName, tableName));
+            return catalog.tableExists(toTableIdentifier(dbName, tableName));
         }
 
         @Override
         public Table loadTable(String dbName, String tableName) {
-            return catalog.loadTable(TableIdentifier.of(dbName, tableName));
+            return catalog.loadTable(toTableIdentifier(dbName, tableName));
+        }
+
+        /** View filtering is on iff the catalog is a {@link ViewCatalog} and (for REST) views are enabled. */
+        private boolean isViewCatalogEnabled() {
+            if (!(catalog instanceof ViewCatalog)) {
+                return false;
+            }
+            return !restFlavor || viewEnabled;
+        }
+
+        /** The root namespace to start database listing from: the external-catalog level, else empty. */
+        private Namespace rootNamespace() {
+            return externalCatalogName.map(Namespace::of).orElseGet(Namespace::empty);
+        }
+
+        /**
+         * Builds the multi-level namespace for {@code dbName}, mirroring legacy {@code getNamespace}: split
+         * on {@code '.'} (omit empties / trim), then append the external-catalog level last when present.
+         */
+        private Namespace toNamespace(String dbName) {
+            // Use the SAME Guava splitter as legacy IcebergMetadataOps.getNamespace so splitting is
+            // byte-faithful — including trimResults()==CharMatcher.whitespace(), which trims Unicode
+            // whitespace above U+0020 (e.g. U+3000) that String.trim() would leave behind.
+            List<String> levels = new ArrayList<>(
+                    Splitter.on('.').omitEmptyStrings().trimResults().splitToList(dbName));
+            externalCatalogName.ifPresent(levels::add);
+            return Namespace.of(levels.toArray(new String[0]));
+        }
+
+        private TableIdentifier toTableIdentifier(String dbName, String tableName) {
+            return TableIdentifier.of(toNamespace(dbName), tableName);
         }
 
         @Override

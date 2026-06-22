@@ -51,6 +51,12 @@ public final class IcebergConnectorProperties {
 
     // -- REST catalog options --
     public static final String REST_NESTED_NAMESPACE_ENABLED = "iceberg.rest.nested-namespace-enabled";
+    public static final String REST_VIEW_ENABLED = "iceberg.rest.view-enabled";
+
+    // -- Namespace hierarchy (REST 3-level <catalog>.<db>.<table>) --
+    // Mirrors legacy IcebergExternalCatalog.EXTERNAL_CATALOG_NAME: when present, this catalog level is
+    // appended to every namespace and roots database listing.
+    public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
 
     // -- Cache configuration --
     public static final String TABLE_CACHE_ENABLE = "meta.cache.iceberg.table.enable";

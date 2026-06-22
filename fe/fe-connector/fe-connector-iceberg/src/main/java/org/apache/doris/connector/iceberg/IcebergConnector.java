@@ -107,8 +107,21 @@ public class IcebergConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
+        // Thread the listing-parity gating (mirrored from legacy IcebergMetadataOps) into the seam: nested
+        // namespace recursion is REST-only and flag-gated; view filtering is REST-flag-gated; a configured
+        // external_catalog.name roots namespaces (REST 3-level <catalog>.<db>.<table>).
+        String flavor = IcebergCatalogFactory.resolveFlavor(properties);
+        boolean restFlavor = IcebergConnectorProperties.TYPE_REST.equals(flavor);
+        boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.REST_NESTED_NAMESPACE_ENABLED, "false"));
+        boolean viewEnabled = Boolean.parseBoolean(properties.getOrDefault(
+                IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
+        Optional<String> externalCatalogName =
+                Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
         return new IcebergConnectorMetadata(
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), properties);
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog(),
+                        restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName),
+                properties, context);
     }
 
     private Catalog getOrCreateCatalog() {

@@ -29,13 +29,12 @@ import java.util.concurrent.Callable;
  * Hand-written {@link ConnectorContext} test double (no Mockito), adapted verbatim from the paimon
  * connector's {@code RecordingConnectorContext}.
  *
- * <p>The Iceberg read-path metadata SUT does not take a context (its constructor is
- * {@code (IcebergCatalogOps, Map)}), so the read tests do not use this double; it is provided as
- * part of the connector test harness so later DDL / storage-config phases can assert that remote
- * calls are wrapped in {@link #executeAuthenticated} (one wrap per op) and that
- * {@link #getStorageProperties} / {@link #loadHiveConfResources} are threaded through. When
- * {@link #failAuth} is set, {@link #executeAuthenticated} throws WITHOUT invoking the task, which
- * proves the seam call sits INSIDE the authenticator.
+ * <p>{@link IcebergConnectorMetadata} takes a context (ctor {@code (IcebergCatalogOps, Map,
+ * ConnectorContext)}) and wraps every remote read in {@link #executeAuthenticated}; the read tests use
+ * this double to assert one wrap per op via {@link #authCount}, and that {@link #getStorageProperties} /
+ * {@link #loadHiveConfResources} are threaded through. When {@link #failAuth} is set,
+ * {@link #executeAuthenticated} throws WITHOUT invoking the task, which proves the seam call sits INSIDE
+ * the authenticator.
  */
 final class RecordingConnectorContext implements ConnectorContext {
 

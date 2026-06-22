@@ -51,12 +51,17 @@ import java.util.Optional;
 public class IcebergConnectorMetadataTest {
 
     private static IcebergConnectorMetadata metadataWith(RecordingIcebergCatalogOps ops) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap());
+        return metadataWith(ops, Collections.emptyMap());
     }
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, Map<String, String> props) {
-        return new IcebergConnectorMetadata(ops, props);
+        return new IcebergConnectorMetadata(ops, props, new RecordingConnectorContext());
+    }
+
+    private static IcebergConnectorMetadata metadataWith(
+            RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
+        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
     }
 
     /** A simple 2-column unpartitioned schema (id required, name optional). */
@@ -184,13 +189,23 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals("name", cols.get(1).getName());
         Assertions.assertEquals("STRING", cols.get(1).getType().getTypeName());
 
-        // WHY: nullability follows the Iceberg field optional flag directly (required -> NOT NULL,
-        // optional -> nullable). This is the CURRENT production behavior (no force-nullable). MUTATION:
-        // inverting isOptional, or forcing all nullable -> red.
-        Assertions.assertFalse(cols.get(0).isNullable(),
-                "a required Iceberg field must surface as NOT NULL (current behavior)");
+        // WHY: legacy IcebergUtils.parseSchema builds EVERY column with isAllowNull=true regardless of
+        // the Iceberg field's required/optional flag (rows can still read NULL under schema-evolution
+        // default-fill, and nereids must not fold null-rejecting predicates the legacy path permitted).
+        // So even a REQUIRED Iceberg field surfaces as nullable. MUTATION: propagating field.isOptional()
+        // (required -> NOT NULL) -> red.
+        Assertions.assertTrue(cols.get(0).isNullable(),
+                "a required Iceberg field must STILL surface as nullable (legacy forces isAllowNull=true)");
         Assertions.assertTrue(cols.get(1).isNullable(),
                 "an optional Iceberg field must surface as nullable");
+
+        // WHY: legacy IcebergUtils.parseSchema passes isKey=true for every column, so DESC shows Key=true
+        // for all iceberg columns (external-table semantics). MUTATION: the 5-arg ConnectorColumn ctor
+        // (default isKey=false) -> red.
+        Assertions.assertTrue(cols.get(0).isKey(),
+                "every iceberg column must be a key column (legacy parity: isKey=true)");
+        Assertions.assertTrue(cols.get(1).isKey(),
+                "every iceberg column must be a key column (legacy parity: isKey=true)");
 
         // WHY: the table-format type tag is the fixed "ICEBERG" discriminator the FE uses to route the
         // schema. MUTATION: emitting a different/empty tag -> red.
@@ -272,15 +287,32 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaStampsFormatVersionTwoForAnyValidSpec() {
-        // NOTE (parity oddity, FROZEN this phase): production computes iceberg.format-version as
-        // `spec().specId() >= 0 ? 2 : 1`. Every real PartitionSpec — including the UNPARTITIONED spec —
-        // has specId 0 (>= 0), so this ALWAYS stamps "2" and can never produce "1". The format version
-        // is a table-level v1/v2 concept that should be read from the table metadata (the
-        // `format-version` table property), not derived from the partition spec id. This test PINS the
-        // current (oddly-always-2) behavior so the later parity fix (P6-T08/T09) is a deliberate,
-        // visible change rather than a silent drift. MUTATION: producing "1" for an unpartitioned table
-        // under the current logic -> red.
+    public void getTableSchemaReadsFormatVersionFromTableProperty() {
+        // WHY (T09 parity fix): legacy IcebergUtils.getFormatVersion reads the REAL table format version
+        // — from BaseTable.operations().current().formatVersion(), else from the `format-version` table
+        // property — NOT from the partition spec id. A FakeIcebergTable is not a BaseTable, so the
+        // property branch is exercised: a v1 table must surface format-version=1. MUTATION: the old
+        // `spec().specId() >= 0 ? 2 : 1` (always "2"), or ignoring the property -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> props = new HashMap<>();
+        props.put("format-version", "1");
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", props);
+
+        ConnectorTableSchema schema =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        Assertions.assertEquals("1", schema.getProperties().get("iceberg.format-version"),
+                "format-version must be read from the table's `format-version` property, not the spec id");
+    }
+
+    @Test
+    public void getTableSchemaDefaultsFormatVersionToTwoWhenAbsent() {
+        // WHY: legacy getFormatVersion defaults to 2 when the table is neither a BaseTable nor carries a
+        // `format-version` property. An unpartitioned table with no format-version property must default
+        // to "2" (the legacy default), but via the DEFAULT — not via the old spec-id quirk. MUTATION:
+        // defaulting to "1", or reviving the spec-id derivation -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = new FakeIcebergTable(
                 "t1", idNameSchema(), PartitionSpec.unpartitioned(),
@@ -290,7 +322,72 @@ public class IcebergConnectorMetadataTest {
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
         Assertions.assertEquals("2", schema.getProperties().get("iceberg.format-version"),
-                "current behavior stamps format-version=2 for any spec with specId>=0 (incl. unpartitioned)");
+                "an absent format-version property must default to 2 (legacy getFormatVersion default)");
+    }
+
+    @Test
+    public void getTableSchemaLowercasesColumnNames() {
+        // WHY: legacy IcebergUtils.parseSchema builds each column name as
+        // field.name().toLowerCase(Locale.ROOT), so a mixed-case Iceberg field surfaces as a lowercase
+        // Doris column. The connector must lowercase itself (the SPI bridge only layers user identifier
+        // mapping on top). MUTATION: emitting field.name() verbatim -> "ID" -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Schema upperSchema = new Schema(
+                Types.NestedField.required(1, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "Mixed_Name", Types.StringType.get()));
+        ops.table = new FakeIcebergTable(
+                "t1", upperSchema, PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+
+        ConnectorTableSchema schema =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        Assertions.assertEquals("id", schema.getColumns().get(0).getName(),
+                "an uppercase Iceberg field name must be lowercased (legacy toLowerCase(ROOT))");
+        Assertions.assertEquals("mixed_name", schema.getColumns().get(1).getName(),
+                "a mixed-case Iceberg field name must be fully lowercased");
+    }
+
+    @Test
+    public void getTableSchemaMarksWithTimeZoneFromSourceTypeIndependentOfMappingFlag() {
+        // WHY: legacy IcebergUtils.parseSchema sets setWithTZExtraInfo() when the SOURCE field is a
+        // TIMESTAMP with shouldAdjustToUTC()==true, REGARDLESS of the enable.mapping.timestamp_tz flag
+        // (the marker is keyed on the source type root, not the mapped Doris type). So a with-zone
+        // timestamp carries the WITH_TIMEZONE marker even when mapped to plain DATETIMEV2 (flag off),
+        // while a without-zone timestamp never does. MUTATION: gating the marker on the mapping flag, or
+        // never setting it -> red.
+        Schema tsSchema = new Schema(
+                Types.NestedField.optional(1, "ts_tz", Types.TimestampType.withZone()),
+                Types.NestedField.optional(2, "ts_ntz", Types.TimestampType.withoutZone()),
+                Types.NestedField.optional(3, "id", Types.IntegerType.get()));
+
+        // Mapping flag OFF (default): with-zone ts maps to DATETIMEV2 but STILL carries the marker.
+        RecordingIcebergCatalogOps offOps = new RecordingIcebergCatalogOps();
+        offOps.table = new FakeIcebergTable(
+                "t1", tsSchema, PartitionSpec.unpartitioned(), "s3://b/t1", Collections.emptyMap());
+        List<ConnectorColumn> offCols =
+                metadataWith(offOps).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
+        Assertions.assertTrue(offCols.get(0).isWithTimeZone(),
+                "with-zone timestamp must carry the WITH_TIMEZONE marker even with mapping flag OFF");
+        Assertions.assertEquals("DATETIMEV2", offCols.get(0).getType().getTypeName(),
+                "with mapping flag off the with-zone timestamp is still mapped to DATETIMEV2");
+        Assertions.assertFalse(offCols.get(1).isWithTimeZone(),
+                "a without-zone timestamp must NOT carry the WITH_TIMEZONE marker");
+        Assertions.assertFalse(offCols.get(2).isWithTimeZone(),
+                "a non-timestamp column must NOT carry the WITH_TIMEZONE marker");
+
+        // Mapping flag ON: with-zone ts maps to TIMESTAMPTZ and also carries the marker.
+        RecordingIcebergCatalogOps onOps = new RecordingIcebergCatalogOps();
+        onOps.table = new FakeIcebergTable(
+                "t2", tsSchema, PartitionSpec.unpartitioned(), "s3://b/t2", Collections.emptyMap());
+        Map<String, String> onProps = new HashMap<>();
+        onProps.put("enable.mapping.timestamp_tz", "true");
+        List<ConnectorColumn> onCols = metadataWith(onOps, onProps)
+                .getTableSchema(null, new IcebergTableHandle("db1", "t2")).getColumns();
+        Assertions.assertTrue(onCols.get(0).isWithTimeZone(),
+                "with-zone timestamp must carry the WITH_TIMEZONE marker with mapping flag ON too");
+        Assertions.assertEquals("TIMESTAMPTZ", onCols.get(0).getType().getTypeName(),
+                "with mapping flag on the with-zone timestamp maps to TIMESTAMPTZ");
     }
 
     @Test
@@ -368,5 +465,58 @@ public class IcebergConnectorMetadataTest {
                 "absent enable.mapping.varbinary must leave Iceberg BINARY as STRING (default off)");
         Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
                 "absent enable.mapping.timestamp_tz must leave Iceberg TIMESTAMP-with-zone as DATETIMEV2");
+    }
+
+    // ---------------------------------------------------------------------
+    // auth wrapping — every remote read runs inside ConnectorContext.executeAuthenticated
+    // (legacy IcebergMetadataOps + the paimon mirror wrap every list/exists/load call)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void everyRemoteReadRunsInsideExecuteAuthenticated() {
+        // WHY: legacy IcebergMetadataOps wraps EVERY remote read (list/exists/load) in
+        // executionAuthenticator.execute so the FE-injected Kerberos UGI applies; the paimon mirror does
+        // the same. Each of the 5 read entry points must wrap exactly one executeAuthenticated call.
+        // MUTATION: calling the seam directly (no wrap) -> authCount stays 0 -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.databases = Collections.singletonList("db1");
+        ops.tables = Collections.singletonList("t1");
+        ops.databaseExists = true;
+        ops.tableExists = true;
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://b/t1", Collections.emptyMap());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorMetadata md = metadataWith(ops, ctx);
+
+        md.listDatabaseNames(null);
+        md.databaseExists(null, "db1");
+        md.listTableNames(null, "db1");
+        md.getTableHandle(null, "db1", "t1");
+        md.getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        Assertions.assertEquals(5, ctx.authCount,
+                "each of the 5 remote reads must wrap exactly one executeAuthenticated call");
+    }
+
+    @Test
+    public void readsSitInsideAuthSoFailedAuthSkipsTheSeamCall() {
+        // WHY: with failAuth set, executeAuthenticated throws WITHOUT invoking the task. If a seam call sat
+        // OUTSIDE the wrap it would still run; it must NOT — proving the remote call is INSIDE the
+        // authenticator. Each read must surface the failure as a RuntimeException (legacy parity).
+        // MUTATION: a seam call placed outside the wrap -> ops.log records it -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        IcebergConnectorMetadata md = metadataWith(ops, ctx);
+
+        Assertions.assertThrows(RuntimeException.class, () -> md.listDatabaseNames(null));
+        Assertions.assertThrows(RuntimeException.class, () -> md.databaseExists(null, "db1"));
+        Assertions.assertThrows(RuntimeException.class, () -> md.listTableNames(null, "db1"));
+        Assertions.assertThrows(RuntimeException.class, () -> md.getTableHandle(null, "db1", "t1"));
+        Assertions.assertThrows(RuntimeException.class,
+                () -> md.getTableSchema(null, new IcebergTableHandle("db1", "t1")));
+
+        Assertions.assertTrue(ops.log.isEmpty(),
+                "no seam call may run when executeAuthenticated fails before invoking the task");
     }
 }
