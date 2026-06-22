@@ -54,8 +54,7 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 
 Status NestedLoopJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (!state->is_cancelled()) {
-        auto build_blocks = _shared_state->build_blocks.copy();
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(state, build_blocks));
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(state, _shared_state->build_blocks));
     }
     _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     RETURN_IF_ERROR(JoinBuildSinkLocalState::close(state, exec_status));

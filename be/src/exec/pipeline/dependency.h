@@ -793,20 +793,6 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
             return *_blocks[index];
         }
 
-        Blocks copy() const {
-            std::vector<BuildBlockPtr> build_block_ptrs;
-            {
-                std::lock_guard<std::mutex> lock(_mutex);
-                build_block_ptrs = _blocks;
-            }
-            Blocks blocks;
-            blocks.reserve(build_block_ptrs.size());
-            for (const auto& block : build_block_ptrs) {
-                blocks.emplace_back(*block);
-            }
-            return blocks;
-        }
-
     private:
         mutable std::mutex _mutex;
         std::vector<BuildBlockPtr> _blocks;

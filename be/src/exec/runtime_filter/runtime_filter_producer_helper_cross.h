@@ -34,8 +34,10 @@ public:
 
     RuntimeFilterProducerHelperCross() : RuntimeFilterProducerHelper(true, false) {}
 
-    Status process(RuntimeState* state, Blocks& blocks) {
-        for (auto& block : blocks) {
+    template <typename BuildBlocks>
+    Status process(RuntimeState* state, const BuildBlocks& blocks) {
+        for (size_t i = 0; i < blocks.size(); ++i) {
+            Block block = blocks[i];
             RETURN_IF_ERROR(_process_block(&block));
         }
 

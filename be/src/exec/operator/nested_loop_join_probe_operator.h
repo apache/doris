@@ -57,7 +57,6 @@ public:
     }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     // For some complex join types, after generating data on the build/probe side,
