@@ -177,15 +177,15 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     @Test
     void testWindowDup() {
         // partition by a order by a,a: order key a repeats the partition key (constant within partition) and
-        // the second a is a duplicate, so every order key is redundant. sum is not a ranking function and its
-        // frame requires an ORDER BY, so one order key is kept instead of pruning to empty.
+        // the second a is a duplicate, so every order key is redundant and all are pruned to empty. A constant
+        // order key carries no intra-partition ordering, so emptying it is correctness-neutral.
         PlanChecker.from(connectContext)
                 .analyze("select sum(a) over (partition by a order by a,a)  from eliminate_order_by_constant_t")
                 .rewrite()
                 .printlnTree()
                 .matches(logicalWindow()
                         .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
-                                .getOrderKeys().size() == 1));
+                                .getOrderKeys().isEmpty()));
     }
 
     @Test
@@ -202,15 +202,15 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
 
     @Test
     void testWindowUniform() {
-        // order by b with b=100 makes b uniform, so the only order key is redundant. sum is not a ranking
-        // function and its frame requires an ORDER BY, so one order key is kept instead of pruning to empty.
+        // order by b with b=100 makes b uniform, so the only order key is redundant and is pruned to empty.
+        // A constant order key carries no intra-partition ordering, so emptying it is correctness-neutral.
         PlanChecker.from(connectContext)
                 .analyze("select sum(a) over (partition by a order by b) from eliminate_order_by_constant_t where b=100")
                 .rewrite()
                 .printlnTree()
                 .matches(logicalWindow()
                         .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
-                                .getOrderKeys().size() == 1));
+                                .getOrderKeys().isEmpty()));
     }
 
     @Test
@@ -227,11 +227,11 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     }
 
     @Test
-    void testWindowAggKeepsOrderKeyInsteadOfEmptying() {
-        // A non-ranking window function uses its frame, which requires a non-empty ORDER BY. Even though the
-        // only order key repeats the partition key (constant within the partition), pruning it to empty would
-        // leave the framed window without an ORDER BY, violating WindowFunctionChecker.checkWindowFrameBeforeFunc
-        // (and, for a ROWS frame, breaking the row-sequence contract). One order key is kept.
+    void testWindowAggPrunedToEmpty() {
+        // A non-ranking aggregate window whose only order key repeats the partition key (constant within the
+        // partition) is pruned to empty, just like a ranking window. A constant order key defines no peer
+        // ordering: for a RANGE frame the whole partition is a single peer group whether the constant key is
+        // present or not, and a ROWS frame is positional, so emptying it does not change the result.
         PlanChecker.from(connectContext)
                 .analyze("select sum(b) over (partition by a order by a rows between unbounded preceding "
                         + "and current row) from eliminate_order_by_constant_t")
@@ -239,7 +239,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                 .printlnTree()
                 .matches(logicalWindow()
                         .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
-                                .getOrderKeys().size() == 1));
+                                .getOrderKeys().isEmpty()));
     }
 
     @Test
