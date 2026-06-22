@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
 import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
@@ -122,6 +123,16 @@ public class IcebergConnector implements Connector {
                 new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog(),
                         restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName),
                 properties, context);
+    }
+
+    @Override
+    public ConnectorScanPlanProvider getScanPlanProvider() {
+        // Mirrors PaimonConnector.getScanPlanProvider: build a fresh provider per call over the lazily-built
+        // live catalog. Scan planning only loadTable()s the table, so the listing-parity gating flags
+        // (nested-namespace / view / external-catalog name) that getMetadata threads are irrelevant here —
+        // the 1-arg CatalogBackedIcebergCatalogOps (with their defaults) suffices.
+        return new IcebergScanPlanProvider(properties,
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
     }
 
     private Catalog getOrCreateCatalog() {

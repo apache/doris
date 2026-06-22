@@ -201,7 +201,7 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 
 | ID | 标题 | 依赖 | 估 | 状态 |
 |---|---|---|---|---|
-| **P6.2-T01** | `IcebergScanPlanProvider` 骨架（implements `ConnectorScanPlanProvider`）+ `IcebergScanRange`（implements `ConnectorScanRange`）+ `IcebergConnector.getScanPlanProvider` 接线 + `ignorePartitionPruneShortCircuit()=true` + 测试基建扩（`FakeIcebergTable` scan 能力 / `IcebergScanPlanProviderTest`）。镜像 `PaimonScanPlanProvider`/`PaimonScanRange` | — | M | ⬜ |
+| **P6.2-T01** | `IcebergScanPlanProvider` 骨架（implements `ConnectorScanPlanProvider`）+ `IcebergScanRange`（implements `ConnectorScanRange`）+ `IcebergConnector.getScanPlanProvider` 接线 + `ignorePartitionPruneShortCircuit()=true` + 测试基建扩（`FakeIcebergTable` scan 能力 / `IcebergScanPlanProviderTest`）。镜像 `PaimonScanPlanProvider`/`PaimonScanRange` | — | M | ✅ |
 | **P6.2-T02** | 谓词下推（自包含移植 `convertToIcebergExpr`，不 import fe-core）+ `createTableScan`（filter add 顺序保真）+ `planFileScanTask` split 枚举（targetSplitSize/batch 阈值）；manifest-cache 集成留 T08 | P6.2-T01 | L | ⬜ |
 | **P6.2-T03** | `FileScanTask`→`IcebergScanRange` + `populateRangeParams`→`TTableFormatFileDesc.icebergParams`（format-version / partition-data-json / first-row-id / last-updated-seq-num v3 / identity 分区列→columns-from-path）+ native vs JNI 文件格式判定 + **`path_partition_keys` 必发**（CI #968880 双填 guard） | P6.2-T02 | L | ⬜ |
 | **P6.2-T04** | delete files（position bounds / equality field-ids / PUFFIN deletion-vector offset+length）：`DeleteFileIndex.forDataFile` 关联 + **类型/field-ids/bounds 编码进 `ConnectorDeleteFile.properties`**（不破接口）→ 序列化 `TIcebergDeleteFileDesc`；附每 native sub-range | P6.2-T03 | L | ⬜ |

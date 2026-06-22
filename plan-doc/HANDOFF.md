@@ -6,7 +6,7 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.2 实现起步（P6.2-T01：`IcebergScanPlanProvider` 骨架）**（**P6.2 recon + 逐 task 拆解已完成、4 决策签字，见下「✅ P6.2 recon = DONE」；P6.1〔T01–T10〕全绿**）
+# 🎯 下一个 session 的任务 — **P6.2-T02（谓词下推 + `createTableScan` + `planFileScanTask` split 枚举）**（**P6.2-T01 骨架已绿，见下「✅ P6.2-T01 = DONE」；recon + 逐 task 拆解 + 4 决策签字见「✅ P6.2 recon = DONE」；P6.1〔T01–T10〕全绿**）
 
 > **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。**翻闸全有或全无，P6.1–P6.5 切忌动 `SPI_READY_TYPES`**（翻闸只在 P6.6）。
 >
@@ -29,6 +29,19 @@
 - **🔑 关键结论：P6.2 净 0 个新 SPI 接口、0 处 SPI 破坏**——scan（`ConnectorScanPlanProvider`）/MVCC（`ConnectorMvccSnapshot`/`PluginDrivenMvccExternalTable`）接缝就绪；delete equality 元数据编码进既有 `ConnectorDeleteFile.properties`；field-id/vended 走既有接缝；cache 失效用既有 `ConnectorMetaInvalidator`/`Connector.invalidate*`（默认方法已存在，paimon override 过）。
 - **🔴 最高危**（UT 不可见，P6.6 docker 验）：**field-id 丢失**（schema 演化 BE SIGSEGV/DCHECK，CI #969249 类）+ **分区列双填**（必发 `path_partition_keys`，CI #968880 类）。
 - **下一步（实现起点）**：P6.2-T01 = `IcebergScanPlanProvider` 骨架 + `IcebergScanRange` + 接线 + `ignorePartitionPruneShortCircuit()=true` + 测试基建扩。镜像 `PaimonScanPlanProvider`(1589)/`PaimonScanRange`(383)。**起步先**读 recon 笔记 + migration P6.2 块 + paimon 真实代码（大文件 subagent 总结）。
+
+---
+
+# ✅ P6.2-T01 = DONE（2026-06-22 本 commit，未 push）— scan provider 骨架（镜像 paimon）
+
+> 方法：先 4 路并行 workflow（`wf_94a2e297-9b7`）抽 paimon 模板骨架形状（provider 构造器/字段、`PaimonScanRange` Builder/carrier、`PaimonConnector.getScanPlanProvider` 接线、测试 harness），再 TDD（RED=`cannot find symbol`→GREEN）。**全绿**：fe-connector-iceberg UT **117/0/0**（1 skip=env-gated `IcebergLiveConnectivityTest`；111→117 = +6）、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`（零行为变更）、**无 pom 改**。
+
+- **新建 `IcebergScanRange`（implements `ConnectorScanRange`）**：最小 `FILE_SCAN` carrier = path/start/length/fileSize/fileFormat + `Builder`（`new IcebergScanRange.Builder()`，镜像 paimon）。getters + `getTableFormatType()="iceberg"`（= `TableFormatType.ICEBERG` 值，BE 据此选 reader）+ `getProperties()=emptyMap`。**延迟到 T02..T09**：delete-file / JNI-split / schema-id / 分区 columns-from-path / COUNT / 类型化 `populateRangeParams`（现用 SPI 默认）。
+- **新建 `IcebergScanPlanProvider`（implements `ConnectorScanPlanProvider`）**：字段 `properties`/`catalogOps`(`IcebergCatalogOps` seam)/`context`(nullable)；2-arg + 3-arg 构造器（镜像 paimon，wiring 稳定）。override `ignorePartitionPruneShortCircuit()=true`（iceberg 谓词驱动，不消费 `requiredPartitions`，genuine prune-to-zero 须 scan-all）。`planScan(4-arg)` 骨架 = `resolveTable(handle)`（经 seam，context 在场则包 `executeAuthenticated`，镜像 `IcebergConnectorMetadata`/paimon `resolveTable`）→ 返回 `Collections.emptyList()`。其余方法全走 SPI 默认。
+- **`IcebergConnector.getScanPlanProvider()` 接线**：每调 new 一个 provider（镜像 `PaimonConnector`），用 **1-arg** `CatalogBackedIcebergCatalogOps(getOrCreateCatalog())`（scan 只 `loadTable`，listing-gating flags 无关）+ `context`。
+- **测试**（无 Mockito，fail-loud fake）：`IcebergScanRangeTest`(2，builder/默认 contract)、`IcebergScanPlanProviderTest`(4：getScanRangeType==FILE_SCAN / ignorePartitionPruneShortCircuit==true / planScan 经 seam 解析表返回空 / planScan 在 auth context 内〔`authCount==1`〕)。复用既有 `RecordingIcebergCatalogOps`/`RecordingConnectorContext`/`FakeIcebergTable`；planScan 测试传 `null` session（骨架不读 session，T02 接）。
+- **未直接单测**：`IcebergConnector.getScanPlanProvider()` 接线（需 `getOrCreateCatalog()` live catalog，同 paimon 不单测其 `getScanPlanProvider`）→ P6.6 e2e 验。
+- **下一步 = P6.2-T02**：谓词下推（自包含移植 `convertToIcebergExpr`，不 import fe-core）+ `createTableScan`（filter add 顺序保真）+ `planFileScanTask` split 枚举（targetSplitSize/batch 阈值）。manifest-cache 集成留 T08。
 
 ## 🧭 用户裁定（T10 session，按序）
 1. **iceberg CREATE-CATALOG 校验做全量 per-flavor**（非最小/非延迟）。无任何回归测试强制（115 套件无一断言建目录属性校验报错；paimon 同），纯取忠实度。
