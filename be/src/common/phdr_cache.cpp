@@ -107,7 +107,7 @@ extern "C"
 */
 
 extern "C" {
-#ifdef ADDRESS_SANITIZER
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
 void __lsan_ignore_object(const void*);
 #else
 void __lsan_ignore_object(const void*) {} // NOLINT
