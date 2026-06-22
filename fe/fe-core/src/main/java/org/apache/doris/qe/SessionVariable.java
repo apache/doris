@@ -918,7 +918,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SKEW_VALUE_THRESHOLD, needForward = true,
                 description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× skewValueThreshold 时，该值即被视为热点值",
                         "When the occurrence of a value in a column is greater than "
-                                + "skewValueThreshold tmies of average occurences "
+                                + "skewValueThreshold times of average occurences "
                                 + "(occurrences >= skewValueThreshold * rowCount / ndv), "
                                 + "the value is regarded as hot value"})
     private double skewValueThreshold = 10;
