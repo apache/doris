@@ -274,22 +274,25 @@ Suite.metaClass.profile_plan_tree_from_sql = { String testSql ->
     suite.sql "set enable_sql_cache=false;"
     suite.sql testSql
     def qid = suite.sql("select last_query_id()")[0][0] as String
-    // Poll for completion instead of a fixed sleep — BE fragment profiles are merged
-    // asynchronously after the query returns (~30s budget).
-    def profileText = ""
-    for (int i = 0; i < 150; i++) {
+    // Wait for the profile to be fully collected using master's structured completion state
+    // (#64392): the "Profile Completion State" field of /rest/v1/query_profile becomes "COMPLETE"
+    // once all BE fragment profiles are merged. Poll that instead of a fixed sleep (~30s budget).
+    def profileAction = new org.apache.doris.regression.action.ProfileAction(suite.context)
+    for (int i = 0; i < 60; i++) {
         try {
-            profileText = suite.profile_text_from_id(qid)
-            if (profileText =~ /Profile Completion State\s*:\s*COMPLETE\b/) {
+            boolean complete = profileAction.getProfileList().any {
+                it["Profile ID"]?.toString() == qid &&
+                        it["Profile Completion State"]?.toString() == "COMPLETE"
+            }
+            if (complete) {
                 break
             }
         } catch (Exception e) {
-            // profile not available yet — keep polling
+            // profile list not available yet — keep polling
         }
-        Thread.sleep(200)
+        Thread.sleep(500)
     }
-    def tree = suite.profile_plan_tree(profileText)
-    return tree.split('\n').findAll { !it.startsWith('      | ') }.join('\n')
+    return suite.profile_plan_tree_from_id(qid)
 }
 
 logger.info("Added 'profile_plan_tree', 'profile_plan_tree_from_id' and 'profile_plan_tree_from_sql' to Suite")
