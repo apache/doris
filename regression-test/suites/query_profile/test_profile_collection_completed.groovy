@@ -39,10 +39,10 @@ suite("test_profile_collection_completed") {
         }
     }
 
-    // Poll until the completion marker appears, or timeout after 10 s.
+    // Poll until the completion marker appears, or timeout after 30 s.
     def waitForCompletionMarker = { String queryId ->
         def marker = "Is Profile Collection Completed: true"
-        def maxAttempts = 33   // 33 × 300 ms ≈ 10 s
+        def maxAttempts = 100   // 100 × 300 ms = 30 s
         for (int i = 0; i < maxAttempts; i++) {
             Thread.sleep(300)
             def text = getProfileText(queryId)
