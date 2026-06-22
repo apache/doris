@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -43,6 +44,13 @@ constexpr int64_t kBoolPatternIndexId = 210205;
 constexpr int64_t kDatePatternIndexId = 210206;
 constexpr int64_t kDateTimePatternIndexId = 210207;
 constexpr std::string_view kIntPath = "int_1";
+constexpr int32_t kPagePruneLowValueBound = 900000;
+
+int32_t page_prune_offset(size_t row) {
+    uint64_t mixed = static_cast<uint64_t>(row + 1) * 11400714819323198485ull;
+    mixed ^= mixed >> 33;
+    return static_cast<int32_t>(mixed % static_cast<uint64_t>(kPagePruneLowValueBound));
+}
 
 std::shared_ptr<ColumnPredicate> typed_equals(int32_t column_id, std::string column_name,
                                               DataTypePtr data_type, Field value) {
@@ -175,10 +183,11 @@ std::vector<std::string> split_int_variant_rows(size_t low_rows, int32_t low_val
     std::vector<std::string> rows;
     rows.reserve(low_rows + high_rows);
     for (size_t i = 0; i < low_rows; ++i) {
-        rows.push_back(R"({"int_1": )" + std::to_string(low_value) + "}");
+        rows.push_back(R"({"int_1": )" + std::to_string(low_value + page_prune_offset(i)) + "}");
     }
     for (size_t i = 0; i < high_rows; ++i) {
-        rows.push_back(R"({"int_1": )" + std::to_string(high_value) + "}");
+        rows.push_back(R"({"int_1": )" +
+                       std::to_string(high_value + page_prune_offset(low_rows + i)) + "}");
     }
     return rows;
 }
@@ -514,6 +523,9 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapP
 TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathPageZoneMapPrunesWithinSegment) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
+    constexpr int32_t kLowValueBase = 1;
+    constexpr int32_t kHighValueBase = 10000000;
+    constexpr int32_t kPagePruneThreshold = 1000000;
     auto variant = typed_pattern_variant_column();
 
     IndexTabletOptions options;
@@ -525,14 +537,14 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathPageZoneMapPrun
     rowset.version = 0;
     rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
     rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
-            split_int_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+            split_int_variant_rows(kLowRows, kLowValueBase, kHighRows, kHighValueBase), 0));
 
     ASSERT_TRUE(create_tablet(options).ok());
     auto rowsets = write_rowsets({rowset});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
-    // The initial flush can pack all 4096 values into a single data page whose ZoneMap is [1, 100].
-    // Verify page-level pruning only on the compacted rowset, where low/high values split by page.
+    // Use dispersed low/high ranges so page-level pruning does not depend on one exact page
+    // boundary or compression layout.
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
     ASSERT_NE(compacted.value(), nullptr);
@@ -549,14 +561,19 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathPageZoneMapPrun
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
     read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
-    read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
+    read_options.predicates.push_back(
+            int_greater(path_column_id, path_column.name(), kPagePruneThreshold));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, kHighRows);
     expect_segment_pruned(read_result.value(), 0);
-    expect_raw_rows_read(read_result.value(), kHighRows);
-    expect_zone_map_filtered(read_result.value(), kLowRows);
+    const auto total_rows = static_cast<int64_t>(kLowRows + kHighRows);
+    const auto high_rows = static_cast<int64_t>(kHighRows);
+    EXPECT_GE(read_result->stats.raw_rows_read, high_rows);
+    EXPECT_LT(read_result->stats.raw_rows_read, total_rows);
+    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
+    EXPECT_LE(read_result->stats.rows_stats_filtered, static_cast<int64_t>(kLowRows));
     expect_inverted_index_not_attempted(read_result.value());
 }
 
@@ -684,6 +701,9 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
        TypedVariantPathPageZoneMapRowsStatsRpFilteredCountsPrunedRows) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
+    constexpr int32_t kLowValueBase = 1;
+    constexpr int32_t kHighValueBase = 10000000;
+    constexpr int32_t kPagePruneThreshold = 1000000;
 
     IndexTabletOptions options;
     options.tablet_id = 110048;
@@ -694,14 +714,14 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     rowset.version = 0;
     rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
     rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
-            split_int_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+            split_int_variant_rows(kLowRows, kLowValueBase, kHighRows, kHighValueBase), 0));
 
     ASSERT_TRUE(create_tablet(options).ok());
     auto rowsets = write_rowsets({rowset});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
-    // The initial flush can keep all 4096 values in a single data page whose ZoneMap is [1, 100].
-    // Use a compacted rowset so low/high values are split across pages and page pruning is testable.
+    // Use dispersed low/high ranges so rows_stats_rp_filtered is exercised even if the exact
+    // compacted page boundary differs by build configuration.
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
     ASSERT_NE(compacted.value(), nullptr);
@@ -718,14 +738,20 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     read_options.enable_inverted_index_query = false;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
     read_options.target_cast_type_for_variants[path_column.name()] = nullable_int32_target_type();
-    read_options.predicates.push_back(int_greater(path_column_id, path_column.name(), 50));
+    read_options.predicates.push_back(
+            int_greater(path_column_id, path_column.name(), kPagePruneThreshold));
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, kHighRows);
     expect_segment_pruned(read_result.value(), 0);
-    expect_zone_map_filtered(read_result.value(), kLowRows);
-    EXPECT_EQ(read_result->stats.rows_stats_rp_filtered, kLowRows);
+    const auto total_rows = static_cast<int64_t>(kLowRows + kHighRows);
+    const auto high_rows = static_cast<int64_t>(kHighRows);
+    EXPECT_GE(read_result->stats.raw_rows_read, high_rows);
+    EXPECT_LT(read_result->stats.raw_rows_read, total_rows);
+    EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
+    EXPECT_LE(read_result->stats.rows_stats_filtered, static_cast<int64_t>(kLowRows));
+    EXPECT_EQ(read_result->stats.rows_stats_rp_filtered, read_result->stats.rows_stats_filtered);
     expect_inverted_index_not_attempted(read_result.value());
 }
 

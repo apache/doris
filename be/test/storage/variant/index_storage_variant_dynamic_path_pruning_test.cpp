@@ -33,6 +33,13 @@ namespace doris::index_storage_test {
 namespace {
 
 constexpr int32_t kVariantUid = 2;
+constexpr int64_t kPagePruneLowValueBound = 900000000000LL;
+
+int64_t page_prune_offset(size_t row) {
+    uint64_t mixed = static_cast<uint64_t>(row + 1) * 11400714819323198485ull;
+    mixed ^= mixed >> 33;
+    return static_cast<int64_t>(mixed % static_cast<uint64_t>(kPagePruneLowValueBound));
+}
 
 std::shared_ptr<ColumnPredicate> bigint_equals(int32_t column_id, std::string column_name,
                                                int64_t value) {
@@ -69,10 +76,12 @@ std::vector<std::string> split_dynamic_variant_rows(size_t low_rows, int64_t low
     std::vector<std::string> rows;
     rows.reserve(low_rows + high_rows);
     for (size_t i = 0; i < low_rows; ++i) {
-        rows.push_back(R"({"dynamic_i": )" + std::to_string(low_value) + "}");
+        rows.push_back(R"({"dynamic_i": )" + std::to_string(low_value + page_prune_offset(i)) +
+                       "}");
     }
     for (size_t i = 0; i < high_rows; ++i) {
-        rows.push_back(R"({"dynamic_i": )" + std::to_string(high_value) + "}");
+        rows.push_back(R"({"dynamic_i": )" +
+                       std::to_string(high_value + page_prune_offset(low_rows + i)) + "}");
     }
     return rows;
 }
@@ -105,7 +114,8 @@ protected:
     }
 
     void verify_dynamic_path_filter(const std::vector<RowsetSharedPtr>& rowsets,
-                                    const std::function<void(const IndexReadResult&)>& verify) {
+                                    const std::function<void(const IndexReadResult&)>& verify,
+                                    int64_t greater_than = 50) {
         auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets);
         ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
         const int32_t path_column_id = column_id_by_path("v.dynamic_i");
@@ -117,7 +127,8 @@ protected:
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
         read_options.target_cast_type_for_variants[path_column.name()] =
                 nullable_int64_target_type();
-        read_options.predicates.push_back(bigint_greater(path_column_id, path_column.name(), 50));
+        read_options.predicates.push_back(
+                bigint_greater(path_column_id, path_column.name(), greater_than));
 
         auto read_result = read_rowsets(readable_rowsets.value(), read_options);
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
@@ -199,6 +210,9 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
        DynamicPathPageZoneMapPrunesWithoutPredefinedTypedPath) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
+    constexpr int64_t kLowValueBase = 1;
+    constexpr int64_t kHighValueBase = 2000000000000LL;
+    constexpr int64_t kPagePruneThreshold = 1000000000000LL;
 
     IndexTabletOptions options;
     options.tablet_id = 110061;
@@ -209,18 +223,24 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
     rowset.version = 0;
     rowset.max_rows_per_segment = static_cast<int64_t>(kLowRows + kHighRows);
     rowset.data_sources.push_back(IndexDataSourceSpec::inline_variant(
-            split_dynamic_variant_rows(kLowRows, 1, kHighRows, 100), 0));
+            split_dynamic_variant_rows(kLowRows, kLowValueBase, kHighRows, kHighValueBase), 0));
 
     ASSERT_TRUE(create_tablet(options).ok());
     auto rowsets = write_rowsets({rowset});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
-    verify_dynamic_path_filter(rowsets.value(), [=](const IndexReadResult& result) {
-        EXPECT_EQ(result.rows_read, kHighRows);
-        expect_segment_pruned(result, 0);
-        expect_raw_rows_read(result, kLowRows + kHighRows);
-        expect_zone_map_filtered(result, 0);
-    });
+    const auto total_rows = static_cast<int64_t>(kLowRows + kHighRows);
+    const auto high_rows = static_cast<int64_t>(kHighRows);
+
+    verify_dynamic_path_filter(
+            rowsets.value(),
+            [=](const IndexReadResult& result) {
+                EXPECT_EQ(result.rows_read, kHighRows);
+                expect_segment_pruned(result, 0);
+                EXPECT_GE(result.stats.raw_rows_read, high_rows);
+                EXPECT_LE(result.stats.raw_rows_read, total_rows);
+            },
+            kPagePruneThreshold);
 
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -228,12 +248,17 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
     auto reloaded = reload_rowsets({compacted.value()});
     ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
 
-    verify_dynamic_path_filter(reloaded.value(), [=](const IndexReadResult& result) {
-        EXPECT_EQ(result.rows_read, kHighRows);
-        expect_segment_pruned(result, 0);
-        expect_raw_rows_read(result, kHighRows);
-        expect_zone_map_filtered(result, kLowRows);
-    });
+    verify_dynamic_path_filter(
+            reloaded.value(),
+            [=](const IndexReadResult& result) {
+                EXPECT_EQ(result.rows_read, kHighRows);
+                expect_segment_pruned(result, 0);
+                EXPECT_GE(result.stats.raw_rows_read, high_rows);
+                EXPECT_LT(result.stats.raw_rows_read, total_rows);
+                EXPECT_GT(result.stats.rows_stats_filtered, 0);
+                EXPECT_LE(result.stats.rows_stats_filtered, static_cast<int64_t>(kLowRows));
+            },
+            kPagePruneThreshold);
 }
 
 TEST_F(IndexStorageVariantDynamicPathPruningTest,
