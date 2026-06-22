@@ -39,6 +39,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -53,7 +54,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -61,7 +61,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -109,23 +108,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // Transport via the props map because getScanPlanProvider() returns a fresh provider per call (no shared
     // instance state between the two SPI methods). Mirrors paimon's paimon.schema_evolution.
     private static final String SCHEMA_EVOLUTION_PROP = "iceberg.schema_evolution";
-
-    // Self-contained mirror of fe-core TimeUtils.timeZoneAliasMap (cannot import TimeUtils). Doris stores the
-    // session time_zone un-canonicalized (e.g. SET time_zone='CST' keeps "CST"), and legacy resolves it via
-    // ZoneId.of(tz, timeZoneAliasMap). Without these aliases a plain ZoneId.of("CST") throws (CST is a
-    // SHORT_ID) and falls back to UTC, shifting timestamptz literal pushdown by hours -> wrong file pruning.
-    private static final Map<String, String> TIME_ZONE_ALIAS_MAP;
-
-    static {
-        Map<String, String> aliases = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        aliases.putAll(ZoneId.SHORT_IDS);
-        // CST/PRC -> Asia/Shanghai (NOT America/Chicago), UTC/GMT -> UTC (= TimeUtils DEFAULT/UTC_TIME_ZONE).
-        aliases.put("CST", "Asia/Shanghai");
-        aliases.put("PRC", "Asia/Shanghai");
-        aliases.put("UTC", "UTC");
-        aliases.put("GMT", "UTC");
-        TIME_ZONE_ALIAS_MAP = Collections.unmodifiableMap(aliases);
-    }
 
     private final Map<String, String> properties;
     private final IcebergCatalogOps catalogOps;
@@ -191,7 +173,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Table table = resolveTable(iceHandle);
-        TableScan scan = buildScan(table, filter, session);
+        TableScan scan = buildScan(table, iceHandle, filter, session);
 
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
@@ -236,20 +218,51 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@code IcebergUtils.convertToIcebergExpr}; unpushable conjuncts are dropped → BE residual) and apply
      * each as a separate filter (iceberg ANDs them internally). The fe-core-only {@code metricsReporter}
      * (profile) and {@code planWith(threadPool)} are intentionally dropped — the iceberg SDK default worker
-     * pool plans, and the file set is identical (see design deviations). Snapshot pinning (time-travel/MVCC)
-     * is a later P6.2 task — the scan (and the count below) use the current snapshot until then.
+     * pool plans, and the file set is identical (see design deviations). The MVCC / time-travel pin (T07) is
+     * applied here ({@code useRef} for a tag/branch, else {@code useSnapshot}), mirroring legacy
+     * {@code createTableScan}; {@code getCountFromSnapshot} reads {@code scan.snapshot()} so the count follows.
      */
-    private TableScan buildScan(Table table, Optional<ConnectorExpression> filter, ConnectorSession session) {
-        List<Expression> predicates = Collections.emptyList();
-        if (filter.isPresent()) {
-            predicates = new IcebergPredicateConverter(table.schema(), resolveSessionZone(session))
-                    .convert(filter.get());
-        }
+    private TableScan buildScan(Table table, IcebergTableHandle handle, Optional<ConnectorExpression> filter,
+            ConnectorSession session) {
         TableScan scan = table.newScan();
-        for (Expression predicate : predicates) {
-            scan = scan.filter(predicate);
+        // MVCC / time-travel pin: a tag/branch pins by REF (so a later commit to the ref is honored, legacy
+        // parity), else by snapshot id (legacy createTableScan: useRef when info.getRef()!=null else useSnapshot).
+        if (handle.hasSnapshotPin()) {
+            if (handle.getRef() != null) {
+                scan = scan.useRef(handle.getRef());
+            } else {
+                scan = scan.useSnapshot(handle.getSnapshotId());
+            }
+        }
+        if (filter.isPresent()) {
+            // Predicate conversion uses the table's CURRENT schema, matching legacy createTableScan:589
+            // (convertToIcebergExpr(conjunct, icebergTable.schema())) — NOT the pinned schema. A predicate on a
+            // column renamed since the pinned snapshot then resolves to no field and drops to BE residual,
+            // exactly like legacy; the common no-rename case is identical (the pinned name == the current name),
+            // and the unbound expression still binds against the pinned snapshot's schema at plan time.
+            List<Expression> predicates =
+                    new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+            for (Expression predicate : predicates) {
+                scan = scan.filter(predicate);
+            }
         }
         return scan;
+    }
+
+    /**
+     * The schema AS OF the handle's pinned schema id (for time-travel reads under schema evolution); the latest
+     * schema when there is no pinned id or it is absent from {@code table.schemas()} (defensive — legacy
+     * {@code IcebergUtils.getSchema} falls back to {@code table.schema()}).
+     */
+    private static Schema pinnedSchema(Table table, IcebergTableHandle handle) {
+        long schemaId = handle.getSchemaId();
+        if (schemaId >= 0) {
+            Schema pinned = table.schemas().get((int) schemaId);
+            if (pinned != null) {
+                return pinned;
+            }
+        }
+        return table.schema();
     }
 
     /**
@@ -471,15 +484,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter) {
-        Table table = resolveTable((IcebergTableHandle) handle);
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        Table table = resolveTable(iceHandle);
         Map<String, String> props = new LinkedHashMap<>();
         props.put("file_format_type", "jni");
         List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         if (!partitionKeys.isEmpty()) {
             props.put("path_partition_keys", String.join(",", partitionKeys));
         }
-        props.put(SCHEMA_EVOLUTION_PROP,
-                IcebergSchemaUtils.encodeSchemaEvolutionProp(table, requestedLowerNames(columns)));
+        // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the
+        // PINNED schema's names, but the generic node builds the column handles from the LATEST schema (the pin
+        // lands after buildColumnHandles), so a column renamed between the pinned snapshot and now would be
+        // dropped from `columns` -> the dict would miss that BE scan slot -> BE StructNode DCHECK crash. Build
+        // the dict from the FULL pinned schema (a guaranteed superset of the BE slots — iceberg projection is
+        // BE-tuple-driven, so `columns` only feeds the dict). See P6-T07 design §6. Without a pin, keep T06's
+        // pruned-by-requested-columns dict (CI #969249).
+        String dict;
+        if (iceHandle.hasSnapshotPin()) {
+            dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                    table, pinnedSchema(table, iceHandle), Collections.emptyList());
+        } else {
+            dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                    table, table.schema(), requestedLowerNames(columns));
+        }
+        props.put(SCHEMA_EVOLUTION_PROP, dict);
         return props;
     }
 
@@ -684,22 +712,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return raw != null && Boolean.parseBoolean(raw.trim());
     }
 
-    // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Resolved through the Doris
-    // alias map (mirrors fe-core TimeUtils.getTimeZone()) so aliases like CST/PRC/EST match legacy instead of
-    // throwing; null/blank/genuinely-invalid -> UTC. Package-private for direct unit testing.
+    // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Delegates to the shared
+    // IcebergTimeUtils (Doris alias map, mirrors fe-core TimeUtils.getTimeZone()) so aliases like CST/PRC/EST
+    // match legacy instead of throwing; null/blank/genuinely-invalid -> UTC. Package-private for unit testing.
     static ZoneId resolveSessionZone(ConnectorSession session) {
-        if (session == null) {
-            return ZoneOffset.UTC;
-        }
-        String tz = session.getTimeZone();
-        if (tz == null || tz.trim().isEmpty()) {
-            return ZoneOffset.UTC;
-        }
-        try {
-            return ZoneId.of(tz.trim(), TIME_ZONE_ALIAS_MAP);
-        } catch (Exception e) {
-            return ZoneOffset.UTC;
-        }
+        return IcebergTimeUtils.resolveSessionZone(session);
     }
 
     /**

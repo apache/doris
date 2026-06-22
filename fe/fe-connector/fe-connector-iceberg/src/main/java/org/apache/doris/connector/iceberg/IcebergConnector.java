@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
@@ -59,6 +60,7 @@ import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -133,6 +135,18 @@ public class IcebergConnector implements Connector {
         // the 1-arg CatalogBackedIcebergCatalogOps (with their defaults) suffices.
         return new IcebergScanPlanProvider(properties,
                 new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
+    }
+
+    /**
+     * Iceberg exposes point-in-time snapshots, so it declares {@code SUPPORTS_MVCC_SNAPSHOT} (the gate for the
+     * generic {@code PluginDrivenMvccExternalTable}, which drives {@code beginQuerySnapshot}/{@code
+     * resolveTimeTravel}/{@code applySnapshot}) and {@code SUPPORTS_TIME_TRAVEL} (mirrors paimon). Inert
+     * pre-cutover — the capability is consumed only on the plugin-driven path, which iceberg does not use until
+     * it enters {@code SPI_READY_TYPES} (P6.6).
+     */
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL);
     }
 
     private Catalog getOrCreateCatalog() {

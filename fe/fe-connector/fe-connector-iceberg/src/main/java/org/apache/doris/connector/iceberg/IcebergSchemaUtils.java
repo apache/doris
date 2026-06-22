@@ -97,8 +97,18 @@ public final class IcebergSchemaUtils {
      * (count-only scan / no column handles) falls back to all top-level schema columns.
      */
     static String encodeSchemaEvolutionProp(Table table, List<String> requestedLowerNames) {
+        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames);
+    }
+
+    /**
+     * Like {@link #encodeSchemaEvolutionProp(Table, List)} but builds the dictionary from an explicit
+     * {@code dictSchema} (the latest schema for a normal read, or a historical schema for a time-travel read —
+     * T07 Option A passes the PINNED schema with an empty {@code requestedLowerNames} so the dict covers every
+     * BE scan slot). The name mapping is still read from {@code table} (it is table-level, not schema-versioned).
+     */
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames) {
         Map<Integer, List<String>> nameMapping = extractNameMapping(table);
-        TSchema current = buildCurrentSchema(table.schema(), requestedLowerNames, nameMapping);
+        TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames, nameMapping);
         return encode(CURRENT_SCHEMA_ID, Collections.singletonList(current));
     }
 

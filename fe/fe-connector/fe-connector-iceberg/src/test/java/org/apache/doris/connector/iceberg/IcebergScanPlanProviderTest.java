@@ -431,6 +431,98 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("p", props.get("path_partition_keys"));
     }
 
+    // --- T07: MVCC / time-travel scan-time pin + Option-A field-id dict ---
+
+    @Test
+    public void planScanPinnedToOlderSnapshotReadsOnlyThatSnapshotsFiles() {
+        // S1 appends f1; S2 appends f2 (appends accumulate, so S2 sees both). A pin to S1 must read ONLY f1
+        // (legacy createTableScan -> scan.useSnapshot(id)). MUTATION: ignoring the pin (reading latest) -> 2
+        // ranges -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        long schemaIdS1 = table.currentSnapshot().schemaId();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> latest = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(2, latest.size());
+
+        List<ConnectorScanRange> pinned = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
+                Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, pinned.size());
+        Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
+    }
+
+    @Test
+    public void planScanPinnedToTagReadsViaUseRefNotSnapshotId() {
+        // The handle carries BOTH a ref (tag1 -> S1) AND the LATEST snapshot id (s2). The scan must pin by REF
+        // (useRef), so it reads only f1. MUTATION: pinning by snapshotId (useSnapshot(s2)) -> reads both -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        long schemaIdS1 = table.currentSnapshot().schemaId();
+        table.manageSnapshots().createTag("tag1", s1).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null)).commit();
+        long s2 = table.currentSnapshot().snapshotId();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> pinned = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1").withSnapshot(s2, "tag1", schemaIdS1),
+                Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, pinned.size());
+        Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
+    }
+
+    @Test
+    public void countPushdownFollowsTheSnapshotPin() {
+        // f1=1000/100=10 records (S1); + f2=2000/100=20 -> latest total-records 30. Pinned to S1 the count is
+        // read from S1's summary (10), via scan.snapshot(). MUTATION: counting the latest snapshot -> 30 -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        long schemaIdS1 = table.currentSnapshot().schemaId();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2000, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> pinned = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
+                Collections.emptyList(), Optional.empty(), -1L, Collections.emptyList(), true);
+        Assertions.assertEquals(1, pinned.size());
+        Assertions.assertEquals(10L, pinned.get(0).getPushDownRowCount());
+    }
+
+    @Test
+    public void getScanNodePropertiesUnderPinEmitsFullPinnedSchemaDict() throws Exception {
+        // T07 Option A: under a time-travel pin the field-id dict is built from the FULL pinned schema (covering
+        // every BE slot), NOT the pruned `columns`. The pinned schema (S1) has id+name; after a rename the latest
+        // has id+fullname. Even with a PRUNED columns=[id], the dict must carry the renamed slot "name" (the
+        // pinned name) so BE's StructNode never misses it. MUTATION: keying off `columns` under a pin -> "name"
+        // dropped -> dict has only "id" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        long schemaIdS1 = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("name", "fullname").commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        Assertions.assertEquals(-1L, params.getCurrentSchemaId());
+        Assertions.assertEquals(2, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+        Assertions.assertEquals("name", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
+    }
+
     @Test
     public void planScanReadsRealFormatVersionAndEmitsV3RowLineage() {
         Map<String, String> v3 = new HashMap<>();

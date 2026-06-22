@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Connector-level tests for {@link IcebergConnector} that can run offline (no live catalog / no AWS call). The
@@ -86,5 +88,18 @@ public class IcebergConnectorTest {
                 Assertions.assertThrows(DorisConnectorException.class, () -> connector.getMetadata(null));
         Assertions.assertTrue(ex.getMessage().contains("OSS storage"),
                 "expected a fail-loud message naming the missing OSS storage, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void declaresMvccAndTimeTravelCapabilities() {
+        // WHY: SUPPORTS_MVCC_SNAPSHOT is the gate PluginDrivenExternalDatabase checks to build the MVCC/MTMV
+        // table subclass (so beginQuerySnapshot/resolveTimeTravel/applySnapshot fire); SUPPORTS_TIME_TRAVEL
+        // mirrors paimon. MUTATION: leaving the default empty capability set -> iceberg tables build as plain
+        // non-MVCC tables, time-travel silently reads latest -> red. (Inert pre-cutover; iceberg is not yet in
+        // SPI_READY_TYPES, so getCapabilities does not touch the catalog and needs no live connection.)
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Set<ConnectorCapability> caps = connector.getCapabilities();
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT));
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TIME_TRAVEL));
     }
 }
