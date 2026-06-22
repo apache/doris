@@ -3405,10 +3405,10 @@ public class Config extends ConfigBase {
                             + "to other BEs in cloud mode."})
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
-    @ConfField(mutable = true, masterOnly = true,
+    @ConfField(mutable = false, masterOnly = true,
             description = {
                     "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
-                            + "If false, use the legacy modulo placement."})
+                            + "If false, use the legacy modulo placement. Restart-only."})
     public static boolean enable_cloud_colocate_consistent_hash = true;
 
     @ConfField(mutable = true, description = {

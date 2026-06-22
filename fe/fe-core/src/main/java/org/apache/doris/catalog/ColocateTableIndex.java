@@ -346,6 +346,9 @@ public class ColocateTableIndex implements Writable {
                 group2Schema.remove(groupId);
                 group2ErrMsgs.remove(groupId);
                 unstableGroups.remove(groupId);
+                if (Config.isCloudMode()) {
+                    Env.getCurrentSystemInfo().invalidateCloudColocatePlacement(groupId);
+                }
                 String fullGroupName = null;
                 for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
                     if (entry.getValue().equals(groupId)) {
@@ -425,11 +428,6 @@ public class ColocateTableIndex implements Writable {
     public GroupId getGroupNoLock(long tableId) {
         Preconditions.checkState(table2Group.containsKey(tableId));
         return table2Group.get(tableId);
-    }
-
-    public int getBucketsNumNoLock(GroupId groupId) {
-        Preconditions.checkState(group2Schema.containsKey(groupId));
-        return group2Schema.get(groupId).getBucketsNum();
     }
 
     public GroupId getGroup(long tableId) {

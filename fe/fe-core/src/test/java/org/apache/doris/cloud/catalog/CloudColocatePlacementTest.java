@@ -28,7 +28,10 @@ import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -83,9 +86,12 @@ public class CloudColocatePlacementTest {
 
         int changed = 0;
         for (int idx = 0; idx < bucketNum; idx++) {
-            long original = infoService.getCloudColocateHrwBeId(groupId, "cluster0", originalBeIds, bucketNum, idx);
-            long cached = infoService.getCloudColocateHrwBeId(groupId, "cluster0", originalBeIds, bucketNum, idx);
-            long afterAdd = infoService.getCloudColocateHrwBeId(groupId, "cluster0", addedBeIds, bucketNum, idx);
+            long original = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0",
+                    originalBeIds, idx, bucketNum);
+            long cached = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0",
+                    originalBeIds, idx, bucketNum);
+            long afterAdd = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0",
+                    addedBeIds, idx, bucketNum);
             Assertions.assertEquals(original, cached);
             if (original != afterAdd) {
                 changed++;
@@ -105,10 +111,49 @@ public class CloudColocatePlacementTest {
         int bucketNum = 128;
 
         for (int idx = 0; idx < bucketNum; idx++) {
-            long original = infoService.getCloudColocateHrwBeId(groupId, "cluster0", originalBeIds, bucketNum, idx);
-            long reordered = infoService.getCloudColocateHrwBeId(groupId, "cluster0", reorderedBeIds, bucketNum, idx);
+            long original = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0",
+                    originalBeIds, idx, bucketNum);
+            long reordered = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0",
+                    reorderedBeIds, idx, bucketNum);
             Assertions.assertEquals(original, reordered);
         }
+    }
+
+    @Test
+    public void testCacheEvictedByClusterId() {
+        CloudSystemInfoService infoService = new CloudSystemInfoService();
+        GroupId groupId = new GroupId(1L, 100L);
+        List<Long> beIds = Arrays.asList(1L, 2L, 3L);
+
+        long original = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0", beIds, 0L, 16);
+        infoService.invalidateCloudColocatePlacement("cluster0");
+        long rebuilt = infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0", beIds, 0L, 16);
+
+        Assertions.assertEquals(original, rebuilt);
+    }
+
+    @Test
+    public void testHrwPlacementRejectsInvalidBucketIdxForTest() {
+        CloudSystemInfoService infoService = new CloudSystemInfoService();
+        GroupId groupId = new GroupId(1L, 100L);
+        List<Long> beIds = Arrays.asList(1L, 2L, 3L);
+
+        IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                () -> infoService.getCloudColocateHrwBeIdForTest(groupId, "cluster0", beIds, 8L, 8));
+        Assertions.assertTrue(exception.getMessage().contains("outside bucket num 8"));
+    }
+
+    @Test
+    public void testDeadGraceHrwPlacementRejectsInvalidBucketIdx() throws Exception {
+        CloudSystemInfoService infoService = Mockito.spy(new CloudSystemInfoService());
+        GroupId groupId = new GroupId(1L, 100L);
+        List<Backend> backends = createBackends(1L, 2L, 3L);
+        CloudReplica replica = new CloudReplica(1L, -1L, ReplicaState.NORMAL, 0L, 0, 1L, 2L, 3L, 4L, 8L);
+        Mockito.doReturn(8).when(infoService).getCloudColocateBucketsNum(groupId);
+
+        IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                () -> invokePickColocatedBackendForDeadGrace(replica, infoService, groupId, "cluster0", backends));
+        Assertions.assertTrue(exception.getMessage().contains("outside bucket num 8"));
     }
 
     @Test
@@ -162,6 +207,19 @@ public class CloudColocatePlacementTest {
         long index = (hashCode.asLong() + idx) % beIds.length;
         index = (index + beIds.length) % beIds.length;
         return beIds[(int) index];
+    }
+
+    private static Backend invokePickColocatedBackendForDeadGrace(CloudReplica replica,
+            CloudSystemInfoService infoService, GroupId groupId, String clusterId, List<Backend> backends)
+            throws Throwable {
+        Method method = CloudReplica.class.getDeclaredMethod("pickColocatedBackendForDeadGrace",
+                CloudSystemInfoService.class, GroupId.class, String.class, List.class);
+        method.setAccessible(true);
+        try {
+            return (Backend) method.invoke(replica, infoService, groupId, clusterId, backends);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
     }
 
     private static List<Backend> createBackends(long... beIds) {

@@ -27,7 +27,6 @@ suite("test_cloud_colocate_consistent_hash_join", "multi_cluster,docker") {
     ]
 
     docker(options) {
-        sql "ADMIN SET ALL FRONTENDS CONFIG ('enable_cloud_colocate_consistent_hash' = 'true')"
         sql "DROP TABLE IF EXISTS test_cloud_colocate_consistent_hash_join_t1"
         sql "DROP TABLE IF EXISTS test_cloud_colocate_consistent_hash_join_t2"
 

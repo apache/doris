@@ -188,7 +188,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         if (!Config.enable_cloud_colocate_consistent_hash) {
             return pickColocatedBackend(infoService, groupId, clusterId, availableBes);
         }
-        checkColocatedBucketIdx(groupId);
+        int bucketNum = infoService.getCloudColocateBucketsNum(groupId);
+        CloudSystemInfoService.checkCloudColocateBucketIdx(groupId, clusterId, idx, bucketNum);
         long[] availableBeIds = availableBes.stream().mapToLong(Backend::getId).toArray();
         long pickedBeId = CloudColocatePlacement.pickBackendId(groupId.grpId, idx, availableBeIds);
         return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
@@ -197,9 +198,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     Backend pickColocatedBackend(CloudSystemInfoService infoService, GroupId groupId, String clusterId,
             List<Backend> availableBes) {
         if (Config.enable_cloud_colocate_consistent_hash) {
-            int bucketNum = checkColocatedBucketIdx(groupId);
             List<Long> availableBeIds = availableBes.stream().map(Backend::getId).collect(Collectors.toList());
-            long pickedBeId = infoService.getCloudColocateHrwBeId(groupId, clusterId, availableBeIds, bucketNum, idx);
+            long pickedBeId = infoService.getCloudColocateHrwBeId(groupId, clusterId, availableBeIds, idx);
             return findPickedBackend(pickedBeId, groupId, clusterId, availableBes);
         }
 
@@ -215,15 +215,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                                 + "candidate backend ids %s",
                         pickedBeId, groupId, clusterId, idx,
                         availableBes.stream().map(Backend::getId).collect(Collectors.toList()))));
-    }
-
-    private int checkColocatedBucketIdx(GroupId groupId) {
-        int bucketNum = Env.getCurrentColocateIndex().getBucketsNumNoLock(groupId);
-        if (idx < 0 || idx >= bucketNum) {
-            throw new IllegalStateException(String.format(
-                    "colocate bucket idx %s is outside bucket num %s for group %s", idx, bucketNum, groupId));
-        }
-        return bucketNum;
     }
 
     @Override
