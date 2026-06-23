@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -147,5 +150,76 @@ class JdbcDorisConnectorTest {
                 "JDBC connector metadata should not support DELETE by default");
         Assertions.assertFalse(metadata.supportsMerge(),
                 "JDBC connector metadata should not support MERGE by default");
+    }
+
+    @Test
+    void testBeginTransactionReturnsNoOpTransaction() {
+        // jdbc writes are auto-committed by BE per row; beginTransaction returns a degenerate no-op
+        // transaction so the engine's write lifecycle is uniform (single ConnectorTransaction model).
+        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalProps());
+        ConnectorTransaction txn = metadata.beginTransaction(new FixedIdSession(99L));
+
+        Assertions.assertTrue(txn instanceof NoOpConnectorTransaction,
+                "jdbc beginTransaction must return a no-op ConnectorTransaction");
+        Assertions.assertEquals(99L, txn.getTransactionId(),
+                "the transaction id must come from the engine session (allocateTransactionId)");
+        Assertions.assertEquals("JDBC", txn.profileLabel(),
+                "the profile label must map to TransactionType.JDBC");
+        Assertions.assertEquals(-1L, txn.getUpdateCnt(),
+                "getUpdateCnt == -1 keeps the coordinator row counter (no affected-rows regression)");
+    }
+
+    /** Minimal {@link ConnectorSession} that hands back a fixed engine transaction id. */
+    private static final class FixedIdSession implements ConnectorSession {
+        private final long txnId;
+
+        private FixedIdSession(long txnId) {
+            this.txnId = txnId;
+        }
+
+        @Override
+        public long allocateTransactionId() {
+            return txnId;
+        }
+
+        @Override
+        public String getQueryId() {
+            return "q";
+        }
+
+        @Override
+        public String getUser() {
+            return "u";
+        }
+
+        @Override
+        public String getTimeZone() {
+            return "UTC";
+        }
+
+        @Override
+        public String getLocale() {
+            return "en";
+        }
+
+        @Override
+        public long getCatalogId() {
+            return 1L;
+        }
+
+        @Override
+        public String getCatalogName() {
+            return "test_catalog";
+        }
+
+        @Override
+        public <T> T getProperty(String name, Class<T> type) {
+            return null;
+        }
+
+        @Override
+        public Map<String, String> getCatalogProperties() {
+            return Collections.emptyMap();
+        }
     }
 }

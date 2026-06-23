@@ -96,4 +96,14 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
     default long getUpdateCnt() {
         return 0;
     }
+
+    /**
+     * A short, connector-identifying label for the query profile (cosmetic), e.g.
+     * {@code "JDBC"} / {@code "MAXCOMPUTE"}. The insert executor maps this label to a
+     * profile transaction type. Replaces the executor's former hard-coded connector
+     * switch; the default is a generic external label.
+     */
+    default String profileLabel() {
+        return "EXTERNAL";
+    }
 }

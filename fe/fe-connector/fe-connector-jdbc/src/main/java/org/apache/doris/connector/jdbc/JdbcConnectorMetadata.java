@@ -24,8 +24,9 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
 import org.apache.doris.connector.api.write.ConnectorWriteType;
@@ -36,7 +37,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -354,26 +354,12 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public ConnectorInsertHandle beginInsert(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        // JDBC writes are executed directly by BE via PreparedStatement.
-        // No FE-side transaction to begin — return a no-op handle.
-        return new JdbcInsertHandle();
-    }
-
-    @Override
-    public void finishInsert(ConnectorSession session,
-            ConnectorInsertHandle handle,
-            Collection<byte[]> fragments) {
-        // No-op: BE commits each row via JDBC directly.
-    }
-
-    /**
-     * No-op insert handle for JDBC writes.
-     * JDBC writes don't require FE-side transaction management.
-     */
-    private static class JdbcInsertHandle implements ConnectorInsertHandle {
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        // JDBC writes are auto-committed by BE per row via PreparedStatement; there is no
+        // FE-side transaction to coordinate. Return a degenerate no-op transaction so the
+        // engine's write lifecycle is uniform (single ConnectorTransaction model). Its
+        // getUpdateCnt() returns -1, so the executor keeps the coordinator's row counter
+        // (DPP_NORMAL_ALL) for affected-rows instead of overwriting it with 0.
+        return new NoOpConnectorTransaction(session.allocateTransactionId(), "JDBC");
     }
 }

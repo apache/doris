@@ -6,7 +6,7 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.3 写路径（先写 `06-iceberg-write-path-rfc.md` 过 PMC，再实现）**（**✅ P6.2 = DONE，本 session 收口 T11；P6.2〔T01–T11〕/ P6.1〔T01–T10〕全绿**）
+# 🎯 下一个 session 的任务 — **P6.3 写路径实现：下一 = T02**（**✅ P6.3-T01 = DONE（框架统一·SPI 收口，option B）；P6.2〔T01–T11〕/ P6.1〔T01–T10〕全绿；RFC ✅ 评审通过**）
 
 > **✅ P6.2 = DONE（本 session 2026-06-23 收口 T11）**：scan + MVCC + cache + vended 全实现。T11（汇总设计 `designs/P6-T11-iceberg-scan-summary-design.md` + validation gate 核对 + UT-不可见 deviation 中央注册 DV-038/039/040 + 本 HANDOFF + PROGRESS/connectors 同步）见下「✅ P6.2-T11 = DONE」。**验收全绿**：fe-connector-iceberg UT **278/0/1**（本 session 重跑实证 BUILD SUCCESS）、validation gate test 7/0、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、T11 **0 产品码改**（纯文档）。
 >
@@ -18,7 +18,7 @@
 >
 > - **3 OQ 已裁定**：OQ-1 = jdbc thrift 移入连接器 `planWrite`（F2 全消，须字节 parity 测）；OQ-2 = 删 config-bag 三件套 `ConnectorWriteType`/`ConnectorWriteConfig`/`getWriteConfig`（实测仅 jdbc 用，移入后死）；OQ-3 = 统一 sink 后 EXPLAIN sink-标签 diff 接受为非回归。
 >
-> **🎯 下一步 = 逐一实现 P6.3 §11 TODO T01–T09**（RFC 已评审通过；详见 `tasks/P6-iceberg-migration.md` §「P6.3 逐 task 拆解」）：**T01** 框架统一·SPI 收口（删 `usesConnectorTransaction`/insert-handle/dead delete-merge handle，`beginTransaction` mandatory，改 maxcompute）→ **T02** jdbc 退化 no-op adopter + thrift 移入 + 删 config-bag（字节 parity 测）→ **T03** `IcebergConnectorTransaction` 骨架+`addCommitData` → **T04** op 选择+`IcebergWriterHelper` 等价 → **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
+> **🎯 下一步 = P6.3-T02**（T01 ✅ DONE，见下「✅ P6.3-T01 = DONE」）。剩余 §11 TODO：**T02** jdbc thrift 移入 `planWrite`（OQ-1）+ 删 config-bag 三件套（OQ-2）+ **jdbc 字节 parity 测**（⚠️ **jdbc no-op txn 迁移已在 T01 完成**——option B 把它提到了 T01，故 T02 = thrift-移入 + config-bag 删除 + parity）→ **T03** `IcebergConnectorTransaction` 骨架+`addCommitData`（**此处加 `ConnectorWriteHandle.writeOperation`**，T01 因 0 消费者延后）→ **T04** op 选择+`IcebergWriterHelper` 等价 → **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
 >
 > **每 task 节奏**（AGENT-PLAYBOOK §5.1）：先 code-grounded recon（大文件如 `IcebergTransaction` 981 / `IcebergMergeCommand` 用 subagent 总结）→ TDD RED→GREEN → 对抗 parity workflow（每发现独立 skeptic verify，镜像 P6.2）→ UT/checkstyle/import-gate 绿 + **断 assembled Thrift/校验套件 vs legacy** → 文档同步 → commit + handoff。**起步先读 RFC `06-iceberg-write-path-rfc.md` + recon `research/p6.3-iceberg-write-recon.md`。**
 >
@@ -34,6 +34,21 @@
 >
 > **✅ P6.1 = DONE（本 session 2026-06-22 收口 T10）**：P6.1 task 表 T01–T10 全绿（见 `P6-iceberg-migration.md:143-154`）。T10 经 redefine 吸收了「metastore 模块拆分（Phase A，行为不变）+ iceberg per-flavor 校验（Phase B，§4 逐字）」——validateProperties 接线只是 Phase B 的尾巴。**A-gate + B-gate 全绿；对抗 parity 复核 4 MATCH + 1 nit。**
 > **下一步 = P6.2 实现（从 P6.2-T01 起）——不是 P6.6！** P6.6 翻闸是「全有或全无」（`CatalogFactory:104-113`），**须等 P6.1–P6.5 全部实现完**（scan/write/procedure/sys-table 都还没做）；现在翻闸会让所有 iceberg 查询走只有读元数据+校验的连接器→scan/write 全断。
+
+---
+
+# ✅ P6.3-T01 = DONE（2026-06-23，本 session，未 push）— 写框架统一·SPI 收口（option B）
+
+> 设计文档 = `tasks/designs/P6.3-T01-write-framework-unification-design.md`。实现 recon workflow `wf_3d74e33d-7c8`（5 reader + critic）→ TDD → 对抗 parity workflow `wf_0c8b7356-dae`（5 维 + 每发现独立 skeptic verify）= **7 findings / 0 confirmed real**（全 refuted = 5 stale-javadoc〔已修注释〕+ 1 cosmetic profileLabel 默认 + 1 测次断言 tautological〔已改 `verify(bindDataSink)`〕）。**全绿**：connector-api 5 + jdbc 8 + maxcompute 9 + fe-core 目标 50（全 0F0E）；其余连接器 test-compile SUCCESS；iceberg 278 + paimon 318 无回归；checkstyle 0；import-gate exit 0；iceberg 仍**不在** `SPI_READY_TYPES`；**0 BE 改**。
+
+- **⚠️ option B 切分（用户签字）**：按字面 T01/T02 切分**无法各自绿**——jdbc 是 insert-handle SPI 唯一消费者（`beginInsert/finishInsert` 实测 no-op，真写经 config-bag `TJdbcTableSink`），删 insert-handle（T01）strand jdbc，jdbc 迁移属 T02。⟹ **把「jdbc → no-op txn」提到 T01**（jdbc **暂留 config-bag sink**）。**T02 改为** = jdbc thrift 入 `planWrite`（OQ-1）+ 删 config-bag 三件套（OQ-2）+ jdbc 字节 parity。
+- **SPI（`fe-connector-api`）**：删 `usesConnectorTransaction` + `beginInsert/finishInsert/abortInsert` + dead `begin/finish/abortDelete·Merge` + 3 handle marker iface（`ConnectorInsertHandle/Delete/Merge`）；**保留** `getWriteConfig`/`ConnectorWriteType`/`ConnectorWriteConfig`（T02 删）+ `supportsInsert/Overwrite/Delete/Merge`（capability 派发面，recon 误归 fork→已纠）；新增 `ConnectorTransaction.profileLabel()` default(`"EXTERNAL"`) + **新类 `NoOpConnectorTransaction(id,label)`**（`getUpdateCnt=-1` 哨兵）。
+- **jdbc**：删 `beginInsert/finishInsert/JdbcInsertHandle`；加 `beginTransaction → NoOpConnectorTransaction(allocateTransactionId, "JDBC")`。**maxcompute**：删 `usesConnectorTransaction` override + `MaxComputeConnectorTransaction.profileLabel="MAXCOMPUTE"`。
+- **`PluginDrivenInsertExecutor` 单路**：恒 `begin(connectorTx)`；finalizeSink **null-session guard**（config-bag sink `getConnectorSession()==null` → 跳过 bind，否则 NPE——recon 漏报、主线 firsthand 抓）；doBeforeCommit `if(cnt>=0)` **哨兵守 jdbc affected-rows**（−1=用协调器 `DPP_NORMAL_ALL` 计数器，不 clobber）；transactionType 从 `profileLabel` 映射 `TransactionType.values()` name；删 onFail/abortInsert override（继承 base.rollback）+ insert-handle helper。
+- **2 处对 RFC T01 清单的有意偏移（DV-T01-c，设计 §7）**：(1) `ConnectorWriteHandle.writeOperation` **移到 T03**（T01 0 消费者，Rule 2）；(2) `beginTransaction` **默认保持 throwing（fail-loud, Rule 12）** 非 RFC 字面 "no-op 默认"——0 消费者 + `FakeConnectorPluginTest.beginTransactionDefaultThrows` 既有守 + 退化 no-op 由显式 `NoOpConnectorTransaction` 提供；若坚持字面 1 行可改。
+- **UT-不可见 deviation（P6.6 docker 验，登记设计 §7）**：DV-T01-a jdbc affected-rows 实数（哨兵保 BE 原值）；DV-T01-b jdbc 现全局注册（`putTxnById`，BE-safe，commit/rollback `finally removeTxnById`）。
+- **paimon/iceberg UT 跑法**：须 `mvn -pl :fe-connector-{iceberg,paimon} -am package -Dassembly.skipAssembly=true`（`HiveConf` 仅 package 相在 test-classpath；plain `test` 报 `NoClassDefFoundError: HiveConf`，与本改动无关）。
+- **下一步 = P6.3-T02**（见顶部任务头）。
 
 ---
 
