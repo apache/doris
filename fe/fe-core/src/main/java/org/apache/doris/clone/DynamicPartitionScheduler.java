@@ -305,10 +305,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             PartitionValue lowerValue;
             PartitionValue upperValue;
             String prevBorder;
+            String prevBorderLocal;
             String nextBorder;
             try {
                 prevBorder = DynamicPartitionUtil.getPartitionRangeString(
                         dynamicPartitionProperty, now, idx, partitionFormat);
+                // Keep the local-time string for partition naming before
+                // normalization converts it to UTC (TIMESTAMPTZ columns).
+                // getFormattedPartitionName() strips separators and truncates
+                // to the date portion; it does not convert back to the
+                // configured timezone, so feeding it a UTC string would
+                // produce a wrong partition name (e.g. p20260617 instead of
+                // p20260618 for Asia/Shanghai).
+                prevBorderLocal = prevBorder;
                 prevBorder = PartitionExprUtil.normalizePartitionValueString(prevBorder, partitionColumn.getType(),
                         dynamicPartitionProperty.getTimeZone().getID());
                 nextBorder = DynamicPartitionUtil.getPartitionRangeString(
@@ -394,7 +403,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             String partitionName = dynamicPartitionProperty.getPrefix()
                     + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
-                    prevBorder, dynamicPartitionProperty.getTimeUnit());
+                    prevBorderLocal, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
