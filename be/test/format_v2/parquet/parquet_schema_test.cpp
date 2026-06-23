@@ -142,6 +142,79 @@ TEST(ParquetSchemaTest, ListCompatibilityRulesAndLevels) {
     EXPECT_EQ(remove_nullable(ys.children[0]->type)->get_primitive_type(), TYPE_STRUCT);
 }
 
+TEST(ParquetSchemaTest, LegacyListElementResolutionRulesArePreserved) {
+    const auto two_level_list = ::parquet::schema::GroupNode::Make(
+            "two_level", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::PrimitiveNode::Make("item", ::parquet::Repetition::REPEATED,
+                                                    ::parquet::Type::INT32)},
+            ::parquet::ConvertedType::LIST);
+    const auto tuple_list = ::parquet::schema::GroupNode::Make(
+            "tuple_list", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "tuple_list_tuple", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make(
+                            "value", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT64)})},
+            ::parquet::ConvertedType::LIST);
+    const auto multi_field_list = ::parquet::schema::GroupNode::Make(
+            "records", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "list", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make("id", ::parquet::Repetition::REQUIRED,
+                                                            ::parquet::Type::INT32),
+                     ::parquet::schema::PrimitiveNode::Make("name", ::parquet::Repetition::OPTIONAL,
+                                                            ::parquet::Type::BYTE_ARRAY,
+                                                            ::parquet::ConvertedType::UTF8)})},
+            ::parquet::ConvertedType::LIST);
+    const auto fields = build_fields({two_level_list, tuple_list, multi_field_list});
+    ASSERT_EQ(fields.size(), 3);
+
+    const auto& two_level = *fields[0];
+    EXPECT_EQ(two_level.kind, ParquetColumnSchemaKind::LIST);
+    EXPECT_EQ(two_level.definition_level, 2);
+    EXPECT_EQ(two_level.repetition_level, 1);
+    ASSERT_EQ(two_level.children.size(), 1);
+    EXPECT_EQ(two_level.children[0]->kind, ParquetColumnSchemaKind::PRIMITIVE);
+    EXPECT_EQ(two_level.children[0]->name, "element");
+    EXPECT_EQ(remove_nullable(two_level.children[0]->type)->get_primitive_type(), TYPE_INT);
+
+    const auto& tuple = *fields[1];
+    ASSERT_EQ(tuple.children.size(), 1);
+    EXPECT_EQ(tuple.children[0]->kind, ParquetColumnSchemaKind::STRUCT);
+    EXPECT_EQ(tuple.children[0]->name, "element");
+    ASSERT_EQ(tuple.children[0]->children.size(), 1);
+    EXPECT_EQ(tuple.children[0]->children[0]->name, "value");
+
+    const auto& multi_field = *fields[2];
+    ASSERT_EQ(multi_field.children.size(), 1);
+    EXPECT_EQ(multi_field.children[0]->kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(multi_field.children[0]->children.size(), 2);
+    EXPECT_EQ(multi_field.children[0]->children[0]->name, "id");
+    EXPECT_EQ(multi_field.children[0]->children[1]->name, "name");
+}
+
+TEST(ParquetSchemaTest, NestedRepeatedInsideListElementIsWrappedOnce) {
+    const auto list_with_repeated_child = ::parquet::schema::GroupNode::Make(
+            "outer", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "list", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make(
+                            "items", ::parquet::Repetition::REPEATED, ::parquet::Type::INT32)})},
+            ::parquet::ConvertedType::LIST);
+
+    const auto fields = build_fields({list_with_repeated_child});
+    ASSERT_EQ(fields.size(), 1);
+    const auto& outer = *fields[0];
+    EXPECT_EQ(outer.kind, ParquetColumnSchemaKind::LIST);
+    ASSERT_EQ(outer.children.size(), 1);
+    const auto& element = *outer.children[0];
+    EXPECT_EQ(element.kind, ParquetColumnSchemaKind::STRUCT);
+    ASSERT_EQ(element.children.size(), 1);
+    EXPECT_EQ(element.children[0]->kind, ParquetColumnSchemaKind::LIST);
+    EXPECT_EQ(element.children[0]->name, "items");
+    ASSERT_EQ(element.children[0]->children.size(), 1);
+    EXPECT_EQ(element.children[0]->children[0]->name, "element");
+}
+
 TEST(ParquetSchemaTest, MapWrapperIsFoldedAndOptionalKeyIsAllowed) {
     const auto fields = build_fields({::parquet::schema::GroupNode::Make(
             "m", ::parquet::Repetition::OPTIONAL,
@@ -166,6 +239,40 @@ TEST(ParquetSchemaTest, MapWrapperIsFoldedAndOptionalKeyIsAllowed) {
     EXPECT_EQ(map_schema.children[0]->name, "key");
     EXPECT_EQ(map_schema.children[1]->name, "value");
     EXPECT_TRUE(map_schema.children[0]->type->is_nullable());
+
+    const auto& map_type = assert_cast<const DataTypeMap&>(*remove_nullable(map_schema.type));
+    EXPECT_TRUE(map_type.get_key_type()->is_nullable());
+    EXPECT_TRUE(map_type.get_value_type()->is_nullable());
+}
+
+TEST(ParquetSchemaTest, StandardMapLevelsAndDataTypesAreBuiltFromEntryContext) {
+    const auto fields = build_fields({::parquet::schema::GroupNode::Make(
+            "m", ::parquet::Repetition::REQUIRED,
+            {::parquet::schema::GroupNode::Make(
+                    "key_value", ::parquet::Repetition::REPEATED,
+                    {
+                            ::parquet::schema::PrimitiveNode::Make(
+                                    "key", ::parquet::Repetition::REQUIRED,
+                                    ::parquet::Type::BYTE_ARRAY, ::parquet::ConvertedType::UTF8),
+                            ::parquet::schema::PrimitiveNode::Make("value",
+                                                                   ::parquet::Repetition::OPTIONAL,
+                                                                   ::parquet::Type::INT32),
+                    })},
+            ::parquet::ConvertedType::MAP)});
+
+    ASSERT_EQ(fields.size(), 1);
+    const auto& map_schema = *fields[0];
+    EXPECT_FALSE(map_schema.type->is_nullable());
+    EXPECT_EQ(map_schema.definition_level, 1);
+    EXPECT_EQ(map_schema.repetition_level, 1);
+    EXPECT_EQ(map_schema.repeated_repetition_level, 1);
+    EXPECT_EQ(map_schema.max_definition_level, 2);
+    EXPECT_EQ(map_schema.max_repetition_level, 1);
+    ASSERT_EQ(map_schema.children.size(), 2);
+    EXPECT_EQ(map_schema.children[0]->definition_level, 1);
+    EXPECT_EQ(map_schema.children[0]->repetition_level, 1);
+    EXPECT_EQ(map_schema.children[1]->definition_level, 2);
+    EXPECT_EQ(map_schema.children[1]->nullable_definition_level, 2);
 
     const auto& map_type = assert_cast<const DataTypeMap&>(*remove_nullable(map_schema.type));
     EXPECT_TRUE(map_type.get_key_type()->is_nullable());
@@ -197,6 +304,49 @@ TEST(ParquetSchemaTest, BareRepeatedFieldsAreWrappedAsLists) {
     EXPECT_EQ(fields[1]->children[0]->name, "element");
 }
 
+TEST(ParquetSchemaTest, DeepLevelChainPropagatesDefinitionAndRepetitionLevels) {
+    const auto fields = build_fields({::parquet::schema::GroupNode::Make(
+            "s", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "inner", ::parquet::Repetition::OPTIONAL,
+                    {::parquet::schema::PrimitiveNode::Make(
+                            "items", ::parquet::Repetition::REPEATED, ::parquet::Type::INT32)})})});
+
+    ASSERT_EQ(fields.size(), 1);
+    const auto& s = *fields[0];
+    EXPECT_EQ(s.definition_level, 1);
+    EXPECT_EQ(s.nullable_definition_level, 1);
+    ASSERT_EQ(s.children.size(), 1);
+    const auto& inner = *s.children[0];
+    EXPECT_EQ(inner.definition_level, 2);
+    EXPECT_EQ(inner.nullable_definition_level, 2);
+    ASSERT_EQ(inner.children.size(), 1);
+    const auto& items = *inner.children[0];
+    EXPECT_EQ(items.kind, ParquetColumnSchemaKind::LIST);
+    EXPECT_EQ(items.definition_level, 3);
+    EXPECT_EQ(items.repetition_level, 1);
+    EXPECT_EQ(items.repeated_ancestor_definition_level, 3);
+    EXPECT_EQ(items.repeated_repetition_level, 1);
+    EXPECT_EQ(items.max_definition_level, 3);
+    EXPECT_EQ(items.max_repetition_level, 1);
+    ASSERT_EQ(items.children.size(), 1);
+    EXPECT_EQ(items.children[0]->definition_level, 3);
+    EXPECT_EQ(items.children[0]->repetition_level, 1);
+}
+
+TEST(ParquetSchemaTest, BuildEntryValidatesNullPointerAndEmptyRoot) {
+    auto empty_root = ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED,
+                                                         ::parquet::schema::NodeVector {});
+    ::parquet::SchemaDescriptor descriptor;
+    descriptor.Init(empty_root);
+
+    EXPECT_FALSE(build_parquet_column_schema(descriptor, nullptr).ok());
+
+    std::vector<std::unique_ptr<ParquetColumnSchema>> fields;
+    ASSERT_TRUE(build_parquet_column_schema(descriptor, &fields).ok());
+    EXPECT_TRUE(fields.empty());
+}
+
 TEST(ParquetSchemaTest, RejectInvalidListMapAndUnsupportedTime) {
     const auto bad_list = ::parquet::schema::GroupNode::Make(
             "bad_list", ::parquet::Repetition::OPTIONAL,
@@ -216,6 +366,92 @@ TEST(ParquetSchemaTest, RejectInvalidListMapAndUnsupportedTime) {
             "time_ms", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
             ::parquet::ConvertedType::TIME_MILLIS);
     const auto status = build_status({converted_time});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
+              std::string::npos);
+}
+
+TEST(ParquetSchemaTest, RejectAdditionalInvalidListAndMapLayouts) {
+    const auto zero_child_list = ::parquet::schema::GroupNode::Make(
+            "zero_child_list", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make("list", ::parquet::Repetition::REPEATED,
+                                                ::parquet::schema::NodeVector {})},
+            ::parquet::ConvertedType::LIST);
+    EXPECT_FALSE(build_status({zero_child_list}).ok());
+
+    const auto repeated_list = ::parquet::schema::GroupNode::Make(
+            "repeated_list", ::parquet::Repetition::REPEATED,
+            {::parquet::schema::GroupNode::Make(
+                    "list", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make("item", ::parquet::Repetition::OPTIONAL,
+                                                            ::parquet::Type::INT32)})},
+            ::parquet::ConvertedType::LIST);
+    EXPECT_FALSE(build_status({repeated_list}).ok());
+
+    const auto map_with_two_fields = ::parquet::schema::GroupNode::Make(
+            "bad_map", ::parquet::Repetition::OPTIONAL,
+            {
+                    ::parquet::schema::GroupNode::Make(
+                            "entry1", ::parquet::Repetition::REPEATED,
+                            {::parquet::schema::PrimitiveNode::Make(
+                                     "key", ::parquet::Repetition::REQUIRED,
+                                     ::parquet::Type::BYTE_ARRAY, ::parquet::ConvertedType::UTF8),
+                             ::parquet::schema::PrimitiveNode::Make("value",
+                                                                    ::parquet::Repetition::OPTIONAL,
+                                                                    ::parquet::Type::INT32)}),
+                    ::parquet::schema::GroupNode::Make(
+                            "entry2", ::parquet::Repetition::REPEATED,
+                            {::parquet::schema::PrimitiveNode::Make(
+                                     "key", ::parquet::Repetition::REQUIRED,
+                                     ::parquet::Type::BYTE_ARRAY, ::parquet::ConvertedType::UTF8),
+                             ::parquet::schema::PrimitiveNode::Make("value",
+                                                                    ::parquet::Repetition::OPTIONAL,
+                                                                    ::parquet::Type::INT32)}),
+            },
+            ::parquet::ConvertedType::MAP);
+    EXPECT_FALSE(build_status({map_with_two_fields}).ok());
+
+    const auto non_repeated_map_entry = ::parquet::schema::GroupNode::Make(
+            "bad_map", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "key_value", ::parquet::Repetition::OPTIONAL,
+                    {::parquet::schema::PrimitiveNode::Make("key", ::parquet::Repetition::REQUIRED,
+                                                            ::parquet::Type::BYTE_ARRAY,
+                                                            ::parquet::ConvertedType::UTF8),
+                     ::parquet::schema::PrimitiveNode::Make(
+                             "value", ::parquet::Repetition::OPTIONAL, ::parquet::Type::INT32)})},
+            ::parquet::ConvertedType::MAP);
+    EXPECT_FALSE(build_status({non_repeated_map_entry}).ok());
+
+    const auto map_entry_with_one_child = ::parquet::schema::GroupNode::Make(
+            "bad_map", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "key_value", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make("key", ::parquet::Repetition::REQUIRED,
+                                                            ::parquet::Type::BYTE_ARRAY,
+                                                            ::parquet::ConvertedType::UTF8)})},
+            ::parquet::ConvertedType::MAP);
+    EXPECT_FALSE(build_status({map_entry_with_one_child}).ok());
+
+    const auto repeated_map = ::parquet::schema::GroupNode::Make(
+            "repeated_map", ::parquet::Repetition::REPEATED,
+            {::parquet::schema::GroupNode::Make(
+                    "key_value", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make("key", ::parquet::Repetition::REQUIRED,
+                                                            ::parquet::Type::BYTE_ARRAY,
+                                                            ::parquet::ConvertedType::UTF8),
+                     ::parquet::schema::PrimitiveNode::Make(
+                             "value", ::parquet::Repetition::OPTIONAL, ::parquet::Type::INT32)})},
+            ::parquet::ConvertedType::MAP);
+    EXPECT_FALSE(build_status({repeated_map}).ok());
+}
+
+TEST(ParquetSchemaTest, LogicalUtcTimeIsRejected) {
+    const auto adjusted_time = ::parquet::schema::PrimitiveNode::Make(
+            "time_ms", ::parquet::Repetition::REQUIRED,
+            ::parquet::LogicalType::Time(true, ::parquet::LogicalType::TimeUnit::MILLIS),
+            ::parquet::Type::INT32);
+    const auto status = build_status({adjusted_time});
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Parquet TIME with isAdjustedToUTC=true is not supported"),
               std::string::npos);
