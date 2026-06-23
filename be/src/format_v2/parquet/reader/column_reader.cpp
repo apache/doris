@@ -115,7 +115,6 @@ void install_data_page_filter(std::unique_ptr<::parquet::PageReader>& page_reade
 
 // 判断嵌套场景下该列是否可以通过简化版 ScalarColumnReader 读取。
 // 当前只对纯物理类型（无 logical/converted annotation）返回 true。
-// TODO: support more types
 bool supports_nested_scalar_record_reader(const ParquetColumnSchema& column_schema) {
     if (column_schema.type_descriptor.supports_record_reader) {
         return true;

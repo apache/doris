@@ -50,6 +50,7 @@
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/hive_reader.h"
+#include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
 #include "format_v2/table_reader.h"
@@ -76,8 +77,16 @@ TFileFormatType::type get_range_format_type(const TFileScanRangeParams& params,
 
 bool is_supported_table_format(const TFileRangeDesc& range) {
     const auto table_format = table_format_name(range);
+    if (table_format == "hudi" && range.__isset.table_format_params &&
+        range.table_format_params.__isset.hudi_params &&
+        range.table_format_params.hudi_params.__isset.delta_logs &&
+        !range.table_format_params.hudi_params.delta_logs.empty()) {
+        // Hudi MOR splits need log-file merge semantics and must stay on the existing JNI path.
+        // FileScannerV2 currently supports native Parquet data files only.
+        return false;
+    }
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
-           table_format == "iceberg" || table_format == "paimon";
+           table_format == "iceberg" || table_format == "paimon" || table_format == "hudi";
 }
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
@@ -307,6 +316,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         } else {
             *reader = format::paimon::PaimonReader::create_unique();
         }
+    } else if (table_format == "hudi") {
+        *reader = format::hudi::HudiReader::create_unique();
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else {
