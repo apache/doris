@@ -675,7 +675,13 @@ std::vector<JobReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_
     }
     for (auto job_id : cancelled_jobs) {
         LOG(INFO) << "get_replica_info: erasing cancelled job, job_id=" << job_id;
-        _tablet_replica_cache.erase(job_id);
+        // Lazy cleanup path: FE reported the warm up job as CANCELLED, so the job is
+        // no longer held in memory. Keep the job-count metric and the event filter
+        // consistent with the explicit CLEAR_JOB path in set_event().
+        if (_tablet_replica_cache.erase(job_id) > 0) {
+            g_file_cache_warm_up_job_num << -1;
+        }
+        _event_driven_filters.erase(job_id);
     }
     VLOG_DEBUG << "get_replica_info: return " << replicas.size()
                << " replicas, tablet id=" << tablet_id;
