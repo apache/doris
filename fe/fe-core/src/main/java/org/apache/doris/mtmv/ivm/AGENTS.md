@@ -22,6 +22,7 @@ Run all IVM-related FE unit tests. The relevant test files are located in:
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/rewrite/IvmNormalizeMtmvTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/ShowCreateMTMVTest.java`
+- `fe/fe-core/src/test/java/org/apache/doris/catalog/DropMaterializedViewTest.java`
 
 When running IVM FE unit tests, always include
 `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`;
