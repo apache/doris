@@ -45,6 +45,7 @@ import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -66,6 +67,9 @@ final class FakeIcebergTable implements Table {
     private final PartitionSpec spec;
     private final String location;
     private final Map<String, String> properties;
+    // Optional FileIO for the T09 vended-credential extraction test (extractVendedToken reads table.io()).
+    // Null by default -> io() keeps its fail-loud contract; only the vended test injects one.
+    private FileIO io;
 
     FakeIcebergTable(String name, Schema schema, PartitionSpec spec,
             String location, Map<String, String> properties) {
@@ -74,6 +78,11 @@ final class FakeIcebergTable implements Table {
         this.spec = spec;
         this.location = location;
         this.properties = properties;
+    }
+
+    /** Inject a FileIO so {@link #io()} returns it (T09 vended-credential extraction); otherwise io() throws. */
+    void setIo(FileIO io) {
+        this.io = io;
     }
 
     @Override
@@ -120,7 +129,9 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public Map<Integer, PartitionSpec> specs() {
-        throw new UnsupportedOperationException();
+        // The single spec keyed by its id — getScanNodeProperties' getIdentityPartitionColumns iterates this
+        // (T09 location tests run getScanNodeProperties against a FakeIcebergTable).
+        return Collections.singletonMap(spec.specId(), spec);
     }
 
     @Override
@@ -230,6 +241,9 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public FileIO io() {
+        if (io != null) {
+            return io;
+        }
         throw new UnsupportedOperationException();
     }
 

@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -57,6 +58,9 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
@@ -214,6 +218,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         ZoneId zone = resolveSessionZone(session);
         boolean partitioned = table.spec().isPartitioned();
 
+        // Vended credentials (T09): extract the per-table REST vended token ONCE per scan (gated on the catalog
+        // flag iceberg.rest.vended-credentials-enabled, mirroring legacy IcebergVendedCredentialsProvider), then
+        // thread it into the 2-arg URI normalization below so REST object-store data/delete paths normalize via
+        // the vended map (a REST catalog's static storage map is empty by design). Empty for non-vended catalogs
+        // / no context -> the 2-arg normalize folds to the static-map path (non-REST reads byte-unchanged). The
+        // BE-credential overlay is emitted separately by getScanNodeProperties.
+        Map<String, String> vendedToken = context != null
+                ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
+
         // COUNT(*) pushdown (T05): when the count is servable from the snapshot summary, collapse the scan to
         // a single whole-file range carrying the full count (mirrors paimon's collapse + legacy's <=10000
         // case; the legacy >10000 parallel multi-split trim is a perf-only divergence, dropped). A -1 (equality
@@ -223,7 +236,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             long realCount = getCountFromSnapshot(scan, session);
             if (realCount >= 0) {
                 return planCountPushdown(table, scan, realCount, formatVersion, partitioned,
-                        orderedPartitionKeys, zone);
+                        orderedPartitionKeys, zone, vendedToken);
             }
         }
 
@@ -236,7 +249,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             for (FileScanTask task : tasks) {
                 DataFile dataFile = task.file();
                 ranges.add(buildRange(table, dataFile, task, formatVersion, partitioned, orderedPartitionKeys,
-                        zone, -1));
+                        zone, vendedToken, -1));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to enumerate iceberg file scan tasks, error message is:"
@@ -313,11 +326,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (no files) yields no range, so BE gets 0 ranges and COUNT returns 0 (legacy returns empty splits too).
      */
     private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, long realCount,
-            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone) {
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            Map<String, String> vendedToken) {
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             for (FileScanTask task : tasks) {
                 return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, realCount));
+                        partitioned, orderedPartitionKeys, zone, vendedToken, realCount));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
@@ -334,7 +348,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * identity {@code partitionValues} that become columns-from-path.
      */
     private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
-            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone, long pushDownRowCount) {
+            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            Map<String, String> vendedToken, long pushDownRowCount) {
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         Map<String, String> partitionValues = Collections.emptyMap();
@@ -380,7 +395,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
         String rawDataPath = dataFile.path().toString();
         return new IcebergScanRange.Builder()
-                .path(normalizePath(rawDataPath))
+                .path(normalizeUri(rawDataPath, vendedToken))
                 .originalPath(rawDataPath)
                 .start(task.start())
                 .length(task.length())
@@ -392,7 +407,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .firstRowId(firstRowId)
                 .lastUpdatedSequenceNumber(lastUpdatedSequenceNumber)
                 .partitionValues(partitionValues)
-                .deleteFiles(buildDeleteFiles(task))
+                .deleteFiles(buildDeleteFiles(task, vendedToken))
                 .pushDownRowCount(pushDownRowCount)
                 .build();
     }
@@ -402,14 +417,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * mirroring legacy {@code IcebergScanNode.getDeleteFileFilters} + {@code IcebergDeleteFileFilter}. Empty
      * for v1 / no-delete files (v1 has no delete files, so {@code task.deletes()} is always empty there).
      */
-    private List<IcebergScanRange.DeleteFile> buildDeleteFiles(FileScanTask task) {
+    private List<IcebergScanRange.DeleteFile> buildDeleteFiles(FileScanTask task, Map<String, String> vendedToken) {
         List<DeleteFile> deletes = task.deletes();
         if (deletes == null || deletes.isEmpty()) {
             return Collections.emptyList();
         }
         List<IcebergScanRange.DeleteFile> result = new ArrayList<>(deletes.size());
         for (DeleteFile delete : deletes) {
-            result.add(convertDelete(delete));
+            result.add(convertDelete(delete, vendedToken));
         }
         return result;
     }
@@ -425,10 +440,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *       field-ids (read straight from delete metadata — correct independent of the T06 data dictionary).</li>
      * </ul>
      * The delete path is normalized through the engine seam (legacy
-     * {@code LocationPath.of(path,config).toStorageLocation()}). Package-private for direct unit testing.
+     * {@code LocationPath.of(path,config).toStorageLocation()}), threading the per-table vended token (empty
+     * for non-REST) so a REST object-store deletion path normalizes via the vended map (T09). Package-private
+     * for direct unit testing.
      */
-    IcebergScanRange.DeleteFile convertDelete(DeleteFile delete) {
-        String path = normalizePath(delete.path().toString());
+    IcebergScanRange.DeleteFile convertDelete(DeleteFile delete, Map<String, String> vendedToken) {
+        String path = normalizeUri(delete.path().toString(), vendedToken);
         FileContent content = delete.content();
         if (content == FileContent.POSITION_DELETES) {
             Long lowerBound = readPositionBound(delete.lowerBounds());
@@ -487,12 +504,53 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * scheme-dispatched S3 factory only opens {@code s3://}, so an un-normalized {@code oss://}/{@code cos://}
      * /{@code obs://}/{@code s3a://} path fails the native read (data file) or silently drops the deletes
      * (merge-on-read wrong rows). Mirrors paimon's {@code normalizeUri} (FIX-URI-NORMALIZE), which normalizes
-     * both the data-file and deletion-vector paths. The static-map form is byte-equivalent to legacy for
-     * non-vended catalogs; the vended-credential (2-arg) form is T09. A {@code null} context (offline unit
-     * tests) preserves the raw path (paimon parity).
+     * both the data-file and deletion-vector paths. The {@code vendedToken} (empty for non-REST / no context)
+     * is the per-table vended credential map, routed into normalization so a REST object-store path normalizes
+     * via the vended map (T09); when empty the 2-arg seam folds to the catalog's static storage map, byte-
+     * equivalent to legacy for non-vended catalogs. A {@code null} context (offline unit tests) preserves the
+     * raw path (paimon parity).
      */
-    private String normalizePath(String rawPath) {
-        return context != null ? context.normalizeStorageUri(rawPath) : rawPath;
+    private String normalizeUri(String rawPath, Map<String, String> vendedToken) {
+        return context != null ? context.normalizeStorageUri(rawPath, vendedToken) : rawPath;
+    }
+
+    /**
+     * Whether this catalog requests REST vended credentials, gating {@link #extractVendedToken}. Faithfully
+     * reproduces legacy {@code IcebergVendedCredentialsProvider.isVendedCredentialsEnabled}, which is TWO-part:
+     * the metastore is REST ({@code metastoreProperties instanceof IcebergRestProperties}) AND the flag
+     * {@code iceberg.rest.vended-credentials-enabled} is true. The {@code instanceof} is mirrored by the flavor
+     * check (the flag is declared only on {@code IcebergRestProperties}, so on a non-REST flavor legacy ignores
+     * it and never vends) — without it a non-REST catalog that erroneously carries the flag would extract vended
+     * creds that legacy suppresses. Same flag T05 uses to inject the REST delegation header.
+     */
+    private boolean restVendedCredentialsEnabled() {
+        return IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties))
+                && Boolean.parseBoolean(properties.get(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED));
+    }
+
+    /**
+     * Extracts the raw per-table vended credential token from a REST catalog table's {@link FileIO}, a faithful
+     * port of legacy {@code IcebergVendedCredentialsProvider.extractRawVendedCredentials} (iceberg SDK only, no
+     * fe-core import): the FileIO's own {@code properties()} plus, when the FileIO
+     * {@link SupportsStorageCredentials}, every server-vended {@link StorageCredential}'s {@code config()}. The
+     * gate is the catalog flag ({@code vendedEnabled}) checked BEFORE extraction, equivalent to legacy's
+     * "metastore is REST and vended enabled" guard; returns empty when disabled, the table/FileIO is null, so
+     * the downstream {@code vendStorageCredentials} / {@code normalizeStorageUri} overlays are no-ops for
+     * non-REST reads. Iceberg (unlike paimon's {@code RESTTokenFileIO.validToken()}) has no explicit token
+     * refresh — the credentials are fresh because the REST catalog reloads the table per query.
+     */
+    static Map<String, String> extractVendedToken(Table table, boolean vendedEnabled) {
+        if (!vendedEnabled || table == null || table.io() == null) {
+            return Collections.emptyMap();
+        }
+        FileIO fileIO = table.io();
+        Map<String, String> ioProps = new HashMap<>(fileIO.properties());
+        if (fileIO instanceof SupportsStorageCredentials) {
+            for (StorageCredential storageCredential : ((SupportsStorageCredentials) fileIO).credentials()) {
+                ioProps.putAll(storageCredential.config());
+            }
+        }
+        return ioProps;
     }
 
     /**
@@ -509,8 +567,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      *       columns so BE field-id-matches file&harr;table columns across rename/reorder (see
      *       {@link IcebergSchemaUtils}). Emitted unconditionally (legacy {@code createScanRangeLocations}
      *       always sets the dict). {@link #populateScanLevelParams} applies it.</li>
+     *   <li>{@code location.*} (T09) — the BE-canonical storage credentials: the catalog's static creds
+     *       (all flavors) plus, for a REST vended catalog, the per-table vended overlay (legacy precedence).
+     *       Without these BE opens the object store with no creds (403). See {@link #extractVendedToken}.</li>
      * </ul>
-     * Location / serialized-table keys land in later tasks.
+     * The serialized-table key (JNI system-table path) lands in a later task.
      */
     @Override
     public Map<String, String> getScanNodeProperties(
@@ -525,6 +586,32 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         if (!partitionKeys.isEmpty()) {
             props.put("path_partition_keys", String.join(",", partitionKeys));
+        }
+        // Static storage credentials (T09, all flavors): the catalog's bound fe-filesystem StorageProperties,
+        // normalized to BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for HDFS) and shipped under
+        // location.*. BLOCKER: BE's native (FILE_S3) reader understands ONLY the canonical keys, so the raw
+        // catalog aliases (s3.access_key, oss.access_key, …) must be translated before they leave FE — copying
+        // them verbatim gives BE no usable creds (403 on a private bucket). Mirrors paimon getScanNodeProperties
+        // + legacy IcebergScanNode.getLocationProperties (backendStorageProperties). Empty for no context
+        // (offline tests) or a REST-vended catalog (whose static storage map is empty by design) -> no static
+        // overlay, just the vended one below.
+        if (context != null) {
+            Map<String, String> backendStorageProps = new HashMap<>();
+            for (StorageProperties sp : context.getStorageProperties()) {
+                sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
+            }
+            backendStorageProps.forEach((k, v) -> props.put("location." + k, v));
+        }
+        // Vended-credential overlay (T09, REST per-table token): the raw token is extracted from the live,
+        // snapshot-pinned table's FileIO (gated on the catalog flag iceberg.rest.vended-credentials-enabled,
+        // legacy IcebergVendedCredentialsProvider parity), then normalized to BE-facing AWS_* keys by the engine
+        // (the connector cannot import fe-core's StorageProperties). Vended overlays static (legacy precedence —
+        // a colliding location.* key takes the vended value). Skipped when no context (offline tests) or the
+        // table yields no vended token (flag off / non-REST -> empty -> no-op).
+        if (context != null) {
+            Map<String, String> vendedBeProps =
+                    context.vendStorageCredentials(extractVendedToken(table, restVendedCredentialsEnabled()));
+            vendedBeProps.forEach((k, v) -> props.put("location." + k, v));
         }
         // Field-id schema dictionary (T06). Under a time-travel pin (T07, Option A): the query slots carry the
         // PINNED schema's names, but the generic node builds the column handles from the LATEST schema (the pin

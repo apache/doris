@@ -26,6 +26,11 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -47,6 +52,11 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -679,7 +689,7 @@ public class IcebergScanPlanProviderTest {
         // POSITION_DELETES (non-PUFFIN) -> content 1, parquet/orc format, [lower,upper] bounds decoded from the
         // delete file's DELETE_FILE_POS bounds. MUTATION: wrong content id / dropped bounds / wrong format -> red.
         DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, 3L, 17L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
 
         Assertions.assertEquals(1, d.getContent());
         Assertions.assertEquals("s3://b/db/t1/pos.parquet", d.getPath());
@@ -695,7 +705,7 @@ public class IcebergScanPlanProviderTest {
         // No DELETE_FILE_POS bounds present -> position_lower/upper_bound stay unset (legacy emits them only
         // when present; it stores a -1 sentinel and skips emission). MUTATION: emitting 0/-1 -> red.
         DeleteFile delete = positionDeleteFile("s3://b/db/t1/pos.orc", FileFormat.ORC, null, null);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
 
         Assertions.assertEquals(TFileFormatType.FORMAT_ORC, d.getFileFormat());
         Assertions.assertFalse(d.isSetPositionLowerBound());
@@ -708,7 +718,7 @@ public class IcebergScanPlanProviderTest {
         // (legacy setDeleteFileFormat skips PUFFIN). MUTATION: classifying it as content 1 / emitting a format
         // for the puffin blob -> red (BE would mis-read the DV blob).
         DeleteFile delete = deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
 
         Assertions.assertEquals(3, d.getContent());
         Assertions.assertFalse(d.isSetFileFormat());
@@ -722,7 +732,7 @@ public class IcebergScanPlanProviderTest {
         // the T06 data-schema dictionary). MUTATION: wrong content id / dropped field-ids -> red (BE projects
         // the wrong columns for the equality match).
         DeleteFile delete = equalityDeleteFile("s3://b/db/t1/eq.parquet", FileFormat.PARQUET, 1, 2);
-        TIcebergDeleteFileDesc d = provider().convertDelete(delete).toThrift();
+        TIcebergDeleteFileDesc d = provider().convertDelete(delete, Collections.emptyMap()).toThrift();
 
         Assertions.assertEquals(2, d.getContent());
         Assertions.assertEquals(Arrays.asList(1, 2), d.getFieldIds());
@@ -742,7 +752,7 @@ public class IcebergScanPlanProviderTest {
                 new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps(), context);
         DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
 
-        TIcebergDeleteFileDesc d = provider.convertDelete(delete).toThrift();
+        TIcebergDeleteFileDesc d = provider.convertDelete(delete, Collections.emptyMap()).toThrift();
 
         Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
         Assertions.assertTrue(context.normalizedUris.contains("oss://bucket/db/t1/pos.parquet"));
@@ -1132,5 +1142,404 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(deleteCount(sdk.get(0)), deleteCount(manifest.get(0)));
         // Both the data manifest and the delete manifest were read through the cache.
         Assertions.assertTrue(cache.size() >= 2, "the data + delete manifests must both be cached");
+    }
+
+    // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
+
+    @Test
+    public void extractVendedTokenMergesIoPropsAndStorageCredentials() {
+        FakeIcebergTable table = fakeTable("t1");
+        Map<String, String> ioProps = new HashMap<>();
+        ioProps.put("s3.endpoint", "ep");
+        StorageCredential cred =
+                StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "ak"));
+        table.setIo(new VendedFileIO(ioProps, Collections.singletonList(cred)));
+
+        Map<String, String> token = IcebergScanPlanProvider.extractVendedToken(table, true);
+
+        // WHY: legacy IcebergVendedCredentialsProvider.extractRawVendedCredentials = io.properties() UNION every
+        // SupportsStorageCredentials.credentials().config(). MUTATION: dropping the credentials merge ->
+        // s3.access-key-id absent -> red.
+        Assertions.assertEquals("ep", token.get("s3.endpoint"));
+        Assertions.assertEquals("ak", token.get("s3.access-key-id"));
+    }
+
+    @Test
+    public void extractVendedTokenReturnsIoPropsWhenFileIoHasNoStorageCredentials() {
+        FakeIcebergTable table = fakeTable("t1");
+        table.setIo(new PropsOnlyFileIO(Collections.singletonMap("s3.endpoint", "ep")));
+
+        // WHY: a non-SupportsStorageCredentials FileIO still contributes its own properties (legacy reads
+        // io.properties() unconditionally) and must not crash on the absent credentials() call. MUTATION:
+        // unconditional cast to SupportsStorageCredentials -> ClassCastException -> red.
+        Assertions.assertEquals(Collections.singletonMap("s3.endpoint", "ep"),
+                IcebergScanPlanProvider.extractVendedToken(table, true));
+    }
+
+    @Test
+    public void extractVendedTokenEmptyWhenFlagDisabled() {
+        FakeIcebergTable table = fakeTable("t1");
+        StorageCredential cred =
+                StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "ak"));
+        table.setIo(new VendedFileIO(Collections.emptyMap(), Collections.singletonList(cred)));
+
+        // WHY: the catalog flag gates extraction (legacy isVendedCredentialsEnabled) BEFORE touching io() — a
+        // non-REST / flag-off catalog must extract NOTHING even if the FileIO happens to vend creds. MUTATION:
+        // ignoring vendedEnabled -> ak extracted -> red.
+        Assertions.assertTrue(IcebergScanPlanProvider.extractVendedToken(table, false).isEmpty());
+    }
+
+    @Test
+    public void extractVendedTokenEmptyForNullTable() {
+        Assertions.assertTrue(IcebergScanPlanProvider.extractVendedToken(null, true).isEmpty());
+    }
+
+    @Test
+    public void getScanNodePropertiesEmitsStaticStorageCredsAsLocation() {
+        FakeIcebergTable table = fakeTable("t1");
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        Map<String, String> beStatic = new HashMap<>();
+        beStatic.put("AWS_ACCESS_KEY", "ak");
+        beStatic.put("AWS_SECRET_KEY", "sk");
+        beStatic.put("AWS_ENDPOINT", "ep");
+        context.storageProperties = Collections.singletonList(fakeBackendStorage(beStatic));
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // WHY (B-9): BE's native (FILE_S3) reader understands ONLY AWS_* canonical keys; the connector must ship
+        // the engine-normalized creds under location.*, never the raw aliases (403 on a private bucket).
+        // MUTATION: dropping the static-creds block (the gap this task fixes) -> location.AWS_ACCESS_KEY absent
+        // -> red.
+        Assertions.assertEquals("ak", props.get("location.AWS_ACCESS_KEY"));
+        Assertions.assertEquals("sk", props.get("location.AWS_SECRET_KEY"));
+        Assertions.assertEquals("ep", props.get("location.AWS_ENDPOINT"));
+    }
+
+    @Test
+    public void getScanNodePropertiesOverlaysVendedCredsOverStatic() {
+        FakeIcebergTable table = fakeTable("t1");
+        // A non-empty FileIO props map -> a non-empty vended token when the flag is on.
+        table.setIo(new PropsOnlyFileIO(Collections.singletonMap("s3.endpoint", "x")));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        Map<String, String> beStatic = new HashMap<>();
+        beStatic.put("AWS_ACCESS_KEY", "static-ak");
+        beStatic.put("AWS_ENDPOINT", "static-ep");
+        context.storageProperties = Collections.singletonList(fakeBackendStorage(beStatic));
+        Map<String, String> vended = new HashMap<>();
+        vended.put("AWS_ACCESS_KEY", "vended-ak");
+        vended.put("AWS_SECRET_KEY", "vended-sk");
+        vended.put("AWS_ENDPOINT", "vended-ep");
+        context.vendedBeProps = vended;
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(restVendedFlagOn(), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // WHY: vended creds must overlay (win over) the static location key on collision (legacy precedence).
+        // MUTATION: overlaying static AFTER vended (or no vended overlay) -> location.AWS_ACCESS_KEY != vended-ak
+        // -> red.
+        Assertions.assertEquals("vended-ak", props.get("location.AWS_ACCESS_KEY"));
+        Assertions.assertEquals("vended-sk", props.get("location.AWS_SECRET_KEY"));
+        Assertions.assertEquals("vended-ep", props.get("location.AWS_ENDPOINT"));
+    }
+
+    @Test
+    public void getScanNodePropertiesOmitsVendedWhenFlagDisabled() {
+        FakeIcebergTable table = fakeTable("t1");
+        // Even a credential-bearing FileIO must yield no vended overlay when the catalog flag is off.
+        table.setIo(new PropsOnlyFileIO(Collections.singletonMap("s3.endpoint", "x")));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.vendedBeProps = Collections.singletonMap("AWS_ACCESS_KEY", "vended-ak");
+        // No vended flag -> default false.
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // WHY: the catalog flag gates the vended overlay (legacy isVendedCredentialsEnabled). Flag off -> empty
+        // token -> vendStorageCredentials returns empty -> no vended location.*. MUTATION: ignoring the flag ->
+        // location.AWS_ACCESS_KEY=vended-ak present -> red.
+        Assertions.assertFalse(props.containsKey("location.AWS_ACCESS_KEY"), "flag off -> no vended overlay");
+    }
+
+    @Test
+    public void getScanNodePropertiesOmitsVendedWhenFlagSetButNonRestFlavor() {
+        FakeIcebergTable table = fakeTable("t1");
+        table.setIo(new PropsOnlyFileIO(Collections.singletonMap("s3.endpoint", "x")));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        context.vendedBeProps = Collections.singletonMap("AWS_ACCESS_KEY", "vended-ak");
+        // The vended flag is set, but the catalog flavor is HMS (not REST). Legacy isVendedCredentialsEnabled is
+        // `instanceof IcebergRestProperties && flag`, so a non-REST catalog NEVER vends even with the flag set.
+        Map<String, String> hmsWithRestFlag = new HashMap<>();
+        hmsWithRestFlag.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_HMS);
+        hmsWithRestFlag.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(hmsWithRestFlag, opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // WHY: legacy gates vended on the REST metastore type (instanceof IcebergRestProperties), not just the
+        // flag; a misconfigured non-REST catalog carrying the flag must NOT vend (parity). MUTATION: gating on
+        // the flag alone -> location.AWS_ACCESS_KEY=vended-ak present -> red.
+        Assertions.assertFalse(props.containsKey("location.AWS_ACCESS_KEY"),
+                "non-REST flavor -> no vended overlay even with the flag set");
+    }
+
+    @Test
+    public void getScanNodePropertiesNoContextEmitsNoLocation() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        // 2-arg ctor -> context == null (offline harness path).
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // WHY: with no context the connector cannot normalize creds, so it emits NO location.* (never raw
+        // aliases). MUTATION: NPE on null context, or emitting location.* -> red.
+        Assertions.assertTrue(props.keySet().stream().noneMatch(k -> k.startsWith("location.")),
+                "no context -> no location.* keys");
+    }
+
+    @Test
+    public void getScanNodePropertiesSkipsStorageWithoutBackendModelAndMergesRest() {
+        FakeIcebergTable table = fakeTable("t1");
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        Map<String, String> beMap = new HashMap<>();
+        beMap.put("AWS_ACCESS_KEY", "ak");
+        beMap.put("AWS_ENDPOINT", "ep");
+        // A typed list mixing a backend WITHOUT a BE model (toBackendProperties() empty — the HDFS case) and a
+        // real object-store backend: exercises the .ifPresent skip and the multi-entry putAll merge.
+        context.storageProperties = Arrays.asList(fakeStorageWithoutBackend(), fakeBackendStorage(beMap));
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // WHY: a StorageProperties with no BE model (Optional.empty) must be SKIPPED, never crash, while a real
+        // object-store entry alongside it still ships its AWS_* under location.* (the merge loop). MUTATION:
+        // .ifPresent -> .get()/.orElseThrow() -> NoSuchElementException on the empty entry -> red.
+        Assertions.assertEquals("ak", props.get("location.AWS_ACCESS_KEY"));
+        Assertions.assertEquals("ep", props.get("location.AWS_ENDPOINT"));
+    }
+
+    @Test
+    public void planScanThreadsVendedTokenIntoDataAndDeletePathNormalize() {
+        Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f1.parquet", 1024, null, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(positionDeleteFile("oss://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null))
+                .commit();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        // No vended flag -> the extracted token is empty; the in-memory FileIO's properties() throws (a test
+        // artifact, unlike a real REST FileIO), so flag-on extraction is exercised separately by the
+        // extractVendedToken / getScanNodeProperties overlay tests with an injected FileIO. Here we prove the
+        // PLUMBING: planScan routes BOTH the data and delete paths through the 2-arg normalizeStorageUri,
+        // passing the per-table vended token (empty here, but the MAP, not null).
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, ranges.size());
+
+        // WHY: both the data-file path and the delete-file path must route through the 2-arg
+        // normalizeStorageUri carrying the per-table vended token (T09), so REST object-store paths normalize
+        // via the vended map. MUTATION: dropping the normalization -> the data/delete paths stay oss://
+        // (un-normalized) -> red; reverting to the 1-arg normalize -> the recording fake's 1-arg form folds to
+        // a NULL token -> lastVendedToken == null != the extracted (empty) map -> red.
+        Assertions.assertEquals("s3://b/db/t1/f1.parquet", ranges.get(0).getPath().get());
+        TIcebergFileDesc fd = populate(ranges.get(0)).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals("s3://b/db/t1/pos.parquet", fd.getDeleteFiles().get(0).getPath());
+        Assertions.assertEquals(IcebergScanPlanProvider.extractVendedToken(table, false), context.lastVendedToken);
+    }
+
+    @Test
+    public void convertDeleteNormalizesDeletePathViaVendedToken() {
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps(), context);
+        DeleteFile delete = positionDeleteFile("oss://bucket/db/t1/pos.parquet", FileFormat.PARQUET, null, null);
+        Map<String, String> token = Collections.singletonMap("s3.access-key-id", "ak");
+
+        TIcebergDeleteFileDesc d = provider.convertDelete(delete, token).toThrift();
+
+        // WHY: convertDelete must thread the vended token into the 2-arg normalize (T09). MUTATION: passing no
+        // token / the 1-arg normalize -> lastVendedToken != token -> red.
+        Assertions.assertEquals("s3://bucket/db/t1/pos.parquet", d.getPath());
+        Assertions.assertEquals(token, context.lastVendedToken);
+    }
+
+    // --- T09 helpers ---
+
+    private static FakeIcebergTable fakeTable(String name) {
+        return new FakeIcebergTable(name, SCHEMA, PartitionSpec.unpartitioned(),
+                "s3://b/" + name, Collections.emptyMap());
+    }
+
+    /** Catalog props with BOTH the REST flavor and the vended flag on — the two-part legacy gate. */
+    private static Map<String, String> restVendedFlagOn() {
+        Map<String, String> props = new HashMap<>();
+        props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        props.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        return props;
+    }
+
+    /** A fe-filesystem {@link StorageProperties} whose toBackendProperties().toMap() returns the given
+     * BE-canonical map — mirrors how a real object-store binding hands BE creds to the connector (P1-T04). */
+    private static StorageProperties fakeBackendStorage(Map<String, String> beMap) {
+        BackendStorageProperties backend = new BackendStorageProperties() {
+            @Override
+            public BackendStorageKind backendKind() {
+                return BackendStorageKind.S3_COMPATIBLE;
+            }
+
+            @Override
+            public Map<String, String> toMap() {
+                return beMap;
+            }
+        };
+        return new StorageProperties() {
+            @Override
+            public String providerName() {
+                return "fake";
+            }
+
+            @Override
+            public StorageKind kind() {
+                return StorageKind.OBJECT_STORAGE;
+            }
+
+            @Override
+            public FileSystemType type() {
+                return FileSystemType.S3;
+            }
+
+            @Override
+            public Map<String, String> rawProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> matchedProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Optional<BackendStorageProperties> toBackendProperties() {
+                return Optional.of(backend);
+            }
+        };
+    }
+
+    /** A fe-filesystem {@link StorageProperties} with NO backend model — toBackendProperties() defaults to
+     * Optional.empty() (the HDFS case: no typed BE binding in fe-filesystem). */
+    private static StorageProperties fakeStorageWithoutBackend() {
+        return new StorageProperties() {
+            @Override
+            public String providerName() {
+                return "no-be";
+            }
+
+            @Override
+            public StorageKind kind() {
+                return StorageKind.HDFS_COMPATIBLE;
+            }
+
+            @Override
+            public FileSystemType type() {
+                return FileSystemType.HDFS;
+            }
+
+            @Override
+            public Map<String, String> rawProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> matchedProperties() {
+                return Collections.emptyMap();
+            }
+        };
+    }
+
+    /** A fake FileIO carrying only its own properties (no server-vended StorageCredentials). */
+    private static final class PropsOnlyFileIO implements FileIO {
+        private final Map<String, String> props;
+
+        PropsOnlyFileIO(Map<String, String> props) {
+            this.props = props;
+        }
+
+        @Override
+        public Map<String, String> properties() {
+            return props;
+        }
+
+        @Override
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    /** A fake FileIO that ALSO vends StorageCredentials (a REST catalog's delegated creds). */
+    private static final class VendedFileIO implements FileIO, SupportsStorageCredentials {
+        private final Map<String, String> props;
+        private final List<StorageCredential> creds;
+
+        VendedFileIO(Map<String, String> props, List<StorageCredential> creds) {
+            this.props = props;
+            this.creds = creds;
+        }
+
+        @Override
+        public Map<String, String> properties() {
+            return props;
+        }
+
+        @Override
+        public List<StorageCredential> credentials() {
+            return creds;
+        }
+
+        @Override
+        public void setCredentials(List<StorageCredential> credentials) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException();
+        }
     }
 }
