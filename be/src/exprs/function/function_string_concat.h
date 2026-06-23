@@ -413,8 +413,6 @@ public:
         res_offset.resize(input_rows_count);
 
         VectorizedUtils::update_null_map(null_map->get_data(), *null_list[0]);
-        fmt::memory_buffer buffer;
-        std::vector<std::string_view> views;
 
         if (is_column<ColumnArray>(argument_columns[1].get())) {
             // Determine if the nested type of the array is String
@@ -428,13 +426,13 @@ public:
                                     get_name()));
             }
             // Concat string in array
-            _execute_array(input_rows_count, array_column, buffer, views, offsets_list, chars_list,
-                           null_list, res_data, res_offset);
+            _execute_array(input_rows_count, array_column, offsets_list, chars_list, null_list,
+                           res_data, res_offset);
 
         } else {
             // Concat string
-            _execute_string(input_rows_count, argument_size, buffer, views, offsets_list,
-                            chars_list, null_list, res_data, res_offset);
+            _execute_string(input_rows_count, argument_size, offsets_list, chars_list, null_list,
+                            res_data, res_offset);
         }
         if (is_null_type) {
             block.get_by_position(result).column =
@@ -447,7 +445,6 @@ public:
 
 private:
     void _execute_array(const size_t& input_rows_count, const ColumnArray& array_column,
-                        fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                         const std::vector<const Offsets*>& offsets_list,
                         const std::vector<const Chars*>& chars_list,
                         const std::vector<const ColumnUInt8::Container*>& null_list,
@@ -471,86 +468,145 @@ private:
         const Chars& string_src_chars = string_column.get_chars();
         const auto& src_string_offsets = string_column.get_offsets();
         const auto& src_array_offsets = array_column.get_offsets();
+
+        // Pass 1: compute total output size
+        size_t total_size = 0;
+        size_t scan_array_offset = 0;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto& sep_nullmap = *null_list[0];
+            const auto next_array_offset = src_array_offsets[i];
+            if (sep_nullmap[i]) {
+                scan_array_offset = next_array_offset;
+                continue;
+            }
+            const uint32_t sep_size = (*offsets_list[0])[i] - (*offsets_list[0])[i - 1];
+            int non_null_count = 0;
+            for (; scan_array_offset < next_array_offset; ++scan_array_offset) {
+                if (array_nested_null_map == nullptr || !array_nested_null_map[scan_array_offset]) {
+                    const auto str_begin =
+                            scan_array_offset ? src_string_offsets[scan_array_offset - 1] : 0;
+                    total_size += src_string_offsets[scan_array_offset] - str_begin;
+                    ++non_null_count;
+                }
+            }
+            if (non_null_count > 1) {
+                total_size += static_cast<size_t>(sep_size) * (non_null_count - 1);
+            }
+        }
+
+        ColumnString::check_chars_length(total_size, 0);
+        res_data.resize(total_size);
+
+        // Pass 2: write data directly
+        size_t dst_offset = 0;
+        auto* dst = reinterpret_cast<char*>(res_data.data());
         size_t current_src_array_offset = 0;
 
-        // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto& sep_offsets = *offsets_list[0];
-            auto& sep_chars = *chars_list[0];
-            auto& sep_nullmap = *null_list[0];
+            const auto& sep_offsets = *offsets_list[0];
+            const auto& sep_chars = *chars_list[0];
+            const auto& sep_nullmap = *null_list[0];
 
             if (sep_nullmap[i]) {
-                res_offset[i] = res_data.size();
+                res_offset[i] = static_cast<uint32_t>(dst_offset);
                 current_src_array_offset += src_array_offsets[i] - src_array_offsets[i - 1];
                 continue;
             }
 
-            int sep_size = sep_offsets[i] - sep_offsets[i - 1];
-            const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
+            const uint32_t sep_size = sep_offsets[i] - sep_offsets[i - 1];
+            const char* sep_ptr = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
 
-            std::string_view sep(sep_data, sep_size);
-            buffer.clear();
-            views.clear();
-
+            bool first = true;
             for (auto next_src_array_offset = src_array_offsets[i];
                  current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
-                const auto current_src_string_offset =
-                        current_src_array_offset ? src_string_offsets[current_src_array_offset - 1]
-                                                 : 0;
-                size_t bytes_to_copy =
-                        src_string_offsets[current_src_array_offset] - current_src_string_offset;
-                const char* ptr =
-                        reinterpret_cast<const char*>(&string_src_chars[current_src_string_offset]);
+                if (array_nested_null_map != nullptr &&
+                    array_nested_null_map[current_src_array_offset]) {
+                    continue;
+                }
+                const auto str_begin = current_src_array_offset
+                                               ? src_string_offsets[current_src_array_offset - 1]
+                                               : 0;
+                const uint32_t bytes_to_copy =
+                        src_string_offsets[current_src_array_offset] - str_begin;
 
-                if (array_nested_null_map == nullptr ||
-                    !array_nested_null_map[current_src_array_offset]) {
-                    views.emplace_back(ptr, bytes_to_copy);
+                if (!first && sep_size > 0) {
+                    memcpy(dst + dst_offset, sep_ptr, sep_size);
+                    dst_offset += sep_size;
+                }
+                first = false;
+                if (bytes_to_copy > 0) {
+                    memcpy(dst + dst_offset,
+                           reinterpret_cast<const char*>(&string_src_chars[str_begin]),
+                           bytes_to_copy);
+                    dst_offset += bytes_to_copy;
                 }
             }
-
-            fmt::format_to(buffer, "{}", fmt::join(views, sep));
-
-            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
-                                        res_offset);
+            res_offset[i] = static_cast<uint32_t>(dst_offset);
         }
     }
 
     void _execute_string(const size_t& input_rows_count, const size_t& argument_size,
-                         fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                          const std::vector<const Offsets*>& offsets_list,
                          const std::vector<const Chars*>& chars_list,
                          const std::vector<const ColumnUInt8::Container*>& null_list,
                          Chars& res_data, Offsets& res_offset) const {
-        // Concat string
+        // Pass 1: compute total output size
+        size_t total_size = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto& sep_offsets = *offsets_list[0];
-            auto& sep_chars = *chars_list[0];
-            auto& sep_nullmap = *null_list[0];
-            if (sep_nullmap[i]) {
-                res_offset[i] = res_data.size();
+            if ((*null_list[0])[i]) {
+                continue;
+            }
+            const uint32_t sep_size = (*offsets_list[0])[i] - (*offsets_list[0])[i - 1];
+            int non_null_count = 0;
+            for (size_t j = 1; j < argument_size; ++j) {
+                if (!(*null_list[j])[i]) {
+                    total_size += (*offsets_list[j])[i] - (*offsets_list[j])[i - 1];
+                    ++non_null_count;
+                }
+            }
+            if (non_null_count > 1) {
+                total_size += static_cast<size_t>(sep_size) * (non_null_count - 1);
+            }
+        }
+
+        ColumnString::check_chars_length(total_size, 0);
+        res_data.resize(total_size);
+
+        // Pass 2: write data directly
+        size_t dst_offset = 0;
+        auto* dst = reinterpret_cast<char*>(res_data.data());
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if ((*null_list[0])[i]) {
+                res_offset[i] = static_cast<uint32_t>(dst_offset);
                 continue;
             }
 
-            int sep_size = sep_offsets[i] - sep_offsets[i - 1];
-            const char* sep_data = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
+            const auto& sep_offsets = *offsets_list[0];
+            const auto& sep_chars = *chars_list[0];
+            const uint32_t sep_size = sep_offsets[i] - sep_offsets[i - 1];
+            const char* sep_ptr = reinterpret_cast<const char*>(&sep_chars[sep_offsets[i - 1]]);
 
-            std::string_view sep(sep_data, sep_size);
-            buffer.clear();
-            views.clear();
+            bool first = true;
             for (size_t j = 1; j < argument_size; ++j) {
-                auto& current_offsets = *offsets_list[j];
-                auto& current_chars = *chars_list[j];
-                auto& current_nullmap = *null_list[j];
-                int size = current_offsets[i] - current_offsets[i - 1];
-                const char* ptr =
-                        reinterpret_cast<const char*>(&current_chars[current_offsets[i - 1]]);
-                if (!current_nullmap[i]) {
-                    views.emplace_back(ptr, size);
+                if ((*null_list[j])[i]) {
+                    continue;
+                }
+                const auto& cur_offsets = *offsets_list[j];
+                const auto& cur_chars = *chars_list[j];
+                const uint32_t size = cur_offsets[i] - cur_offsets[i - 1];
+
+                if (!first && sep_size > 0) {
+                    memcpy(dst + dst_offset, sep_ptr, sep_size);
+                    dst_offset += sep_size;
+                }
+                first = false;
+                if (size > 0) {
+                    memcpy(dst + dst_offset, cur_chars.data() + cur_offsets[i - 1], size);
+                    dst_offset += size;
                 }
             }
-            fmt::format_to(buffer, "{}", fmt::join(views, sep));
-            StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
-                                        res_offset);
+            res_offset[i] = static_cast<uint32_t>(dst_offset);
         }
     }
 };
