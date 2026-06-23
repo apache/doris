@@ -56,9 +56,8 @@ protected:
     virtual std::string connector_class() const = 0;
     // Subclasses should implement this method to build the scanner params map
     virtual Status build_scanner_params(std::map<std::string, std::string>* params) const = 0;
-    // Subclasses should implement this method to build the jni columns info, name, types
-    // Now maybe JDBC need deal with some special types
-    virtual Status build_jni_columns(std::vector<JniColumn>* columns) const = 0;
+    // Subclasses can override this method when Java transfer types differ from output types.
+    virtual Status build_jni_columns(std::vector<JniColumn>* columns) const;
     virtual Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows);
     // used for profile
     virtual int64_t self_split_weight() const { return -1; }
@@ -70,11 +69,15 @@ private:
     std::string _connector_name() const;
     // open
     Status _open_jni_scanner();
+    void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
-    Status _register_jni_class_functions(JNIEnv* env, int batch_size);
+    Status _register_jni_class_functions_once(JNIEnv* env);
+    Status _create_jni_scanner_object(JNIEnv* env, int batch_size);
     // get_next
     Status _get_next_jni_block(size_t* rows, bool* eof);
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
+
+    Status _close_jni_scanner();
 
     std::map<std::string, std::string> _scanner_params;
     std::vector<JniColumn> _jni_columns;
@@ -98,6 +101,7 @@ private:
 
     Jni::GlobalClass _jni_scanner_cls;
     Jni::GlobalObject _jni_scanner_obj;
+    Jni::MethodId _jni_scanner_constructor;
     Jni::MethodId _jni_scanner_open;
     Jni::MethodId _jni_scanner_get_append_data_time;
     Jni::MethodId _jni_scanner_get_create_vector_table_time;
