@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/` |
 | **共享依赖** | `fe-connector-hms`（iceberg-HMS-flavor 用） |
 | **计划迁移阶段** | **P6**（最大阶段，5 周）|
-| **当前状态** | 🟢 **P6.1 DONE + P6.2 DONE**：P6.1〔T01–T10〕7-flavor 装配 + 读元数据 parity + per-flavor 校验 + metastore 模块拆分；P6.2〔T01–T11〕scan+MVCC+cache+vended 全实现（UT **278/0/1**）。下一 = **P6.3 写路径**（先写 `06-iceberg-write-path-rfc.md` 过 PMC）。**翻闸阻塞 = [DV-038]**（GLOBAL_ROWID + getColumnHandles，P6.6 前必修） |
-| **完成度** | ~55%（P6.1+P6.2 实现完；P6.3 写 / P6.4 procedure / P6.5 sys-table / P6.6 翻闸未做）|
+| **当前状态** | 🟢 **P6.1 DONE + P6.2 DONE + P6.3 进行中（T01~T05 ✅）**：P6.1〔T01–T10〕7-flavor 装配 + 读元数据 parity + per-flavor 校验 + metastore 模块拆分；P6.2〔T01–T11〕scan+MVCC+cache+vended（UT 278/0/1）；**P6.3 写路径 RFC ✅ + T01~T05**（框架统一·SPI 收口 + jdbc planWrite + `IcebergConnectorTransaction` 骨架·op 选择·WriterHelper·begin guards + commit 校验套件·O5-2 `applyWriteConstraint`·V3 DV removeDeletes；UT **341/0/1**）。下一 = **T06 sink 统一**。**翻闸阻塞 = [DV-038]**（GLOBAL_ROWID + getColumnHandles，P6.6 前必修） |
+| **完成度** | ~62%（P6.1+P6.2 实现完 + P6.3 T01–T05；剩 P6.3 T06–T09〔sink 统一 / 通用命令壳〔含 O5-2 fe-core 生产半〕/ 审计 / 收口〕 / P6.4 procedure / P6.5 sys-table / P6.6 翻闸）|
 | **阶段拆分 spec** | [`tasks/P6-iceberg-migration.md`](../tasks/P6-iceberg-migration.md) |
 | **主 owner** | TBD |
 
@@ -89,6 +89,16 @@
 ---
 
 ## 进度日志
+
+### 2026-06-23（P6.3 写路径 RFC ✅ + T01~T05 实现）
+
+- **RFC ✅ 评审通过**（`a49720820f9`）= `06-iceberg-write-path-rfc.md`：写框架全面统一（单 `ConnectorTransaction`）+ 行级-DML Route B（iceberg plan 合成暂留 fe-core，DV-04x）+ O5-2 冲突检测接缝 + Trino 式通用化北极星。
+- **T01** 框架统一·SPI 收口（option B）：删 insert-handle/`usesConnectorTransaction` 双模型 fork → 单 `ConnectorTransaction`；jdbc no-op txn 迁移。
+- **T02** jdbc thrift 入 `planWrite`（OQ-1）+ 删 config-bag 三件套（OQ-2）+ source-agnostic `appendExplainInfo` EXPLAIN-保留 hook（用户增补）。
+- **T03** `IcebergConnectorTransaction implements ConnectorTransaction` 骨架：单 SDK txn/表经 seam+auth、14 字段 `TIcebergCommitData` 反序列化累积、`getUpdateCnt`、新 `WriteOperation` 枚举。对抗 1 confirmed 修（`newTransaction()` 须在 auth 内）。
+- **T04** op 选择收进 `commit()`（SPI 无 finishWrite 钩子）+ begin* guards（fmt≥2 / branch 非 tag / baseSnapshotId 捕获）+ 新 `IcebergWriterHelper`/`IcebergPartitionUtils` parse 助手/`IcebergWriteContext`。对抗 0 finding。
+- **T05** commit 校验套件（`validateFromSnapshot`/serializable `validateNoConflictingDataFiles`/`validateDeletedFiles`/`validateNoConflictingDeleteFiles`/`validateDataFilesExist`/`delete_isolation_level` 默认 serializable）+ O5-2 `applyWriteConstraint`（新 `ConnectorPredicate` SPI default-no-op + 连接器惰性转 `IcebergPredicateConverter` 暂存 + 与 identity-分区 filter 合并）+ V3 DV `removeDeletes`（fmt≥3 / `ContentFileUtil.isFileScoped` / dedup）。**[D-061] O5-2 fe-core 生产半（analyzed-plan 抽取）挪 T07**（唯一消费者 = T07 `RowLevelDmlCommand`）。对抗 `wf_0960ef5f-52c` = 0 finding。
+- **验收（T01~T05 累计）**：connector-api UT 30/0/0、fe-connector-iceberg UT **341/0/1**（278→341）、jdbc 190 / maxcompute 102 / paimon 318 无回归、checkstyle 0、import-gate 0、iceberg 仍**不在** `SPI_READY_TYPES`、**0 BE 改**（T01–T05 全程）。下一 = **T06 sink 统一**（连接器 `planWrite` 自建 `TIceberg{Table,Delete,Merge}Sink` + 删 planner sink + 走 `visitPhysicalConnectorTableSink` + 复用 T02 `appendExplainInfo` hook）。
 
 ### 2026-06-23（P6.1 DONE + P6.2 DONE；T11 收口）
 - **P6.1 DONE〔T01–T10〕**：5-flavor CatalogUtil 装配（T05）+ s3tables bespoke（T06）+ DLF 子树 port（T07）+ 读路径列/format-version/listing/auth parity（T09）+ metastore 模块拆分〔`fe-connector-metastore-{paimon,iceberg}` per-engine + `-spi` 共享基类〕+ per-flavor CREATE 校验（T10 A+B）。

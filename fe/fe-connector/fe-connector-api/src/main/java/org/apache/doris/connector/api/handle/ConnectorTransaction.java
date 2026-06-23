@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.api.handle;
 
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+
 import java.io.Closeable;
 
 /**
@@ -95,6 +97,24 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
     /** Returns the number of rows affected by the write(s) bound to this transaction. */
     default long getUpdateCnt() {
         return 0;
+    }
+
+    /**
+     * Applies an optional engine-extracted, target-only write constraint used for write-time optimistic
+     * conflict detection (O5-2). The engine extracts, from the analyzed DELETE/UPDATE/MERGE plan, the
+     * conjuncts that reference only the target table's own columns (slot origin-table == target, excluding
+     * synthetic {@code $row_id} / metadata / join columns) and hands the connector a neutral
+     * {@link ConnectorPredicate} at plan time, before {@code begin}/{@code commit}.
+     *
+     * <p>A connector that does optimistic conflict detection converts the neutral predicate to its own
+     * dialect and uses it as the conflict-detection filter when the transaction commits (ANDed with any
+     * commit-time partition filter it derives itself). Connectors that do not do conflict detection — or
+     * that traffic in opaque handles — ignore it. The default is a no-op.</p>
+     *
+     * @param targetOnlyFilter the neutral target-only predicate, or {@code null} when the plan yielded none
+     */
+    default void applyWriteConstraint(ConnectorPredicate targetOnlyFilter) {
+        // no-op: connectors that do optimistic conflict detection override this
     }
 
     /**

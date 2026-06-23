@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.api.handle;
 
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +58,17 @@ public class NoOpConnectorTransactionTest {
             txn.commit();
             txn.rollback();
             txn.close();
+        });
+    }
+
+    @Test
+    public void applyWriteConstraintIsNoOpByDefault() {
+        NoOpConnectorTransaction txn = new NoOpConnectorTransaction(321L, "JDBC");
+        // O5-2 default: a connector that does no optimistic conflict detection ignores the write constraint
+        // (and tolerates a null), so jdbc/maxcompute/es/trino are unaffected by the new SPI method.
+        Assertions.assertDoesNotThrow(() -> {
+            txn.applyWriteConstraint(null);
+            txn.applyWriteConstraint(new ConnectorPredicate(null));
         });
     }
 }

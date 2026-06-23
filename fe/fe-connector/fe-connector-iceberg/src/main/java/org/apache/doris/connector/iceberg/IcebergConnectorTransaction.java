@@ -21,12 +21,15 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import com.google.common.base.Preconditions;
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
@@ -40,12 +43,14 @@ import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -59,8 +64,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Iceberg connector transaction (ports the legacy
@@ -80,11 +87,13 @@ import java.util.Map;
  * (rows + deletes). The {@code IcebergWriterHelper} equivalents (DataFile / DeleteFile / Metrics /
  * PartitionData) live in {@link IcebergWriterHelper}.</p>
  *
- * <p><b>P6.3-T05 follow-up.</b> The DELETE/MERGE {@link RowDelta} built here intentionally carries no
- * conflict-detection validation suite (validateFromSnapshot / conflictDetectionFilter /
- * validateNoConflictingDataFiles / ...) and no V3 deletion-vector {@code removeDeletes}. {@link #baseSnapshotId}
- * is captured at begin time for T05 to consume; the validation suite + {@code applyWriteConstraint} (O5-2)
- * land in T05.</p>
+ * <p><b>Conflict detection (P6.3-T05).</b> The DELETE/MERGE {@link RowDelta} commit is guarded by the
+ * optimistic conflict-detection validation suite (validateFromSnapshot from the begin-time
+ * {@link #baseSnapshotId} / conflictDetectionFilter / serializable validateNoConflictingDataFiles /
+ * validateDeletedFiles / validateNoConflictingDeleteFiles / validateDataFilesExist) and, on a V3 table, the
+ * deletion-vector "rewrite previous delete files" {@code removeDeletes}. The conflict-detection filter is the
+ * O5-2 write constraint ({@link #applyWriteConstraint}, a neutral {@link ConnectorPredicate} converted lazily
+ * at commit) ANDed with a commit-time identity-partition filter derived from the commit fragments.</p>
  *
  * <p><b>Gate-closed / dormant.</b> Iceberg is not in {@code SPI_READY_TYPES} until the P6.6 cutover, so
  * nothing routes plugin-driven iceberg writes through this class yet ({@link #beginWrite} is wired by T06's
@@ -96,6 +105,8 @@ import java.util.Map;
 public class IcebergConnectorTransaction implements ConnectorTransaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnectorTransaction.class);
+    private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";
+    private static final String DELETE_ISOLATION_LEVEL_DEFAULT = "serializable";
 
     private final long transactionId;
     private final IcebergCatalogOps catalogOps;
@@ -114,10 +125,20 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     // The current snapshot pinned at begin time for a DELETE/MERGE (null for INSERT/OVERWRITE). Consumed by
-    // the T05 validation suite (validateFromSnapshot); captured here.
+    // the commit validation suite (validateFromSnapshot).
     private Long baseSnapshotId;
     // Session zone for human-readable TIMESTAMP partition value parsing (DV-T04-f).
     private ZoneId zone = ZoneOffset.UTC;
+
+    // O5-2: the engine-extracted target-only write constraint (neutral form), stashed by applyWriteConstraint
+    // at plan time and converted to an iceberg Expression lazily at commit (the table schema is only known
+    // after beginWrite has loaded the table). volatile: applyWriteConstraint and commit may run on different
+    // threads.
+    private volatile ConnectorPredicate writeConstraint;
+    // V3 deletion-vector "rewrite previous delete files": old file-scoped delete files to remove from the
+    // RowDelta, keyed by the referenced data-file path. Fed by the engine (T07 product path); consumed by the
+    // RowDelta removeDeletes step. Defaults to empty (no rewrite).
+    private volatile Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     public IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
@@ -205,6 +226,28 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         synchronized (this) {
             commitDataList.add(data);
         }
+    }
+
+    /**
+     * O5-2: stashes the engine-extracted target-only write constraint (neutral form). It is converted to an
+     * iceberg {@link Expression} lazily at commit time ({@link #buildWriteConstraintExpression}) — the table
+     * schema needed by {@link IcebergPredicateConverter} is only available after {@link #beginWrite}, and the
+     * engine calls this at plan time, before begin. Mirrors legacy
+     * {@code IcebergTransaction.setConflictDetectionFilter}, except the connector receives the neutral
+     * predicate (not an already-converted iceberg expression).
+     */
+    @Override
+    public void applyWriteConstraint(ConnectorPredicate targetOnlyFilter) {
+        this.writeConstraint = targetOnlyFilter;
+    }
+
+    /**
+     * Sets the map of old file-scoped delete files (keyed by referenced data-file path) to remove from the
+     * V3 deletion-vector RowDelta. Fed by the engine's plan synthesis (T07 product path); package-visible for
+     * the unit tests. Mirrors legacy {@code IcebergTransaction.setRewrittenDeleteFilesByReferencedDataFile}.
+     */
+    void setRewrittenDeleteFilesByReferencedDataFile(Map<String, List<DeleteFile>> map) {
+        this.rewrittenDeleteFilesByReferencedDataFile = map == null ? Collections.emptyMap() : map;
     }
 
     /**
@@ -403,25 +446,41 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         return result;
     }
 
-    /** DELETE: commit position-delete files via {@link RowDelta}. The T05 validation suite is not applied. */
+    /**
+     * DELETE: commit position-delete files via {@link RowDelta}, guarded by the optimistic conflict-detection
+     * validation suite ({@link #applyRowDeltaValidations}) and — on a V3 table — the deletion-vector
+     * "rewrite previous delete files" {@code removeDeletes}. Ported from legacy
+     * {@code IcebergTransaction.updateManifestAfterDelete}.
+     */
     private void updateManifestAfterDelete() {
         FileFormat fileFormat = IcebergWriterHelper.getFileFormat(transaction.table());
         if (commitDataList.isEmpty()) {
             return;
         }
         List<DeleteFile> deleteFiles = convertCommitDataToDeleteFiles(fileFormat, commitDataList);
+        List<DeleteFile> rewrittenDeleteFiles = shouldRewritePreviousDeleteFiles()
+                ? collectRewrittenDeleteFiles(commitDataList)
+                : Collections.emptyList();
         if (deleteFiles.isEmpty()) {
             return;
         }
         RowDelta rowDelta = transaction.newRowDelta();
-        // T05: applyRowDeltaValidations(rowDelta, ...) + V3 DV removeDeletes(...) are inserted here.
+        applyRowDeltaValidations(rowDelta, transaction.table(), commitDataList,
+                collectReferencedDataFiles(commitDataList));
         for (DeleteFile deleteFile : deleteFiles) {
             rowDelta.addDeletes(deleteFile);
+        }
+        for (DeleteFile deleteFile : rewrittenDeleteFiles) {
+            rowDelta.removeDeletes(deleteFile);
         }
         rowDelta.commit();
     }
 
-    /** UPDATE/MERGE: commit data + position-delete files via {@link RowDelta}. T05 validation suite excluded. */
+    /**
+     * UPDATE/MERGE: commit data + position-delete files via a single {@link RowDelta}, guarded by the
+     * conflict-detection validation suite and V3 deletion-vector {@code removeDeletes}. Ported from legacy
+     * {@code IcebergTransaction.updateManifestAfterMerge}.
+     */
     private void updateManifestAfterMerge() {
         if (commitDataList.isEmpty()) {
             return;
@@ -448,17 +507,26 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         }
 
         List<DeleteFile> deleteFiles = convertCommitDataToDeleteFiles(fileFormat, deleteCommitData);
+        List<DeleteFile> rewrittenDeleteFiles = shouldRewritePreviousDeleteFiles()
+                ? collectRewrittenDeleteFiles(deleteCommitData)
+                : Collections.emptyList();
         if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
             return;
         }
 
         RowDelta rowDelta = transaction.newRowDelta();
-        // T05: applyRowDeltaValidations(rowDelta, ...) + V3 DV removeDeletes(...) are inserted here.
+        // Conflict filter spans the whole statement (commitDataList); referenced data files come from the
+        // delete fragments only (legacy IcebergTransaction.updateManifestAfterMerge:490-491).
+        applyRowDeltaValidations(rowDelta, transaction.table(), commitDataList,
+                collectReferencedDataFiles(deleteCommitData));
         for (DataFile dataFile : dataFiles) {
             rowDelta.addRows(dataFile);
         }
         for (DeleteFile deleteFile : deleteFiles) {
             rowDelta.addDeletes(deleteFile);
+        }
+        for (DeleteFile deleteFile : rewrittenDeleteFiles) {
+            rowDelta.removeDeletes(deleteFile);
         }
         rowDelta.commit();
     }
@@ -511,6 +579,275 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
             return null;
         }
         return icebergTable.currentSnapshot().snapshotId();
+    }
+
+    // ─────────────────── commit-time conflict-detection validation suite (legacy :655-784) ───────────────────
+
+    /**
+     * Applies the optimistic conflict-detection validation suite onto the {@link RowDelta} before it commits,
+     * ported verbatim from legacy {@code IcebergTransaction.applyRowDeltaValidations}: pin the base snapshot,
+     * set the conflict-detection filter (O5-2 write constraint AND identity-partition filter), and — at the
+     * serializable isolation level — validate against conflicting data/delete files and referenced data files.
+     */
+    private void applyRowDeltaValidations(RowDelta rowDelta, Table icebergTable,
+            List<TIcebergCommitData> commitData, List<String> referencedDataFiles) {
+        applyBaseSnapshotValidation(rowDelta);
+        applyConflictDetectionFilter(rowDelta, icebergTable, commitData);
+        if (isSerializableIsolationLevel(icebergTable)) {
+            rowDelta.validateNoConflictingDataFiles();
+        }
+        rowDelta.validateDeletedFiles();
+        rowDelta.validateNoConflictingDeleteFiles();
+        if (!referencedDataFiles.isEmpty()) {
+            rowDelta.validateDataFilesExist(referencedDataFiles);
+        }
+    }
+
+    private void applyBaseSnapshotValidation(RowDelta rowDelta) {
+        if (baseSnapshotId != null) {
+            rowDelta.validateFromSnapshot(baseSnapshotId);
+        }
+    }
+
+    private void applyConflictDetectionFilter(RowDelta rowDelta, Table icebergTable,
+            List<TIcebergCommitData> commitData) {
+        Optional<Expression> queryFilter = buildWriteConstraintExpression(icebergTable);
+        Optional<Expression> partitionFilter = buildConflictDetectionFilter(icebergTable, commitData);
+        Optional<Expression> combined = combineConflictDetectionFilters(queryFilter, partitionFilter);
+        combined.ifPresent(rowDelta::conflictDetectionFilter);
+    }
+
+    /**
+     * O5-2: converts the stashed neutral {@link ConnectorPredicate} into an iceberg {@link Expression} using
+     * the connector's {@link IcebergPredicateConverter} (P6.2-T02). Done lazily here because the table schema
+     * is only available after {@link #beginWrite}. The converter flattens the top-level AND and drops any
+     * unconvertible conjunct — which only ever <i>widens</i> the conflict-detection filter (more conservative,
+     * never missing a real conflict), see design DV-T05-c.
+     */
+    Optional<Expression> buildWriteConstraintExpression(Table icebergTable) {
+        if (writeConstraint == null || writeConstraint.getExpression() == null || icebergTable == null) {
+            return Optional.empty();
+        }
+        ConnectorExpression expr = writeConstraint.getExpression();
+        List<Expression> converted = new IcebergPredicateConverter(icebergTable.schema(), zone).convert(expr);
+        if (converted.isEmpty()) {
+            return Optional.empty();
+        }
+        Expression combined = converted.get(0);
+        for (int i = 1; i < converted.size(); i++) {
+            combined = Expressions.and(combined, converted.get(i));
+        }
+        return Optional.of(combined);
+    }
+
+    private Optional<Expression> combineConflictDetectionFilters(Optional<Expression> queryFilter,
+            Optional<Expression> partitionFilter) {
+        if (queryFilter.isPresent() && partitionFilter.isPresent()) {
+            return Optional.of(Expressions.and(queryFilter.get(), partitionFilter.get()));
+        }
+        return queryFilter.isPresent() ? queryFilter : partitionFilter;
+    }
+
+    /**
+     * Builds the commit-time identity-partition filter from the partition values carried by the commit
+     * fragments: an OR over each fragment's per-partition AND of {@code col = value} (or {@code isNull}).
+     * Only when every partition transform is identity and every fragment matches the current spec; otherwise
+     * empty (no narrowing). Ported from legacy {@code IcebergTransaction.buildConflictDetectionFilter}.
+     */
+    private Optional<Expression> buildConflictDetectionFilter(Table icebergTable,
+            List<TIcebergCommitData> commitData) {
+        if (icebergTable == null || commitData == null || commitData.isEmpty()) {
+            return Optional.empty();
+        }
+
+        PartitionSpec spec = icebergTable.spec();
+        if (!spec.isPartitioned()) {
+            return Optional.empty();
+        }
+        if (!areAllIdentityPartitions(spec)) {
+            return Optional.empty();
+        }
+
+        Schema schema = icebergTable.schema();
+        int currentSpecId = spec.specId();
+
+        Expression combined = null;
+        for (TIcebergCommitData data : commitData) {
+            if (data.isSetPartitionSpecId() && data.getPartitionSpecId() != currentSpecId) {
+                return Optional.empty();
+            }
+            if (!data.isSetPartitionSpecId() && spec.isPartitioned()) {
+                return Optional.empty();
+            }
+
+            List<String> partitionValues = extractPartitionValues(data);
+            if (partitionValues.isEmpty() || partitionValues.size() != spec.fields().size()) {
+                return Optional.empty();
+            }
+
+            Expression partitionExpr = buildIdentityPartitionExpression(spec, schema, partitionValues);
+            if (partitionExpr == null) {
+                return Optional.empty();
+            }
+            combined = combined == null ? partitionExpr : Expressions.or(combined, partitionExpr);
+        }
+        return combined == null ? Optional.empty() : Optional.of(combined);
+    }
+
+    private boolean areAllIdentityPartitions(PartitionSpec spec) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Expression buildIdentityPartitionExpression(PartitionSpec spec, Schema schema,
+            List<String> partitionValues) {
+        Expression expression = null;
+        List<PartitionField> fields = spec.fields();
+        for (int i = 0; i < fields.size(); i++) {
+            PartitionField field = fields.get(i);
+            Types.NestedField sourceField = schema.findField(field.sourceId());
+            if (sourceField == null) {
+                return null;
+            }
+            String valueStr = partitionValues.get(i);
+            if ("null".equals(valueStr)) {
+                valueStr = null;
+            }
+            Object value = IcebergPartitionUtils.parsePartitionValueFromString(valueStr, sourceField.type(), zone);
+            Expression predicate = value == null
+                    ? Expressions.isNull(sourceField.name())
+                    : Expressions.equal(sourceField.name(), value);
+            expression = expression == null ? predicate : Expressions.and(expression, predicate);
+        }
+        return expression;
+    }
+
+    private List<String> extractPartitionValues(TIcebergCommitData commitData) {
+        if (commitData == null) {
+            return Collections.emptyList();
+        }
+        if (commitData.getPartitionValues() != null && !commitData.getPartitionValues().isEmpty()) {
+            return commitData.getPartitionValues();
+        }
+        if (commitData.getPartitionDataJson() != null && !commitData.getPartitionDataJson().isEmpty()) {
+            return IcebergPartitionUtils.parsePartitionValuesFromJson(commitData.getPartitionDataJson());
+        }
+        return Collections.emptyList();
+    }
+
+    boolean isSerializableIsolationLevel(Table icebergTable) {
+        if (icebergTable == null) {
+            return true;
+        }
+        String level = icebergTable.properties()
+                .getOrDefault(DELETE_ISOLATION_LEVEL, DELETE_ISOLATION_LEVEL_DEFAULT);
+        return "serializable".equalsIgnoreCase(level);
+    }
+
+    // ─────────────────── V3 deletion-vector "rewrite previous delete files" (legacy :786-851) ───────────────────
+
+    boolean shouldRewritePreviousDeleteFiles() {
+        return table != null && formatVersion(table) >= 3;
+    }
+
+    /**
+     * Reads the real table format version, mirroring {@code IcebergConnectorMetadata.getFormatVersion} /
+     * legacy {@code IcebergUtils.getFormatVersion}: from a {@link BaseTable}'s current metadata when
+     * available, else from the {@code format-version} table property, defaulting to 2.
+     */
+    private static int formatVersion(Table table) {
+        int formatVersion = 2;
+        if (table instanceof BaseTable) {
+            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        } else if (table != null && table.properties() != null) {
+            String version = table.properties().get(TableProperties.FORMAT_VERSION);
+            if (version != null) {
+                try {
+                    formatVersion = Integer.parseInt(version);
+                } catch (NumberFormatException ignored) {
+                    // keep the default
+                }
+            }
+        }
+        return formatVersion;
+    }
+
+    /**
+     * Collects the old file-scoped delete files to remove from the V3 RowDelta: for each delete fragment that
+     * references a data-file path present in {@link #rewrittenDeleteFilesByReferencedDataFile}, take its old
+     * file-scoped delete files, deduped by {@link #buildDeleteFileDedupKey}. Ported from legacy
+     * {@code IcebergTransaction.collectRewrittenDeleteFiles}.
+     */
+    List<DeleteFile> collectRewrittenDeleteFiles(List<TIcebergCommitData> deleteCommitData) {
+        if (deleteCommitData == null || deleteCommitData.isEmpty()
+                || rewrittenDeleteFilesByReferencedDataFile.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<String, DeleteFile> dedup = new LinkedHashMap<>();
+        for (TIcebergCommitData commitData : deleteCommitData) {
+            if (!commitData.isSetReferencedDataFilePath()
+                    || commitData.getReferencedDataFilePath() == null
+                    || commitData.getReferencedDataFilePath().isEmpty()) {
+                continue;
+            }
+            List<DeleteFile> oldDeleteFiles =
+                    rewrittenDeleteFilesByReferencedDataFile.get(commitData.getReferencedDataFilePath());
+            if (oldDeleteFiles == null) {
+                continue;
+            }
+            for (DeleteFile deleteFile : oldDeleteFiles) {
+                if (deleteFile != null && ContentFileUtil.isFileScoped(deleteFile)) {
+                    dedup.putIfAbsent(buildDeleteFileDedupKey(deleteFile), deleteFile);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
+    }
+
+    private String buildDeleteFileDedupKey(DeleteFile deleteFile) {
+        if (deleteFile.format() == FileFormat.PUFFIN) {
+            return deleteFile.path() + "#" + deleteFile.contentOffset() + "#"
+                    + deleteFile.contentSizeInBytes();
+        }
+        return deleteFile.path().toString();
+    }
+
+    /**
+     * Collects the referenced data-file paths for {@code validateDataFilesExist} from the delete/DV fragments
+     * ({@code referenced_data_files} + {@code referenced_data_file_path}). Ported from legacy
+     * {@code IcebergTransaction.collectReferencedDataFiles}.
+     */
+    List<String> collectReferencedDataFiles(List<TIcebergCommitData> commitData) {
+        if (commitData == null || commitData.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> referencedDataFiles = new ArrayList<>();
+        for (TIcebergCommitData data : commitData) {
+            if (data.isSetFileContent()
+                    && data.getFileContent() != TFileContent.POSITION_DELETES
+                    && data.getFileContent() != TFileContent.DELETION_VECTOR) {
+                continue;
+            }
+            if (data.isSetReferencedDataFiles()) {
+                for (String dataFile : data.getReferencedDataFiles()) {
+                    if (dataFile != null && !dataFile.isEmpty()) {
+                        referencedDataFiles.add(dataFile);
+                    }
+                }
+            }
+            if (data.isSetReferencedDataFilePath()
+                    && data.getReferencedDataFilePath() != null
+                    && !data.getReferencedDataFilePath().isEmpty()) {
+                referencedDataFiles.add(data.getReferencedDataFilePath());
+            }
+        }
+        return referencedDataFiles;
     }
 
     @Override

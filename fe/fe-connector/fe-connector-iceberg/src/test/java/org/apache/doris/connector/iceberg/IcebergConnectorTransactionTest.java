@@ -18,21 +18,30 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.api.pushdown.ConnectorComparison;
+import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
 import org.apache.thrift.TException;
@@ -583,6 +592,174 @@ public class IcebergConnectorTransactionTest {
             txn.rollback();
             txn.close();
         });
+    }
+
+    // ─────────────────── commit-time conflict-detection validation suite (T05) ───────────────────
+
+    @Test
+    public void deleteDetectsConcurrentDataFileConflict() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        // seed snapshot S1 with one data file
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 5L)).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx()); // baseSnapshotId pinned to S1
+
+        // A concurrent writer appends a NEW data file -> snapshot S2, AFTER our transaction pinned S1.
+        catalog.loadTable(id).newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/concurrent.parquet", 7L)).commit();
+
+        txn.addCommitData(commitBytes(
+                positionDeleteItem("s3://b/db1/t1/del.parquet", 2L, "s3://b/db1/t1/seed.parquet")));
+
+        // validateFromSnapshot(S1) + serializable validateNoConflictingDataFiles detect the concurrent append.
+        // Under T04 (no validation suite) this DELETE would silently win; the suite makes it fail loud.
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "a concurrent data-file append since the base snapshot must be detected as a conflict");
+    }
+
+    @Test
+    public void deletePassesValidationSuiteWhenNoConcurrentChange() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 5L)).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+        txn.addCommitData(commitBytes(
+                positionDeleteItem("s3://b/db1/t1/del.parquet", 2L, "s3://b/db1/t1/seed.parquet")));
+        txn.commit();
+
+        Snapshot snap = reloadCurrentSnapshot(catalog, id);
+        Assertions.assertEquals("1", snap.summary().get("added-delete-files"),
+                "with no concurrent change the full validation suite passes and the delete commits");
+    }
+
+    @Test
+    public void isSerializableIsolationLevelDefaultsAndReadsProperty() {
+        InMemoryCatalog catalog = freshCatalog();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+
+        Table dflt = catalog.createTable(TableIdentifier.of("db1", "d"), SCHEMA, PartitionSpec.unpartitioned());
+        Assertions.assertTrue(txn.isSerializableIsolationLevel(dflt), "missing property defaults to serializable");
+
+        Table ser = catalog.createTable(TableIdentifier.of("db1", "s"), SCHEMA, PartitionSpec.unpartitioned(),
+                props("delete_isolation_level", "serializable"));
+        Assertions.assertTrue(txn.isSerializableIsolationLevel(ser));
+
+        Table snap = catalog.createTable(TableIdentifier.of("db1", "n"), SCHEMA, PartitionSpec.unpartitioned(),
+                props("delete_isolation_level", "snapshot"));
+        Assertions.assertFalse(txn.isSerializableIsolationLevel(snap), "snapshot isolation is not serializable");
+    }
+
+    @Test
+    public void collectReferencedDataFilesKeepsOnlyDeleteFragments() {
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+
+        TIcebergCommitData dataFrag = dataFileItem("s3://b/db1/t1/data.parquet", 3L, 1024L); // DATA -> ignored
+        TIcebergCommitData posDelete = new TIcebergCommitData();
+        posDelete.setFilePath("s3://b/db1/t1/pos.parquet");
+        posDelete.setFileContent(TFileContent.POSITION_DELETES);
+        posDelete.setReferencedDataFilePath("s3://b/db1/t1/ref-by-path.parquet");
+        posDelete.setReferencedDataFiles(Arrays.asList("s3://b/db1/t1/ref-list.parquet", ""));
+
+        List<String> refs = txn.collectReferencedDataFiles(Arrays.asList(dataFrag, posDelete));
+
+        Assertions.assertEquals(
+                Arrays.asList("s3://b/db1/t1/ref-list.parquet", "s3://b/db1/t1/ref-by-path.parquet"), refs,
+                "only POSITION_DELETES/DELETION_VECTOR fragments contribute referenced files; "
+                        + "both referenced_data_files (non-empty) and referenced_data_file_path are kept");
+    }
+
+    @Test
+    public void shouldRewritePreviousDeleteFilesGatesOnFormatVersion3() {
+        InMemoryCatalog catalog = freshCatalog();
+
+        Table v2 = catalog.createTable(TableIdentifier.of("db1", "v2"), SCHEMA,
+                PartitionSpec.unpartitioned(), props("format-version", "2"));
+        IcebergConnectorTransaction t2 = txnFor(opsReturning(v2), new RecordingConnectorContext());
+        t2.beginWrite(SESSION, "db1", "v2", deleteCtx());
+        Assertions.assertFalse(t2.shouldRewritePreviousDeleteFiles(), "format-version 2 has no DV rewrite");
+
+        Table v3 = catalog.createTable(TableIdentifier.of("db1", "v3"), SCHEMA,
+                PartitionSpec.unpartitioned(), props("format-version", "3"));
+        IcebergConnectorTransaction t3 = txnFor(opsReturning(v3), new RecordingConnectorContext());
+        t3.beginWrite(SESSION, "db1", "v3", deleteCtx());
+        Assertions.assertTrue(t3.shouldRewritePreviousDeleteFiles(), "format-version 3 enables DV rewrite");
+    }
+
+    @Test
+    public void collectRewrittenDeleteFilesDedupsFileScopedDeletes() {
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+
+        // Two distinct old file-scoped (referenced) delete files for one referenced data file, plus a dup.
+        DeleteFile old1 = fileScopedDelete(spec, "s3://b/db1/t1/old-del-1.parquet", "s3://b/db1/t1/data-1.parquet");
+        DeleteFile old1Dup = fileScopedDelete(spec, "s3://b/db1/t1/old-del-1.parquet", "s3://b/db1/t1/data-1.parquet");
+        DeleteFile old2 = fileScopedDelete(spec, "s3://b/db1/t1/old-del-2.parquet", "s3://b/db1/t1/data-1.parquet");
+        Map<String, List<DeleteFile>> map = new HashMap<>();
+        map.put("s3://b/db1/t1/data-1.parquet", Arrays.asList(old1, old1Dup, old2));
+        txn.setRewrittenDeleteFilesByReferencedDataFile(map);
+
+        TIcebergCommitData newDelete = positionDeleteItem(
+                "s3://b/db1/t1/new-del.parquet", 1L, "s3://b/db1/t1/data-1.parquet");
+
+        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(Collections.singletonList(newDelete));
+
+        Assertions.assertEquals(2, rewritten.size(), "the duplicate old delete file must be deduped away");
+
+        // An empty rewrite map yields no rewritten files.
+        IcebergConnectorTransaction empty = txnFor(opsReturning(null), new RecordingConnectorContext());
+        Assertions.assertTrue(
+                empty.collectRewrittenDeleteFiles(Collections.singletonList(newDelete)).isEmpty());
+    }
+
+    @Test
+    public void applyWriteConstraintConvertedLazilyAtCommit() {
+        InMemoryCatalog catalog = freshCatalog();
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PART_SCHEMA, spec);
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        // O5-2: a target-only neutral predicate region = 'us'.
+        ConnectorComparison eq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("region", ConnectorType.of("UNKNOWN")),
+                new ConnectorLiteral(ConnectorType.of("VARCHAR"), "us"));
+        txn.applyWriteConstraint(new ConnectorPredicate(eq));
+
+        Optional<Expression> expr = txn.buildWriteConstraintExpression(table);
+        Assertions.assertTrue(expr.isPresent(), "the stashed write constraint is converted at commit time");
+        Assertions.assertEquals(Expressions.equal("region", "us").toString(), expr.get().toString(),
+                "applyWriteConstraint converts the neutral predicate via IcebergPredicateConverter");
+    }
+
+    @Test
+    public void buildWriteConstraintExpressionEmptyWhenNoConstraint() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), SCHEMA, PartitionSpec.unpartitioned());
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        Assertions.assertFalse(txn.buildWriteConstraintExpression(table).isPresent(),
+                "no applyWriteConstraint -> no conflict-detection query filter");
+
+        txn.applyWriteConstraint(new ConnectorPredicate(null));
+        Assertions.assertFalse(txn.buildWriteConstraintExpression(table).isPresent(),
+                "a null inner expression -> empty");
+    }
+
+    /** Builds an old, file-scoped position-delete {@link DeleteFile} (referenced -> ContentFileUtil.isFileScoped). */
+    private static DeleteFile fileScopedDelete(PartitionSpec spec, String path, String referencedDataFile) {
+        return FileMetadata.deleteFileBuilder(spec)
+                .ofPositionDeletes()
+                .withPath(path)
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(64L)
+                .withRecordCount(1L)
+                .withReferencedDataFile(referencedDataFile)
+                .build();
     }
 
     /** Minimal {@link ConnectorSession} exposing a time zone (for partition-timestamp parsing); no Mockito. */
