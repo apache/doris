@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -264,8 +262,13 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         SortInfo sortInfo = (SortInfo) sortInfoField.get(partitionSortNodes.get(0));
         List<Expr> orderingExprs = sortInfo.getOrderingExprs();
         Assertions.assertEquals(1, orderingExprs.size());
-        String orderExprSql = orderingExprs.get(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
-        Assertions.assertTrue(orderExprSql.contains("b"));
+        // The redundant partition key `a` must be pruned, leaving exactly the slot `b`. Assert the slot
+        // identity directly: a substring check on the WITH_TABLE-rendered SQL would false-pass because the
+        // table prefix `test_db` already contains the letter "b".
+        Expr orderingExpr = orderingExprs.get(0);
+        Assertions.assertInstanceOf(SlotRef.class, orderingExpr);
+        Assertions.assertEquals("b", ((SlotRef) orderingExpr).getColumnName());
+        Assertions.assertNotEquals("a", ((SlotRef) orderingExpr).getColumnName());
     }
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {
