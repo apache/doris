@@ -17,9 +17,13 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.common.AnalysisException;
+
+import java.util.List;
 
 /**
  * MTMV Partition Expr Factory
@@ -32,6 +36,14 @@ public class MTMVPartitionExprFactory {
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
         String fnName = functionCallExpr.getFnName().getFunction().toLowerCase();
         if ("date_trunc".equals(fnName)) {
+            List<Expr> paramsExprs = functionCallExpr.getParams().exprs();
+            Expr dateTruncArg = paramsExprs.size() >= 1 ? paramsExprs.get(0) : null;
+            while (dateTruncArg instanceof CastExpr) {
+                dateTruncArg = dateTruncArg.getChild(0);
+            }
+            if (paramsExprs.size() == 2 && dateTruncArg instanceof TimestampArithmeticExpr) {
+                return new MTMVPartitionExprDateTruncDateAddSub(functionCallExpr);
+            }
             return new MTMVPartitionExprDateTrunc(functionCallExpr);
         }
         throw new AnalysisException("async materialized view partition not support function name: " + fnName);

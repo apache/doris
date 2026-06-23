@@ -32,6 +32,9 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionExprDateTruncDateAddSub;
+import org.apache.doris.mtmv.MTMVPartitionExprFactory;
+import org.apache.doris.mtmv.MTMVPartitionExprService;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -44,7 +47,10 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -136,10 +142,36 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             PartitionItem partitionItem = mv.getPartitionItemOrAnalysisException(partitionName);
             items.add(partitionItem);
         }
+        // Detect hour-offset partition expression (date_trunc(date_add/sub(col, N), unit)).
+        // For these expressions, the predicate on the base column must be built against
+        // date_add/sub(col, N) rather than the raw column, so that the WHERE clause correctly
+        // maps the MV partition boundary back to the base table range.
+        long hourOffset = 0;
+        try {
+            if (mv.getMvPartitionInfo() != null && mv.getMvPartitionInfo().getExpr() != null) {
+                MTMVPartitionExprService service =
+                        MTMVPartitionExprFactory.getExprService(mv.getMvPartitionInfo().getExpr());
+                if (service instanceof MTMVPartitionExprDateTruncDateAddSub) {
+                    hourOffset = ((MTMVPartitionExprDateTruncDateAddSub) service).getOffsetHours();
+                }
+            }
+        } catch (AnalysisException ignored) {
+            // fall back to no-offset behaviour
+        }
+        final long finalHourOffset = hourOffset;
         ImmutableMap.Builder<TableIf, Set<Expression>> builder = new ImmutableMap.Builder<>();
-        tableWithPartKey.forEach((table, colName) ->
-                builder.put(table, constructPredicates(items, colName))
-        );
+        tableWithPartKey.forEach((table, colName) -> {
+            UnboundSlot slot = new UnboundSlot(colName);
+            if (finalHourOffset != 0) {
+                // Build predicate on date_add/sub(col, N) so partition pruning reflects the offset.
+                Expression adjustedExpr = finalHourOffset > 0
+                        ? new HoursAdd(slot, new IntegerLiteral((int) finalHourOffset))
+                        : new HoursSub(slot, new IntegerLiteral((int) -finalHourOffset));
+                builder.put(table, constructPredicates(items, adjustedExpr));
+            } else {
+                builder.put(table, constructPredicates(items, slot));
+            }
+        });
         return builder.build();
     }
 
@@ -159,17 +191,27 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot) {
+        return constructPredicates(partitions, (Expression) colSlot);
+    }
+
+    /**
+     * construct predicates for partition items using an arbitrary expression as the predicate target.
+     * This overload supports hour-offset partition expressions where the predicate must be built
+     * against e.g. {@code hours_add(col, N)} rather than the raw column slot.
+     */
+    @VisibleForTesting
+    public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Expression colExpr) {
         Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
         }
         if (partitions.iterator().next() instanceof ListPartitionItem) {
             for (PartitionItem item : partitions) {
-                predicates.add(convertListPartitionToIn(item, colSlot));
+                predicates.add(convertListPartitionToIn(item, colExpr));
             }
         } else {
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, colSlot));
+                predicates.add(convertRangePartitionToCompare(item, colExpr));
             }
         }
         return predicates;
@@ -180,7 +222,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 Type.fromPrimitiveType(key.getTypes().get(0)));
     }
 
-    private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
+    private static Expression convertListPartitionToIn(PartitionItem item, Expression col) {
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
                 .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
                 .collect(ImmutableList.toImmutableList());
@@ -201,7 +243,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return ExpressionUtils.or(predicates);
     }
 
-    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col) {
+    private static Expression convertRangePartitionToCompare(PartitionItem item, Expression col) {
         Range<PartitionKey> range = item.getItems();
         List<Expression> expressions = new ArrayList<>();
         if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {

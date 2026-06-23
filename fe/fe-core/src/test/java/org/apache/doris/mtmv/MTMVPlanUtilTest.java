@@ -17,7 +17,11 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -437,5 +441,76 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                             MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE));
                 });
         Assertions.assertTrue(exception.getMessage().contains("changed"));
+    }
+
+    @Test
+    public void testPartitionExprUsesLineageForAliasHourOffset() throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS mtmv_alias_offset_base (\n"
+                + "  k2 datetimev2(0),\n"
+                + "  v int\n"
+                + ")\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k2)\n"
+                + "PARTITION BY RANGE(k2) (\n"
+                + "  PARTITION p20250724 VALUES [('2025-07-23 21:00:00'), ('2025-07-24 21:00:00')),\n"
+                + "  PARTITION p20250725 VALUES [('2025-07-24 21:00:00'), ('2025-07-25 21:00:00')),\n"
+                + "  PARTITION p20250726 VALUES [('2025-07-25 21:00:00'), ('2025-07-26 21:00:00'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 1\n"
+                + "PROPERTIES('replication_num' = '1');");
+
+        createMvByNereids("create materialized view mtmv_alias_offset_mv BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "PARTITION BY (date_trunc(day_alias, 'day'))\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "as select date_trunc(date_add(k2, INTERVAL 3 HOUR), 'day') as day_alias, v\n"
+                + "from test.mtmv_alias_offset_base;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mtmv_alias_offset_mv");
+        Expr expr = mtmv.getMvPartitionInfo().getExpr();
+        Assertions.assertTrue(expr instanceof FunctionCallExpr);
+        Assertions.assertTrue(expr.getChild(0) instanceof TimestampArithmeticExpr);
+        Assertions.assertEquals("date_add", ((TimestampArithmeticExpr) expr.getChild(0)).getFuncName().toLowerCase());
+    }
+
+    @Test
+    public void testPartitionExprPreservesCastInHourOffset() throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS mtmv_alias_offset_cast_base (\n"
+                + "  k2 datetimev2(0),\n"
+                + "  v int\n"
+                + ")\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k2)\n"
+                + "PARTITION BY RANGE(k2) (\n"
+                + "  PARTITION p20250724 VALUES [('2025-07-23 21:00:00'), ('2025-07-24 21:00:00')),\n"
+                + "  PARTITION p20250725 VALUES [('2025-07-24 21:00:00'), ('2025-07-25 21:00:00')),\n"
+                + "  PARTITION p20250726 VALUES [('2025-07-25 21:00:00'), ('2025-07-26 21:00:00'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 1\n"
+                + "PROPERTIES('replication_num' = '1');");
+
+        createMvByNereids("create materialized view mtmv_alias_offset_cast_mv BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "PARTITION BY (date_trunc(day_alias, 'day'))\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "as select date_trunc(date_add(cast(k2 as date), INTERVAL 3 HOUR), 'day') as day_alias, v\n"
+                + "from test.mtmv_alias_offset_cast_base;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mtmv_alias_offset_cast_mv");
+        Expr expr = mtmv.getMvPartitionInfo().getExpr();
+        Assertions.assertTrue(expr instanceof FunctionCallExpr);
+        Assertions.assertTrue(expr.getChild(0) instanceof TimestampArithmeticExpr);
+        TimestampArithmeticExpr tsExpr = (TimestampArithmeticExpr) expr.getChild(0);
+        Assertions.assertTrue(tsExpr.getChild(0) instanceof CastExpr);
+        // Analyzer may wrap an extra implicit cast for date_add input typing (e.g. CAST(CAST(k2 AS DATE) AS DATETIME)).
+        Expr castRoot = tsExpr.getChild(0);
+        if (castRoot.getType().isDatetime() || castRoot.getType().isDatetimeV2()) {
+            Assertions.assertTrue(castRoot.getChild(0) instanceof CastExpr);
+            Assertions.assertTrue(castRoot.getChild(0).getType().isDate() || castRoot.getChild(0).getType().isDateV2());
+        } else {
+            Assertions.assertTrue(castRoot.getType().isDate() || castRoot.getType().isDateV2());
+        }
     }
 }
