@@ -79,9 +79,8 @@ const ColumnType& nullable_nested_column(const Block& block, size_t position) {
     while (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
         const auto& null_map = nullable->get_null_map_data();
         for (size_t row = 0; row < null_map.size(); ++row) {
-            EXPECT_EQ(null_map[row], 0) << "Unexpected null at row " << row
-                                       << ", column position " << position
-                                       << ", nullable depth " << nullable_depth;
+            EXPECT_EQ(null_map[row], 0) << "Unexpected null at row " << row << ", column position "
+                                        << position << ", nullable depth " << nullable_depth;
         }
         column = &nullable->get_nested_column();
         ++nullable_depth;
@@ -667,10 +666,9 @@ protected:
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
-        return std::make_unique<format::parquet::ParquetReader>(system_properties, file_description,
-                                                                std::move(io_ctx), profile,
-                                                                global_rowid_context,
-                                                                enable_mapping_timestamp_tz);
+        return std::make_unique<format::parquet::ParquetReader>(
+                system_properties, file_description, std::move(io_ctx), profile,
+                global_rowid_context, enable_mapping_timestamp_tz);
     }
 
     std::filesystem::path _test_dir;
@@ -836,8 +834,8 @@ TEST_F(NewParquetReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead
 
     auto ctx = std::make_shared<ConditionCacheContext>();
     ctx->is_hit = true;
-    ctx->filter_result = std::make_shared<std::vector<bool>>(
-            std::vector<bool> {false, true, false});
+    ctx->filter_result =
+            std::make_shared<std::vector<bool>>(std::vector<bool> {false, true, false});
     reader->set_condition_cache_context(ctx);
 
     Block block = build_file_block(schema);
@@ -1954,8 +1952,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
             if (rows == 0) {
                 continue;
             }
-            const auto& id_column =
-                    nullable_nested_column<ColumnInt32>(block, 0);
+            const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
             const auto& row_position_column =
                     assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
             for (size_t row = 0; row < rows; ++row) {
