@@ -25,6 +25,7 @@ suite("test_hive_ctas", "p0,external") {
     for (String hivePrefix : [ "hive3"]) {
         def file_formats = ["parquet", "orc"]
         setHivePrefix(hivePrefix)
+        try {
         def generateSrcDDLForCTAS = { String file_format, String catalog_name ->
             sql """ switch `${catalog_name}` """
             sql """ create database if not exists `test_ctas` """;
@@ -47,7 +48,7 @@ suite("test_hive_ctas", "p0,external") {
             sql """ INSERT INTO `unpart_ctas_olap_src` (col1, col2) VALUES
                 (1, 'string value for col2'),
                 (2, 'another string value for col2'),
-                (3, 'yet another string value for col2'); 
+                (3, 'yet another string value for col2');
             """
             sql """ DROP TABLE IF EXISTS internal.test_ctas_olap.part_ctas_olap_src """
             sql """
@@ -90,7 +91,7 @@ suite("test_hive_ctas", "p0,external") {
             sql """ INSERT INTO `unpart_ctas_src` (col1, col2) VALUES
                 (1, 'string value for col2'),
                 (2, 'another string value for col2'),
-                (3, 'yet another string value for col2'); 
+                (3, 'yet another string value for col2');
             """
 
             sql """ DROP TABLE IF EXISTS `test_ctas`.part_ctas_src """
@@ -101,7 +102,7 @@ suite("test_hive_ctas", "p0,external") {
                   `pt2` VARCHAR COMMENT 'pt2'
                 ) ENGINE=hive
                 PARTITION BY LIST (pt1, pt2) (
-                    
+
                 )
                 PROPERTIES (
                   'file_format'='${file_format}'
@@ -134,7 +135,7 @@ suite("test_hive_ctas", "p0,external") {
                 String db = "test_ctas"
                 // 1. external to external un-partitioned table
                 sql """ DROP TABLE IF EXISTS hive_ctas1 """
-                sql """ CREATE TABLE hive_ctas1 ENGINE=hive AS SELECT col1 FROM unpart_ctas_src; 
+                sql """ CREATE TABLE hive_ctas1 ENGINE=hive AS SELECT col1 FROM unpart_ctas_src;
                 """
 
                 sql """ INSERT INTO hive_ctas1 SELECT col1 FROM unpart_ctas_src WHERE col1 > 1;
@@ -148,7 +149,7 @@ suite("test_hive_ctas", "p0,external") {
 
                 // 2. external to external un-partitioned table with columns
                 sql """ DROP TABLE IF EXISTS hive_ctas2 """
-                sql """ CREATE TABLE hive_ctas2 (col1) ENGINE=hive AS SELECT col1 FROM unpart_ctas_src; 
+                sql """ CREATE TABLE hive_ctas2 (col1) ENGINE=hive AS SELECT col1 FROM unpart_ctas_src;
                 """
 
                 sql """ INSERT INTO hive_ctas2 SELECT col1 FROM unpart_ctas_src WHERE col1 > 1;
@@ -241,12 +242,12 @@ suite("test_hive_ctas", "p0,external") {
 
                 // 1. external to external un-partitioned table
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_ctas_ex.hive_ctas1 """
-                sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.hive_ctas1 (col1) ENGINE=hive 
+                sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.hive_ctas1 (col1) ENGINE=hive
                         PROPERTIES (
                             "location" = "/user/hive/warehouse/test_ctas_ex/loc_hive_ctas1",
                             "file_format"="orc",
                             "orc.compress"="zlib"
-                        ) AS SELECT col1 FROM test_ctas.unpart_ctas_src; 
+                        ) AS SELECT col1 FROM test_ctas.unpart_ctas_src;
                     """
                 sql """ INSERT INTO ${catalog_name}.test_ctas_ex.hive_ctas1
                         SELECT col1 FROM test_ctas.unpart_ctas_src WHERE col1 > 1;
@@ -260,14 +261,14 @@ suite("test_hive_ctas", "p0,external") {
 
                 // 2. external to external partitioned table
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_ctas_ex.hive_ctas2 """
-                sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.hive_ctas2 (col1,pt1,pt2) ENGINE=hive 
+                sql """ CREATE TABLE ${catalog_name}.test_ctas_ex.hive_ctas2 (col1,pt1,pt2) ENGINE=hive
                         PARTITION BY LIST (pt1, pt2) ()
                         PROPERTIES (
                             "location" = "/user/hive/warehouse/test_ctas_ex/loc_hive_ctas2",
                             "file_format"="parquet",
                             "parquet.compression"="snappy"
                         )
-                        AS SELECT col1,pt1,pt2 FROM test_ctas.part_ctas_src WHERE col1>0; 
+                        AS SELECT col1,pt1,pt2 FROM test_ctas.part_ctas_src WHERE col1>0;
                     """
                 sql """ INSERT INTO ${catalog_name}.test_ctas_ex.hive_ctas2 (col1,pt1,pt2)
                         SELECT col1,pt1,pt2 FROM test_ctas.part_ctas_src WHERE col1>=22;
@@ -310,7 +311,7 @@ suite("test_hive_ctas", "p0,external") {
                             "location" = "/user/hive/warehouse/test_ctas_ex/loc_ctas_o2",
                             "file_format"="orc",
                             "orc.compress"="zlib"
-                        ) 
+                        )
                         AS SELECT null as col1, pt2 as col2, pt1 FROM internal.test_ctas_olap.part_ctas_olap_src WHERE col1>0;
                     """
                 sql """ INSERT INTO ${catalog_name}.test_ctas_ex.ctas_o2 (col1,pt1,col2)
@@ -373,35 +374,35 @@ suite("test_hive_ctas", "p0,external") {
                     exception "Failed to get table: 'hive_ctas1'"
                 }
                 test {
-                    sql """ CREATE TABLE ${catalog_name}.test_no_err.hive_ctas1 (col1) ENGINE=hive 
+                    sql """ CREATE TABLE ${catalog_name}.test_no_err.hive_ctas1 (col1) ENGINE=hive
                             PROPERTIES (
                                 "file_format"="orc",
                                 "orc.compress"="zstd"
-                            ) AS SELECT col1,col2 FROM test_ctas.unpart_ctas_src; 
+                            ) AS SELECT col1,col2 FROM test_ctas.unpart_ctas_src;
                         """
                     exception "errCode = 2, detailMessage = ctas column size is not equal to the query's"
                 }
 
                 test {
-                    sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,pt1,pt2) ENGINE=hive 
+                    sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,pt1,pt2) ENGINE=hive
                         PARTITION BY LIST (pt1,pt2,pt3) ()
                         PROPERTIES (
                             "file_format"="parquet",
                             "orc.compress"="zstd"
                         )
-                        AS SELECT * FROM test_ctas.part_ctas_src WHERE col1>0; 
+                        AS SELECT * FROM test_ctas.part_ctas_src WHERE col1>0;
                     """
                     exception "errCode = 2, detailMessage = partition key pt3 is not exists"
                 }
 
                 sql """ DROP TABLE IF EXISTS ${catalog_name}.test_no_err.ctas_o2 """
-                sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,col2,pt1) ENGINE=hive 
+                sql """ CREATE TABLE ${catalog_name}.test_no_err.ctas_o2 (col1,col2,pt1) ENGINE=hive
                         PARTITION BY LIST (pt1) ()
                         PROPERTIES (
                             "file_format"="parquet",
                             "parquet.compression"="zstd"
                         )
-                        AS SELECT col1,pt1 as col2,pt2 as pt1 FROM test_ctas.part_ctas_src WHERE col1>0; 
+                        AS SELECT col1,pt1 as col2,pt2 as pt1 FROM test_ctas.part_ctas_src WHERE col1>0;
                     """
 
                 test {
@@ -537,11 +538,11 @@ suite("test_hive_ctas", "p0,external") {
                 """
 
             sql """
-                    CREATE TABLE IF NOT EXISTS all_types_ctas2 (col1, col2, col3, col4, col6, col7, col8, col9, col11) 
+                    CREATE TABLE IF NOT EXISTS all_types_ctas2 (col1, col2, col3, col4, col6, col7, col8, col9, col11)
                     AS SELECT col1, col2, col3, col4, col6, col7, col8, col9, col11 FROM all_types_ctas_${file_format}
                 """
             sql """
-                    INSERT INTO all_types_ctas2 (col1, col3, col7, col9) 
+                    INSERT INTO all_types_ctas2 (col1, col3, col7, col9)
                     SELECT col1, col3, col7, col9 FROM all_types_ctas_${file_format}
                 """
             sql """
@@ -581,5 +582,16 @@ suite("test_hive_ctas", "p0,external") {
             test_ctas_exception(file_format, catalog_name)
             test_ctas_all_types(file_format, catalog_name)
         }
+        sql """drop catalog if exists ${catalog_name}"""
+    } finally {
+        try_hive_docker """drop database if exists test_ctas cascade"""
+        try_hive_docker """drop database if exists test_ctas_ex cascade"""
+        try_hive_docker """drop database if exists test_hive_ex_ctas cascade"""
+        try_hive_docker """drop database if exists test_err cascade"""
+        try_hive_docker """drop database if exists test_no_err cascade"""
+        try_hive_docker """drop database if exists test_ctas_all_type cascade"""
+        try_sql """drop database if exists internal.test_ctas_olap force"""
+        try_sql """drop catalog if exists test_${hivePrefix}_ctas"""
     }
+}
 }

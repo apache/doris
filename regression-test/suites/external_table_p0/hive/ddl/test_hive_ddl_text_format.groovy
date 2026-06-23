@@ -24,12 +24,11 @@ suite("test_hive_ddl_text_format", "p0,external") {
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = "test_hive_ddl_text_format"
         try{
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_hive_ddl_text_format"
-            String table_name = "table_with_pars";
 
             sql """drop catalog if exists ${catalog_name};"""
 
@@ -148,6 +147,10 @@ suite("test_hive_ddl_text_format", "p0,external") {
             assertTrue(res.containsIgnoreCase("${escape_delim}"))
             assertTrue(res.containsIgnoreCase("${serialization_null_format}"))
         } finally {
+            try_hive_docker """drop table if exists default.text_table_default_properties"""
+            try_hive_docker """drop table if exists default.text_table_standard_properties"""
+            try_hive_docker """drop table if exists default.text_table_different_properties"""
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }

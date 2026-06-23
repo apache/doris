@@ -25,36 +25,39 @@ suite("test_prepare_hive_data_in_case", "p0,external") {
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalogName = "test_prepare_hive_data_in_case"
+        String tableName = "test_prepare_hive_data_in_case"
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
             hive_docker """show databases;"""
-            hive_docker """drop table if exists default.test_prepare_hive_data_in_case;  """
+            hive_docker """drop table if exists default.${tableName};"""
             hive_docker """
-                            create table default.test_prepare_hive_data_in_case (k1 String, k2 String); 
+                            create table default.${tableName} (k1 String, k2 String);
                         """
-            hive_docker """insert into default.test_prepare_hive_data_in_case values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
-            def values = hive_docker """select count(*) from `default`.test_prepare_hive_data_in_case;"""
-            
+            hive_docker """insert into default.${tableName} values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
+            def values = hive_docker """select count(*) from `default`.${tableName};"""
+
             log.info(values.toString())
 
-            sql """drop catalog if exists test_prepare_hive_data_in_case;"""
-            sql """CREATE CATALOG test_prepare_hive_data_in_case PROPERTIES (
+            sql """drop catalog if exists ${catalogName};"""
+            sql """CREATE CATALOG ${catalogName} PROPERTIES (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
-            def values2 = sql """select count(*) from test_prepare_hive_data_in_case.`default`.test_prepare_hive_data_in_case;"""
+            def values2 = sql """select count(*) from ${catalogName}.`default`.${tableName};"""
             log.info(values2.toString())
             assertEquals(values[0][0],values2[0][0])
 
             // Execute in Hive in unstable, remove it
             // qt_hive_docker_01 """select * from default.test_prepare_hive_data_in_case order by k1 desc  ;"""
-            
-            qt_sql_02 """ select * from test_prepare_hive_data_in_case.`default`.test_prepare_hive_data_in_case order by k1 desc;"""
+
+            qt_sql_02 """ select * from ${catalogName}.`default`.${tableName} order by k1 desc;"""
 
         } finally {
+            try_sql """drop catalog if exists ${catalogName};"""
+            try_hive_docker """drop table if exists default.${tableName};"""
         }
     }
 }
-

@@ -94,8 +94,8 @@ suite("test_hive_metadata_refresh_interval", "p0,external") {
             sql """drop catalog ${catalog_name}"""
 
         } finally {
-            sql """drop catalog if exists test_${hivePrefix}_refresh_interval"""
-            hive_docker "drop database if exists test_refresh_interval_db cascade"
+            try_sql """drop catalog if exists test_${hivePrefix}_refresh_interval"""
+            try_hive_docker "drop database if exists test_refresh_interval_db cascade"
         }
     }
 }

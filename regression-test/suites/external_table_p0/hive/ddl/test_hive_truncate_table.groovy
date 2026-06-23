@@ -23,30 +23,31 @@ suite("test_hive_truncate_table", "p0,external") {
         String hdfs_port = context.config.otherConfigs.get("hive3HdfsPort")
         String catalog_name = "test_hive3_truncate_table"
         String database_name = "hive_truncate"
-        sql """drop catalog if exists ${catalog_name};"""
+        try {
+            sql """drop catalog if exists ${catalog_name};"""
 
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
-                'use_meta_cache' = 'true',
-                'hive.version'='3.0'
-            );
-        """
+            sql """
+                create catalog if not exists ${catalog_name} properties (
+                    'type'='hms',
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                    'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                    'use_meta_cache' = 'true',
+                    'hive.version'='3.0'
+                );
+            """
 
-        logger.info("catalog " + catalog_name + " created")
-        sql """switch ${catalog_name};"""
-        logger.info("switched to catalog " + catalog_name)
-        
-        sql """create database if not exists ${database_name};"""
-        sql """use ${database_name};"""
-        logger.info("use database " + database_name)
+            logger.info("catalog " + catalog_name + " created")
+            sql """switch ${catalog_name};"""
+            logger.info("switched to catalog " + catalog_name)
 
-        // 1. test no partition table
-        String table_name = "table_no_pars"
-        sql """create table if not exists ${table_name}(col1 bigint, col2 string); """
-        checkNereidsExecute("truncate table ${table_name};")
+            sql """create database if not exists ${database_name};"""
+            sql """use ${database_name};"""
+            logger.info("use database " + database_name)
+
+            // 1. test no partition table
+            String table_name = "table_no_pars"
+            sql """create table if not exists ${table_name}(col1 bigint, col2 string); """
+            checkNereidsExecute("truncate table ${table_name};")
 
         sql """insert into ${table_name} values(3234424, '44'); """
         sql """insert into ${table_name} values(222, 'aoe'); """
@@ -98,8 +99,11 @@ suite("test_hive_truncate_table", "p0,external") {
         checkNereidsExecute("truncate table ${table_name}")
         order_qt_truncate_09 """ select * from ${table_name}; """
 
-        sql """drop table ${table_name};"""
-        sql """drop database ${database_name};"""
-        sql """drop catalog ${catalog_name};"""
+            sql """drop table ${table_name};"""
+            sql """drop database ${database_name};"""
+            sql """drop catalog ${catalog_name};"""
+        } finally {
+            try_sql """drop catalog if exists ${catalog_name};"""
+        }
     }
 }

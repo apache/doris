@@ -61,7 +61,7 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                     'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
                     'use_meta_cache' = '${use_meta_cache_string}'
                 );"""
-                
+
                 // create from Doris, the cache will be filled immediately
                 String database= "test_use_meta_cache_db_${use_meta_cache}"
                 String table = "test_use_meta_cache_tbl_${use_meta_cache}"
@@ -83,7 +83,7 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                 order_qt_sql04 "show tables"
                 sql "drop database ${database}"
                 order_qt_sql05 "show databases like '%${database}%'";
-            
+
                 // create from Hive, the cache has different behavior
                 order_qt_sql01 "show databases like '%${database_hive}%'";
                 hive_docker "drop database if exists ${database_hive}"
@@ -141,7 +141,7 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                     // 4. drop table
                     sql "drop table another_table_creation_test";
                 }
-                
+
                 // test Hive Metastore table partition file listing
                 hive_docker "create table ${database_hive}.${partitioned_table_hive} (k1 int) partitioned by (p1 string)"
                 sql "refresh catalog ${catalog}"
@@ -172,6 +172,12 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
             }
             // test_use_meta_cache(false)
         } finally {
+            try_hive_docker "drop database if exists test_use_meta_cache_db_true force"
+            try_hive_docker "drop database if exists test_use_meta_cache_db_hive_true cascade"
+            try_hive_docker "drop database if exists test_use_meta_cache_db_false force"
+            try_hive_docker "drop database if exists test_use_meta_cache_db_hive_false cascade"
+            try_sql """drop catalog if exists test_${hivePrefix}_use_meta_cache_true"""
+            try_sql """drop catalog if exists test_${hivePrefix}_use_meta_cache_false"""
         }
     }
 }

@@ -62,7 +62,10 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     PARTITION(o_orderdate='2023-10-18') values(2, 2, 'ok', 109.2, 'c','d',2, 'mm')"""
     def insert_str3 = """ insert into ${hive_database}.${hive_table} 
     PARTITION(o_orderdate='2023-10-19') values(3, 3, 'ok', 99.5, 'a', 'b', 1, 'yy')"""
+    String db = context.config.getDbNameByFile(context.file)
+    def mv_name = suite_name + 'mv_join'
 
+    try {
     hive_docker """ ${autogather_off_str} """
     hive_docker """ ${drop_table_str} """
     hive_docker """ ${drop_database_str} """
@@ -89,7 +92,6 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
 
 
     // prepare olap table and data
-    String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF";
@@ -143,7 +145,6 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     order_qt_query_sql """${query_sql}"""
 
     // create mv
-    def mv_name = suite_name + 'mv_join'
     sql """drop materialized view if exists ${mv_name}"""
     sql """
         CREATE MATERIALIZED VIEW ${mv_name}
@@ -197,4 +198,13 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     hive_docker """ ${autogather_on_str} """
     sql """drop materialized view if exists ${mv_name};"""
     sql """drop catalog if exists ${catalog_name}"""
+    } finally {
+        try_hive_docker """ ${autogather_on_str} """
+        try_sql """switch internal"""
+        try_sql """use ${db}"""
+        try_sql """drop materialized view if exists ${mv_name};"""
+        try_sql """drop table if exists lineitem"""
+        try_sql """drop catalog if exists hive_test_mv_rewrite"""
+        try_hive_docker """drop database if exists ${hive_database} cascade"""
+    }
 }

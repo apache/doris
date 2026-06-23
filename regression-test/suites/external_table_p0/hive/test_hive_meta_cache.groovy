@@ -26,6 +26,7 @@ suite("test_hive_meta_cache", "p0,external") {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            try {
 
             // 1. test default catalog
             sql """drop catalog if exists ${catalog_name};"""
@@ -356,7 +357,11 @@ suite("test_hive_meta_cache", "p0,external") {
             println "${sql_sct01_6col}"
             assertTrue(sql_sct01_6col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string,\n  `k3` string)\nPARTITIONED BY (\n `year` int)"));
             sql """drop table test_hive_meta_cache_db.sales"""
+            } finally {
+                try_hive_docker """drop database if exists test_hive_meta_cache_db cascade"""
+                try_sql """drop catalog if exists ${catalog_name}"""
+                try_sql """drop catalog if exists ${catalog_name_no_cache}"""
+            }
         }
     }
 }
-

@@ -24,7 +24,7 @@ suite("test_hive_varbinary_type", "p0,external") {
     }
 
     for (String hivePrefix : ["hive3"]) {
-    
+        setHivePrefix(hivePrefix)
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name_no_mapping = "${hivePrefix}_test_varbinary_no_mapping"
         String catalog_name_with_mapping = "${hivePrefix}_test_varbinary_with_mapping"
@@ -32,61 +32,85 @@ suite("test_hive_varbinary_type", "p0,external") {
         def hdfsUserName = "doris"
         String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
         def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+        String tempOrcWriteNoMapping = "test_hive_binary_orc_write_no_mapping_tmp"
+        String tempParquetWriteNoMapping = "test_hive_binary_parquet_write_no_mapping_tmp"
+        String tempOrcWriteWithMapping = "test_hive_binary_orc_write_with_mapping_tmp"
+        String tempParquetWriteWithMapping = "test_hive_binary_parquet_write_with_mapping_tmp"
 
-        sql """drop catalog if exists ${catalog_name_no_mapping}"""
-        sql """create catalog if not exists ${catalog_name_no_mapping} properties (
-            "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-        );"""
-        
-        sql """drop catalog if exists ${catalog_name_with_mapping}"""
-        sql """create catalog if not exists ${catalog_name_with_mapping} properties (
-            "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-            "enable.mapping.varbinary"="true"
-        );"""
+        try {
+            sql """drop catalog if exists ${catalog_name_no_mapping}"""
+            sql """create catalog if not exists ${catalog_name_no_mapping} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
 
-        // no mapping
-        sql """ switch ${catalog_name_no_mapping}"""
-        sql """ use `test_varbinary` """
-        qt_select1 """ select * from test_hive_binary_orc order by id; """
-        qt_select2 """ select * from test_hive_binary_parquet order by id; """
-        qt_select3 """ select * from test_hive_uuid_fixed_orc order by id; """
-        qt_select4 """ select * from test_hive_uuid_fixed_parquet order by id; """
-        qt_select5 """ select * from test_hive_binary_edge_cases order by id; """
+            sql """drop catalog if exists ${catalog_name_with_mapping}"""
+            sql """create catalog if not exists ${catalog_name_with_mapping} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                "enable.mapping.varbinary"="true"
+            );"""
 
-        // write orc
-        qt_select6 """ insert into test_hive_binary_orc_write_no_mapping select * from test_hive_binary_orc; """
-        qt_select7 """ insert into test_hive_binary_orc_write_no_mapping values(6,X"ABAB",X"ABAB"); """
-        qt_select8 """ insert into test_hive_binary_orc_write_no_mapping values(NULL,NULL,NULL); """
-        qt_select9 """ select * from test_hive_binary_orc_write_no_mapping order by id; """
+            hive_docker """drop table if exists test_varbinary.${tempOrcWriteNoMapping}"""
+            hive_docker """create table test_varbinary.${tempOrcWriteNoMapping} like test_varbinary.test_hive_binary_orc_write_no_mapping"""
+            hive_docker """drop table if exists test_varbinary.${tempParquetWriteNoMapping}"""
+            hive_docker """create table test_varbinary.${tempParquetWriteNoMapping} like test_varbinary.test_hive_binary_parquet_write_no_mapping"""
+            hive_docker """drop table if exists test_varbinary.${tempOrcWriteWithMapping}"""
+            hive_docker """create table test_varbinary.${tempOrcWriteWithMapping} like test_varbinary.test_hive_binary_orc_write_with_mapping"""
+            hive_docker """drop table if exists test_varbinary.${tempParquetWriteWithMapping}"""
+            hive_docker """create table test_varbinary.${tempParquetWriteWithMapping} like test_varbinary.test_hive_binary_parquet_write_with_mapping"""
+            sql """refresh catalog ${catalog_name_no_mapping}"""
+            sql """refresh catalog ${catalog_name_with_mapping}"""
 
-        // write parquet
-        qt_select10 """ insert into test_hive_binary_parquet_write_no_mapping select * from test_hive_binary_parquet; """
-        qt_select11 """ insert into test_hive_binary_parquet_write_no_mapping values(6,X"ABAB",X"ABAB"); """
-        qt_select12 """ insert into test_hive_binary_parquet_write_no_mapping values(NULL,NULL,NULL); """
-        qt_select13 """ select * from test_hive_binary_parquet_write_no_mapping order by id; """
+            // no mapping
+            sql """ switch ${catalog_name_no_mapping}"""
+            sql """ use `test_varbinary` """
+            qt_select1 """ select * from test_hive_binary_orc order by id; """
+            qt_select2 """ select * from test_hive_binary_parquet order by id; """
+            qt_select3 """ select * from test_hive_uuid_fixed_orc order by id; """
+            qt_select4 """ select * from test_hive_uuid_fixed_parquet order by id; """
+            qt_select5 """ select * from test_hive_binary_edge_cases order by id; """
 
-        // with mapping
-        sql """ switch ${catalog_name_with_mapping} """
-        sql """ use `test_varbinary` """
-        qt_select14 """ select * from test_hive_binary_orc order by id; """
-        qt_select15 """ select * from test_hive_binary_parquet order by id; """
-        qt_select16 """ select * from test_hive_uuid_fixed_orc order by id; """
-        qt_select17 """ select * from test_hive_uuid_fixed_parquet order by id; """
-        qt_select18 """ select * from test_hive_binary_edge_cases order by id; """
+            // write orc
+            qt_select6 """ insert into ${tempOrcWriteNoMapping} select * from test_hive_binary_orc; """
+            qt_select7 """ insert into ${tempOrcWriteNoMapping} values(6,X"ABAB",X"ABAB"); """
+            qt_select8 """ insert into ${tempOrcWriteNoMapping} values(NULL,NULL,NULL); """
+            qt_select9 """ select * from ${tempOrcWriteNoMapping} order by id; """
 
-        // write orc
-        qt_select19 """ insert into test_hive_binary_orc_write_with_mapping select * from test_hive_binary_orc; """
-        qt_select20 """ insert into test_hive_binary_orc_write_with_mapping values(6,X"ABAB",X"ABAB"); """
-        qt_select21 """ insert into test_hive_binary_orc_write_with_mapping values(NULL,NULL,NULL); """
-        qt_select22 """ select * from test_hive_binary_orc_write_with_mapping order by id; """
+            // write parquet
+            qt_select10 """ insert into ${tempParquetWriteNoMapping} select * from test_hive_binary_parquet; """
+            qt_select11 """ insert into ${tempParquetWriteNoMapping} values(6,X"ABAB",X"ABAB"); """
+            qt_select12 """ insert into ${tempParquetWriteNoMapping} values(NULL,NULL,NULL); """
+            qt_select13 """ select * from ${tempParquetWriteNoMapping} order by id; """
 
-        // write parquet
-        qt_select23 """ insert into test_hive_binary_parquet_write_with_mapping select * from test_hive_binary_parquet; """
-        qt_select24 """ insert into test_hive_binary_parquet_write_with_mapping values(6,X"ABAB",X"ABAB"); """
-        qt_select25 """ insert into test_hive_binary_parquet_write_with_mapping values(NULL,NULL,NULL); """
-        qt_select26 """ select * from test_hive_binary_parquet_write_with_mapping order by id; """
+            // with mapping
+            sql """ switch ${catalog_name_with_mapping} """
+            sql """ use `test_varbinary` """
+            qt_select14 """ select * from test_hive_binary_orc order by id; """
+            qt_select15 """ select * from test_hive_binary_parquet order by id; """
+            qt_select16 """ select * from test_hive_uuid_fixed_orc order by id; """
+            qt_select17 """ select * from test_hive_uuid_fixed_parquet order by id; """
+            qt_select18 """ select * from test_hive_binary_edge_cases order by id; """
+
+            // write orc
+            qt_select19 """ insert into ${tempOrcWriteWithMapping} select * from test_hive_binary_orc; """
+            qt_select20 """ insert into ${tempOrcWriteWithMapping} values(6,X"ABAB",X"ABAB"); """
+            qt_select21 """ insert into ${tempOrcWriteWithMapping} values(NULL,NULL,NULL); """
+            qt_select22 """ select * from ${tempOrcWriteWithMapping} order by id; """
+
+            // write parquet
+            qt_select23 """ insert into ${tempParquetWriteWithMapping} select * from test_hive_binary_parquet; """
+            qt_select24 """ insert into ${tempParquetWriteWithMapping} values(6,X"ABAB",X"ABAB"); """
+            qt_select25 """ insert into ${tempParquetWriteWithMapping} values(NULL,NULL,NULL); """
+            qt_select26 """ select * from ${tempParquetWriteWithMapping} order by id; """
+        } finally {
+            try_hive_docker """drop table if exists test_varbinary.${tempOrcWriteNoMapping}"""
+            try_hive_docker """drop table if exists test_varbinary.${tempParquetWriteNoMapping}"""
+            try_hive_docker """drop table if exists test_varbinary.${tempOrcWriteWithMapping}"""
+            try_hive_docker """drop table if exists test_varbinary.${tempParquetWriteWithMapping}"""
+            try_sql """drop catalog if exists ${catalog_name_no_mapping}"""
+            try_sql """drop catalog if exists ${catalog_name_with_mapping}"""
+        }
     }
 
 }

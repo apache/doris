@@ -26,20 +26,30 @@ suite("test_multi_delimit_serde", "p0,external") {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_multi_delimit_serde"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-
-        sql """drop catalog if exists ${catalog_name}"""
-        sql """create catalog if not exists ${catalog_name} properties (
-            "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-        );"""
-
-        logger.info("catalog " + catalog_name + " created")
-        sql """switch ${catalog_name};"""
-        logger.info("switched to catalog " + catalog_name)
-
-        sql """use regression;"""
+        String tempMultiDelimitTest = "multi_delimit_test_tmp"
+        String tempMultiDelimitTest2 = "multi_delimit_test2_tmp"
+        String tempMultiDelimitComplexTest = "multi_delimit_complex_test_tmp"
 
         try {
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
+
+            logger.info("catalog " + catalog_name + " created")
+            sql """switch ${catalog_name};"""
+            logger.info("switched to catalog " + catalog_name)
+
+            sql """use regression;"""
+            hive_docker """drop table if exists regression.${tempMultiDelimitTest}"""
+            hive_docker """create table regression.${tempMultiDelimitTest} like regression.multi_delimit_test"""
+            hive_docker """drop table if exists regression.${tempMultiDelimitTest2}"""
+            hive_docker """create table regression.${tempMultiDelimitTest2} like regression.multi_delimit_test2"""
+            hive_docker """drop table if exists regression.${tempMultiDelimitComplexTest}"""
+            hive_docker """create table regression.${tempMultiDelimitComplexTest} like regression.multi_delimit_complex_test"""
+            sql """refresh catalog ${catalog_name}"""
+
             // Test 1: MultiDelimitSerDe with |+| delimiter - using pre-created table
             qt_01 """SELECT * FROM multi_delimit_test ORDER BY k1"""
 
@@ -54,21 +64,21 @@ suite("test_multi_delimit_serde", "p0,external") {
             logger.info("Test 4: Testing Doris INSERT to Hive MultiDelimitSerDe tables")
 
             // Test 4.1: Insert to basic multi-delimit table
-            sql """INSERT INTO multi_delimit_test VALUES (4, 400, 'test4'), (5, 500, 'test5')"""
-            qt_04 """SELECT * FROM multi_delimit_test WHERE k1 >= 4 ORDER BY k1"""
+            sql """INSERT INTO ${tempMultiDelimitTest} VALUES (4, 400, 'test4'), (5, 500, 'test5')"""
+            qt_04 """SELECT * FROM ${tempMultiDelimitTest} WHERE k1 >= 4 ORDER BY k1"""
 
             // Test 4.2: Insert to double-pipe delimited table
-            sql """INSERT INTO multi_delimit_test2 VALUES (4, 4.5, 'description4'), (5, 5.5, 'description5')"""
-            qt_05 """SELECT * FROM multi_delimit_test2 WHERE id >= 4 ORDER BY id"""
+            sql """INSERT INTO ${tempMultiDelimitTest2} VALUES (4, 4.5, 'description4'), (5, 5.5, 'description5')"""
+            qt_05 """SELECT * FROM ${tempMultiDelimitTest2} WHERE id >= 4 ORDER BY id"""
 
             // Test 4.3: Insert to complex types table with arrays and maps
-            sql """INSERT INTO multi_delimit_complex_test VALUES
+            sql """INSERT INTO ${tempMultiDelimitComplexTest} VALUES
                 (3, 'user3', ARRAY('tagX', 'tagY'), MAP('newkey', 'newvalue'), ARRAY(ARRAY(7, 8)))"""
-            qt_06 """SELECT id, name, tags, properties FROM multi_delimit_complex_test WHERE id = 3 ORDER BY id"""
+            qt_06 """SELECT id, name, tags, properties FROM ${tempMultiDelimitComplexTest} WHERE id = 3 ORDER BY id"""
 
             // Test 5: Show create table to check SerDe properties
             logger.info("Test 5: Checking show create table")
-            def createTableResult = sql """SHOW CREATE TABLE multi_delimit_test"""
+            def createTableResult = sql """SHOW CREATE TABLE ${tempMultiDelimitTest}"""
             logger.info("Create table result: " + createTableResult.toString())
 
             assertTrue(createTableResult.toString().contains("MultiDelimitSerDe"))
@@ -78,7 +88,11 @@ suite("test_multi_delimit_serde", "p0,external") {
             if (e.getMessage().contains("Unsupported hive table serde")) {
                 logger.info("Got expected 'Unsupported hive table serde' error before implementing MultiDelimitSerDe support")
             }
+        } finally {
+            try_hive_docker """drop table if exists regression.${tempMultiDelimitTest}"""
+            try_hive_docker """drop table if exists regression.${tempMultiDelimitTest2}"""
+            try_hive_docker """drop table if exists regression.${tempMultiDelimitComplexTest}"""
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
-        sql """drop catalog if exists ${catalog_name}"""
     }
 }

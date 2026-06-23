@@ -24,6 +24,8 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = "${hivePrefix}_default_mtmv_test_catalog"
+        try {
         // prepare data in hive
         def hive_database = "mtmv_default_partition_db"
         def hive_table = "test_hive_default_mtmv_t1"
@@ -62,7 +64,6 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
 
         // prepare catalog
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "${hivePrefix}_default_mtmv_test_catalog"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""
@@ -109,6 +110,12 @@ suite("test_hive_default_mtmv", "p0,external,hive,external_docker,external_docke
         sql """drop materialized view if exists ${mvName};"""
 
         sql """drop catalog if exists ${catalog_name}"""
+        } finally {
+            try_sql """switch internal"""
+            try_sql """use regression_test_mtmv_p0"""
+            try_sql """drop materialized view if exists test_hive_default_mtmv"""
+            try_sql """drop catalog if exists ${catalog_name}"""
+            try_hive_docker """drop database if exists mtmv_default_partition_db cascade"""
+        }
     }
 }
-

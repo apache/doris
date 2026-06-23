@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Hdfs
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.hadoop.fs.Path
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -46,6 +48,9 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
         def defaultFS_with_postfix = "hdfs://${externalEnvIp}:${hdfs_port}/"
         def outfile_path = "/user/doris/tmp_data"
         def uri = "${defaultFS}" + "${outfile_path}/exp_"
+        def generatedOutfilePath = null
+        Hdfs hdfs = new Hdfs(defaultFS, hdfsUserName, context.config.dataPath + "/")
+        def fs = hdfs.fs
 
 
         def export_table_name = "outfile_hive_read_parquet_complex_type_test"
@@ -95,6 +100,7 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             def uuid = UUID.randomUUID().toString()
 
             outfile_path = "/user/doris/tmp_data/${uuid}"
+            generatedOutfilePath = outfile_path
             uri = "${defaultFS}" + "${outfile_path}/exp_"
 
             def res = sql """
@@ -107,6 +113,15 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             """
             logger.info("outfile success path: " + res[0][3]);
             return res[0][3]
+        }
+
+        def cleanupHiveArtifacts = {
+            try_sql """DROP TABLE IF EXISTS ${export_table_name}"""
+            try_hive_docker """drop database if exists ${hive_database} cascade"""
+            if (generatedOutfilePath != null) {
+                fs.delete(new Path(generatedOutfilePath), true)
+                generatedOutfilePath = null
+            }
         }
 
         // because for hive, `null` is null, and there is no space between two elements
@@ -157,6 +172,7 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
                 
         } finally {
+            cleanupHiveArtifacts()
         }
 
         // 2. test Map
@@ -196,6 +212,7 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
         } finally {
+            cleanupHiveArtifacts()
         }
 
         // 3. test ARRAY
@@ -236,6 +253,7 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_hive_docker_03 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
         } finally {
+            cleanupHiveArtifacts()
         }
 
         // 4. test struct with all type
@@ -281,6 +299,7 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
             qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table};"""
 
         } finally {
+            cleanupHiveArtifacts()
         }
     }
 }

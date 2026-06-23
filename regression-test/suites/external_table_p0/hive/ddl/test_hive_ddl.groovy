@@ -99,10 +99,10 @@ suite("test_hive_ddl", "p0,external") {
             sql  """ drop database if exists `test_hive_default_val` """
 
             sql  """ create database if not exists `test_hive_default_val` """
-            
+
             sql """use `test_hive_default_val`"""
             test {
-                sql """ 
+                sql """
                         CREATE TABLE all_default_values_${file_format}_hive2(
                           `col1` BOOLEAN DEFAULT 'false' COMMENT 'col1',
                           `col2` TINYINT DEFAULT '127' COMMENT 'col2'
@@ -118,7 +118,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_bool(
                   `col1` BOOLEAN DEFAULT '-1' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -130,7 +130,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_float(
                   `col1` FLOAT DEFAULT '1.1234' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -142,7 +142,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_double(
                   `col1` DOUBLE DEFAULT 'abc' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -154,7 +154,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_int(
                   `col1` INT DEFAULT 'abcd' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -166,7 +166,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_date(
                   `col1` DATE DEFAULT '123' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -178,7 +178,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_datetime(
                    `col1` DATETIME DEFAULT '1512561000000' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -190,7 +190,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                 CREATE TABLE all_default_values_${file_format}_err_datetime(
                    `col1` DATETIME DEFAULT '2020-09-20 02:60' COMMENT 'col1'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
@@ -266,7 +266,7 @@ suite("test_hive_ddl", "p0,external") {
             sql """
                     CREATE TABLE loc_tbl_${file_format}_default (
                       `col` STRING COMMENT 'col'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PROPERTIES (
                       'file_format'='${file_format}'
                     )
@@ -302,7 +302,7 @@ suite("test_hive_ddl", "p0,external") {
             sql """
                     CREATE TABLE loc_tbl_${file_format}_custom (
                       `col` STRING COMMENT 'col'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PROPERTIES (
                       'file_format'='${file_format}',
                       'location'='${tbl_loc}',
@@ -337,7 +337,7 @@ suite("test_hive_ddl", "p0,external") {
                                           `col1` INT COMMENT 'col1',
                                           `col2` STRING COMMENT 'col2',
                                           `pt1` VARCHAR COMMENT 'pt1'
-                                        )  ENGINE=hive 
+                                        )  ENGINE=hive
                                         COMMENT 'test'
                                         PARTITION BY LIST (pt1) ()
                                         PROPERTIES (
@@ -354,7 +354,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                         CREATE TABLE nullable_check (
                             `col` STRING NOT NULL COMMENT 'col'
-                        )  ENGINE=hive 
+                        )  ENGINE=hive
                         PROPERTIES (
                             'file_format'='${file_format}'
                         )
@@ -383,7 +383,7 @@ suite("test_hive_ddl", "p0,external") {
             sql """
                     CREATE TABLE tbl_${file_format}_${compression} (
                       `col` STRING COMMENT 'col'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PROPERTIES (
                       'file_format'='${file_format}',
                       'compression'='${compression}'
@@ -453,7 +453,7 @@ suite("test_hive_ddl", "p0,external") {
                 sql """
                         CREATE TABLE test_hive_cross_catalog_tbl (
                           `col` STRING COMMENT 'col'
-                        )  ENGINE=hive 
+                        )  ENGINE=hive
                     """
                 exception "Cannot create hive table in internal catalog, should switch to hive catalog."
             }
@@ -482,37 +482,37 @@ suite("test_hive_ddl", "p0,external") {
                   `col9` STRING COMMENT 'col9',
                   `col10` DATE COMMENT 'col10',
                   `col11` DATETIME COMMENT 'col11'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
             """;
 
             // test all columns
-            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
-                    VALUES 
+            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`)
+                    VALUES
                     (true, 123, 9876543210, 'abcdefghij', 3.14, 6.28, 123.4567, 'varcharval', 'stringval');
                 """
             order_qt_insert01 """ SELECT `col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9` FROM unpart_tbl_${file_format};  """
 
             // test part of columns
-            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col8`, `col9`) 
-                    VALUES 
+            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col8`, `col9`)
+                    VALUES
                     (true, 123, 9876543210, 'varcharval', 'stringval');
                 """
-            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col8`, `col9`) 
-                    VALUES 
+            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col8`, `col9`)
+                    VALUES
                     (null, 123, 'varcharval', 8.98);
                 """
             order_qt_insert02 """ SELECT `col1`, `col2`, `col3`, `col7`, `col9` FROM unpart_tbl_${file_format};  """
 
             // test data diff
-            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
-                    VALUES 
+            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`)
+                    VALUES
                     (true, null, 9876543210, 'abcdefghij', '2.3', 6.28, null, 'varcharval', 'stringval');
                 """
-            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
-                    VALUES 
+            sql """ INSERT INTO unpart_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`)
+                    VALUES
                     (false, '1', 9876543210, 'abcdefghij', '2.3', 6.28, 0, 2223, 'stringval');
                 """
             order_qt_insert03 """ SELECT `col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9` FROM unpart_tbl_${file_format} """
@@ -528,7 +528,7 @@ suite("test_hive_ddl", "p0,external") {
                   `col4` DECIMAL(2,1) COMMENT 'col4',
                   `pt1` VARCHAR COMMENT 'pt1',
                   `pt2` VARCHAR COMMENT 'pt2'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PARTITION BY LIST (pt1, pt2) ()
                 PROPERTIES (
                   'file_format'='${file_format}'
@@ -575,13 +575,13 @@ suite("test_hive_ddl", "p0,external") {
                   `pt8` CHAR COMMENT 'pt8',
                   `pt9` VARCHAR COMMENT 'pt9',
                   `pt10` STRING COMMENT 'pt10'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PARTITION BY LIST (pt1, pt2, pt3, pt4, pt5, pt6, pt7, pt8, pt9, pt10) ()
                 PROPERTIES (
                   'file_format'='${file_format}'
                 )
                 """
-            sql """ 
+            sql """
                     INSERT INTO all_part_types_tbl_${file_format} (`col`, `pt1`, `pt2`, `pt3`, `pt4`, `pt5`, `pt6`, `pt7`, `pt8`, `pt9`, `pt10`)
                     VALUES
                     (1, true, 1, 123, 456789, 922232355, '2024-04-09', '2024-04-09 12:34:56', 'A', 'example', 'string_value');
@@ -602,7 +602,7 @@ suite("test_hive_ddl", "p0,external") {
                     CREATE TABLE all_part_types_tbl_${file_format}_err3(
                       `col` INT COMMENT 'col',
                       `pt1` STRING COMMENT 'pt1'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PARTITION BY LIST (pt000) ()
                     PROPERTIES (
                       'file_format'='${file_format}'
@@ -612,31 +612,31 @@ suite("test_hive_ddl", "p0,external") {
             }
 
             test {
-                sql """ 
+                sql """
                     CREATE TABLE all_part_types_tbl_${file_format}_err3(
                       `col` INT COMMENT 'col',
                       `pt1` STRING COMMENT 'pt1'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PARTITION BY LIST (pt1)
                     (PARTITION pp VALUES IN ('2014-01-01'))
                     PROPERTIES (
                       'file_format'='${file_format}'
-                    ) 
+                    )
                     """
                 exception "Partition values expressions is not supported in hive catalog."
             }
 
             test {
-                sql """ 
+                sql """
                     CREATE TABLE all_part_types_tbl_${file_format}_err3(
                       `col` INT COMMENT 'col',
                       `pt1` STRING COMMENT 'pt1'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PARTITION BY LIST (pt000)
                     (PARTITION pp VALUES IN ('2014-01-01'))
                     PROPERTIES (
                       'file_format'='${file_format}'
-                    ) 
+                    )
                     """
                 exception "partition key pt000 is not exists"
             }
@@ -646,7 +646,7 @@ suite("test_hive_ddl", "p0,external") {
                     CREATE TABLE all_part_types_tbl_${file_format}_err1(
                       `col` INT COMMENT 'col',
                       `pt1` LARGEINT COMMENT 'pt1'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PARTITION BY LIST (pt1) ()
                     PROPERTIES (
                       'file_format'='${file_format}'
@@ -660,7 +660,7 @@ suite("test_hive_ddl", "p0,external") {
                     CREATE TABLE all_part_types_tbl_${file_format}_err2(
                       `col` INT COMMENT 'col',
                       `pt1` FLOAT COMMENT 'pt1'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PARTITION BY LIST (pt1) ()
                     PROPERTIES (
                       'file_format'='${file_format}'
@@ -674,7 +674,7 @@ suite("test_hive_ddl", "p0,external") {
                     CREATE TABLE all_part_types_tbl_${file_format}_err3(
                       `col` INT COMMENT 'col',
                       `pt1` DOUBLE COMMENT 'pt1'
-                    )  ENGINE=hive 
+                    )  ENGINE=hive
                     PARTITION BY LIST (pt1) ()
                     PROPERTIES (
                       'file_format'='${file_format}'
@@ -753,6 +753,18 @@ suite("test_hive_ddl", "p0,external") {
             test_error_create(catalog_name)
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            try_hive_docker """drop database if exists test_hive_db cascade"""
+            try_hive_docker """drop database if exists test_hive_loc_db cascade"""
+            try_hive_docker """drop database if exists test_hive_loc_no_exist cascade"""
+            try_hive_docker """drop database if exists test_hive_loc_exist cascade"""
+            try_hive_docker """drop database if exists test_hive_default_val cascade"""
+            try_hive_docker """drop database if exists test_hive_loc cascade"""
+            try_hive_docker """drop database if exists test_hive_compress cascade"""
+            try_hive_docker """drop database if exists test_olap_cross_catalog cascade"""
+            try_hive_docker """drop database if exists test_hive_db_tbl cascade"""
+            try_hive_docker """drop database if exists test_hive_db_error_tbl cascade"""
+            try_sql """drop database if exists internal.test_hive_cross_catalog force"""
+            try_sql """drop catalog if exists test_hive_ddl"""
         }
     }
 }
