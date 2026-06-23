@@ -308,6 +308,7 @@ private:
     Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
+    Status _retry_pending_segcompaction_after_delete_bitmap();
     Status _finish_flying_segcompaction(bool need_final_segcompaction_retry);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();

@@ -23,12 +23,14 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllBEs()
     def segcompactionBatchSize = get_be_param("segcompaction_batch_size")
+    def maxSegmentNumPerRowset = get_be_param("max_segment_num_per_rowset")
     def dorisScannerRowBytes = get_be_param("doris_scanner_row_bytes")
     def enableAdaptiveBatchSize = get_be_param("enable_adaptive_batch_size")
 
     onFinish {
         GetDebugPoint().clearDebugPointsForAllBEs()
         set_original_be_param("segcompaction_batch_size", segcompactionBatchSize)
+        set_original_be_param("max_segment_num_per_rowset", maxSegmentNumPerRowset)
         set_original_be_param("doris_scanner_row_bytes", dorisScannerRowBytes)
         set_original_be_param("enable_adaptive_batch_size", enableAdaptiveBatchSize)
     }
@@ -58,6 +60,7 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
     sql "sync"
 
     set_be_param.call("segcompaction_batch_size", "2")
+    set_be_param.call("max_segment_num_per_rowset", "3")
     set_be_param.call("doris_scanner_row_bytes", "1")
     set_be_param.call("enable_adaptive_batch_size", "false")
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
@@ -86,7 +89,7 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
     }
 
     String content = ""
-    (1..4096).each {
+    (1..8192).each {
         content += "${it},${it},${it}\n"
     }
     content += content
@@ -104,12 +107,12 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
             logger.info("stream load result: ${result}")
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(8192, json.NumberTotalRows)
+            assertEquals(16384, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
         }
     }
 
-    checkLastRowsetSegmentNum(2)
+    checkLastRowsetSegmentNum(3)
     qt_sql "select count() from test_mow_load_delete_bitmap_segcompaction_race;"
     qt_dup_key_count """select count() from (
             select k1, count() as cnt

@@ -948,15 +948,27 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_finish_flying_segcompaction(bool need_final_segcompaction_retry) {
-    if (need_final_segcompaction_retry) {
+Status BetaRowsetWriter::_retry_pending_segcompaction_after_delete_bitmap() {
+    while ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
         RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
                                        "segcompaction failed when build new rowset");
+        const int32_t old_segcompacted_point = _segcompacted_point.load();
+        const int32_t old_num_segcompacted = _num_segcompacted.load();
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_if_necessary(),
                                        "segcompaction failed when build new rowset");
         RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
                                        "segcompaction failed when build new rowset");
-        return Status::OK();
+        if (_segcompacted_point == old_segcompacted_point &&
+            _num_segcompacted == old_num_segcompacted) {
+            break;
+        }
+    }
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_finish_flying_segcompaction(bool need_final_segcompaction_retry) {
+    if (need_final_segcompaction_retry) {
+        return _retry_pending_segcompaction_after_delete_bitmap();
     }
     if (_segcompaction_worker->cancel()) {
         std::lock_guard lk(_is_doing_segcompaction_lock);
@@ -1039,8 +1051,7 @@ Status BetaRowsetWriter::_close_file_writers() {
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     RETURN_IF_ERROR(_close_file_writers());
-    const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(_num_seg()),
                                    "too many segments when build new rowset");
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get(), true));
     if (_is_pending) {
