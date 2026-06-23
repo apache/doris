@@ -1183,9 +1183,11 @@ TEST_F(ColumnVariantTest, field_test) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1, false);
     MutableColumns cols;
-    cols.push_back(obj->get_ptr());
+    cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
+    cols.clear();
     EXPECT_TRUE(!obj->empty());
     test_func(obj);
 }
@@ -2179,13 +2181,16 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     ColumnVariant::MutablePtr obj;
     obj = ColumnVariant::create(1, false);
     MutableColumns cols;
-    cols.push_back(obj->get_ptr());
+    cols.push_back(std::move(obj));
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
     load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    obj = ColumnVariant::cast_to_column_mutptr(assert_cast<ColumnVariant*>(cols[0].get()));
+    cols.clear();
     EXPECT_TRUE(!obj->empty());
     auto sparse_col = obj->get_sparse_column();
     auto cloned_sparse = sparse_col->clone_empty();
-    auto& offsets = obj->serialized_sparse_column_offsets();
+    const auto& offsets =
+            static_cast<const ColumnVariant&>(*obj).serialized_sparse_column_offsets();
     for (size_t i = 0; i != offsets.size(); ++i) {
         auto start = offsets[i - 1];
         auto end = offsets[i];

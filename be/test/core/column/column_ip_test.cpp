@@ -77,32 +77,32 @@ protected:
 TEST_F(ColumnIPTest, InsertRangeFromTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_range_from_callback);
 }
 
 TEST_F(ColumnIPTest, InsertManyFromTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_many_from_callback);
 }
 
 TEST_F(ColumnIPTest, InsertIndicesFromTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_indices_from_callback);
 }
 
 TEST_F(ColumnIPTest, InsertDefaultTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     // ipv4 default value is '0.0.0.0' and ipv6 default value is '::'
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_default_callback);
 }
@@ -110,31 +110,31 @@ TEST_F(ColumnIPTest, InsertDefaultTest) {
 TEST_F(ColumnIPTest, InsertManyDefaultsTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_many_defaults_callback);
 }
 
 TEST_F(ColumnIPTest, GetDataAtTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_get_data_at_callback);
 }
 
 TEST_F(ColumnIPTest, FieldTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_field_callback);
 }
 
 TEST_F(ColumnIPTest, GetRawDataTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, {serde[1]}, ';', {2}, data_files[0],
                assert_get_raw_data_callback<TYPE_IPV6>);
 }
@@ -142,8 +142,8 @@ TEST_F(ColumnIPTest, GetRawDataTest) {
 TEST_F(ColumnIPTest, SerDeVecTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     ser_deser_vec(ip_cols, {dt_ipv4, dt_ipv6});
 }
@@ -151,8 +151,8 @@ TEST_F(ColumnIPTest, SerDeVecTest) {
 TEST_F(ColumnIPTest, serDeserializeWithArenaImpl) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
 
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     ser_deserialize_with_arena_impl(ip_cols, {dt_ipv4, dt_ipv6});
@@ -161,16 +161,16 @@ TEST_F(ColumnIPTest, serDeserializeWithArenaImpl) {
 TEST_F(ColumnIPTest, SizeTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_size_callback);
 }
 
 TEST_F(ColumnIPTest, ByteSizeTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
 
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_byte_size_callback);
 }
@@ -178,8 +178,8 @@ TEST_F(ColumnIPTest, ByteSizeTest) {
 TEST_F(ColumnIPTest, AllocateBytesTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
 
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_allocated_bytes_callback);
 }
@@ -187,8 +187,8 @@ TEST_F(ColumnIPTest, AllocateBytesTest) {
 TEST_F(ColumnIPTest, PopbackTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
 
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_pop_back_callback);
 }
@@ -197,18 +197,18 @@ TEST_F(ColumnIPTest, CloneTest) {
     // we test the column with clone_resize, clone_empty for assert size and ptr
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
-    assert_clone_empty(column_ipv4->assume_mutable_ref());
-    assert_clone_empty(column_ipv6->assume_mutable_ref());
+    assert_clone_empty(ip_cols[0]->assume_mutable_ref());
+    assert_clone_empty(ip_cols[1]->assume_mutable_ref());
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_clone_resized_callback);
 }
 
 TEST_F(ColumnIPTest, CutTest) {
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_cut_callback);
 }
@@ -216,24 +216,24 @@ TEST_F(ColumnIPTest, CutTest) {
 TEST_F(ColumnIPTest, ResizeTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_resize_callback);
 }
 
 TEST_F(ColumnIPTest, ReserveTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_reserve_callback);
 }
 
 TEST_F(ColumnIPTest, ReplaceColumnTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
 
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     // replace_column_data
@@ -246,26 +246,26 @@ TEST_F(ColumnIPTest, ReplaceColumnTest) {
 TEST_F(ColumnIPTest, AppendDataBySelectorTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_append_data_by_selector_callback);
 }
 
 TEST_F(ColumnIPTest, PermutationAndSortTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     load_data_from_csv(serde, ip_cols, data_files[1], ';', {1, 2});
-    assert_column_permutations(column_ipv4->assume_mutable_ref(), dt_ipv4);
-    assert_column_permutations(column_ipv6->assume_mutable_ref(), dt_ipv6);
+    assert_column_permutations(ip_cols[0]->assume_mutable_ref(), dt_ipv4);
+    assert_column_permutations(ip_cols[1]->assume_mutable_ref(), dt_ipv6);
 }
 
 TEST_F(ColumnIPTest, FilterTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_filter_callback);
 }
 
@@ -274,8 +274,8 @@ TEST_F(ColumnIPTest, HashTest) {
     // XXHash
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
+    ip_cols.push_back(std::move(column_ipv4));
+    ip_cols.push_back(std::move(column_ipv6));
 
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     // update_hashes_with_value

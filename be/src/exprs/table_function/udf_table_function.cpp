@@ -124,10 +124,12 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                             .with_arg(output_map)
                             .call(&output_address));
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
+    _array_result_column =
+            IColumn::mutate(std::move(block->get_by_position(_result_column_idx).column));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
         return Status::NotSupported("column type {} not supported now",
-                                    block->get_by_position(_result_column_idx).column->get_name());
+                                    _array_result_column->get_name());
     }
     return Status::OK();
 }

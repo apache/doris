@@ -57,16 +57,17 @@ private:
     friend class COWHelper<IColumn, ColumnNullable>;
 
     ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_);
+    struct SharedTag {};
+    ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_);
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
-    /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
-      * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
+    /** Create a column from immutable/shared subcolumns without cloning them.
+      * Call IColumn::mutate before modifying the returned column tree.
       */
     using Base = COWHelper<IColumn, ColumnNullable>;
     static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
-        return ColumnNullable::create(nested_column_->assume_mutable(),
-                                      null_map_->assume_mutable());
+        return Base::create(SharedTag {}, nested_column_, null_map_);
     }
 
     template <typename... Args>
@@ -85,6 +86,8 @@ public:
         }
         _nested_column->sanity_check();
     }
+
+    void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return _nested_column->is_variable_length(); }
 
@@ -262,6 +265,8 @@ public:
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
+
+    void replace_columns(ColumnPtr nested_column, ColumnPtr null_map);
 
     /// Return the column that represents values.
     IColumn& get_nested_column() { return *_nested_column; }

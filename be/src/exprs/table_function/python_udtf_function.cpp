@@ -261,8 +261,7 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
 
     if (_return_type->is_nullable()) {
         nullable_col = assert_cast<ColumnNullable*>(array_col_ptr.get());
-        array_col = assert_cast<ColumnArray*>(
-                nullable_col->get_nested_column_ptr()->assume_mutable().get());
+        array_col = assert_cast<ColumnArray*>(&nullable_col->get_nested_column());
     } else {
         array_col = assert_cast<ColumnArray*>(array_col_ptr.get());
     }
@@ -275,8 +274,8 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
     // Use read_column_from_arrow for optimized conversion
     // This directly converts Arrow ListArray to Doris ColumnArray
     // No struct unwrapping needed - Python server sends the correct format!
-    RETURN_IF_ERROR(array_serde->read_column_from_arrow(
-            array_col->assume_mutable_ref(), list_array.get(), 0, num_input_rows, _timezone_obj));
+    RETURN_IF_ERROR(array_serde->read_column_from_arrow(*array_col, list_array.get(), 0,
+                                                        num_input_rows, _timezone_obj));
 
     // Handle nullable wrapper: all array elements are non-null
     // (empty arrays [] are non-null, different from NULL)

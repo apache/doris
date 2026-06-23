@@ -96,6 +96,14 @@ inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id)
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
 }
 
+static ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx) {
+    auto skip_bitmap_column =
+            IColumn::mutate(std::move(block->get_by_position(skip_bitmap_col_idx).column));
+    auto* skip_bitmap_column_ptr = assert_cast<ColumnBitmap*>(skip_bitmap_column.get());
+    block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
+    return skip_bitmap_column_ptr;
+}
+
 VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
@@ -784,10 +792,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(
-                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                    ->get_data());
+    auto* mutable_input_block = const_cast<Block*>(data.block);
+    std::vector<BitmapValue>* skip_bitmaps =
+            &get_mutable_skip_bitmap_column(mutable_input_block, skip_bitmap_col_idx)->get_data();
     const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
@@ -913,11 +920,13 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
         const auto& default_value = info.default_values[idx];
         StringRef str {default_value};
+        auto column_guard = block.mutate_column_scoped(0);
         RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
-                str, *block.get_by_position(0).column->assume_mutable().get()));
+                str, *column_guard.mutable_column()));
 
     } else {
-        block.get_by_position(0).column->assume_mutable()->insert_default();
+        auto column_guard = block.mutate_column_scoped(0);
+        column_guard.mutable_column()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
     auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();

@@ -147,9 +147,12 @@ void ShuffleExchanger::close(SourceInfo&& source_info) {
 Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                                    SourceInfo&& source_info) {
     PartitionedBlock partitioned_block;
-    MutableBlock mutable_block;
-
-    auto get_data = [&]() -> Status {
+    if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
+                      source_info.channel_id)) {
+        SCOPED_TIMER(profile.copy_data_timer);
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                block, partitioned_block.first->_data_block);
+        auto& mutable_block = scoped_mutable_block.mutable_block();
         do {
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
@@ -159,15 +162,6 @@ Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
         } while (mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
-        return Status::OK();
-    };
-
-    if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
-                      source_info.channel_id)) {
-        SCOPED_TIMER(profile.copy_data_timer);
-        mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
-                block, partitioned_block.first->_data_block);
-        RETURN_IF_ERROR(get_data());
     }
     return Status::OK();
 }
@@ -213,7 +207,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const std::vector<uint
      * For example, row 1 get a hash value 1 which means we should distribute to instance 1 on
      * BE 1 and row 2 get a hash value 2 which means we should distribute to instance 1 on BE 3.
      */
-    DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
+    DCHECK(shuffle_idx_to_instance_idx && !shuffle_idx_to_instance_idx->empty());
     const auto& map = *shuffle_idx_to_instance_idx;
     int32_t enqueue_rows = 0;
     for (const auto& it : map) {
@@ -420,8 +414,9 @@ Status BroadcastExchanger::get_block(RuntimeState* state, Block* block, bool* eo
     if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
                       source_info.channel_id)) {
         SCOPED_TIMER(profile.copy_data_timer);
-        MutableBlock mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
                 block, partitioned_block.first->_data_block);
+        auto& mutable_block = scoped_mutable_block.mutable_block();
         auto block_wrapper = partitioned_block.first;
         RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block,
                                                partitioned_block.second.offset_start,

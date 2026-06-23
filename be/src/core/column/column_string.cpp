@@ -32,12 +32,16 @@
 #include "core/data_type/primitive_type.h"
 #include "core/memcmp_small.h"
 #include "exec/sort/sort_block.h"
+#include "util/debug_points.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
 namespace doris {
 #include "common/compile_check_begin.h"
+
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {
@@ -79,6 +83,26 @@ MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
     }
 
     return res;
+}
+
+template <typename T>
+void ColumnStr<T>::shrink_padding_chars() {
+    if (size() == 0) {
+        return;
+    }
+    char* data = reinterpret_cast<char*>(chars.data());
+    auto* offset = offsets.data();
+    size_t size = offsets.size();
+
+    auto next_start = offset[0];
+    offset[0] = static_cast<T>(strnlen(data, size_at(0)));
+    for (size_t i = 1; i < size; i++) {
+        auto length = strnlen(data + next_start, offset[i] - next_start);
+        memmove(data + offset[i - 1], data + next_start, length);
+        next_start = offset[i];
+        offset[i] = offset[i - 1] + static_cast<T>(length);
+    }
+    chars.resize_fill(offsets.back());
 }
 
 // This method is only called by MutableBlock::merge_ignore_overflow
@@ -589,7 +613,15 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
 
 template <typename T>
 ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
-    if (std::is_same_v<T, UInt32> && chars.size() > config::string_overflow_size) {
+    if constexpr (std::is_same_v<T, UInt32>) {
+        size_t max_string_size = MAX_STRING_SIZE;
+        DBUG_EXECUTE_IF(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT, {
+            max_string_size = dp->param<size_t>("max_string_size", max_string_size);
+        });
+        if (chars.size() <= max_string_size) {
+            return this->get_ptr();
+        }
+
         auto new_col = ColumnStr<uint64_t>::create();
 
         const auto length = offsets.size();

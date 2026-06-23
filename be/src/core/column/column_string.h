@@ -143,6 +143,8 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
+    void shrink_padding_chars() override;
+
     Field operator[](size_t n) const override;
 
     void get(size_t n, Field& res) const override;

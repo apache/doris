@@ -157,6 +157,7 @@ public:
     bool has_enough_capacity(const IColumn& src) const override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
+    void shrink_padding_chars() override;
 
     size_t tuple_size() const { return columns.size(); }
 

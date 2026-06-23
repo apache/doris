@@ -201,7 +201,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count(),
                                              data_type_object.enable_doc_mode());
 
-        variant->create_root(arg.type, arg.column->assume_mutable());
+        variant->create_root(arg.type, std::move(*arg.column).mutate());
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
                 check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
@@ -1962,9 +1962,8 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
     }
     column_variant.incr_num_rows();
-    auto sparse_column = column_variant.get_sparse_column();
-    if (sparse_column->size() == old_num_rows) {
-        sparse_column->assume_mutable()->insert_default();
+    if (column_variant.get_sparse_column()->size() == old_num_rows) {
+        column_variant.get_sparse_column_mutable().insert_default();
     }
 #ifndef NDEBUG
     column_variant.check_consistency();
@@ -2105,7 +2104,7 @@ Status _parse_and_materialize_variant_columns(Block& block,
             auto expected_root_type =
                     make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
             var.ensure_root_node_type(expected_root_type);
-            variant_column = var.assume_mutable();
+            variant_column = std::move(var_column);
         }
 
         // Wrap variant with nullmap if it is nullable

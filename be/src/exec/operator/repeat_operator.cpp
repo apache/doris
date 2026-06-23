@@ -113,7 +113,9 @@ Status RepeatLocalState::get_repeated_block(Block* input_block, int repeat_id_id
     size_t input_column_size = input_block->columns();
     size_t output_column_size = p._output_slots.size();
     DCHECK_LT(input_column_size, output_column_size);
-    auto m_block = VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(output_block, p._output_slots);
+    auto& m_block = scoped_mutable_block.mutable_block();
     auto& output_columns = m_block.mutable_columns();
     /* Fill all slots according to child, for example:select tc1,tc2,sum(tc3) from t1 group by grouping sets((tc1),(tc2));
      * insert into t1 values(1,2,1),(1,3,1),(2,1,1),(3,1,1);
@@ -155,7 +157,6 @@ Status RepeatLocalState::get_repeated_block(Block* input_block, int repeat_id_id
     RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, output_columns, repeat_id_idx));
 
     DCHECK_EQ(cur_col, output_column_size);
-
     return Status::OK();
 }
 
@@ -230,8 +231,9 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
                 _repeat_id_idx = 0;
             }
         } else if (local_state._expr_ctxs.empty()) {
-            auto m_block =
-                    VectorizedUtils::build_mutable_mem_reuse_block(output_block, _output_slots);
+            auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                    output_block, _output_slots);
+            auto& m_block = scoped_mutable_block.mutable_block();
             auto rows = _child_block.rows();
             auto& columns = m_block.mutable_columns();
 

@@ -40,7 +40,7 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
     sparse_column_offsets.push_back(sparse_column_keys->size());
     variant_ptr->get_subcolumn({})->insert_default();
     variant_ptr->set_num_rows(1);
-    variant_ptr->get_doc_value_column()->assume_mutable()->resize(1);
+    variant_ptr->get_doc_value_column_mutable().resize(1);
 
     ColumnPtr result;
     ColumnPtr index_column_ptr = ColumnString::create();
@@ -78,10 +78,9 @@ TEST(function_variant_element_test, extract_string_from_scalar_root) {
     options.timezone = &tz;
 
     auto extract = [&](const std::string& key) {
-        ColumnPtr index_inner = ColumnString::create();
-        assert_cast<ColumnString*>(index_inner->assume_mutable().get())
-                ->insert_data(key.data(), key.size());
-        ColumnPtr index_column = ColumnConst::create(index_inner, 1);
+        auto index_inner = ColumnString::create();
+        index_inner->insert_data(key.data(), key.size());
+        ColumnPtr index_column = ColumnConst::create(std::move(index_inner), 1);
         ColumnPtr result;
         auto status =
                 FunctionVariantElement::get_element_column(*variant_column, index_column, &result);

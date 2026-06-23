@@ -75,6 +75,10 @@ private:
     /** Create an empty column of arrays with the type of values as in the column `nested_column` */
     explicit ColumnArray(MutableColumnPtr&& nested_column);
 
+    /** Create an array column with shared (possibly non-exclusive) nested column and offsets. */
+    struct SharedTag {};
+    ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column);
+
     ColumnArray(const ColumnArray&) = default;
 
     ColumnArray() = default;
@@ -92,18 +96,27 @@ private:
             Offsets64;
 
 public:
-    /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
-      * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
+    /** Create a column from immutable/shared subcolumns without cloning them.
+      * Call IColumn::mutate before modifying the returned column tree.
       */
     using Base = COWHelper<IColumn, ColumnArray>;
 
     static MutablePtr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
-        return ColumnArray::create(nested_column->assume_mutable(),
-                                   offsets_column->assume_mutable());
+        // Construct with shared columns preserved (no cloning), as create(ColumnPtr) is designed
+        // to accept immutable/shared arguments per the COW contract.
+        return Base::create(SharedTag {}, nested_column, offsets_column);
     }
 
     static MutablePtr create(const ColumnPtr& nested_column) {
-        return ColumnArray::create(nested_column->assume_mutable());
+        // Construct with shared columns preserved (no cloning), as create(ColumnPtr) is designed
+        // to accept immutable/shared arguments per the COW contract.
+        if (!nested_column->empty()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Not empty data passed to ColumnArray, but no offsets passed");
+            __builtin_unreachable();
+        }
+        ColumnPtr empty_offsets = ColumnOffsets::create();
+        return Base::create(SharedTag {}, nested_column, std::move(empty_offsets));
     }
 
     template <typename... Args,
@@ -116,6 +129,8 @@ public:
         data->sanity_check();
         offsets->sanity_check();
     }
+
+    void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnOffset64;

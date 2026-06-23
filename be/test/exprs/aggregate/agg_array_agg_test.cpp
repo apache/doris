@@ -42,6 +42,7 @@
 #include "exprs/aggregate/agg_function_test.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/aggregate_function_sort.h"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -122,4 +123,31 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_nullable) {
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
 }
 
+TEST(AggregateFunctionSortDataTest, merge_does_not_share_rhs_block) {
+    auto data_type = std::make_shared<DataTypeInt64>();
+    Block prototype({ColumnWithTypeAndName(data_type->create_column(), data_type, "value"),
+                     ColumnWithTypeAndName(data_type->create_column(), data_type, "sort_key")});
+    SortDescription sort_desc {SortColumnDescription(1, 1, 1)};
+
+    AggregateFunctionSortData lhs(sort_desc, prototype);
+    AggregateFunctionSortData rhs1(sort_desc, prototype);
+    AggregateFunctionSortData rhs2(sort_desc, prototype);
+
+    auto values = ColumnInt64::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    auto sort_keys = ColumnInt64::create();
+    sort_keys->insert_value(2);
+    sort_keys->insert_value(1);
+    const IColumn* row0[] = {values.get(), sort_keys.get()};
+    const IColumn* row1[] = {values.get(), sort_keys.get()};
+
+    rhs1.add(row0, 2, 0);
+    rhs2.add(row1, 2, 1);
+
+    lhs.merge(rhs1);
+    ASSERT_NO_THROW(lhs.merge(rhs2));
+    ASSERT_EQ(lhs.block.rows(), 2);
+    ASSERT_EQ(rhs1.block.rows(), 1);
+}
 } // namespace doris

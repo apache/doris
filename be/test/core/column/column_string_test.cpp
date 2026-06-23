@@ -33,9 +33,14 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/function/function_string_concat.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 using namespace doris;
 namespace doris {
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
+
 static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypePtr dt_str =
@@ -1136,6 +1141,15 @@ TEST_F(ColumnStringTest, compare_internal) {
     column_string_common_test(assert_column_vector_compare_internal_callback, false);
 }
 TEST_F(ColumnStringTest, convert_column_if_overflow) {
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
     {
         auto tmp_col = ColumnString::create();
         tmp_col->insert_data("abc", 3);
@@ -1152,7 +1166,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32->size();
         auto chars_size = column_str32->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str32, 0, column_str32->size());
             chars_size = tmp_col_str32->get_chars().size();
@@ -1173,7 +1187,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32_json->size();
         auto chars_size = column_str32_json->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str32_json, 0,
                                                        column_str32_json->size());
@@ -1197,7 +1211,7 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
         auto* tmp_col_str64 = assert_cast<ColumnString64*>(tmp_col.get());
         auto src_size = column_str64_json->size();
         auto chars_size = column_str64_json->get_chars().size();
-        auto max_chars_size = config::string_overflow_size;
+        size_t max_chars_size = 10;
         while (chars_size < max_chars_size) {
             tmp_col->insert_range_from_ignore_overflow(*column_str64_json, 0,
                                                        column_str64_json->size());

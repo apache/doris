@@ -41,6 +41,41 @@
 class SipHash;
 
 namespace doris {
+namespace {
+
+const ColumnMap::COffsets& check_map_offsets_column(const IColumn& offsets_column) {
+    const auto* offsets_concrete = check_and_get_column<ColumnMap::COffsets>(offsets_column);
+    if (!offsets_concrete) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
+        __builtin_unreachable();
+    }
+    return *offsets_concrete;
+}
+
+void validate_map_columns(const IColumn& keys, const IColumn& values, const IColumn& offsets) {
+    const auto& offsets_concrete = check_map_offsets_column(offsets);
+
+    if (!offsets_concrete.empty()) {
+        auto last_offset = offsets_concrete.get_data().back();
+
+        /// This will also prevent possible overflow in offset.
+        if (keys.size() != last_offset) {
+            DCHECK(0);
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with key_column {}", last_offset,
+                    keys.size());
+        }
+        if (values.size() != last_offset) {
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "offsets_column size {} has data inconsistent with value_column {}",
+                    last_offset, values.size());
+        }
+    }
+}
+
+} // namespace
 
 /** A column of map values.
   */
@@ -53,26 +88,19 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
           values_column(std::move(values)),
           offsets_column(std::move(offsets)) {
     check_const_only_in_top_level();
-    const auto* offsets_concrete = assert_cast<const COffsets*>(offsets_column.get());
+    validate_map_columns(*static_cast<const IColumn::Ptr&>(keys_column),
+                         *static_cast<const IColumn::Ptr&>(values_column),
+                         *static_cast<const IColumn::Ptr&>(offsets_column));
+}
 
-    if (!offsets_concrete->empty() && keys_column && values_column) {
-        auto last_offset = offsets_concrete->get_data().back();
-
-        /// This will also prevent possible overflow in offset.
-        if (keys_column->size() != last_offset) {
-            DCHECK(0);
-            throw doris::Exception(
-                    doris::ErrorCode::INTERNAL_ERROR,
-                    "offsets_column size {} has data inconsistent with key_column {}", last_offset,
-                    keys_column->size());
-        }
-        if (values_column->size() != last_offset) {
-            throw doris::Exception(
-                    doris::ErrorCode::INTERNAL_ERROR,
-                    "offsets_column size {} has data inconsistent with value_column {}",
-                    last_offset, values_column->size());
-        }
-    }
+ColumnMap::ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets) {
+    static_cast<IColumn::Ptr&>(keys_column) = std::move(keys);
+    static_cast<IColumn::Ptr&>(values_column) = std::move(values);
+    static_cast<IColumn::Ptr&>(offsets_column) = std::move(offsets);
+    check_const_only_in_top_level();
+    validate_map_columns(*static_cast<const IColumn::Ptr&>(keys_column),
+                         *static_cast<const IColumn::Ptr&>(values_column),
+                         *static_cast<const IColumn::Ptr&>(offsets_column));
 }
 
 // todo. here to resize every row map
@@ -518,35 +546,45 @@ void ColumnMap::insert_range_from_ignore_overflow(const IColumn& src, size_t sta
 }
 
 ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const {
-    auto k_arr =
-            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->filter(filt, result_size_hint);
-    auto v_arr =
-            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->filter(filt, result_size_hint);
+    auto k_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(keys_column),
+                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                         ->filter(filt, result_size_hint);
+    auto v_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(values_column),
+                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                         ->filter(filt, result_size_hint);
     return ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
                              assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
                              assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
 }
 
 size_t ColumnMap::filter(const Filter& filter) {
-    MutableColumnPtr copied_off = offsets_column->clone_empty();
-    copied_off->insert_range_from(*offsets_column, 0, offsets_column->size());
-    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-            ->filter(filter);
-    ColumnArray::create(values_column->assume_mutable(), copied_off->assume_mutable())
-            ->filter(filter);
-    return get_offsets().size();
+    // Move subcolumns out of this ColumnMap to get exclusive ownership, then write back.
+    auto keys_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(keys_column)));
+    auto offsets_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(offsets_column)));
+    auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
+    // Clone offsets for values (both keys and values share the same offsets structure)
+    MutableColumnPtr copied_off = offsets_mut->clone_empty();
+    copied_off->insert_range_from(*offsets_mut, 0, offsets_mut->size());
+    auto k_arr = ColumnArray::create(std::move(keys_mut), std::move(offsets_mut));
+    k_arr->filter(filter);
+    auto v_arr = ColumnArray::create(std::move(values_mut), std::move(copied_off));
+    v_arr->filter(filter);
+    // Put filtered subcolumns back
+    static_cast<IColumn::Ptr&>(keys_column) = k_arr->get_data_ptr();
+    static_cast<IColumn::Ptr&>(offsets_column) = k_arr->get_offsets_ptr();
+    static_cast<IColumn::Ptr&>(values_column) = v_arr->get_data_ptr();
+    // Use const access to avoid assume_mutable_ref() on the just-written-back offsets_column
+    // (k_arr still holds a ref, so use_count > 1 until k_arr goes out of scope)
+    return static_cast<const IColumn::Ptr&>(offsets_column)->size();
 }
 
 MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
-    // Make a temp column array
-    auto k_arr =
-            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->permute(perm, limit);
-    auto v_arr =
-            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->permute(perm, limit);
+    auto k_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(keys_column),
+                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                         ->permute(perm, limit);
+    auto v_arr = ColumnArray::create(static_cast<const IColumn::Ptr&>(values_column),
+                                     static_cast<const IColumn::Ptr&>(offsets_column))
+                         ->permute(perm, limit);
 
     return ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
                              assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
@@ -554,23 +592,38 @@ MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const
 }
 
 Status ColumnMap::deduplicate_keys(bool recursive) {
-    const auto inner_rows = keys_column->size();
-    const auto rows = offsets_column->size();
+    const IColumn& ck = *static_cast<const IColumn::Ptr&>(keys_column);
+    const IColumn& co = *static_cast<const IColumn::Ptr&>(offsets_column);
+    const auto inner_rows = ck.size();
+    const auto rows = co.size();
 
     if (recursive) {
-        auto values_column_ = values_column;
-        if (values_column_->is_nullable()) {
-            values_column_ = (assert_cast<ColumnNullable&>(*values_column)).get_nested_column_ptr();
-        }
-
-        if (ColumnMap* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
-            RETURN_IF_ERROR(values_map->deduplicate_keys(recursive));
+        const auto& values_ptr = static_cast<const IColumn::Ptr&>(values_column);
+        if (const auto* nullable_values = check_and_get_column<ColumnNullable>(values_ptr.get())) {
+            if (check_and_get_column<ColumnMap>(nullable_values->get_nested_column_ptr().get())) {
+                auto values_mut =
+                        IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
+                auto& nullable_values_mut = assert_cast<ColumnNullable&>(*values_mut);
+                auto nested_values_mut =
+                        IColumn::mutate(static_cast<const ColumnNullable&>(nullable_values_mut)
+                                                .get_nested_column_ptr());
+                auto& nested_values_map = assert_cast<ColumnMap&>(*nested_values_mut);
+                RETURN_IF_ERROR(nested_values_map.deduplicate_keys(recursive));
+                ColumnPtr nested_values_ptr = std::move(nested_values_mut);
+                nullable_values_mut.change_nested_column(nested_values_ptr);
+                static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
+            }
+        } else if (check_and_get_column<ColumnMap>(values_ptr.get())) {
+            auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
+            auto& values_map = assert_cast<ColumnMap&>(*values_mut);
+            RETURN_IF_ERROR(values_map.deduplicate_keys(recursive));
+            static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
         }
     }
 
     DorisVector<StringRef> serialized_keys(inner_rows);
 
-    const size_t max_one_row_byte_size = keys_column->get_max_row_byte_size();
+    const size_t max_one_row_byte_size = ck.get_max_row_byte_size();
 
     size_t total_bytes = max_one_row_byte_size * inner_rows;
     Arena pool;
@@ -579,7 +632,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
         // reach mem limit, don't serialize in batch
         const char* begin = nullptr;
         for (size_t i = 0; i != inner_rows; ++i) {
-            serialized_keys[i] = keys_column->serialize_value_into_arena(i, pool, begin);
+            serialized_keys[i] = ck.serialize_value_into_arena(i, pool, begin);
         }
     } else {
         auto* serialized_key_buffer = reinterpret_cast<uint8_t*>(pool.alloc(total_bytes));
@@ -590,7 +643,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
             serialized_keys[i].size = 0;
         }
 
-        keys_column->serialize_vec(serialized_keys.data(), inner_rows);
+        ck.serialize_vec(serialized_keys.data(), inner_rows);
     }
 
     auto new_offsets = COffsets::create();
@@ -598,7 +651,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
     auto& new_offsets_data = new_offsets->get_data();
 
     IColumn::Filter filter(inner_rows, 1);
-    auto& offsets = get_offsets();
+    const auto& offsets = static_cast<const ColumnMap*>(this)->get_offsets();
 
     Offset64 offset = 0;
     bool has_duplicated_key = false;
@@ -636,11 +689,20 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
 
     if (has_duplicated_key) {
         offsets_column = std::move(new_offsets);
-        keys_column->filter(filter);
-        values_column->filter(filter);
+        auto keys_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(keys_column)));
+        keys_mut->filter(filter);
+        static_cast<IColumn::Ptr&>(keys_column) = std::move(keys_mut);
+        auto values_mut = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(values_column)));
+        values_mut->filter(filter);
+        static_cast<IColumn::Ptr&>(values_column) = std::move(values_mut);
     }
 
     return Status::OK();
+}
+
+void ColumnMap::shrink_padding_chars() {
+    keys_column->shrink_padding_chars();
+    values_column->shrink_padding_chars();
 }
 
 void ColumnMap::reserve(size_t n) {

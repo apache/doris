@@ -26,8 +26,13 @@
 #include "exprs/create_predicate_function.h"
 #include "gtest/internal/gtest-internal.h"
 #include "testutil/column_helper.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+static constexpr auto CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT =
+        "ColumnStr.convert_column_if_overflow.max_string_size";
 
 // mock
 class HybridSetTest : public testing::Test {
@@ -661,9 +666,14 @@ TEST_F(HybridSetTest, StringValueSet) {
     }
 
     // test ColumnStr64
-    auto string_overflow_size = config::string_overflow_size;
-    config::string_overflow_size = 10;
-    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
+                                             {{"max_string_size", "10"}});
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
+        config::enable_debug_points = origin_enable_debug_points;
+    });
 
     ColumnPtr string64_column = string_column->clone()->convert_column_if_overflow();
     ASSERT_TRUE(string64_column->is_column_string64());

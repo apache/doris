@@ -257,8 +257,8 @@ private:
                         {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
                         &block->get_by_position(block_cid).column));
             } else {
-                MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                auto output_column_guard = block->mutate_column_scoped(block_cid);
+                auto& output_column = output_column_guard.mutable_column();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));
