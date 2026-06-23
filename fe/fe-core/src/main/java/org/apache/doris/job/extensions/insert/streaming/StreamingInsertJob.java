@@ -644,8 +644,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } else {
             this.runningStreamTask = createStreamingMultiTblTask();
         }
-        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
+        // Set PENDING before registering, else the scheduler thread may set RUNNING first and we clobber it.
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         log.info("create new streaming insert task for job {}, task {} ",
                 getJobId(), runningStreamTask.getTaskId());
         recordTasks(runningStreamTask);
