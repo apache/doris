@@ -331,8 +331,7 @@ void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheCo
         // Condition-cache HIT filters row ranges before batch reading, so skipped rows never belong
         // to a later get_block() batch. Report the plan-level skipped rows at the same point where
         // the scan plan is rewritten.
-        _io_ctx->condition_cache_filtered_rows +=
-                _state->scheduler.condition_cache_filtered_rows();
+        _io_ctx->condition_cache_filtered_rows += _state->scheduler.condition_cache_filtered_rows();
     }
 }
 

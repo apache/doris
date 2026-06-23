@@ -39,8 +39,8 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/block_column_predicate.h"
-#include "storage/segment/condition_cache.h"
 #include "storage/segment/common.h"
+#include "storage/segment/condition_cache.h"
 #include "util/profile_collector.h"
 
 namespace doris {

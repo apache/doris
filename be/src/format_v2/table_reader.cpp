@@ -42,8 +42,8 @@
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_reader.h"
-#include "storage/segment/condition_cache.h"
 #include "roaring/roaring64map.hh"
+#include "storage/segment/condition_cache.h"
 #include "util/string_util.h"
 
 namespace doris::format {
@@ -604,8 +604,8 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     }
     const auto& file = *_current_file_description;
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest,
-            file.range_start_offset, file.range_size);
+            file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
+            file.range_size);
 
     segment_v2::ConditionCacheHandle handle;
     const bool condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
@@ -620,9 +620,8 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         // Add one guard granule for split ranges that start in the middle of a granule. A guard
         // false bit beyond the real range never overlaps real rows, but avoids boundary overflow
         // when a reader marks the last partial granule.
-        const size_t num_granules =
-                (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
-                ConditionCacheContext::GRANULE_SIZE;
+        const size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                    ConditionCacheContext::GRANULE_SIZE;
         _condition_cache = std::make_shared<std::vector<bool>>(num_granules + 1, false);
     }
 
@@ -649,7 +648,8 @@ void TableReader::_finalize_reader_condition_cache() {
         _condition_cache_ctx = nullptr;
         return;
     }
-    segment_v2::ConditionCache::instance()->insert(_condition_cache_key, std::move(_condition_cache));
+    segment_v2::ConditionCache::instance()->insert(_condition_cache_key,
+                                                   std::move(_condition_cache));
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 }

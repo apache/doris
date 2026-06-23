@@ -47,7 +47,7 @@ namespace doris {
 struct ConditionCacheContext {
     bool is_hit = false;
     std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
-    int64_t base_granule = 0; // global granule index of filter_result[0]
+    int64_t base_granule = 0;                         // global granule index of filter_result[0]
     static constexpr int GRANULE_SIZE = 2048;
 };
 

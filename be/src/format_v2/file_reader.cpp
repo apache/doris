@@ -189,7 +189,11 @@ Status FileReader::init(RuntimeState* state) {
     _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
             _profile, *_system_properties, *_file_description, reader_options,
             io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-    _tracing_file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(
+    // IOContext can be present without file_reader_stats in standalone tests or callers that only
+    // need extra IO state. TracingFileReader dereferences the stats pointer on every read, so only
+    // wrap the physical reader when stats collection is actually available.
+    _tracing_file_reader = _io_ctx && _io_ctx->file_reader_stats
+                                   ? std::make_shared<io::TracingFileReader>(
                                              _file_reader, _io_ctx->file_reader_stats)
                                    : _file_reader;
     _eof = false;

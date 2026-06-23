@@ -1459,12 +1459,10 @@ public:
     ScopedConditionCacheForTest()
             : _previous(ExecEnv::GetInstance()->get_condition_cache()),
               _cache(segment_v2::ConditionCache::create_global_cache(1024 * 1024, 4)) {
-        ExecEnv::GetInstance()->set_condition_cache(_cache.get());
+        ExecEnv::GetInstance()->_condition_cache = _cache.get();
     }
 
-    ~ScopedConditionCacheForTest() {
-        ExecEnv::GetInstance()->set_condition_cache(_previous);
-    }
+    ~ScopedConditionCacheForTest() { ExecEnv::GetInstance()->_condition_cache = _previous; }
 
     segment_v2::ConditionCache* get() { return _cache.get(); }
 

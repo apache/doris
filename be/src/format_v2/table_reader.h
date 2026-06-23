@@ -58,11 +58,11 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
-#include "storage/segment/condition_cache.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris {
 class Block;
