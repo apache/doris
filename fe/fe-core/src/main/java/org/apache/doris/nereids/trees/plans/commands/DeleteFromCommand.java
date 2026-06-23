@@ -108,7 +108,7 @@ import java.util.stream.Collectors;
 /**
  * delete from unique key table.
  */
-public class DeleteFromCommand extends Command implements ForwardWithSync, Explainable, SupportProfile {
+public class DeleteFromCommand extends Command implements ForwardWithSync, Explainable {
     private static final Logger LOG = LogManager.getLogger(DeleteFromCommand.class);
 
     protected final List<String> nameParts;
@@ -504,11 +504,6 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             throw new AnalysisException("delete command could be only used on olap table");
         }
         return ((OlapTable) table);
-    }
-
-    @Override
-    public List<String> getTargetTableNameParts() {
-        return nameParts;
     }
 
     /**
