@@ -21,10 +21,13 @@ import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.Lists;
@@ -66,6 +69,36 @@ public class MetricsTest {
             } else {
                 Assert.fail();
             }
+        }
+    }
+
+    @Test
+    public void testConnectionMaxMetrics() throws Exception {
+        int originQeMaxConnection = Config.qe_max_connection;
+        try {
+            Config.qe_max_connection = 4321;
+            MetricRepo.updateUserConnectionMaxMetric("metric_user", 321L);
+
+            MetricVisitor visitor = new PrometheusMetricVisitor();
+            MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+            String metricResult = visitor.finish();
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
+            Assert.assertTrue(metricResult.contains("doris_fe_connection_max 4321"));
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
+            Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
+
+            Auth auth = new Auth();
+            auth.updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
+                    Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "456")), true);
+
+            visitor = new PrometheusMetricVisitor();
+            MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+            metricResult = visitor.finish();
+            Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
+        } finally {
+            Config.qe_max_connection = originQeMaxConnection;
+            MetricRepo.removeUserConnectionMaxMetric("metric_user");
+            MetricRepo.updateUserConnectionMaxMetric(Auth.ROOT_USER, 100L);
         }
     }
 
