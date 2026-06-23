@@ -10,7 +10,13 @@
 
 > **✅ P6.2 = DONE（本 session 2026-06-23 收口 T11）**：scan + MVCC + cache + vended 全实现。T11（汇总设计 `designs/P6-T11-iceberg-scan-summary-design.md` + validation gate 核对 + UT-不可见 deviation 中央注册 DV-038/039/040 + 本 HANDOFF + PROGRESS/connectors 同步）见下「✅ P6.2-T11 = DONE」。**验收全绿**：fe-connector-iceberg UT **278/0/1**（本 session 重跑实证 BUILD SUCCESS）、validation gate test 7/0、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、T11 **0 产品码改**（纯文档）。
 >
-> **下一步 = P6.3 写路径**。**前置硬约束**：写路径深耦 nereids（`IcebergTransaction` 966 + delete/merge sink + conflict-detection），master plan 注明**须先写 `plan-doc/06-iceberg-write-path-rfc.md` 评审方案（过 PMC）再实现**。起步先读 master plan §3.7 + `P6-iceberg-migration.md` P6.3 块 + P4 W-phase 写 SPI 面（E11，部分就绪）。
+> **✅ P6.3 RFC = 已起草（2026-06-23，本 session，纯文档 0 产品码，未 commit）= `plan-doc/06-iceberg-write-path-rfc.md`**。完成 research-design-workflow 的 **research + design-doc** 阶段：recon `research/p6.3-iceberg-write-recon.md` + RFC + Trino 北极星调研（`.audit-scratch/p6.3-research/{findings,unification,trino-dml-analysis}.md`）。**3 决策签字**（RFC §4）：
+> - **Q2 = 全面统一写框架**：单 `ConnectorTransaction` 模型；删 `usesConnectorTransaction()` fork + `ConnectorInsertHandle`/insert-handle 方法 + dead delete/merge handle 面；jdbc 退化 no-op txn；改 jdbc/maxcompute 配字节 parity。plan-provider-only sink、capability 派发无 instanceof。
+> - **Q1 = Route B / option (i)**（务实迁移）：通用 `RowLevelDmlCommand` 壳 + capability 派发，iceberg `$row_id`/branch-label/投影代数**暂留 fe-core**（连接器-键控、有界 deviation DV-04x），保现有 plan/EXPLAIN parity。拒 (ii) 新 nereids-spi 模块（为单一消费者放松 import-gate 违 Rule 2）。
+> - **Q3 = O5-2**：`ConnectorTransaction.applyWriteConstraint(ConnectorPredicate)` default-no-op，复用 P6.2-T02 `IcebergPredicateConverter`。
+> - **北极星 = Trino 式 (iii) 通用化**（连接器 0 优化器 import、引擎核心全 DML 合成；Trino 实证）→ 后续专门 RFC，演进触发 = hive P7/paimon 第二行级-DML 消费者。
+>
+> **下一步 = (1) PMC 评审 RFC**（3 个 open item 待 PMC：OQ-1 jdbc thrift 移位 vs fallback / OQ-2 `ConnectorWriteType` 去留 / OQ-3 EXPLAIN sink-标签 diff）；**(2) 过审后实现 RFC §11 TODO T01–T09**（T01 框架统一 SPI 收口 → T02 jdbc 退化 adopter → T03–T05 IcebergConnectorTransaction+op 选择+commit 校验+O5-2 → T06 sink 统一 → T07 通用 RowLevelDmlCommand → T08 parity 审计+deviation → T09 收口）。起步先读 RFC + recon。
 >
 > **⚠️ 仍不碰 `SPI_READY_TYPES`**（翻闸只在 P6.6，须等 P6.1–P6.5 全完；现 scan/write/procedure/sys-table 未齐，翻闸即全断）。
 >
