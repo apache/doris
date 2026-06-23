@@ -26,6 +26,7 @@
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -38,7 +39,19 @@
 #include "util/slice.h"
 #include "util/time.h"
 
-namespace doris::segment_v2 {
+namespace doris {
+
+// Context passed from scan/table-reader layers to physical readers for condition cache
+// integration. On MISS, readers set filter_result[granule] to true when row-level predicates keep
+// at least one row in that granule. On HIT, readers skip granules whose cached bit is false.
+struct ConditionCacheContext {
+    bool is_hit = false;
+    std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
+    int64_t base_granule = 0; // global granule index of filter_result[0]
+    static constexpr int GRANULE_SIZE = 2048;
+};
+
+namespace segment_v2 {
 
 class ConditionCacheHandle;
 
@@ -167,4 +180,5 @@ private:
     DISALLOW_COPY_AND_ASSIGN(ConditionCacheHandle);
 };
 
-} // namespace doris::segment_v2
+} // namespace segment_v2
+} // namespace doris

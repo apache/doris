@@ -48,6 +48,7 @@ struct ParquetReaderScanState {
     ParquetScanScheduler scheduler;
     const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
+    int64_t reported_condition_cache_filtered_rows = 0;
 };
 
 DataTypePtr nullable_like_original(const DataTypePtr& type, DataTypePtr nested_type) {
@@ -318,8 +319,32 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
                                                       *request_snapshot, file_block, rows, eof));
+    if (_io_ctx != nullptr) {
+        const int64_t filtered_rows = _state->scheduler.condition_cache_filtered_rows();
+        _io_ctx->condition_cache_filtered_rows +=
+                filtered_rows - _state->reported_condition_cache_filtered_rows;
+        _state->reported_condition_cache_filtered_rows = filtered_rows;
+    }
     _eof = *eof;
     return Status::OK();
+}
+
+void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+    if (_state == nullptr) {
+        return;
+    }
+    _state->scheduler.set_condition_cache_context(std::move(ctx));
+}
+
+int64_t ParquetReader::get_total_rows() const {
+    if (_state == nullptr) {
+        return 0;
+    }
+    int64_t rows = 0;
+    for (const auto& row_group_plan : _state->scan_plan.row_groups) {
+        rows += row_group_plan.row_group_rows;
+    }
+    return rows;
 }
 
 Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& request,

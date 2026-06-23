@@ -58,6 +58,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "storage/segment/condition_cache.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -124,6 +125,8 @@ struct TableReadOptions {
     RuntimeProfile* scanner_profile;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
+    // Digest of stable pushed-down predicates. A zero digest disables condition cache.
+    uint64_t condition_cache_digest = 0;
 };
 
 struct SplitReadOptions {
@@ -195,6 +198,7 @@ public:
                                                            &current_rows, &current_eof));
             if (current_rows == 0) {
                 if (current_eof) {
+                    _current_reader_reached_eof = true;
                     RETURN_IF_ERROR(close_current_reader());
                 }
                 continue;
@@ -211,6 +215,7 @@ public:
                     _check_table_block_columns("after finalize_chunk", block, current_rows));
 #endif
             if (current_eof) {
+                _current_reader_reached_eof = true;
                 RETURN_IF_ERROR(close_current_reader());
             }
             return Status::OK();
@@ -224,9 +229,12 @@ public:
             RETURN_IF_ERROR(close_current_reader());
         }
         _current_task.reset();
+        _current_file_description.reset();
         _remaining_table_level_count = -1;
         return Status::OK();
     }
+
+    int64_t condition_cache_hit_count() const { return _condition_cache_hit_count; }
 
     virtual std::string debug_string() const;
 
@@ -341,11 +349,15 @@ protected:
         LOG(WARNING) << "TableReader debug: " << debug_string();
         RETURN_IF_ERROR(_open_mapping_exprs());
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
+        RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
         return Status::OK();
     }
 
     Status _build_table_filters_from_conjuncts();
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
+    Status _init_reader_condition_cache(const FileScanRequest& file_request);
+    void _finalize_reader_condition_cache();
+    bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
@@ -544,6 +556,7 @@ protected:
     // 关闭当前具体 reader。
     // 该 hook 会被 create_next_reader 和 close 调用；实现应保持幂等。
     virtual Status close_current_reader() {
+        _finalize_reader_condition_cache();
         RETURN_IF_ERROR(_data_reader.reader->close());
         _data_reader.reader.reset();
         _data_reader.column_mapper.clear();
@@ -552,6 +565,8 @@ protected:
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
         _current_task.reset();
+        _current_file_description.reset();
+        _current_reader_reached_eof = false;
         return Status::OK();
     }
 
@@ -1401,6 +1416,7 @@ protected:
     DataReader _data_reader;
     std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
+    std::optional<io::FileDescription> _current_file_description;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;
@@ -1417,6 +1433,12 @@ protected:
     RuntimeProfile* _scanner_profile;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    uint64_t _condition_cache_digest = 0;
+    segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    int64_t _condition_cache_hit_count = 0;
+    bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;

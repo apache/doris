@@ -65,6 +65,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/predicate_creator.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris::format {
 namespace {
@@ -1305,7 +1306,11 @@ struct FakeFileReaderState {
     int init_count = 0;
     int open_count = 0;
     int close_count = 0;
+    int64_t total_rows = 2;
+    bool has_delete_operations = false;
+    bool eof_with_first_batch = true;
     std::shared_ptr<FileScanRequest> last_request;
+    std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
 };
 
 class FakeFileReader final : public FileReader {
@@ -1393,9 +1398,25 @@ public:
 
         _returned_batch = true;
         *rows = 2;
-        *eof = true;
+        *eof = _state->eof_with_first_batch;
+        if (_state->condition_cache_ctx != nullptr && !_state->condition_cache_ctx->is_hit &&
+            _state->condition_cache_ctx->filter_result != nullptr &&
+            !_state->condition_cache_ctx->filter_result->empty()) {
+            // The real file reader marks a granule after local row-level predicates keep at least
+            // one row from that granule. The fake reader does it here so TableReader tests can
+            // focus on condition-cache lifecycle decisions without depending on Parquet internals.
+            (*_state->condition_cache_ctx->filter_result)[0] = true;
+        }
         return Status::OK();
     }
+
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _state->condition_cache_ctx = std::move(ctx);
+    }
+
+    int64_t get_total_rows() const override { return _state->total_rows; }
+
+    bool has_delete_operations() const override { return _state->has_delete_operations; }
 
     Status close() override {
         ++_state->close_count;
@@ -1431,6 +1452,25 @@ protected:
 private:
     std::vector<ColumnDefinition> _file_schema;
     std::shared_ptr<FakeFileReaderState> _state;
+};
+
+class ScopedConditionCacheForTest {
+public:
+    ScopedConditionCacheForTest()
+            : _previous(ExecEnv::GetInstance()->get_condition_cache()),
+              _cache(segment_v2::ConditionCache::create_global_cache(1024 * 1024, 4)) {
+        ExecEnv::GetInstance()->set_condition_cache(_cache.get());
+    }
+
+    ~ScopedConditionCacheForTest() {
+        ExecEnv::GetInstance()->set_condition_cache(_previous);
+    }
+
+    segment_v2::ConditionCache* get() { return _cache.get(); }
+
+private:
+    segment_v2::ConditionCache* _previous = nullptr;
+    std::unique_ptr<segment_v2::ConditionCache> _cache;
 };
 
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
@@ -1622,6 +1662,229 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three"}));
 
     std::filesystem::remove_all(test_dir);
+}
+
+// Scenario: column predicates are pruning hints only. They do not produce a row-level survivor
+// bitmap, so TableReader must not enable condition cache when the scan request has no conjuncts.
+TEST(TableReaderTest, ConditionCacheSkipsColumnPredicateOnlyRequest) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    TableColumnPredicates column_predicates;
+    add_column_predicate(&column_predicates, GlobalIndex(0),
+                         create_comparison_predicate<PredicateType::GT>(
+                                 0, "id", std::make_shared<DataTypeInt32>(),
+                                 Field::create_field<TYPE_INT>(0), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: runtime filters can arrive late and are not represented by the stable predicate digest.
+// A MISS must not insert a bitmap for `stable predicate AND runtime filter` under the stable digest.
+TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterConjunct) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = {prepared_conjunct(
+                                        &state, runtime_filter_wrapper_expr(
+                                                        table_int32_greater_than_expr(0, 0, 0)))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .condition_cache_digest = 7,
+                        })
+                    .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: table-format delete files/deletion vectors are outside the data-file cache key. When a
+// reader reports delete operations, TableReader must keep condition cache disabled for that split.
+TEST(TableReaderTest, ConditionCacheSkipsReaderWithDeleteOperations) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->has_delete_operations = true;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: a MISS bitmap is safe to publish only after the physical reader reaches EOF. This test
+// returns EOF together with the first batch and verifies TableReader publishes the marked bitmap.
+TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
+    ScopedConditionCacheForTest cache;
+
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
+
+    segment_v2::ConditionCache::ExternalCacheKey key("fake-table-reader-input", 0, -1, 7, 0, -1);
+    segment_v2::ConditionCacheHandle handle;
+    ASSERT_TRUE(cache.get()->lookup(key, &handle));
+    const auto cached_bitmap = handle.get_filter_result();
+    ASSERT_NE(cached_bitmap, nullptr);
+    ASSERT_FALSE(cached_bitmap->empty());
+    EXPECT_TRUE((*cached_bitmap)[0]);
+
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: LIMIT/cancel can close a reader before it reaches EOF. TableReader must drop the MISS
+// bitmap because unvisited granules would still be false and unsafe for future cache hits.
+TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenReaderClosesBeforeEof) {
+    ScopedConditionCacheForTest cache;
+
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    fake_state->eof_with_first_batch = false;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
+
+    ASSERT_TRUE(reader.close().ok());
+    segment_v2::ConditionCache::ExternalCacheKey key("fake-table-reader-input", 0, -1, 7, 0, -1);
+    segment_v2::ConditionCacheHandle handle;
+    EXPECT_FALSE(cache.get()->lookup(key, &handle));
 }
 
 TEST(TableReaderTest, PushDownCountFromNewParquetReader) {

@@ -273,6 +273,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .runtime_state = _state,
             .scanner_profile = _local_state->scanner_profile(),
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
+            .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
     return Status::OK();
 }
@@ -527,9 +528,17 @@ Status FileScannerV2::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+    int64_t condition_cache_hit_count = 0;
     if (_table_reader != nullptr) {
+        condition_cache_hit_count = _table_reader->condition_cache_hit_count();
         RETURN_IF_ERROR(_table_reader->close());
         _table_reader.reset();
+    }
+    auto* local_state = static_cast<FileScanLocalState*>(_local_state);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, condition_cache_hit_count);
+    if (_io_ctx != nullptr) {
+        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                       _io_ctx->condition_cache_filtered_rows);
     }
     return Scanner::close(state);
 }

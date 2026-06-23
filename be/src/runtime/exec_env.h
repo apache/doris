@@ -375,6 +375,7 @@ public:
     void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
         this->_tablet_column_object_pool = c;
     }
+    void set_condition_cache(segment_v2::ConditionCache* c) { this->_condition_cache = c; }
 
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
