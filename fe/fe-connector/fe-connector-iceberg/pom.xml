@@ -81,6 +81,18 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
 
+        <!-- Caffeine: needed on the COMPILE classpath for the vendored split-package
+             org.apache.iceberg.DeleteFileIndex (T08). iceberg-core 1.10.1 made DeleteFileIndex package-private,
+             so the connector ships its own public copy (mirrors fe-core) to drive manifest-level scan planning;
+             that copy imports com.github.benmanes.caffeine. iceberg-core already brings caffeine 2.9.3 at runtime
+             scope (so it is in the plugin-zip), but runtime-scoped transitives are not on the compile classpath
+             — hence this explicit compile-scope declaration (same version, deduped). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
+        </dependency>
+
         <!-- Iceberg AWS integration: the glue flavor's org.apache.iceberg.aws.glue.GlueCatalog + S3FileIO.
              Needs the AWS SDK v2 modules below at runtime. -->
         <dependency>

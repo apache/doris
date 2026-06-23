@@ -55,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -988,5 +989,148 @@ public class IcebergScanPlanProviderTest {
         for (ConnectorScanRange range : ranges) {
             Assertions.assertEquals(-1L, range.getPushDownRowCount());
         }
+    }
+
+    // --- T08: manifest-level scan planning (gated by meta.cache.iceberg.manifest.enable) ---
+
+    private static Map<String, String> manifestCacheProps() {
+        Map<String, String> m = new HashMap<>();
+        m.put("meta.cache.iceberg.manifest.enable", "true");
+        return m;
+    }
+
+    /** A provider whose manifest-level path (and IcebergManifestCache) is enabled. */
+    private static IcebergScanPlanProvider manifestProvider(Map<String, String> props, Table table,
+            IcebergManifestCache cache) {
+        return new IcebergScanPlanProvider(props, opsReturning(table), null, cache);
+    }
+
+    private static List<String> sortedPaths(List<ConnectorScanRange> ranges) {
+        List<String> paths = new ArrayList<>();
+        for (ConnectorScanRange r : ranges) {
+            paths.add(r.getPath().get());
+        }
+        Collections.sort(paths);
+        return paths;
+    }
+
+    @Test
+    public void planScanManifestCacheEnabledMatchesSdkPathAndConsumesCache() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/b.parquet", 200, null, null))
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/c.parquet", 300, null, null))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        // Gate OFF (default): the iceberg SDK splitFiles path (T02).
+        List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+
+        // Gate ON: the manifest-level path that reads manifests through the cache.
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+
+        // WHY: the manifest-level path must enumerate the SAME data files as the SDK path. MUTATION: a mistake
+        // in the ported planning (wrong manifest/metrics/residual handling) drops or duplicates files -> red.
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(manifest));
+        Assertions.assertEquals(3, manifest.size());
+        // The cache was actually CONSUMED (the data manifest was read + stored). MUTATION: silently using the SDK
+        // path despite the enable flag -> cache stays empty -> red.
+        Assertions.assertTrue(cache.size() > 0, "the manifest cache must be populated by the gated path");
+    }
+
+    @Test
+    public void planScanManifestCachePrunesPartitionLikeSdk() {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "/d/p1.parquet", 100, null, "p=1"))
+                .appendFile(dataFile(spec, "/d/p2.parquet", 100, null, "p=2"))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "pt");
+        Optional<ConnectorExpression> wherePeq1 = Optional.of(eqInt("p", 1));
+
+        List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .planScan(null, handle, Collections.emptyList(), wherePeq1);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(null, handle, Collections.emptyList(), wherePeq1);
+
+        // WHY: partition pruning (ManifestEvaluator + residual) must keep only p=1 in BOTH paths. MUTATION:
+        // dropping the residual/metrics prune in the manifest path -> p=2 leaks in -> sizes differ -> red.
+        Assertions.assertEquals(sortedPaths(sdk), sortedPaths(manifest));
+        Assertions.assertEquals(1, manifest.size());
+        Assertions.assertTrue(manifest.get(0).getPath().get().endsWith("p1.parquet"));
+    }
+
+    @Test
+    public void planScanManifestCacheEmptyTableReturnsNoRanges() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> ranges = manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        // An empty table has no snapshot; the manifest path returns no ranges (legacy parity). MUTATION:
+        // NPE-ing on a null snapshot -> red.
+        Assertions.assertTrue(ranges.isEmpty());
+        Assertions.assertEquals(0, cache.size());
+    }
+
+    @Test
+    public void planScanManifestGateDisabledByTtlZeroUsesSdkPath() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .commit();
+        Map<String, String> props = manifestCacheProps();
+        props.put("meta.cache.iceberg.manifest.ttl-second", "0"); // CacheSpec.isCacheEnabled: ttl==0 disables
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> ranges = manifestProvider(props, table, cache)
+                .planScan(null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        // enable=true but ttl-second=0 -> gate off -> SDK path -> the cache stays empty. MUTATION: ignoring the
+        // ttl!=0 sub-condition -> the manifest path runs -> cache populated -> red.
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(0, cache.size());
+    }
+
+    private static int deleteCount(ConnectorScanRange range) {
+        TFileRangeDesc d = populate(range);
+        if (!d.getTableFormatParams().isSetIcebergParams()
+                || !d.getTableFormatParams().getIcebergParams().isSetDeleteFiles()) {
+            return 0;
+        }
+        return d.getTableFormatParams().getIcebergParams().getDeleteFiles().size();
+    }
+
+    @Test
+    public void planScanManifestCacheAssociatesDeletesLikeSdk() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(PartitionSpec.unpartitioned(), "/d/a.parquet", 100, null, null))
+                .commit();
+        // The position delete is committed in a LATER snapshot (higher sequence number) so it applies to the
+        // earlier data file — exactly the case DeleteFileIndex.forDataFile(seq, file) resolves.
+        table.newRowDelta()
+                .addDeletes(positionDeleteFile("/d/a-pos-del.parquet", FileFormat.PARQUET, null, null))
+                .commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        List<ConnectorScanRange> sdk = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table))
+                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
+                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(1, sdk.size());
+        Assertions.assertEquals(1, manifest.size());
+        // WHY: the manifest-level path must associate the position delete with the data file via the VENDORED
+        // DeleteFileIndex (the whole reason it is vendored), matching the SDK path. MUTATION: the vendored
+        // DeleteFileIndex failing to attach the delete -> 0 -> red.
+        Assertions.assertEquals(1, deleteCount(sdk.get(0)), "the SDK path associates the position delete");
+        Assertions.assertEquals(deleteCount(sdk.get(0)), deleteCount(manifest.get(0)));
+        // Both the data manifest and the delete manifest were read through the cache.
+        Assertions.assertTrue(cache.size() >= 2, "the data + delete manifests must both be cached");
     }
 }

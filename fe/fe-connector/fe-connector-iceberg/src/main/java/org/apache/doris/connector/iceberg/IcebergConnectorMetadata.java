@@ -34,6 +34,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
@@ -77,12 +78,23 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // and the paimon mirror (PaimonConnectorMetadata) wraps the equivalent reads. The default
     // executeAuthenticated is a pass-through, so simple-auth catalogs are unaffected.
     private final ConnectorContext context;
+    // T08: per-catalog latest-snapshot cache, owned by the long-lived IcebergConnector and injected here so
+    // beginQuerySnapshot pins a STABLE (possibly stale) snapshot across queries within the TTL (legacy
+    // IcebergExternalMetaCache parity, mirrors paimon). The 3-arg ctor (direct-construction tests) passes a
+    // DISABLED cache so those reads stay always-live.
+    private final IcebergLatestSnapshotCache latestSnapshotCache;
 
     public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
             ConnectorContext context) {
+        this(catalogOps, properties, context, new IcebergLatestSnapshotCache(0L, 1));
+    }
+
+    public IcebergConnectorMetadata(IcebergCatalogOps catalogOps, Map<String, String> properties,
+            ConnectorContext context, IcebergLatestSnapshotCache latestSnapshotCache) {
         this.catalogOps = catalogOps;
         this.properties = properties;
         this.context = context;
+        this.latestSnapshotCache = latestSnapshotCache;
     }
 
     // ========== ConnectorSchemaOps ==========
@@ -251,16 +263,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * snapshot id (or {@code -1} for an empty table — iceberg DOES support MVCC, so it still pins, mirroring
      * paimon), and the LATEST schema id (NOT {@code currentSnapshot().schemaId()} — a schema-only change without
      * a new snapshot advances the schema while the snapshot's id lags; legacy reads {@code table.schema()
-     * .schemaId()}). T08 will serve this through a per-catalog snapshot cache; T07 reads live.
+     * .schemaId()}). T08 serves this through the per-catalog {@link IcebergLatestSnapshotCache}: within the TTL
+     * a HIT returns the cached pin without re-loading the table (saves the load I/O and keeps the snapshot
+     * STABLE across queries — the legacy with-cache catalog). The cached value carries BOTH ids atomically so a
+     * schema-only ALTER between two queries cannot skew snapshotId vs schemaId. A disabled cache
+     * ({@code meta.cache.iceberg.table.ttl-second <= 0}) reads live every call (the legacy no-cache catalog).
      */
     @Override
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
             ConnectorSession session, ConnectorTableHandle handle) {
-        Table table = loadTable((IcebergTableHandle) handle);
-        Snapshot current = table.currentSnapshot();
-        long snapshotId = current == null ? -1L : current.snapshotId();
-        long schemaId = table.schema().schemaId();
-        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(snapshotId).schemaId(schemaId).build());
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        TableIdentifier id = TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName());
+        IcebergLatestSnapshotCache.CachedSnapshot pin = latestSnapshotCache.getOrLoad(id, () -> {
+            Table table = loadTable(iceHandle);
+            Snapshot current = table.currentSnapshot();
+            return new IcebergLatestSnapshotCache.CachedSnapshot(
+                    current == null ? -1L : current.snapshotId(), table.schema().schemaId());
+        });
+        return Optional.of(
+                ConnectorMvccSnapshot.builder().snapshotId(pin.snapshotId).schemaId(pin.schemaId).build());
     }
 
     /**

@@ -30,21 +30,32 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DeleteFileIndex;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestContent;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
+import org.apache.iceberg.expressions.ManifestEvaluator;
+import org.apache.iceberg.expressions.Projections;
+import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.TableScanUtil;
@@ -56,6 +67,7 @@ import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -109,21 +121,43 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // instance state between the two SPI methods). Mirrors paimon's paimon.schema_evolution.
     private static final String SCHEMA_EVOLUTION_PROP = "iceberg.schema_evolution";
 
+    // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
+    // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
+    // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
+    // reads hit the connector-owned IcebergManifestCache. The .ttl-second/.capacity properties feed ONLY this
+    // enable formula (legacy quirk); the cache itself is fixed no-TTL / capacity 100000.
+    private static final String MANIFEST_CACHE_ENABLE = "meta.cache.iceberg.manifest.enable";
+    private static final String MANIFEST_CACHE_TTL_SECOND = "meta.cache.iceberg.manifest.ttl-second";
+    private static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
+    private static final boolean DEFAULT_MANIFEST_CACHE_ENABLE = false;
+    private static final long DEFAULT_MANIFEST_CACHE_TTL_SECOND = 48L * 60 * 60;
+    private static final long DEFAULT_MANIFEST_CACHE_CAPACITY = 1024L;
+
     private final Map<String, String> properties;
     private final IcebergCatalogOps catalogOps;
     // Engine seam: executeAuthenticated (Kerberos UGI), storage properties, vended credentials. Nullable —
     // null in offline unit tests via the 2-arg ctor, in which case resolveTable resolves directly.
     private final ConnectorContext context;
+    // T08: per-catalog manifest cache, owned by the long-lived IcebergConnector and injected via getScanPlanProvider.
+    // Nullable — null via the 2-/3-arg ctors (offline tests, default-disabled gate); when null the gate is
+    // forced off and planScan uses the SDK splitFiles path.
+    private final IcebergManifestCache manifestCache;
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
-        this(properties, catalogOps, null);
+        this(properties, catalogOps, null, null);
     }
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
+        this(properties, catalogOps, context, null);
+    }
+
+    public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergManifestCache manifestCache) {
         this.properties = properties;
         this.catalogOps = catalogOps;
         this.context = context;
+        this.manifestCache = manifestCache;
     }
 
     /**
@@ -198,7 +232,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // merge-on-read delete files (T04) — mirroring legacy IcebergScanNode.createIcebergSplit. The field-id
         // history dict (T06, scan-level), MVCC pin, and vended credentials (T09) land later.
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> tasks = splitFiles(scan, session)) {
+        try (CloseableIterable<FileScanTask> tasks = planFileScanTask(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 DataFile dataFile = task.file();
                 ranges.add(buildRange(table, dataFile, task, formatVersion, partitioned, orderedPartitionKeys,
@@ -616,6 +650,181 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         long targetSplitSize = determineTargetFileSplitSize(fileScanTasks, session);
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize);
+    }
+
+    /**
+     * Gate between the two file-enumeration paths (port of legacy {@code IcebergScanNode.planFileScanTask}). By
+     * default ({@code meta.cache.iceberg.manifest.enable} off) and whenever no manifest cache is wired, this is
+     * the iceberg SDK {@code splitFiles} path — byte-identical to T02. When the manifest cache is enabled it
+     * re-plans at the manifest level so the per-manifest data/delete reads hit {@link IcebergManifestCache};
+     * any failure falls back to {@code splitFiles} (legacy parity), so a cache bug can never break a query.
+     */
+    private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan, ConnectorSession session, Table table,
+            Optional<ConnectorExpression> filter) {
+        if (!isManifestCacheEnabled()) {
+            return splitFiles(scan, session);
+        }
+        try {
+            return planFileScanTaskWithManifestCache(scan, session, table, filter);
+        } catch (Exception e) {
+            LOG.warn("Iceberg plan with manifest cache failed, falling back to SDK scan: {}", e.getMessage(), e);
+            return splitFiles(scan, session);
+        }
+    }
+
+    /**
+     * Manifest-level planning that consumes {@link IcebergManifestCache}, ported faithfully from legacy
+     * {@code IcebergScanNode.planFileScanTaskWithManifestCache}. It reconstructs iceberg's own planning:
+     * partition-prune manifests with a {@link ManifestEvaluator}, read each surviving manifest's data/delete
+     * files THROUGH THE CACHE, then per data file apply the {@link InclusiveMetricsEvaluator} (file-stats
+     * pruning) + {@link ResidualEvaluator} (partition residual) and attach its deletes via a
+     * {@link DeleteFileIndex}. The resulting {@link FileScanTask}s are byte-offset-split exactly like
+     * {@link #splitFiles}, so the downstream {@code buildRange} (T03-T07) is unchanged. The predicate /
+     * metrics / schema use the table's CURRENT schema (legacy parity).
+     */
+    private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan,
+            ConnectorSession session, Table table, Optional<ConnectorExpression> filter) throws IOException {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return CloseableIterable.withNoopClose(Collections.emptyList());
+        }
+        Expression filterExpr = combineFilter(filter, table, session);
+        Map<Integer, PartitionSpec> specsById = table.specs();
+        boolean caseSensitive = true;
+
+        Map<Integer, ResidualEvaluator> residualEvaluators = new HashMap<>();
+        specsById.forEach((id, spec) -> residualEvaluators.put(id,
+                ResidualEvaluator.of(spec, filterExpr, caseSensitive)));
+        InclusiveMetricsEvaluator metricsEvaluator =
+                new InclusiveMetricsEvaluator(table.schema(), filterExpr, caseSensitive);
+
+        // Phase 1: partition-prune + cache-load delete manifests into a flat delete-file list.
+        List<DeleteFile> deleteFiles = new ArrayList<>();
+        for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            if (manifest.content() != ManifestContent.DELETES) {
+                continue;
+            }
+            PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+            if (spec == null) {
+                continue;
+            }
+            if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
+                continue;
+            }
+            deleteFiles.addAll(manifestCache.getManifestCacheValue(manifest, table).getDeleteFiles());
+        }
+        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                .specsById(specsById)
+                .caseSensitive(caseSensitive)
+                .build();
+
+        // Phase 2: partition-prune + cache-load data manifests, then file-level prune + attach deletes.
+        List<FileScanTask> tasks = new ArrayList<>();
+        try (CloseableIterable<ManifestFile> dataManifests =
+                getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr)) {
+            for (ManifestFile manifest : dataManifests) {
+                if (manifest.content() != ManifestContent.DATA) {
+                    continue;
+                }
+                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+                if (spec == null) {
+                    continue;
+                }
+                ResidualEvaluator residualEvaluator = residualEvaluators.get(manifest.partitionSpecId());
+                if (residualEvaluator == null) {
+                    continue;
+                }
+                ManifestCacheValue value = manifestCache.getManifestCacheValue(manifest, table);
+                for (DataFile dataFile : value.getDataFiles()) {
+                    if (!metricsEvaluator.eval(dataFile)) {
+                        continue;
+                    }
+                    if (residualEvaluator.residualFor(dataFile.partition()).equals(Expressions.alwaysFalse())) {
+                        continue;
+                    }
+                    DeleteFile[] deletes = deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile);
+                    tasks.add(new BaseFileScanTask(
+                            dataFile,
+                            deletes,
+                            SchemaParser.toJson(table.schema()),
+                            PartitionSpecParser.toJson(spec),
+                            residualEvaluator));
+                }
+            }
+        }
+        long targetSplitSize = determineTargetFileSplitSize(tasks, session);
+        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+    }
+
+    /**
+     * Combine the pushed predicate into one iceberg {@link Expression} for manifest-level pruning, mirroring
+     * legacy {@code conjuncts.stream().map(convertToIcebergExpr).filter(nonNull).reduce(alwaysTrue, and)}. Reuses
+     * the T02 {@link IcebergPredicateConverter} on the table's CURRENT schema; an absent filter is
+     * {@code alwaysTrue()} (scan everything).
+     */
+    private Expression combineFilter(Optional<ConnectorExpression> filter, Table table, ConnectorSession session) {
+        if (!filter.isPresent()) {
+            return Expressions.alwaysTrue();
+        }
+        List<Expression> predicates =
+                new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+        Expression combined = Expressions.alwaysTrue();
+        for (Expression predicate : predicates) {
+            combined = Expressions.and(combined, predicate);
+        }
+        return combined;
+    }
+
+    /**
+     * Port of legacy {@code IcebergUtils.getMatchingManifest}: keep only the data manifests whose partition
+     * summaries can match {@code dataFilter} (a {@link ManifestEvaluator} over the spec-projected filter) and
+     * that still hold added/existing files. Uses a per-call {@link HashMap} evaluator memo (single-threaded
+     * iteration) in place of legacy's Caffeine {@code LoadingCache} — semantically identical.
+     */
+    private static CloseableIterable<ManifestFile> getMatchingManifest(List<ManifestFile> dataManifests,
+            Map<Integer, PartitionSpec> specsById, Expression dataFilter) {
+        Map<Integer, ManifestEvaluator> evalCache = new HashMap<>();
+        CloseableIterable<ManifestFile> matching = CloseableIterable.filter(
+                CloseableIterable.withNoopClose(dataManifests),
+                manifest -> evalCache.computeIfAbsent(manifest.partitionSpecId(), specId -> {
+                    PartitionSpec spec = specsById.get(specId);
+                    return ManifestEvaluator.forPartitionFilter(
+                            Expressions.and(Expressions.alwaysTrue(),
+                                    Projections.inclusive(spec, true).project(dataFilter)),
+                            spec, true);
+                }).eval(manifest));
+        return CloseableIterable.filter(matching,
+                manifest -> manifest.hasAddedFiles() || manifest.hasExistingFiles());
+    }
+
+    /**
+     * Port of legacy {@code IcebergUtils.isManifestCacheEnabled} + {@code CacheSpec.isCacheEnabled}: the
+     * manifest-level path is used iff the manifest cache is wired AND
+     * {@code enable && ttl-second != 0 && capacity != 0}. The {@code .ttl-second}/{@code .capacity} properties
+     * feed ONLY this formula (legacy quirk); the cache itself is fixed no-TTL / capacity 100000. A blank or
+     * unparseable numeric value falls back to its default rather than failing the scan.
+     */
+    private boolean isManifestCacheEnabled() {
+        if (manifestCache == null) {
+            return false;
+        }
+        boolean enable = Boolean.parseBoolean(
+                properties.getOrDefault(MANIFEST_CACHE_ENABLE, String.valueOf(DEFAULT_MANIFEST_CACHE_ENABLE)));
+        long ttl = propLong(MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND);
+        long capacity = propLong(MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+        return enable && ttl != 0 && capacity != 0;
+    }
+
+    private long propLong(String key, long defaultValue) {
+        String raw = properties == null ? null : properties.get(key);
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     /**

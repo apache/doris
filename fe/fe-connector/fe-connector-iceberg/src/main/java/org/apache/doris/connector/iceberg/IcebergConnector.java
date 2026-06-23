@@ -38,6 +38,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -99,13 +100,47 @@ public class IcebergConnector implements Connector {
     private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> REGISTERED_DRIVER_KEYS = ConcurrentHashMap.newKeySet();
 
+    // T08 latest-snapshot cache knobs (mirror PaimonConnector). The TTL pins a STABLE snapshot across queries;
+    // <= 0 means "no-cache catalog" (always live). Defaults mirror the legacy iceberg table cache
+    // (Config.external_cache_expire_time_seconds_after_access = 24h, Config.max_external_table_cache_num).
+    static final String TABLE_CACHE_TTL_SECOND = "meta.cache.iceberg.table.ttl-second";
+    static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
+    static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
+    // T08 connector-internal caches (D6, 0 SPI). Final per-catalog fields: a REFRESH CATALOG rebuilds the
+    // connector (PluginDrivenExternalCatalog.onClose nulls + recreates it) and thus drops both caches. The
+    // manifest cache is path-keyed, no-TTL, capacity-bounded; it is consumed only when
+    // meta.cache.iceberg.manifest.enable is set (default off → scan uses the SDK planFiles path).
+    private final IcebergLatestSnapshotCache latestSnapshotCache;
+    private final IcebergManifestCache manifestCache = new IcebergManifestCache();
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
         this.context = context;
+        this.latestSnapshotCache = new IcebergLatestSnapshotCache(
+                resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
+    }
+
+    /**
+     * Resolves {@code meta.cache.iceberg.table.ttl-second} (default 24h); a blank/unparseable value falls back
+     * to the default rather than failing catalog creation (best-effort, mirrors PaimonConnector). A value
+     * {@code <= 0} disables caching (the no-cache catalog reads the latest snapshot live every query).
+     */
+    static long resolveTableCacheTtlSecond(Map<String, String> properties) {
+        String raw = properties.get(TABLE_CACHE_TTL_SECOND);
+        if (StringUtils.isBlank(raw)) {
+            return DEFAULT_TABLE_CACHE_TTL_SECOND;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            LOG.warn("Invalid {}='{}', falling back to default {}s", TABLE_CACHE_TTL_SECOND, raw,
+                    DEFAULT_TABLE_CACHE_TTL_SECOND);
+            return DEFAULT_TABLE_CACHE_TTL_SECOND;
+        }
     }
 
     @Override
@@ -124,7 +159,24 @@ public class IcebergConnector implements Connector {
         return new IcebergConnectorMetadata(
                 new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog(),
                         restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName),
-                properties, context);
+                properties, context, latestSnapshotCache);
+    }
+
+    /**
+     * REFRESH TABLE hook: drop the cached latest snapshot for one table so the next query re-pins live
+     * (mirrors PaimonConnector). The names are the REMOTE db/table (RefreshManager passes remote names, the
+     * same form {@link IcebergConnectorMetadata#beginQuerySnapshot} keys on). The manifest cache is path-keyed
+     * and intentionally NOT cleared here (legacy IcebergExternalMetaCache parity — db/table invalidation keeps
+     * manifest entries; only a REFRESH CATALOG, i.e. connector rebuild, drops them).
+     */
+    @Override
+    public void invalidateTable(String dbName, String tableName) {
+        latestSnapshotCache.invalidate(TableIdentifier.of(dbName, tableName));
+    }
+
+    @Override
+    public void invalidateAll() {
+        latestSnapshotCache.invalidateAll();
     }
 
     @Override
@@ -134,7 +186,7 @@ public class IcebergConnector implements Connector {
         // (nested-namespace / view / external-catalog name) that getMetadata threads are irrelevant here —
         // the 1-arg CatalogBackedIcebergCatalogOps (with their defaults) suffices.
         return new IcebergScanPlanProvider(properties,
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context, manifestCache);
     }
 
     /**

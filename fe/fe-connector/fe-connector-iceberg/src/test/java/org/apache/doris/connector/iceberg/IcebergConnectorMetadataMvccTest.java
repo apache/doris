@@ -146,6 +146,41 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertEquals(-1L, snap.get().getSnapshotId());
     }
 
+    @Test
+    public void beginQuerySnapshotEnabledCachePinsStableAndLoadsOnce() {
+        Fixture f = fixture();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = f.table;
+        // An ENABLED cache (TTL 100s) injected via the 4-arg ctor — the production wiring (IcebergConnector
+        // injects its per-catalog cache here). T08.
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(
+                ops, Collections.emptyMap(), new RecordingConnectorContext(),
+                new IcebergLatestSnapshotCache(100, 1000));
+        Optional<ConnectorMvccSnapshot> first = md.beginQuerySnapshot(null, handle());
+        Optional<ConnectorMvccSnapshot> second = md.beginQuerySnapshot(null, handle());
+        // WHY: within the TTL the second query reuses the cached pin (same snapshot + schema) WITHOUT re-loading
+        // the table — the legacy with-cache catalog stability + I/O saving. MUTATION: not consulting the cache
+        // (live every call) -> loadTable runs twice -> red.
+        Assertions.assertEquals(f.s2, first.get().getSnapshotId());
+        Assertions.assertEquals(f.s2, second.get().getSnapshotId());
+        Assertions.assertEquals(f.schemaIdS2, second.get().getSchemaId());
+        long loads = ops.log.stream().filter(s -> s.equals("loadTable:db1.t1")).count();
+        Assertions.assertEquals(1, loads, "an enabled cache must load the table at most once within the TTL");
+    }
+
+    @Test
+    public void beginQuerySnapshotDisabledCacheLoadsEveryCall() {
+        Fixture f = fixture();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        // The default 3-arg ctor wires a DISABLED cache (ttl=0) -> always live (preserves T07 semantics for the
+        // direct-construction tests). MUTATION: defaulting to an enabled cache -> loads==1 -> red.
+        IcebergConnectorMetadata md = metadataFor(f.table, ops);
+        md.beginQuerySnapshot(null, handle());
+        md.beginQuerySnapshot(null, handle());
+        long loads = ops.log.stream().filter(s -> s.equals("loadTable:db1.t1")).count();
+        Assertions.assertEquals(2, loads, "a disabled cache must read live (load) on every query");
+    }
+
     // ---------------------------------------------------------------------
     // resolveTimeTravel
     // ---------------------------------------------------------------------
