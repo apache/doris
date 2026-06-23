@@ -22,6 +22,8 @@
 
 #include <dlfcn.h>
 
+#include "common/phdr_cache.h"
+
 namespace doris {
 
 Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr) {
@@ -44,6 +46,9 @@ Status dynamic_open(const char* library, void** handle) {
         return Status::InternalError("Unable to load {}\ndlerror: {}", library, dlerror());
     }
 
+    // The process-wide dl_iterate_phdr override serves unwinders from a PHDR snapshot. Refresh it
+    // after Doris-controlled dlopen so stack traces and exceptions can see newly loaded UDF libs.
+    updatePHDRCache();
     return Status::OK();
 }
 
@@ -52,6 +57,9 @@ void dynamic_close(void* handle) {
 // https://github.com/google/sanitizers/issues/89
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER)
     dlclose(handle);
+    // dlclose changes the loader object list. Refresh after the close so later unwinding does not
+    // consult stale PHDR entries for Doris-controlled dynamic libraries.
+    updatePHDRCache();
 #endif
 }
 

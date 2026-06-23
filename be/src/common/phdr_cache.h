@@ -25,10 +25,9 @@
 /** Collects all dl_phdr_info items and caches them in a static array.
   * Also rewrites dl_iterate_phdr with a lock-free version which consults the above cache
   * thus eliminating scalability bottleneck in C++ exception unwinding.
-  * As a drawback, this only works if no dynamic object unloading happens after this point.
-  * This function is thread-safe. You should call it to update cache after loading new shared libraries.
-  * Otherwise exception handling from dlopened libraries won't work (will call std::terminate immediately).
-  * NOTE: dlopen is forbidden in our code.
+  * The cache has to be refreshed after Doris-controlled dlopen/dlclose calls; otherwise unwinding
+  * can miss newly loaded objects or keep stale unloaded ones. The function is thread-safe because
+  * old cache snapshots are intentionally leaked and remain readable by concurrent unwinders.
   *
   * NOTE: It is disabled with Thread Sanitizer because TSan can only use original "dl_iterate_phdr" function.
   */

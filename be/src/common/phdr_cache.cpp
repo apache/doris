@@ -74,22 +74,13 @@ std::atomic<PHDRCache*> phdr_cache {};
 
 } // namespace
 
-// Jemalloc heap profile follows libgcc's way of backtracing by default.
-// rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile.
-
-// TODO, two solutions:
-// 1. Jemalloc specifies GNU libunwind as the prof backtracing way, but my test failed,
-//    `--enable-prof-libunwind` not work: https://github.com/jemalloc/jemalloc/issues/2504
-// 2. ClickHouse/libunwind solves Jemalloc profile backtracing, but the branch of ClickHouse/libunwind
-//    has been out of touch with GNU libunwind and LLVM libunwind, which will leave the fate to others.
-/*
 extern "C"
 #ifndef __clang__
         [[gnu::visibility("default")]] [[gnu::externally_visible]]
 #endif
         int
         dl_iterate_phdr(int (*callback)(dl_phdr_info* info, size_t size, void* data), void* data) {
-    auto* current_phdr_cache = phdr_cache.load();
+    auto* current_phdr_cache = phdr_cache.load(std::memory_order_acquire);
     if (!current_phdr_cache) {
         // Cache is not yet populated, pass through to the original function.
         return getOriginalDLIteratePHDR()(callback, data);
@@ -104,13 +95,13 @@ extern "C"
     }
     return result;
 }
-*/
 
 #include "util/debug/leak_annotations.h"
 
 void updatePHDRCache() {
     // Fill out ELF header cache for access without locking.
-    // This assumes no dynamic object loading/unloading after this point
+    // Old snapshots are intentionally kept alive because another thread may already be unwinding
+    // through the previous cache when a Doris-controlled dlopen/dlclose refreshes this one.
 
     PHDRCache* new_phdr_cache = new PHDRCache;
     getOriginalDLIteratePHDR()(
@@ -123,14 +114,14 @@ void updatePHDRCache() {
                 return 0;
             },
             new_phdr_cache);
-    phdr_cache.store(new_phdr_cache);
+    phdr_cache.store(new_phdr_cache, std::memory_order_release);
 
     /// Memory is intentionally leaked.
     ANNOTATE_LEAKING_OBJECT_PTR(new_phdr_cache);
 }
 
 bool hasPHDRCache() {
-    return phdr_cache.load() != nullptr;
+    return phdr_cache.load(std::memory_order_acquire) != nullptr;
 }
 
 #else

@@ -56,6 +56,7 @@
 #endif
 
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/stack_trace.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
@@ -73,7 +74,6 @@ constexpr std::string_view HEADER_TEXT = "text/plain; charset=utf-8";
 constexpr int STACK_TRACE_SIGNAL_OFFSET = 6;
 constexpr int DEFAULT_TIMEOUT_MS = 100;
 constexpr int MAX_TIMEOUT_MS = 10000;
-constexpr size_t MAX_MEMORY_RANGES = 8192;
 constexpr std::string_view DEFAULT_DWARF_MODE = "FAST";
 
 struct ThreadInfo {
@@ -81,22 +81,9 @@ struct ThreadInfo {
     std::string name;
 };
 
-struct MemoryRange {
-    uintptr_t begin = 0;
-    uintptr_t end = 0;
-};
-
-enum class FramePointerStatus {
-    END_OF_CHAIN,
-    NO_CONTEXT,
-    UNSUPPORTED_ARCH,
-    NO_STACK_RANGE,
-    INVALID_FRAME_POINTER,
-    FRAME_LIMIT,
-};
-
 enum class SignalContextUnwindStatus {
     NOT_ATTEMPTED,
+    NO_CONTEXT,
     END_OF_STACK,
     INIT_ERROR,
     GET_IP_ERROR,
@@ -105,16 +92,11 @@ enum class SignalContextUnwindStatus {
     UNSUPPORTED,
 };
 
-struct FramePointerCapture {
+struct SignalContextCapture {
     StackTrace::FramePointers frame_pointers {};
     size_t size = 0;
-    uintptr_t stack_begin = 0;
-    uintptr_t stack_end = 0;
-    FramePointerStatus fp_status = FramePointerStatus::NO_CONTEXT;
-    bool used_signal_context_unwind = false;
-    SignalContextUnwindStatus signal_context_unwind_status =
-            SignalContextUnwindStatus::NOT_ATTEMPTED;
-    int signal_context_unwind_error = 0;
+    SignalContextUnwindStatus unwind_status = SignalContextUnwindStatus::NOT_ATTEMPTED;
+    int unwind_error = 0;
 };
 
 struct ThreadSyscall {
@@ -128,16 +110,11 @@ std::atomic<pid_t> g_server_pid {0};
 std::atomic<int> g_sequence {0};
 // The signal handler cannot allocate per-request state safely, so it publishes into one
 // process-wide slot. The latch protects that slot from nested or back-to-back signals while the
-// coordinator is still copying or unwinding the previous thread's context.
+// HTTP worker is still copying the previous thread's captured PCs.
 std::atomic<int> g_active_sequence {0};
 std::atomic<int> g_data_ready_sequence {0};
-std::atomic<int> g_unwind_wait_sequence {0};
-std::atomic<int> g_unwind_release_sequence {0};
 std::atomic<bool> g_signal_latch {false};
-FramePointerCapture g_signal_capture;
-ucontext_t g_signal_context {};
-std::array<MemoryRange, MAX_MEMORY_RANGES> g_memory_ranges {};
-size_t g_memory_range_count = 0;
+SignalContextCapture g_signal_capture;
 int g_notification_pipe[2] = {-1, -1};
 
 int rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t* info) {
@@ -156,135 +133,33 @@ pid_t get_current_tid() {
     return static_cast<pid_t>(syscall(SYS_gettid));
 }
 
-bool read_signal_registers(const ucontext_t* context, uintptr_t* pc, uintptr_t* fp, uintptr_t* sp) {
-    if (context == nullptr) {
-        return false;
-    }
-
-#if defined(__x86_64__)
-    *pc = static_cast<uintptr_t>(context->uc_mcontext.gregs[REG_RIP]);
-    *fp = static_cast<uintptr_t>(context->uc_mcontext.gregs[REG_RBP]);
-    *sp = static_cast<uintptr_t>(context->uc_mcontext.gregs[REG_RSP]);
-    return true;
-#elif defined(__aarch64__)
-    *pc = static_cast<uintptr_t>(context->uc_mcontext.pc);
-    *fp = static_cast<uintptr_t>(context->uc_mcontext.regs[29]);
-    *sp = static_cast<uintptr_t>(context->uc_mcontext.sp);
-    return true;
-#else
-    return false;
-#endif
-}
-
-bool range_contains(const MemoryRange& range, uintptr_t address) {
-    return address >= range.begin && address < range.end;
-}
-
-bool frame_record_is_readable(const MemoryRange& range, uintptr_t fp) {
-    constexpr uintptr_t frame_record_size = sizeof(uintptr_t) * 2;
-    // The interrupted register can come from code without frame pointers or from a prologue/
-    // epilogue. Bounds plus alignment keep the handler from reinterpreting arbitrary stack bytes
-    // as a frame record.
-    return fp % alignof(uintptr_t) == 0 && fp >= range.begin &&
-           fp <= std::numeric_limits<uintptr_t>::max() - frame_record_size &&
-           fp + frame_record_size <= range.end;
-}
-
-const MemoryRange* find_stack_range(uintptr_t sp, uintptr_t fp) {
-    for (size_t i = 0; i < g_memory_range_count; ++i) {
-        const auto& range = g_memory_ranges[i];
-        if (range_contains(range, sp) && range_contains(range, fp)) {
-            return &range;
-        }
-    }
-    return nullptr;
-}
-
-void append_frame(FramePointerCapture* capture, uintptr_t pc) {
+void append_frame(SignalContextCapture* capture, uintptr_t pc) {
     if (pc == 0 || capture->size >= capture->frame_pointers.size()) {
         return;
     }
     capture->frame_pointers[capture->size++] = reinterpret_cast<void*>(pc);
 }
 
-void capture_frame_pointers_from_context(const ucontext_t* context, FramePointerCapture* capture) {
-    *capture = FramePointerCapture {};
-
-    uintptr_t pc = 0;
-    uintptr_t fp = 0;
-    uintptr_t sp = 0;
-    if (!read_signal_registers(context, &pc, &fp, &sp)) {
-#if defined(__x86_64__) || defined(__aarch64__)
-        capture->fp_status = FramePointerStatus::NO_CONTEXT;
-#else
-        capture->fp_status = FramePointerStatus::UNSUPPORTED_ARCH;
-#endif
+void capture_signal_context_unwind(const ucontext_t* context, SignalContextCapture* capture) {
+    *capture = SignalContextCapture {};
+    if (context == nullptr) {
+        capture->unwind_status = SignalContextUnwindStatus::NO_CONTEXT;
         return;
     }
 
-    append_frame(capture, pc);
-    const MemoryRange* stack_range = find_stack_range(sp, fp);
-    if (stack_range == nullptr || fp < sp) {
-        capture->fp_status = FramePointerStatus::NO_STACK_RANGE;
-        return;
-    }
-    if (!frame_record_is_readable(*stack_range, fp)) {
-        capture->fp_status = FramePointerStatus::INVALID_FRAME_POINTER;
-        return;
-    }
-
-    capture->stack_begin = stack_range->begin;
-    capture->stack_end = stack_range->end;
-
-    uintptr_t current_fp = fp;
-    while (capture->size < capture->frame_pointers.size()) {
-        if (!frame_record_is_readable(*stack_range, current_fp)) {
-            capture->fp_status = FramePointerStatus::INVALID_FRAME_POINTER;
-            return;
-        }
-
-        const auto* frame_record = reinterpret_cast<const uintptr_t*>(current_fp);
-        const uintptr_t next_fp = frame_record[0];
-        const uintptr_t return_address = frame_record[1];
-        append_frame(capture, return_address);
-
-        if (next_fp == 0) {
-            capture->fp_status = FramePointerStatus::END_OF_CHAIN;
-            return;
-        }
-        if (next_fp <= current_fp || !range_contains(*stack_range, next_fp) ||
-            !frame_record_is_readable(*stack_range, next_fp)) {
-            capture->fp_status = FramePointerStatus::INVALID_FRAME_POINTER;
-            return;
-        }
-        current_fp = next_fp;
-    }
-
-    capture->fp_status = FramePointerStatus::FRAME_LIMIT;
-}
-
-bool should_fallback_to_signal_context_unwind(const FramePointerCapture& capture) {
-    return capture.fp_status != FramePointerStatus::END_OF_CHAIN &&
-           capture.fp_status != FramePointerStatus::FRAME_LIMIT;
-}
-
-void capture_signal_context_unwind(const ucontext_t* context, FramePointerCapture* capture) {
 #if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
-    StackTrace::FramePointers frame_pointers {};
-    size_t size = 0;
-
     unw_cursor_t cursor;
     auto* unwind_context = reinterpret_cast<unw_context_t*>(const_cast<ucontext_t*>(context));
     int rc = unw_init_local2(&cursor, unwind_context, UNW_INIT_SIGNAL_FRAME);
     if (rc < 0) {
-        capture->signal_context_unwind_status = SignalContextUnwindStatus::INIT_ERROR;
-        capture->signal_context_unwind_error = rc;
+        capture->unwind_status = SignalContextUnwindStatus::INIT_ERROR;
+        capture->unwind_error = rc;
         return;
     }
 
     SignalContextUnwindStatus status = SignalContextUnwindStatus::END_OF_STACK;
     int unwind_error = 0;
-    while (size < frame_pointers.size()) {
+    while (capture->size < capture->frame_pointers.size()) {
         unw_word_t ip = 0;
         rc = unw_get_reg(&cursor, UNW_REG_IP, &ip);
         if (rc < 0) {
@@ -293,7 +168,7 @@ void capture_signal_context_unwind(const ucontext_t* context, FramePointerCaptur
             break;
         }
         if (ip != 0) {
-            frame_pointers[size++] = reinterpret_cast<void*>(ip);
+            append_frame(capture, static_cast<uintptr_t>(ip));
         }
 
         rc = unw_step(&cursor);
@@ -308,26 +183,22 @@ void capture_signal_context_unwind(const ucontext_t* context, FramePointerCaptur
         unwind_error = rc;
         break;
     }
-    if (size == frame_pointers.size()) {
+    if (capture->size == capture->frame_pointers.size()) {
         status = SignalContextUnwindStatus::FRAME_LIMIT;
     }
 
-    capture->signal_context_unwind_status = status;
-    capture->signal_context_unwind_error = unwind_error;
-    if (size > capture->size) {
-        capture->frame_pointers = frame_pointers;
-        capture->size = size;
-        capture->used_signal_context_unwind = true;
-    }
+    capture->unwind_status = status;
+    capture->unwind_error = unwind_error;
 #else
-    capture->signal_context_unwind_status = SignalContextUnwindStatus::UNSUPPORTED;
+    capture->unwind_status = SignalContextUnwindStatus::UNSUPPORTED;
 #endif
 }
 
-// SAFETY: this signal handler never symbolicates, never calls libunwind, and never calls
-// dl_iterate_phdr or malloc. It walks frame records inside the preloaded stack mapping and,
-// when frame-pointer walking is insufficient, copies the ucontext_t for the coordinator thread
-// to unwind while this thread remains paused in the handler.
+// SAFETY: this handler only runs libunwind against the kernel-provided signal context and writes
+// raw PCs into a preallocated process-wide slot. It never symbolicates, logs, allocates strings, or
+// opens /proc. This is deliberately different from the old coordinator fallback: the target thread
+// leaves the handler as soon as PCs are copied, so it cannot hold a loader/unwinder lock while an
+// HTTP worker tries to unwind it.
 void stack_trace_signal_handler(int /*sig*/, siginfo_t* info, void* context) {
     auto saved_errno = errno;
 
@@ -349,13 +220,7 @@ void stack_trace_signal_handler(int /*sig*/, siginfo_t* info, void* context) {
     }
 
     const auto* signal_context = reinterpret_cast<const ucontext_t*>(context);
-    capture_frame_pointers_from_context(signal_context, &g_signal_capture);
-    const bool needs_coordinator_unwind =
-            should_fallback_to_signal_context_unwind(g_signal_capture);
-    if (needs_coordinator_unwind) {
-        g_signal_context = *signal_context;
-        g_unwind_wait_sequence.store(notification_sequence, std::memory_order_release);
-    }
+    capture_signal_context_unwind(signal_context, &g_signal_capture);
     g_data_ready_sequence.store(notification_sequence, std::memory_order_release);
 
     if (g_notification_pipe[1] >= 0) {
@@ -364,19 +229,6 @@ void stack_trace_signal_handler(int /*sig*/, siginfo_t* info, void* context) {
         (void)res;
     }
 
-    while (needs_coordinator_unwind &&
-           g_unwind_release_sequence.load(std::memory_order_acquire) != notification_sequence &&
-           g_active_sequence.load(std::memory_order_acquire) == notification_sequence) {
-#if defined(__x86_64__)
-        __builtin_ia32_pause();
-#else
-        std::atomic_signal_fence(std::memory_order_seq_cst);
-#endif
-    }
-
-    if (needs_coordinator_unwind) {
-        g_unwind_wait_sequence.store(0, std::memory_order_release);
-    }
     g_signal_latch.store(false, std::memory_order_release);
     errno = saved_errno;
 }
@@ -385,6 +237,13 @@ void install_signal_handler() {
     if (stack_trace_signal() <= 0) {
         LOG(FATAL) << "SIGRTMIN+" << STACK_TRACE_SIGNAL_OFFSET << " exceeds SIGRTMAX";
     }
+
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+    updatePHDRCache();
+    if (!hasPHDRCache()) {
+        LOG(FATAL) << "BE thread stack trace requires lock-free PHDR cache";
+    }
+#endif
 
     g_server_pid.store(getpid(), std::memory_order_release);
     if (pipe2(g_notification_pipe, O_CLOEXEC | O_NONBLOCK) != 0) {
@@ -592,24 +451,6 @@ bool parse_hex_u64(std::string_view value, uint64_t* result) {
     return true;
 }
 
-bool parse_maps_range(std::string_view value, MemoryRange* range) {
-    const size_t dash = value.find('-');
-    if (dash == std::string_view::npos) {
-        return false;
-    }
-
-    uint64_t begin = 0;
-    uint64_t end = 0;
-    if (!parse_hex_u64(value.substr(0, dash), &begin) ||
-        !parse_hex_u64(value.substr(dash + 1), &end) || begin >= end) {
-        return false;
-    }
-
-    range->begin = static_cast<uintptr_t>(begin);
-    range->end = static_cast<uintptr_t>(end);
-    return true;
-}
-
 bool wait_for_signal_handler_idle(int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (g_signal_latch.load(std::memory_order_acquire)) {
@@ -621,54 +462,30 @@ bool wait_for_signal_handler_idle(int timeout_ms) {
     return true;
 }
 
-bool release_signal_handler_and_wait(int sequence, int timeout_ms) {
-    // A published stack only means the data slot is ready. The target thread may still be inside
-    // the handler waiting for fallback unwind release; starting the next TID before the latch drops
-    // can make that next handler return without publishing anything.
-    g_unwind_release_sequence.store(sequence, std::memory_order_release);
+bool finish_signal_capture_and_wait(int timeout_ms) {
     g_active_sequence.store(0, std::memory_order_release);
     return wait_for_signal_handler_idle(timeout_ms);
 }
 
-bool load_readable_writable_mappings(int timeout_ms, std::string* error) {
-    // Stack bounds are read before any signal is sent because the handler must not open /proc,
-    // allocate, or take locks while the target thread is asynchronously interrupted.
+bool prepare_signal_capture(int timeout_ms, std::string* error) {
+    // Refresh PHDR cache before sending signals. Doing this outside the handler can safely take the
+    // original glibc loader lock and picks up dynamic libraries loaded outside Doris wrappers.
     g_active_sequence.store(0, std::memory_order_release);
     if (!wait_for_signal_handler_idle(timeout_ms)) {
         *error = "previous stack trace signal handler is still running";
         return false;
     }
-    g_memory_range_count = 0;
 
-    std::ifstream maps("/proc/self/maps");
-    if (!maps.is_open()) {
-        *error = fmt::format("failed to open /proc/self/maps: {}", std::strerror(errno));
+#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+    updatePHDRCache();
+    if (!hasPHDRCache()) {
+        *error = "lock-free PHDR cache is unavailable";
         return false;
     }
-
-    std::string line;
-    while (std::getline(maps, line)) {
-        std::istringstream iss(line);
-        std::string address_range;
-        std::string permissions;
-        if (!(iss >> address_range >> permissions)) {
-            continue;
-        }
-        if (permissions.size() < 2 || permissions[0] != 'r' || permissions[1] != 'w') {
-            continue;
-        }
-
-        MemoryRange range;
-        if (!parse_maps_range(address_range, &range)) {
-            continue;
-        }
-        if (g_memory_range_count >= g_memory_ranges.size()) {
-            *error = fmt::format("too many readable writable mappings, max={}", MAX_MEMORY_RANGES);
-            g_memory_range_count = 0;
-            return false;
-        }
-        g_memory_ranges[g_memory_range_count++] = range;
-    }
+#else
+    *error = "signal-context libunwind is unsupported on this build";
+    return false;
+#endif
 
     return true;
 }
@@ -864,28 +681,12 @@ std::optional<ThreadSyscall> current_interrupt_sensitive_syscall(pid_t tid) {
     return ThreadSyscall {.number = number, .name = syscall_name(number)};
 }
 
-std::string fp_status_to_string(FramePointerStatus status) {
-    switch (status) {
-    case FramePointerStatus::END_OF_CHAIN:
-        return "end_of_chain";
-    case FramePointerStatus::NO_CONTEXT:
-        return "no_context";
-    case FramePointerStatus::UNSUPPORTED_ARCH:
-        return "unsupported_arch";
-    case FramePointerStatus::NO_STACK_RANGE:
-        return "no_stack_range";
-    case FramePointerStatus::INVALID_FRAME_POINTER:
-        return "invalid_frame_pointer";
-    case FramePointerStatus::FRAME_LIMIT:
-        return "frame_limit";
-    }
-    return "unknown";
-}
-
 std::string signal_context_unwind_status_to_string(SignalContextUnwindStatus status) {
     switch (status) {
     case SignalContextUnwindStatus::NOT_ATTEMPTED:
         return "not_attempted";
+    case SignalContextUnwindStatus::NO_CONTEXT:
+        return "no_context";
     case SignalContextUnwindStatus::END_OF_STACK:
         return "end_of_stack";
     case SignalContextUnwindStatus::INIT_ERROR:
@@ -902,22 +703,15 @@ std::string signal_context_unwind_status_to_string(SignalContextUnwindStatus sta
     return "unknown";
 }
 
-std::string describe_frame_pointer_capture(const FramePointerCapture& capture) {
+std::string describe_signal_context_capture(const SignalContextCapture& capture) {
     std::stringstream out;
-    out << "capture_method="
-        << (capture.used_signal_context_unwind ? "signal_context_libunwind" : "frame_pointer");
+    out << "capture_method=signal_context_libunwind";
     out << " frames=" << capture.size;
-    out << " fp_status=" << fp_status_to_string(capture.fp_status);
-    if (capture.signal_context_unwind_status != SignalContextUnwindStatus::NOT_ATTEMPTED) {
-        out << " unwind_status="
-            << signal_context_unwind_status_to_string(capture.signal_context_unwind_status);
-        if (capture.signal_context_unwind_error != 0) {
-            out << " unwind_error=" << capture.signal_context_unwind_error;
-        }
+    out << " unwind_status=" << signal_context_unwind_status_to_string(capture.unwind_status);
+    if (capture.unwind_error != 0) {
+        out << " unwind_error=" << capture.unwind_error;
     }
-    if (capture.stack_begin != 0 || capture.stack_end != 0) {
-        out << fmt::format(" stack_bounds=0x{:x}-0x{:x}", capture.stack_begin, capture.stack_end);
-    }
+    out << " phdr_cache=" << (hasPHDRCache() ? "true" : "false");
     return out.str();
 }
 
@@ -972,7 +766,7 @@ bool wait_for_stack_trace(int sequence, int timeout_ms) {
     }
 }
 
-std::string symbolize_stack_trace(const FramePointerCapture& capture,
+std::string symbolize_stack_trace(const SignalContextCapture& capture,
                                   const std::string& dwarf_mode) {
     StackTrace::FramePointers frame_pointers = capture.frame_pointers;
     return StackTrace::toString(frame_pointers.data(), 0, capture.size, dwarf_mode);
@@ -1003,7 +797,8 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
                                    bool skip_blocking_syscalls) {
     if (tid == get_current_tid()) {
         return {CaptureStatus::CURRENT_THREAD, capture_current_thread_stack(dwarf_mode), "",
-                "capture_method=current_thread_stacktrace"};
+                fmt::format("capture_method=current_thread_libunwind phdr_cache={}",
+                            hasPHDRCache() ? "true" : "false")};
     }
 
     if (skip_blocking_syscalls) {
@@ -1017,16 +812,13 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
         return {CaptureStatus::SIGNAL_BLOCKED, "", "", ""};
     }
 
-    // The handler publishes through process-global state, not per-thread storage. Waiting here is
-    // the guardrail that keeps a previous slow-to-exit handler from causing this TID's signal to be
-    // dropped by the latch CAS.
+    // The handler publishes through process-global state, not per-thread storage. Waiting here
+    // keeps a still-running handler from causing this TID's signal to be dropped by the latch CAS.
     if (!wait_for_signal_handler_idle(timeout_ms)) {
         return {CaptureStatus::TIMEOUT, "", "", "previous_signal_handler_still_running"};
     }
 
     int sequence = g_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
-    g_unwind_release_sequence.store(0, std::memory_order_release);
-    g_unwind_wait_sequence.store(0, std::memory_order_release);
     g_active_sequence.store(sequence, std::memory_order_release);
     siginfo_t signal_info {};
     signal_info.si_code = SI_QUEUE;
@@ -1044,25 +836,26 @@ CaptureResult capture_thread_stack(pid_t tid, const std::string& dwarf_mode, int
     }
 
     if (!wait_for_stack_trace(sequence, timeout_ms)) {
-        const bool handler_idle = release_signal_handler_and_wait(sequence, timeout_ms);
+        const bool handler_idle = finish_signal_capture_and_wait(timeout_ms);
         return {CaptureStatus::TIMEOUT, "", "",
                 handler_idle ? "" : "signal_handler_release_timeout"};
     }
 
-    FramePointerCapture capture = g_signal_capture;
-    if (should_fallback_to_signal_context_unwind(capture) &&
-        g_unwind_wait_sequence.load(std::memory_order_acquire) == sequence) {
-        capture_signal_context_unwind(&g_signal_context, &capture);
-    }
-    if (!release_signal_handler_and_wait(sequence, timeout_ms)) {
-        // Returning the captured stack while the target is still in the handler would hide a much
-        // more serious diagnostic side effect. Treat it as a timeout so the summary reflects the
-        // release failure explicitly.
+    SignalContextCapture capture = g_signal_capture;
+    if (!finish_signal_capture_and_wait(timeout_ms)) {
+        // The handler no longer waits for coordinator unwinding; a non-idle latch now means the
+        // signal handler itself is stuck, which is a diagnostic side effect we must surface.
         return {CaptureStatus::TIMEOUT, "", "", "signal_handler_release_timeout"};
+    }
+    if (capture.size == 0 || capture.unwind_status == SignalContextUnwindStatus::NO_CONTEXT ||
+        capture.unwind_status == SignalContextUnwindStatus::INIT_ERROR ||
+        capture.unwind_status == SignalContextUnwindStatus::GET_IP_ERROR ||
+        capture.unwind_status == SignalContextUnwindStatus::UNSUPPORTED) {
+        return {CaptureStatus::SIGNAL_ERROR, "", "", describe_signal_context_capture(capture)};
     }
 
     return {CaptureStatus::OK, symbolize_stack_trace(capture, dwarf_mode), "",
-            describe_frame_pointer_capture(capture)};
+            describe_signal_context_capture(capture)};
 }
 
 std::string status_to_string(CaptureStatus status) {
@@ -1157,7 +950,7 @@ void BeThreadStackAction::handle(HttpRequest* req) {
     }
 
     auto threads = list_threads(tid_filter);
-    if (!load_readable_writable_mappings(timeout_ms, &error)) {
+    if (!prepare_signal_capture(timeout_ms, &error)) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, error + "\n");
         return;
     }
@@ -1170,8 +963,8 @@ void BeThreadStackAction::handle(HttpRequest* req) {
     out << "timeout_ms_per_thread: " << timeout_ms << '\n';
     out << "dwarf_location_info_mode: " << dwarf_mode << '\n';
     out << "skip_blocking_syscalls: " << (skip_blocking_syscalls ? "true" : "false") << '\n';
-    out << "signal_handler_unwinder: "
-           "frame_pointer_with_coordinator_signal_context_libunwind_fallback\n\n";
+    out << "phdr_cache: " << (hasPHDRCache() ? "true" : "false") << '\n';
+    out << "signal_handler_unwinder: signal_context_libunwind\n\n";
 
     int captured = 0;
     int skipped = 0;

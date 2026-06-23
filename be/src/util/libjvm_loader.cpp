@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <mutex>
 
+#include "common/phdr_cache.h"
 #include "common/status.h"
 #include "jni.h"
 #include "jni_md.h"
@@ -50,6 +51,11 @@ doris::Status resolve_symbol(T& pointer, void* handle, const char* symbol) {
     return (pointer != nullptr)
                    ? doris::Status::OK()
                    : doris::Status::RuntimeError("Failed to resolve the symbol {}", symbol);
+}
+
+void close_jvm_handle(void* handle) {
+    dlclose(handle);
+    ::updatePHDRCache();
 }
 
 } // namespace
@@ -89,11 +95,14 @@ Status LibJVMLoader::load() {
     static Status status;
     std::call_once(resolve_symbols, [this]() {
         _handle = std::unique_ptr<void, void (*)(void*)>(dlopen(_library.c_str(), RTLD_LAZY),
-                                                         [](void* handle) { dlclose(handle); });
+                                                         close_jvm_handle);
         if (!_handle) {
             status = Status::RuntimeError(dlerror());
             return;
         }
+        // libjvm is loaded outside the generic UDF dynamic_open wrapper. Refresh the PHDR cache so
+        // signal-context unwinding can resolve frames through the JVM native library.
+        ::updatePHDRCache();
 
         if (status = resolve_symbol(JNI_GetCreatedJavaVMs, _handle.get(), "JNI_GetCreatedJavaVMs");
             !status.ok()) {
