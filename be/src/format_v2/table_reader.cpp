@@ -320,6 +320,13 @@ void collect_global_indices(const VExprSPtr& expr, std::set<GlobalIndex>* global
     if (expr == nullptr) {
         return;
     }
+    if (expr->is_rf_wrapper()) {
+        // RuntimeFilterExpr wraps a real predicate expression but its own thrift node can still
+        // look like SLOT_REF. Collect indices from the wrapped predicate; do not cast the wrapper
+        // itself to VSlotRef.
+        collect_global_indices(expr->get_impl(), global_indices);
+        return;
+    }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
         DORIS_CHECK(slot_ref->column_id() >= 0);

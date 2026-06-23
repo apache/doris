@@ -3533,9 +3533,11 @@ TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
 
     const auto& result = block.get_by_position(0);
     ASSERT_TRUE(result.check_type_and_column_match().ok());
-    const auto& missing_values = assert_cast<const ColumnString&>(*result.column);
-    ASSERT_EQ(missing_values.size(), 1);
-    EXPECT_EQ(missing_values.get_data_at(0).to_string(), "");
+    // A missing scalar column without an explicit default is materialized as a default-value
+    // column. It may stay constant, so verify through the IColumn interface instead of assuming a
+    // concrete ColumnString instance.
+    ASSERT_EQ(result.column->size(), 1);
+    EXPECT_EQ(result.column->get_data_at(0).to_string(), "");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
