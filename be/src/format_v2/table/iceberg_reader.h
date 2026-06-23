@@ -161,7 +161,6 @@ private:
     std::optional<TIcebergFileDesc> _iceberg_params;
     bool _delete_predicates_initialized = false;
     format::DeleteRows _position_delete_rows_storage;
-    // TODO: Support nested types
     struct EqualityDeleteFilter {
         std::vector<int> field_ids;
         std::vector<DataTypePtr> key_types;
