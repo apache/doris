@@ -24,6 +24,15 @@ import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
  */
 public class CosFileSystem extends S3CompatibleFileSystem {
 
+    public CosFileSystem(CosFileSystemProperties properties) {
+        this(properties, new CosObjStorage(properties));
+    }
+
+    CosFileSystem(CosFileSystemProperties properties, CosObjStorage objStorage) {
+        super(objStorage, objStorage.isUsePathStyle(),
+                properties.isSkipListForDeterministicPath(), properties.getHeadRequestMaxPaths());
+    }
+
     public CosFileSystem(CosObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle());
     }

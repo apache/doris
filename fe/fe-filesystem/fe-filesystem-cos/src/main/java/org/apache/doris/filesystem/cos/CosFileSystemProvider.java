@@ -61,7 +61,7 @@ public class CosFileSystemProvider implements FileSystemProvider<CosFileSystemPr
 
     @Override
     public FileSystem create(CosFileSystemProperties properties) throws IOException {
-        return new CosFileSystem(new CosObjStorage(properties));
+        return new CosFileSystem(properties);
     }
 
     @Override

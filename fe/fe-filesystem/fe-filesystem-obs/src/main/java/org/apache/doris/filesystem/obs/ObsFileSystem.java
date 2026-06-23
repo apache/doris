@@ -24,6 +24,15 @@ import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
  */
 public class ObsFileSystem extends S3CompatibleFileSystem {
 
+    public ObsFileSystem(ObsFileSystemProperties properties) {
+        this(properties, new ObsObjStorage(properties));
+    }
+
+    ObsFileSystem(ObsFileSystemProperties properties, ObsObjStorage objStorage) {
+        super(objStorage, objStorage.isUsePathStyle(),
+                properties.isSkipListForDeterministicPath(), properties.getHeadRequestMaxPaths());
+    }
+
     public ObsFileSystem(ObsObjStorage objStorage) {
         super(objStorage, objStorage.isUsePathStyle());
     }

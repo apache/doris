@@ -71,6 +71,8 @@ class S3FileSystemPropertiesTest {
         raw.put("s3.root.path", "root");
         raw.put("s3.connection.maximum", "64");
         raw.put("use_path_style", "true");
+        raw.put("s3_skip_list_for_deterministic_path", "false");
+        raw.put("s3_head_request_max_paths", "0");
 
         S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
 
@@ -81,10 +83,14 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("token", properties.getSessionToken());
         Assertions.assertEquals("bucket", properties.getBucket());
         Assertions.assertEquals("root", properties.getRootPath());
+        Assertions.assertFalse(properties.isSkipListForDeterministicPath());
+        Assertions.assertEquals(0, properties.getHeadRequestMaxPaths());
 
         Assertions.assertEquals("https://minio.local", properties.matchedProperties().get("s3.endpoint"));
         Assertions.assertEquals("us-west-2", properties.matchedProperties().get("region"));
         Assertions.assertEquals("ak", properties.matchedProperties().get("s3.access_key"));
+        Assertions.assertEquals("false", properties.matchedProperties().get("s3_skip_list_for_deterministic_path"));
+        Assertions.assertEquals("0", properties.matchedProperties().get("s3_head_request_max_paths"));
 
         Map<String, String> fsKv = properties.toFileSystemKv();
         Assertions.assertEquals("https://minio.local", fsKv.get("AWS_ENDPOINT"));
@@ -96,6 +102,50 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("root", fsKv.get("AWS_ROOT_PATH"));
         Assertions.assertEquals("64", fsKv.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("true", fsKv.get("use_path_style"));
+    }
+
+    @Test
+    void of_defaultsExactPathHeadControls() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertTrue(properties.isSkipListForDeterministicPath());
+        Assertions.assertEquals(S3FileSystemProperties.DEFAULT_HEAD_REQUEST_MAX_PATHS,
+                properties.getHeadRequestMaxPaths());
+    }
+
+    @Test
+    void of_rejectsInvalidExactPathHeadControlBoolean() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        raw.put("s3_skip_list_for_deterministic_path", "yes");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("s3_skip_list_for_deterministic_path"));
+    }
+
+    @Test
+    void of_rejectsNegativeExactPathHeadLimit() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        raw.put("s3_head_request_max_paths", "-1");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> S3FileSystemProperties.of(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("s3_head_request_max_paths"));
     }
 
     @Test

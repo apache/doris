@@ -28,6 +28,11 @@ import java.util.Map;
 public class S3CompatibleFileSystemPropertiesTest {
 
     private static S3CompatibleFileSystemProperties withUsePathStyle(String usePathStyle) {
+        return withBooleanSettings(usePathStyle, "true");
+    }
+
+    private static S3CompatibleFileSystemProperties withBooleanSettings(String usePathStyle,
+            String skipListForDeterministicPath) {
         return new S3CompatibleFileSystemProperties() {
             @Override
             public String getEndpoint() {
@@ -95,6 +100,16 @@ public class S3CompatibleFileSystemPropertiesTest {
             }
 
             @Override
+            public String getSkipListForDeterministicPath() {
+                return skipListForDeterministicPath;
+            }
+
+            @Override
+            public int getHeadRequestMaxPaths() {
+                return DEFAULT_HEAD_REQUEST_MAX_PATHS;
+            }
+
+            @Override
             public String providerName() {
                 return "TEST";
             }
@@ -151,5 +166,37 @@ public class S3CompatibleFileSystemPropertiesTest {
         Assertions.assertFalse(withUsePathStyle("true").hasInvalidUsePathStyle());
         Assertions.assertFalse(withUsePathStyle(null).hasInvalidUsePathStyle());
         Assertions.assertTrue(withUsePathStyle("ture").hasInvalidUsePathStyle());
+    }
+
+    @Test
+    public void testIsSkipListForDeterministicPathParsesValidValues() {
+        Assertions.assertTrue(withBooleanSettings("false", "true").isSkipListForDeterministicPath());
+        Assertions.assertTrue(withBooleanSettings("false", "TRUE").isSkipListForDeterministicPath());
+        Assertions.assertTrue(withBooleanSettings("false", " true ").isSkipListForDeterministicPath());
+        Assertions.assertFalse(withBooleanSettings("false", "false").isSkipListForDeterministicPath());
+        Assertions.assertFalse(withBooleanSettings("false", "False").isSkipListForDeterministicPath());
+    }
+
+    @Test
+    public void testIsSkipListForDeterministicPathTreatsBlankAsTrue() {
+        Assertions.assertTrue(withBooleanSettings("false", null).isSkipListForDeterministicPath());
+        Assertions.assertTrue(withBooleanSettings("false", "").isSkipListForDeterministicPath());
+        Assertions.assertTrue(withBooleanSettings("false", "   ").isSkipListForDeterministicPath());
+    }
+
+    @Test
+    public void testIsSkipListForDeterministicPathRejectsInvalidValues() {
+        for (String invalid : new String[] {"ture", "1", "yes", "on"}) {
+            IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> withBooleanSettings("false", invalid).isSkipListForDeterministicPath());
+            Assertions.assertTrue(e.getMessage().contains(invalid));
+        }
+    }
+
+    @Test
+    public void testHasInvalidSkipListForDeterministicPath() {
+        Assertions.assertFalse(withBooleanSettings("false", "true").hasInvalidSkipListForDeterministicPath());
+        Assertions.assertFalse(withBooleanSettings("false", null).hasInvalidSkipListForDeterministicPath());
+        Assertions.assertTrue(withBooleanSettings("false", "ture").hasInvalidSkipListForDeterministicPath());
     }
 }
