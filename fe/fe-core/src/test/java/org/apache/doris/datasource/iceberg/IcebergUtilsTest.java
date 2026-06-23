@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -710,5 +711,34 @@ public class IcebergUtilsTest {
         Assert.assertEquals(expectSnapshotId, queryInfo.getSnapshotId());
         Assert.assertEquals(expectSchemaId, queryInfo.getSchemaId());
         Assert.assertEquals(expectRef, queryInfo.getRef());
+    }
+
+    @Test
+    public void testGetFileFormatHonorsWriteFormatProperty() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(IcebergUtils.WRITE_FORMAT, "ORC"));
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getFileFormat(table));
+        // No snapshot lookup should be needed when properties are sufficient.
+        Mockito.verify(table, Mockito.never()).currentSnapshot();
+    }
+
+    @Test
+    public void testGetFileFormatHonorsDefaultFormatProperty() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
+        Mockito.verify(table, Mockito.never()).currentSnapshot();
+    }
+
+    @Test
+    public void testGetFileFormatFallsBackToParquetWhenNoSnapshotAndNoProperties() {
+        // Migrated tables without write-format / write.format.default and no snapshot
+        // must not throw and must default to parquet.
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of());
+        Mockito.when(table.currentSnapshot()).thenReturn(null);
+        Mockito.when(table.name()).thenReturn("test_no_snapshot_table");
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
     }
 }

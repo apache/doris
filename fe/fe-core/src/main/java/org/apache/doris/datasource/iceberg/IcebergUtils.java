@@ -79,9 +79,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -106,6 +108,7 @@ import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -133,6 +136,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -1184,16 +1188,30 @@ public class IcebergUtils {
     }
 
     private static String inferFileFormatFromDataFiles(Table icebergTable) {
-        if (icebergTable.currentSnapshot() == null) {
+        Snapshot snapshot = icebergTable.currentSnapshot();
+        if (snapshot == null) {
             LOG.info("Iceberg table {} has no snapshot, defaulting to {}", icebergTable.name(), PARQUET_NAME);
             return PARQUET_NAME;
         }
-        try (CloseableIterable<FileScanTask> files = icebergTable.newScan().planFiles()) {
-            java.util.Iterator<FileScanTask> it = files.iterator();
-            if (it.hasNext()) {
-                String format = it.next().file().format().name().toLowerCase();
-                LOG.info("Iceberg table {} inferred file format {} from data files", icebergTable.name(), format);
-                return format;
+        FileIO io = icebergTable.io();
+        try {
+            for (ManifestFile manifest : snapshot.dataManifests(io)) {
+                // Read the `file_format` field from a single data manifest entry.
+                // To avoid many synchronous IO hanging FE planning.
+                if (manifest.addedFilesCount() != null && manifest.existingFilesCount() != null
+                        && manifest.addedFilesCount() == 0 && manifest.existingFilesCount() == 0) {
+                    continue;
+                }
+                try (CloseableIterable<DataFile> entries = ManifestFiles.read(manifest, io)
+                        .select(Collections.singletonList(DataFile.FILE_FORMAT.name()))) {
+                    java.util.Iterator<DataFile> it = entries.iterator();
+                    if (it.hasNext()) {
+                        String format = it.next().format().name().toLowerCase();
+                        LOG.info("Iceberg table {} inferred file format {} from manifest {}",
+                                icebergTable.name(), format, manifest.path());
+                        return format;
+                    }
+                }
             }
         } catch (Exception e) {
             LOG.warn("Failed to infer file format from data files for table {}, defaulting to {}",
