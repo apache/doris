@@ -654,6 +654,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
+    public int pendingSplitCount() {
+        synchronized (splitsLock) {
+            return remainingSplits.size();
+        }
+    }
+
+    @Override
     public boolean noMoreSplits() {
         if (!checkNeedSplitChunks(sourceProperties)) {
             return true;
