@@ -30,24 +30,23 @@
 
 namespace doris {
 
-namespace {
-
-bthread::Mutex& close_wait_mutex() {
-    static bthread::Mutex mutex;
-    return mutex;
+int64_t CloseWaitNotifier::close_wait_version() const {
+    return _close_wait_version.load(std::memory_order_acquire);
 }
 
-bthread::ConditionVariable& close_wait_cv() {
-    static bthread::ConditionVariable cv;
-    return cv;
+void CloseWaitNotifier::wait_for_close_event(int64_t observed_version, int64_t timeout_ms) {
+    std::unique_lock<bthread::Mutex> lock(_close_wait_mutex);
+    if (observed_version != close_wait_version()) {
+        return;
+    }
+    static_cast<void>(_close_wait_cv.wait_for(lock, timeout_ms * 1000));
 }
 
-std::atomic<int64_t>& close_wait_version_value() {
-    static std::atomic<int64_t> version {0};
-    return version;
+void CloseWaitNotifier::notify_close_wait() {
+    _close_wait_version.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<bthread::Mutex> lock(_close_wait_mutex);
+    _close_wait_cv.notify_all();
 }
-
-} // namespace
 
 int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                                  size_t size) {
@@ -137,7 +136,7 @@ void LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
         return;
     }
     stub->_is_closed.store(true);
-    LoadStreamStub::notify_close_wait();
+    stub->notify_close_wait();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler) {
@@ -148,12 +147,16 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
                                std::shared_ptr<IndexToTabletSchema> schema_map,
-                               std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental)
+                               std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental,
+                               std::shared_ptr<CloseWaitNotifier> close_wait_notifier)
         : _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(schema_map),
           _enable_unique_mow_for_index(mow_map),
-          _is_incremental(incremental) {};
+          _is_incremental(incremental),
+          _close_wait_notifier(std::move(close_wait_notifier)) {
+    DCHECK(_close_wait_notifier != nullptr);
+};
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_open.load() && !_is_closed.load()) {
@@ -384,22 +387,8 @@ Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) 
     return Status::OK();
 }
 
-int64_t LoadStreamStub::close_wait_version() {
-    return close_wait_version_value().load(std::memory_order_acquire);
-}
-
-void LoadStreamStub::wait_for_close_event(int64_t observed_version, int64_t timeout_ms) {
-    std::unique_lock<bthread::Mutex> lock(close_wait_mutex());
-    if (observed_version != close_wait_version()) {
-        return;
-    }
-    static_cast<void>(close_wait_cv().wait_for(lock, timeout_ms * 1000));
-}
-
 void LoadStreamStub::notify_close_wait() {
-    close_wait_version_value().fetch_add(1, std::memory_order_acq_rel);
-    std::lock_guard<bthread::Mutex> lock(close_wait_mutex());
-    close_wait_cv().notify_all();
+    _close_wait_notifier->notify_close_wait();
 }
 
 void LoadStreamStub::cancel(Status reason) {
