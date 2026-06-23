@@ -1307,8 +1307,8 @@ struct FakeFileReaderState {
     int open_count = 0;
     int close_count = 0;
     int64_t total_rows = 2;
-    bool has_delete_operations = false;
     bool eof_with_first_batch = true;
+    bool inject_delete_conjunct = false;
     std::shared_ptr<FileScanRequest> last_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
 };
@@ -1416,8 +1416,6 @@ public:
 
     int64_t get_total_rows() const override { return _state->total_rows; }
 
-    bool has_delete_operations() const override { return _state->has_delete_operations; }
-
     Status close() override {
         ++_state->close_count;
         _request.reset();
@@ -1446,6 +1444,19 @@ protected:
         file_description->path = "fake-table-reader-input";
         *reader = std::make_unique<FakeFileReader>(system_properties, file_description,
                                                    _file_schema, _state);
+        return Status::OK();
+    }
+
+    Status customize_file_scan_request(FileScanRequest* file_request) override {
+        RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
+        if (_state->inject_delete_conjunct) {
+            // Table-format delete handling is represented in v2 by TableReader injecting
+            // delete_conjuncts into the file scan request. The fake reader does not execute it;
+            // this only tests that condition cache is disabled once such table-level delete state
+            // is present in the request.
+            file_request->delete_conjuncts.push_back(
+                    VExprContext::create_shared(table_int32_literal(1)));
+        }
         return Status::OK();
     }
 
@@ -1747,9 +1758,10 @@ TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterConjunct) {
     ASSERT_TRUE(reader.close().ok());
 }
 
-// Scenario: table-format delete files/deletion vectors are outside the data-file cache key. When a
-// reader reports delete operations, TableReader must keep condition cache disabled for that split.
-TEST(TableReaderTest, ConditionCacheSkipsReaderWithDeleteOperations) {
+// Scenario: table-format delete files/deletion vectors are outside the data-file cache key. When
+// TableReader injects delete conjuncts into the file scan request, condition cache must be disabled
+// for that split.
+TEST(TableReaderTest, ConditionCacheSkipsRequestWithDeleteConjuncts) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
 
@@ -1759,7 +1771,7 @@ TEST(TableReaderTest, ConditionCacheSkipsReaderWithDeleteOperations) {
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto fake_state = std::make_shared<FakeFileReaderState>();
-    fake_state->has_delete_operations = true;
+    fake_state->inject_delete_conjunct = true;
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,

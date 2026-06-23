@@ -581,8 +581,7 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
-    if (_delete_rows != nullptr || _data_reader.reader->has_delete_operations() ||
-        !file_request.delete_conjuncts.empty()) {
+    if (_delete_rows != nullptr || !file_request.delete_conjuncts.empty()) {
         return false;
     }
     // Runtime filters can arrive late and their payload is not guaranteed to be represented by the

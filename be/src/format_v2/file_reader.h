@@ -270,10 +270,6 @@ public:
     // Readers should return 0 if the metadata is unavailable or the row coordinate is unstable.
     virtual int64_t get_total_rows() const { return 0; }
 
-    // Delete files/deletion vectors change the row-level result independently of the data file
-    // key, so TableReader disables condition cache when a reader reports delete operations.
-    virtual bool has_delete_operations() const { return false; }
-
     // 关闭当前物理文件 reader 并释放文件层状态。
     // 该方法不处理 table-level delete/finalize 状态，后者由 TableReader 子类管理。
     virtual Status close() {
