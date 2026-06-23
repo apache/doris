@@ -160,12 +160,17 @@ option(ENABLE_TDE "Enable TDE feature module" OFF)
 set(TDE_MODULE_DIR "" CACHE STRING "TDE feature module directory under be/src")
 option(ENABLE_TLS "Enable TLS feature module" OFF)
 set(TLS_MODULE_DIR "" CACHE STRING "TLS feature module directory under be/src")
+option(ENABLE_VARIANT_NESTED_GROUP "Enable Variant NestedGroup feature module" OFF)
+set(VARIANT_NESTED_GROUP_MODULE_DIR "" CACHE STRING "Variant NestedGroup feature module directory under be/src")
 
 if (ENABLE_TDE AND "${TDE_MODULE_DIR}" STREQUAL "")
     message(FATAL_ERROR "ENABLE_TDE requires TDE_MODULE_DIR")
 endif()
 if (ENABLE_TLS AND "${TLS_MODULE_DIR}" STREQUAL "")
     message(FATAL_ERROR "ENABLE_TLS requires TLS_MODULE_DIR")
+endif()
+if (ENABLE_VARIANT_NESTED_GROUP AND "${VARIANT_NESTED_GROUP_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_VARIANT_NESTED_GROUP requires VARIANT_NESTED_GROUP_MODULE_DIR")
 endif()
 
 # Allow env to override when reconfiguring (avoid picking /usr/local).
