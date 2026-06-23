@@ -38,6 +38,8 @@ class time_zone;
 
 namespace doris::format::parquet {
 
+struct ScalarColumnReaderTestAccess;
+
 // 基本类型列的读取器，直接持有 Arrow RecordReader 并通过 ParquetLeafReader 读写值。
 //
 // 这是所有 ColumnReader 中唯一直接与 Arrow RecordReader 交互的 reader。
@@ -50,6 +52,7 @@ namespace doris::format::parquet {
 // 来读取 key 列的 values 用于 entry 存在性校验。
 class ScalarColumnReader final : public ParquetColumnReader {
     friend class MapColumnReader;
+    friend struct ScalarColumnReaderTestAccess;
 
 public:
     ScalarColumnReader(const ParquetColumnSchema& column_schema,

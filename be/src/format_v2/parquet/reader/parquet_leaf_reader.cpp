@@ -538,6 +538,17 @@ Status ParquetLeafReader::build_null_map(const ParquetLeafBatch& batch, int64_t 
 Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_slot_definition_level,
                                             ParquetNestedScalarBatch* batch,
                                             int16_t value_slot_repetition_level) const {
+    ParquetLeafBatch leaf_batch;
+    int64_t records_read = 0;
+    RETURN_IF_ERROR(read_batch(batch_rows, &leaf_batch, &records_read));
+    return build_nested_batch_from_leaf_batch(leaf_batch, records_read, value_slot_definition_level,
+                                              batch, value_slot_repetition_level);
+}
+
+Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
+        const ParquetLeafBatch& leaf_batch, int64_t records_read,
+        int16_t value_slot_definition_level, ParquetNestedScalarBatch* batch,
+        int16_t value_slot_repetition_level) const {
     if (batch == nullptr) {
         return Status::InvalidArgument("Nested scalar batch is null for column {}", _name);
     }
@@ -545,8 +556,7 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_sl
     batch->value_slot_definition_level = value_slot_definition_level;
     batch->value_slot_repetition_level = value_slot_repetition_level;
 
-    ParquetLeafBatch leaf_batch;
-    RETURN_IF_ERROR(read_batch(batch_rows, &leaf_batch, &batch->records_read));
+    batch->records_read = records_read;
     if (_type->is_nullable() && leaf_batch.read_dense_for_nullable()) {
         return Status::NotSupported(
                 "Dense nullable parquet nested reader is not supported for column {}", _name);

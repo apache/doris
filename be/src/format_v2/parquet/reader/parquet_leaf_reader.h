@@ -49,6 +49,8 @@ class Array;
 
 namespace doris::format::parquet {
 
+struct ParquetLeafReaderTestAccess;
+
 // 嵌套标量叶子的读取结果，将 Dremel 编码的 shape 和实际 value 分离。
 //
 // 设计意图：复杂 reader（LIST/MAP/STRUCT）先消费 shape（def_levels + rep_levels + value_indices）
@@ -182,6 +184,8 @@ public:
             int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max()) const;
 
 private:
+    friend struct ParquetLeafReaderTestAccess;
+
     // 将 RecordReader 的内部状态捕获为不可变的 ParquetLeafBatch。
     // 分别处理固定宽度类型（values()）和 binary 类型（GetBuilderChunks()）。
     Status collect_batch(::parquet::internal::RecordReader& record_reader,
@@ -193,6 +197,12 @@ private:
     Status build_spaced_fixed_values(const ParquetLeafBatch& batch, int64_t row_count,
                                      const NullMap* null_map,
                                      std::vector<uint8_t>* spaced_values) const;
+
+    Status build_nested_batch_from_leaf_batch(const ParquetLeafBatch& leaf_batch,
+                                              int64_t records_read,
+                                              int16_t value_slot_definition_level,
+                                              ParquetNestedScalarBatch* batch,
+                                              int16_t value_slot_repetition_level) const;
 
     const ::parquet::ColumnDescriptor* _descriptor =
             nullptr;                        // Arrow 列描述符（physical_type, max_dl, max_rl）

@@ -20,6 +20,7 @@
 #include <arrow/array/builder_binary.h>
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
+#include <parquet/api/schema.h>
 
 #include <cmath>
 #include <cstring>
@@ -120,6 +121,51 @@ ParquetLeafReader make_spy_leaf_reader(ParquetTypeDescriptor descriptor, DataTyp
 }
 
 } // namespace
+
+struct ParquetLeafReaderTestAccess {
+    static ParquetLeafBatch make_fixed_batch(const std::vector<int16_t>& def_levels,
+                                             const std::vector<int16_t>& rep_levels,
+                                             const std::vector<int32_t>& values,
+                                             bool read_dense_for_nullable = false) {
+        ParquetLeafBatch batch;
+        batch._value_kind = DecodedValueKind::INT32;
+        batch._consumed_level_count = static_cast<int64_t>(def_levels.size());
+        batch._decoded_level_count = static_cast<int64_t>(def_levels.size());
+        batch._values_written = static_cast<int64_t>(values.size());
+        batch._def_levels = def_levels.data();
+        batch._rep_levels = rep_levels.data();
+        batch._fixed_values = reinterpret_cast<const uint8_t*>(values.data());
+        batch._read_dense_for_nullable = read_dense_for_nullable;
+        return batch;
+    }
+
+    static Status build_nested_batch(const ParquetLeafReader& reader,
+                                     const ParquetLeafBatch& leaf_batch, int64_t records_read,
+                                     int16_t value_slot_definition_level,
+                                     int16_t value_slot_repetition_level,
+                                     ParquetNestedScalarBatch* nested_batch) {
+        return reader.build_nested_batch_from_leaf_batch(leaf_batch, records_read,
+                                                         value_slot_definition_level, nested_batch,
+                                                         value_slot_repetition_level);
+    }
+};
+
+std::shared_ptr<::parquet::ColumnDescriptor> int32_column_descriptor(int16_t max_definition_level,
+                                                                     int16_t max_repetition_level) {
+    auto node = ::parquet::schema::PrimitiveNode::Make("leaf", ::parquet::Repetition::OPTIONAL,
+                                                       ::parquet::Type::INT32);
+    return std::make_shared<::parquet::ColumnDescriptor>(node, max_definition_level,
+                                                         max_repetition_level);
+}
+
+ParquetLeafReader make_nested_leaf_reader(
+        const std::shared_ptr<::parquet::ColumnDescriptor>& descriptor, DataTypePtr type) {
+    ParquetTypeDescriptor type_descriptor;
+    type_descriptor.physical_type = ::parquet::Type::INT32;
+    type_descriptor.doris_type = type;
+    return ParquetLeafReader(descriptor.get(), type_descriptor, std::move(type), "nested_leaf",
+                             nullptr);
+}
 
 TEST(ParquetLeafReaderTest, DenseNullableFixedValuesAreSpacedBeforeSerde) {
     ParquetTypeDescriptor descriptor;
@@ -351,6 +397,110 @@ TEST(ParquetLeafReaderTest, DecodedColumnViewCapturesBinaryFixedLengthAndFloat16
     const auto* floats = reinterpret_cast<const float*>(float16_view.fixed_values.data());
     EXPECT_FLOAT_EQ(floats[0], 1.5F);
     EXPECT_FLOAT_EQ(floats[1], 2.0F);
+}
+
+TEST(ParquetLeafReaderTest, NestedBatchValueLayoutLevels) {
+    auto descriptor = int32_column_descriptor(2, 1);
+    auto reader = make_nested_leaf_reader(descriptor, std::make_shared<DataTypeInt32>());
+    const std::vector<int16_t> def_levels = {2, 2, 2};
+    const std::vector<int16_t> rep_levels = {0, 1, 0};
+    const std::vector<int32_t> values = {10, 20, 30};
+    const auto leaf_batch =
+            ParquetLeafReaderTestAccess::make_fixed_batch(def_levels, rep_levels, values);
+
+    ParquetNestedScalarBatch nested_batch;
+    auto status = ParquetLeafReaderTestAccess::build_nested_batch(reader, leaf_batch, 2, 2, 1,
+                                                                  &nested_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(nested_batch.records_read, 2);
+    EXPECT_EQ(nested_batch.levels_written, 3);
+    EXPECT_EQ(nested_batch.value_indices, std::vector<int64_t>({0, 1, 2}));
+    const auto& nested_values = assert_cast<const ColumnInt32&>(*nested_batch.values_column);
+    ASSERT_EQ(nested_values.size(), 3);
+    EXPECT_EQ(nested_values.get_element(0), 10);
+    EXPECT_EQ(nested_values.get_element(2), 30);
+}
+
+TEST(ParquetLeafReaderTest, NestedBatchValueLayoutValueSlots) {
+    auto descriptor = int32_column_descriptor(2, 1);
+    auto reader = make_nested_leaf_reader(descriptor, std::make_shared<DataTypeInt32>());
+    const std::vector<int16_t> def_levels = {2, 1, 2, 0};
+    const std::vector<int16_t> rep_levels = {0, 1, 0, 0};
+    const std::vector<int32_t> values = {10, 777, 30};
+    const auto leaf_batch =
+            ParquetLeafReaderTestAccess::make_fixed_batch(def_levels, rep_levels, values);
+
+    ParquetNestedScalarBatch nested_batch;
+    auto status = ParquetLeafReaderTestAccess::build_nested_batch(reader, leaf_batch, 3, 1, 1,
+                                                                  &nested_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(nested_batch.value_indices, std::vector<int64_t>({0, -1, 2, -1}));
+}
+
+TEST(ParquetLeafReaderTest, NestedBatchValueLayoutLeafValues) {
+    auto descriptor = int32_column_descriptor(2, 1);
+    auto reader = make_nested_leaf_reader(descriptor, std::make_shared<DataTypeInt32>());
+    const std::vector<int16_t> def_levels = {2, 1, 2, 0};
+    const std::vector<int16_t> rep_levels = {0, 1, 0, 0};
+    const std::vector<int32_t> values = {10, 30};
+    const auto leaf_batch =
+            ParquetLeafReaderTestAccess::make_fixed_batch(def_levels, rep_levels, values);
+
+    ParquetNestedScalarBatch nested_batch;
+    auto status = ParquetLeafReaderTestAccess::build_nested_batch(reader, leaf_batch, 3, 1, 1,
+                                                                  &nested_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(nested_batch.value_indices, std::vector<int64_t>({0, -1, 1, -1}));
+}
+
+TEST(ParquetLeafReaderTest, NestedBatchValueLayoutPayloadSlots) {
+    auto descriptor = int32_column_descriptor(2, 1);
+    auto reader = make_nested_leaf_reader(descriptor, std::make_shared<DataTypeInt32>());
+    const std::vector<int16_t> def_levels = {1, 2, 0, 2};
+    const std::vector<int16_t> rep_levels = {0, 0, 0, 0};
+    const std::vector<int32_t> values = {777, 10, 30};
+    const auto leaf_batch =
+            ParquetLeafReaderTestAccess::make_fixed_batch(def_levels, rep_levels, values);
+
+    ParquetNestedScalarBatch nested_batch;
+    auto status = ParquetLeafReaderTestAccess::build_nested_batch(reader, leaf_batch, 4, 2, 1,
+                                                                  &nested_batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(nested_batch.value_indices, std::vector<int64_t>({-1, 1, -1, 2}));
+}
+
+TEST(ParquetLeafReaderTest, NestedBatchRejectsMismatchedValueLayout) {
+    auto descriptor = int32_column_descriptor(2, 1);
+    auto reader = make_nested_leaf_reader(descriptor, std::make_shared<DataTypeInt32>());
+    const std::vector<int16_t> def_levels = {2, 0, 2, 0};
+    const std::vector<int16_t> rep_levels = {0, 0, 0, 0};
+    const std::vector<int32_t> values = {10, 20, 30};
+    const auto leaf_batch =
+            ParquetLeafReaderTestAccess::make_fixed_batch(def_levels, rep_levels, values);
+
+    ParquetNestedScalarBatch nested_batch;
+    const auto status = ParquetLeafReaderTestAccess::build_nested_batch(reader, leaf_batch, 4, 2, 1,
+                                                                        &nested_batch);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("inconsistent value count"), std::string::npos);
+}
+
+TEST(ParquetLeafReaderTest, NestedBatchRejectsDenseNullable) {
+    auto descriptor = int32_column_descriptor(1, 0);
+    auto reader =
+            make_nested_leaf_reader(descriptor, make_nullable(std::make_shared<DataTypeInt32>()));
+    const std::vector<int16_t> def_levels = {1};
+    const std::vector<int16_t> rep_levels = {0};
+    const std::vector<int32_t> values = {10};
+    const auto leaf_batch =
+            ParquetLeafReaderTestAccess::make_fixed_batch(def_levels, rep_levels, values, true);
+
+    ParquetNestedScalarBatch nested_batch;
+    const auto status = ParquetLeafReaderTestAccess::build_nested_batch(reader, leaf_batch, 1, 0, 0,
+                                                                        &nested_batch);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Dense nullable parquet nested reader is not supported"),
+              std::string::npos);
 }
 
 } // namespace doris::format::parquet
