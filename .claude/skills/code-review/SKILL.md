@@ -14,13 +14,9 @@ Use this when you need to review code, whether it is code you just completed or 
 
 ## How to use me
 
-0. **MANDATORY GOAL COMPLETION REQUIREMENT:** When the review is running in Codex goal mode, the goal is complete only after every changed file and relevant surrounding code path has been examined, every suspicious point has been accepted as an inline issue or dismissed with evidence, and every accepted issue has been submitted and verified on GitHub.
-1. **MANDATORY GOAL PROCESS REQUIREMENT:** The goal's progress tracking must cover instruction loading, subagent spawning, shared-ledger maintenance, candidate verification/deduplication, final subagent convergence, GitHub review submission, and GitHub API verification. The goal is not complete until every live subagent has said `NO_NEW_VALUABLE_FINDINGS` for the same current ledger/comment set after the last candidate update.
-2. **MANDATORY SUBAGENT REVIEW REQUIREMENT:** Use the available subagent or multi-agent spawn tool for focused review passes; do not merely simulate subagent output. The main agent must read the subagent results, independently verify or dismiss every candidate with concrete code evidence, deduplicate against existing review threads, submit the final GitHub review itself, and summarize the subagent conclusions.
-3. **MANDATORY SHARED LEDGER REQUIREMENT:** When a shared subagent review ledger is provided, every subagent must read the whole ledger and append findings only to its assigned subagent section. The main agent must use the ledger as the source of truth for merging, status updates, duplicate suppression, proposed final comments, and the final convergence round. Subagents must not edit another subagent section or any main-owned section; this section-owned append-only rule avoids concurrent patch conflicts while keeping all findings visible in one document.
-4. **Always read and respond to Part 1** (General Principles) — it applies to all code.
-5. For module-specific review, **read the `AGENTS.md` in the corresponding source directory** listed in Part 2. Those files contain non-obvious conventions and traps specific to each subsystem.
-6. Parts 3–7 cover cross-module concerns, testing, high-risk patterns, functions, and standards — refer as needed.
+1. **Always read and respond to Part 1** (General Principles) — it applies to all code.
+2. For module-specific review, **read the `AGENTS.md` in the corresponding source directory** listed in Part 2. Those files contain non-obvious conventions and traps specific to each subsystem.
+3. Parts 3–7 cover cross-module concerns, testing, high-risk patterns, functions, and standards — refer as needed.
 
 ---
 
