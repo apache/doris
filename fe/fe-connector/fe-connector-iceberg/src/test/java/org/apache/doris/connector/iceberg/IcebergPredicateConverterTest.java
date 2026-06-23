@@ -318,4 +318,45 @@ public class IcebergPredicateConverterTest {
         Object value = ((org.apache.iceberg.expressions.UnboundPredicate<?>) out.get(0)).literal().value();
         return ((Number) value).longValue();
     }
+
+    /**
+     * T10 parity gap-fill (audit wf_9d88fe61-5c7, PRED-1): the EQ grid asserts only PUSHABILITY, so the five
+     * other comparison operators were never pinned to the iceberg {@link Expression.Operation} they must produce.
+     * Legacy {@code IcebergUtils.convertToIcebergExpr} maps GT→greaterThan, LT→lessThan, GE→greaterThanOrEqual,
+     * LE→lessThanOrEqual, and NE→{@code not(equal)} (a NOT wrapping an EQ, NOT a NOT_EQ); the connector's
+     * buildComparison reproduces this. Without this test a GT↔GE / LT↔LE transposition or a dropped NE negation
+     * passes the whole suite (still pushable, still one predicate) while pruning files inversely vs the legacy
+     * IcebergScanNode. MUTATION: any operator→Operation swap, or {@code notEqual} in place of {@code not(equal)},
+     * reddens here.
+     */
+    @Test
+    public void comparisonOperatorsMatchLegacyOperations() {
+        ConnectorLiteral one = new ConnectorLiteral(ConnectorType.of("INT"), 1L);
+        assertOp(ConnectorComparison.Operator.GT, one, Expression.Operation.GT);
+        assertOp(ConnectorComparison.Operator.LT, one, Expression.Operation.LT);
+        assertOp(ConnectorComparison.Operator.GE, one, Expression.Operation.GT_EQ);
+        assertOp(ConnectorComparison.Operator.LE, one, Expression.Operation.LT_EQ);
+
+        // NE is the load-bearing parity case: legacy renders col != lit as not(equal), so the top op is NOT and
+        // its single child is the EQ predicate on the same column/literal (NOT a NOT_EQ leaf).
+        List<Expression> ne = converter().convert(
+                new ConnectorComparison(ConnectorComparison.Operator.NE, col("c_int"), one));
+        Assertions.assertEquals(1, ne.size());
+        Assertions.assertEquals(Expression.Operation.NOT, ne.get(0).op());
+        org.apache.iceberg.expressions.Not not = (org.apache.iceberg.expressions.Not) ne.get(0);
+        org.apache.iceberg.expressions.UnboundPredicate<?> child =
+                (org.apache.iceberg.expressions.UnboundPredicate<?>) not.child();
+        Assertions.assertEquals(Expression.Operation.EQ, child.op());
+        Assertions.assertTrue(child.ref().name().contains("c_int"), child.toString());
+        Assertions.assertEquals(1, ((Number) child.literal().value()).longValue());
+    }
+
+    private void assertOp(ConnectorComparison.Operator op, ConnectorLiteral lit, Expression.Operation expected) {
+        List<Expression> out = converter().convert(new ConnectorComparison(op, col("c_int"), lit));
+        Assertions.assertEquals(1, out.size(), op + " should push");
+        Assertions.assertEquals(expected, out.get(0).op(), op + " operation");
+        // Pin the literal too, so a dropped/swapped literal value is also caught.
+        Object value = ((org.apache.iceberg.expressions.UnboundPredicate<?>) out.get(0)).literal().value();
+        Assertions.assertEquals(1, ((Number) value).longValue(), op + " literal");
+    }
 }

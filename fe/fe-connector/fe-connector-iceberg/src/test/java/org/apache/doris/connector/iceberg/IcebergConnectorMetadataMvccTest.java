@@ -336,4 +336,54 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertEquals(java.util.Arrays.asList("id", "fullname"), columnNames(md.getTableSchema(
                 null, handle(), ConnectorMvccSnapshot.builder().snapshotId(f.s2).schemaId(-1L).build())));
     }
+
+    // ---------------------------------------------------------------------
+    // T10 parity gap-fills (audit wf_9d88fe61-5c7: MVCC-1 schema-only-ALTER divergence, MVCC-2 datetime string)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void beginQuerySnapshotPinsLatestSchemaAfterSchemaOnlyAlter() {
+        Fixture f = fixture();
+        // A schema-only ALTER with NO new append: table.schema().schemaId() advances, but currentSnapshot()
+        // (and ITS schemaId) stays at S2 — a schema change never creates a new snapshot. The pin must carry the
+        // LATEST table schema id (legacy getLatestIcebergSnapshot reads table.schema().schemaId()), NOT the
+        // lagging current-snapshot schema id. The existing beginQuerySnapshot test cannot catch this because
+        // there the two ids coincide. MUTATION: pinning currentSnapshot().schemaId() -> schemaIdS2 here -> red.
+        f.table.updateSchema().addColumn("extra", Types.IntegerType.get()).commit();
+        long latestSchemaId = f.table.schema().schemaId();
+        long currentSnapshotSchemaId = f.table.currentSnapshot().schemaId();
+        Assertions.assertNotEquals(currentSnapshotSchemaId, latestSchemaId,
+                "a schema-only ALTER must advance the schema id past the current snapshot's schema id");
+        Assertions.assertEquals(f.schemaIdS2, currentSnapshotSchemaId,
+                "no new snapshot was committed, so the current snapshot's schema id is unchanged");
+
+        Optional<ConnectorMvccSnapshot> snap =
+                metadataFor(f.table, new RecordingIcebergCatalogOps()).beginQuerySnapshot(null, handle());
+        Assertions.assertTrue(snap.isPresent());
+        // The pinned snapshot did NOT advance (still S2), but the pinned SCHEMA is the latest, not S2's.
+        Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
+        Assertions.assertEquals(latestSchemaId, snap.get().getSchemaId());
+        Assertions.assertNotEquals(currentSnapshotSchemaId, snap.get().getSchemaId());
+    }
+
+    @Test
+    public void resolveTimestampDatetimeStringResolvesSnapshot() {
+        Fixture f = fixture();
+        // The user-facing `FOR TIME AS OF '2024-01-02 12:34:56'` form: a NON-digital datetime string
+        // (isDigital == false) must route through IcebergTimeUtils.datetimeToMillis(session zone) ->
+        // SnapshotUtil.snapshotIdAsOfTime, distinct from the digital epoch-millis parseLong path the existing
+        // test drives. A null session resolves to UTC (resolveSessionZone); zone-correctness itself is pinned by
+        // IcebergTimeUtilsTest. Format one second AFTER S2 in UTC so the second-precision parse (which truncates
+        // sub-second millis) still lands at-or-after S2's commit -> resolves to S2. MUTATION: routing the
+        // datetime string through the digital parseLong branch -> NumberFormatException -> red; never wiring the
+        // datetime branch through resolveTimeTravel -> empty/wrong snapshot -> red.
+        String datetime = java.time.Instant.ofEpochMilli(f.tsS2 + 1000)
+                .atZone(java.time.ZoneOffset.UTC)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        Optional<ConnectorMvccSnapshot> snap = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.timestamp(datetime, false));
+        Assertions.assertTrue(snap.isPresent(), "datetime string at-or-after S2 must resolve");
+        Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
+        Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
+    }
 }

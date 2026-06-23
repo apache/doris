@@ -6,11 +6,11 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.2-T10（parity UT 套件，vs legacy 期望值）**（**P6.2-T09 vended 已绿，见下「✅ P6.2-T09 = DONE」；T01–T09 / P6.1〔T01–T10〕全绿**）
+# 🎯 下一个 session 的任务 — **P6.2-T11（最终设计文档汇总 + HANDOFF + 连接器 validation gate）**（**P6.2-T10 parity 审计已绿，见下「✅ P6.2-T10 = DONE」；T01–T10 / P6.1〔T01–T10〕全绿**）
 
-> **T10 scope**：P6.2 parity UT 套件（vs legacy 期望值，非只断类名）——**大部分维度 T02–T09 已增量写过**（谓词下推 9×13 网格 / 分区裁剪 / delete position+equality+DV / COUNT 下推 / format-version 边界 / field-id 字典 / `path_partition_keys` / native·JNI / MVCC time-travel / vended REST round-trip + 静态 location.*）。T10 = **查漏补缺 + 端到端组合**：核对 P6.2 验收门（line 90）逐项有断言、补任何缺口（如多维度组合 scan、batch-mode 延后的 EXPLAIN、edge case）、跑全 iceberg UT 绿 + 与 legacy `IcebergScanNode` 关键路径逐项对照确认无 parity-by-omission。**起步先读** migration `P6-iceberg-migration.md` P6.2-T10 行 + 验收门 line 90 + 各 task DONE 块的「测试」小节盘点已有覆盖。**T11** = 最终设计文档汇总 + HANDOFF + 连接器 validation gate（多数已随各 task 落地）。
+> **T11 scope**：P6.2 收尾——①登记 UT-不可见 deviation 汇总（classloader / field-id 真崩=GLOBAL_ROWID 翻闸阻塞 / vended live round-trip / Kerberized auth / manifest-cache·profile drop）待 P6.6 docker；②连接器 validation gate（多数已随各 task + T10〔Phase B〕落地，核对 `IcebergConnectorProvider.validateProperties` 接线齐）；③P6.2 全量设计文档/HANDOFF 汇总。**起步先读** migration `P6-iceberg-migration.md` P6.2-T11 行 + 各 task DONE 块。**T11 完成 = P6.2 DONE**（scan+MVCC+cache+vended 全实现），下一阶段 = P6.3 写路径（先写 RFC 过 PMC）。
 >
-> **⚠️ 注意**：T02–T09 每个 task 都已写了较完整的 parity 测试（当前 iceberg UT **270/0/1**）。T10 不是从零写，是**审计覆盖完整性**（playbook：parity-by-omission 风险）。若审计发现覆盖已足，T10 可快速收口并入 T11。
+> **⚠️ 仍不碰 `SPI_READY_TYPES`**（翻闸只在 P6.6，须等 P6.1–P6.5 全完）。当前 iceberg UT **278/0/1**。
 >
 > **🔴🔴 P6.6 翻闸阻塞项（T06 暴露，用户签字延后，跨 paimon，须翻闸前 holistic 修）**：**GLOBAL_ROWID（top-N 延迟物化合成列）在 SPI 路径被通用 `PluginDrivenScanNode` 归类为 REGULAR（非 SYNTHESIZED）→ field-id 字典让 BE 走 field-id 路径 → 该列不在字典 → `iceberg_reader.cpp:181` `children_column_exists` DCHECK → 整 BE 崩**。修在共享 fe-core `PluginDrivenScanNode.classifyColumn`(GLOBAL_ROWID→SYNTHESIZED),但 `paimon_reader.cpp` 无 SYNTHESIZED-GLOBAL_ROWID 处理器 → 盲改可能破 paimon top-N,**须 paimon 影响分析 + 可能 BE 协同**。详见 T06 设计文档 §6。**P6.6 翻闸前必修,否则 iceberg top-N 查询挂 BE。**
 
@@ -188,6 +188,26 @@
 
 ---
 
+# ✅ P6.2-T10 = DONE（2026-06-23，本 session，未 push）— parity-UT 覆盖审计 + 缺口补全
+
+> 方法：10 维度审计 workflow（`wf_9d88fe61-5c7`，每维度 auditor 读 legacy `IcebergScanNode`/`IcebergUtils` 期望**值** vs 连接器 impl vs 连接器测试，断 value-parity / weak / 缺；每发现独立 skeptic adversarial verify，refute-by-default + 对照 T02–T09 已签字延后 deviation）→ 主线**亲自复核**每个确认缺口（读真实代码核证，非盲信）→ TDD 补测 → mutation-verify 最高危测。设计文档 = `designs/P6-T10-iceberg-scan-parity-audit-design.md`。**全绿**：fe-connector-iceberg UT **270→278/0/0**（1 skip env-gated；+8 测）、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、**0 SPI/fe-core/paimon/pom/产品码改**（仅 3 个测试文件）。
+
+- **审计结论**：12 缺口报告 → **10 确认 + 2 驳回**；assertion-quality **8 维 value-parity** + 2 维 mixed（predicate / e2e）。两确认重复（G2==E2E-1）+ E2E-2 折入 → **8 测**补 10 缺口。
+- **补的 8 测**（断 legacy 期望值，非类名）：
+  1. **PRED-1**（`comparisonOperatorsMatchLegacyOperations`@`IcebergPredicateConverterTest`）：旧 EQ 网格只断**可下推性**，5 个比较算子→iceberg `Operation` 从未钉。补 GT→GT/LT→LT/GE→GT_EQ/LE→LT_EQ + **NE→not(equal)〔NOT-over-EQ 非 NOT_EQ〕**（connector `:201-214`）。
+  2. **PP-1**（`planScanDefaultSplitHeuristicTilesAndMaxFileSplitNumCapCollapses`）：默认 split 启发式 + `max_file_split_num` cap 从未按 range 计数断。**纠审计建议**（offset 文件下 cap 对计数无效）→ 用**无 offset** 96MB 文件（fixed-size split，target 直控计数）+ `max_file_split_num=1`→整文件→1 range。
+  3. **NF-1**（`planScanPartitionBearingFileWithNoIdentityValuesEmitsNoColumnsFromPath`）：bucket-only spec（T03 Bug2 形）→ `isPartitionBearing()==true` + 空 `getPartitionValues()` + 无 columns-from-path，端到端走 `buildRange:356-372`。
+  4. **G1**（`convertDeletePositionDeleteTreatsStoredMinusOneBoundAsUnset`）：**存储的 -1L** position bound（哨兵）vs 缺 map 区分（`readPositionBound:483` `value==-1L→null`，旧测走 null-map 早返不触此 arm）。
+  5. **MVCC-1**（`beginQuerySnapshotPinsLatestSchemaAfterSchemaOnlyAlter`@`IcebergConnectorMetadataMvccTest`）：schema-only ALTER 后 `beginQuerySnapshot` 钉 `table.schema().schemaId()`〔latest〕非 `currentSnapshot().schemaId()`〔滞后〕（旧测两 id 重合不可见）。
+  6. **MVCC-2**（`resolveTimestampDatetimeStringResolvesSnapshot`）：`FOR TIME AS OF '<datetime 串>'`（`isDigital==false`→`datetimeToMillis(sessionZone)`→`snapshotIdAsOfTime`）从未经 `resolveTimeTravel` 跑（旧测仅 digital epoch-millis `parseLong` 路）。**纠审计**：null session→UTC 即可，无需 ConnectorSession stub（zone 正确性已由 `IcebergTimeUtilsTest` 覆盖）。
+  7. **VC-2**（`extractVendedTokenCredentialWinsOnKeyCollision`）：vended 合并键碰撞 credential-wins 序（`io.properties()` then `putAll(cred.config())`；旧 merge 测用不相交键）。
+  8. **G2+E2E-1+E2E-2 合并**（`planScanCombinesPartitionPruneDeleteAndPathNormalizeOnOneRange`）：partitioned v2 oss:// 表 `WHERE p=1` 裁 p=2，幸存单 range **同时**带 归一化数据路径+raw original_file_path + columns-from-path + 归一化 position delete（旧 delete e2e 全用非分区表）。
+- **驳回 2（对抗复核正确驳回）**：FIDX-1（field-id 已 value-asserted via `renamePreservesFieldIdAcrossEvolution`）；VC-1（vended whole-map replace vs merge 在生产**不可达**——REST 静态 map 设计为空）。
+- **mutation-verify（Rule 9 守门）**：在 `IcebergPredicateConverter` 交换 GE↔GT → PRED-1 变红（`GT expected:<GT> but was:<GT_EQ>`），证旧 EQ-only 网格抓不到的 transposition 现被钉；已 revert 干净（产品码 0 diff）。
+- **下一步 = P6.2-T11**（见顶部任务头）：deviation 汇总 + validation gate 核对 + P6.2 设计文档/HANDOFF 收尾。
+
+---
+
 ## 🧭 用户裁定（T10 session，按序）
 1. **iceberg CREATE-CATALOG 校验做全量 per-flavor**（非最小/非延迟）。无任何回归测试强制（115 套件无一断言建目录属性校验报错；paimon 同），纯取忠实度。
 2. **校验逻辑下沉到共享 metastore 层**（不在连接器写 bespoke）。storage 半边**已被 fe-filesystem bind 时校验**（`S3FileSystemProperties.validate()` 等），连接器拿到的 `StorageProperties` 已校验过 → 本任务只做 **metastore 半边**。
@@ -336,6 +356,7 @@
   - **已 commit（P6.2-T07 = 本 HANDOFF 前一 commit）**：`31b51b6d4d1`——MVCC/time-travel：`IcebergConnector.getCapabilities`（MVCC_SNAPSHOT+TIME_TRAVEL）+ `IcebergTableHandle` typed pin 载体 + `IcebergConnectorMetadata.{beginQuerySnapshot,resolveTimeTravel〔5 kinds〕,applySnapshot,getTableSchema(@snapshot)}` + `IcebergScanPlanProvider.buildScan` useRef/useSnapshot（谓词用 current schema=legacy parity）+ Option-A 全-pinned-schema 字典 + 新 `IcebergTimeUtils`（TZ alias 抽取 + datetimeToMillis）+ `IcebergSchemaUtils` 3-arg encode + 5 测试件。T06 竞态 Option A（用户签字）。对抗复核 `wf_cf21d2e4-d7d` 5-dim = 0 findings（predicate-schema 自查先修）。UT 205→235（1 skip）、checkstyle 0、import-gate 净、iceberg 仍不在 SPI_READY_TYPES、**无 SPI/fe-core/pom 改**。详见上「✅ P6.2-T07 = DONE」。
   - **已 commit（P6.2-T08 = 本 HANDOFF commit）**：连接器内部 cache（D6）+ manifest 级 planning（用户扩 scope）：新 `IcebergLatestSnapshotCache`（值=`(snapshotId,schemaId)`，beginQuerySnapshot 走它）+ `IcebergManifestCache`+`IcebergManifestEntryKey`+`ManifestCacheValue`（移植 fe-core）+ **vendored `org.apache.iceberg.DeleteFileIndex`（906 行 split-package，1.10.1 包私有）** + `IcebergScanPlanProvider` gated manifest 级 planning（`planFileScanTaskWithManifestCache`+`getMatchingManifest`+`isManifestCacheEnabled`，默认 SDK splitFiles）+ `IcebergConnector` cache 字段/注入/`invalidateTable`+`invalidateAll`（不清 manifest）+ pom `caffeine:2.9.3`(compile) + 7 新/改测试件 + 设计文档。**schema memo 跳过**（用户裁定，零 I/O 收益）。对抗复核 `wf_428a2e5a-ab3` 3-dim = 0 confirmed（2 LOW REFUTED）。UT 235→258（1 skip）、checkstyle 0、import-gate 净、iceberg 仍不在 SPI_READY_TYPES、plugin-zip 实证（vendored class + 4 cache class + caffeine-2.9.3.jar，无 paimon/fe-thrift leak）、**0 SPI/fe-core/paimon 改**。详见上「✅ P6.2-T08 = DONE」。
   - **已 commit（P6.2-T09 = 本 HANDOFF commit）**：`9ca8c7f3685`——vended credentials + 静态 `location.*` 凭据（用户扩 scope，单 commit）：`IcebergScanPlanProvider` 加 `extractVendedToken(Table,boolean)`（忠实移植 legacy `extractRawVendedCredentials`=io.properties() ∪ SupportsStorageCredentials.credentials().config()）+ **两段式 gate** `restVendedCredentialsEnabled`（flavor==rest AND flag，对抗修）+ planScan 每 scan 取 token 线程进 buildRange/planCountPushdown/convertDelete 的 2-arg `normalizeUri` + `getScanNodeProperties` 发静态 `location.*`（`getStorageProperties→toBackendProperties.toMap`，规范 AWS_*）+ vended overlay。扩测试基建（`RecordingConnectorContext` token-aware vend + 2-arg normalize；`FakeIcebergTable.setIo`；fake FileIO/SupportsStorageCredentials；`fakeBackendStorage`）。对抗复核 `wf_a6996983-799` 4-dim = 2 confirmed LOW（gate 单→两段**已修+测**；fail-soft 缺口=与 paimon 同款**登记不修**）+ 3 refuted。UT 258→270（1 skip）、checkstyle 0、import-gate 净、iceberg 仍不在 SPI_READY_TYPES、**0 SPI/fe-core/paimon/pom 改**（仅 4 个 iceberg 连接器文件）。详见上「✅ P6.2-T09 = DONE」。
+  - **已 commit（P6.2-T10 = 本 HANDOFF commit）**：parity-UT 覆盖审计 + 8 缺口补测（仅 3 测试文件 `IcebergPredicateConverterTest`/`IcebergScanPlanProviderTest`/`IcebergConnectorMetadataMvccTest` + 设计文档 `P6-T10-iceberg-scan-parity-audit-design.md`）。10 维审计 workflow `wf_9d88fe61-5c7`（10 确认 + 2 驳回）；mutation-verify PRED-1 有牙。UT 270→278（1 skip）、checkstyle 0、import-gate 净、iceberg 仍不在 SPI_READY_TYPES、**0 SPI/fe-core/paimon/pom/产品码改**。详见上「✅ P6.2-T10 = DONE」。
   - **metastore 子线 = 已彻底 CLOSED**（8 文档加 CLOSED banner；后续勿读，见顶部范围注）。
 - **stale cruft = 本 session 已清理**：删除 `fe-connector-{iceberg,paimon}-{api,backend-*}` 共 12 个目录（仅含 gitignored 生成物 `.flattened-pom.xml`，0 tracked、不在 reactor = 本地 `phase3-module-split` 旧实验遗留；untracked 故 git 无变更）。当前线用单 `fe-connector-iceberg` + flavor switch。
 - **P0–P5 + P3 hybrid + P4 + P3b 全部已合入**（#63582/#63641/#64096/#64143/#64253/#64300/#64446/#64653/#64655）。iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:50` = {jdbc,es,trino-connector,max_compute,paimon}），仍走 switch-case（`:137 case "iceberg"`）。

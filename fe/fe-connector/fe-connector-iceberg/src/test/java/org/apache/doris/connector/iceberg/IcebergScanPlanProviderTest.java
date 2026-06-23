@@ -1380,6 +1380,173 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(token, context.lastVendedToken);
     }
 
+    // --- T10 parity gap-fills (audit wf_9d88fe61-5c7) ---
+
+    @Test
+    public void planScanDefaultSplitHeuristicTilesAndMaxFileSplitNumCapCollapses() {
+        // PP-1: the DEFAULT split heuristic (determineTargetFileSplitSize, splitFiles:738) + the
+        // max_file_split_num cap escalation were never exercised by a range count — the existing split test
+        // forces the file_split_size override branch (:727), and the small-file tests never sub-split. Drive
+        // BOTH branches on one 96MB file WITHOUT split offsets, so the iceberg fixed-size splitter tiles it by
+        // the heuristic's target size directly (an offset-aware file would cut at every row group and ignore a
+        // larger target, making the cap's effect invisible to a count assertion).
+        long mb = 1024L * 1024L;
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/big.parquet", 96 * mb, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        // (1) DEFAULT heuristic (NO file_split_size override): total 96MB << maxSplitSize*maxInitialSplitNum
+        // (12.8GB) so no escalation -> 32MB initial target; the 100000-file cap is far below 32MB -> the file
+        // tiles into >1 contiguous ranges. MUTATION: bypassing determineTargetFileSplitSize (whole file) -> 1
+        // range -> red. (This is the default branch, distinct from the override branch the existing test drives.)
+        List<ConnectorScanRange> def = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertTrue(def.size() > 1, "default heuristic must tile the 96MB file, got " + def.size());
+        def.sort((a, b) -> Long.compare(a.getStart(), b.getStart()));
+        long expectedStart = 0;
+        long total = 0;
+        for (ConnectorScanRange r : def) {
+            Assertions.assertEquals(expectedStart, r.getStart(), "default-heuristic ranges must tile contiguously");
+            expectedStart += r.getLength();
+            total += r.getLength();
+        }
+        Assertions.assertEquals(96 * mb, total, "the default-heuristic ranges must cover the whole file");
+
+        // (2) max_file_split_num=1 forces minSplitSizeForMaxNum = ceil(96MB/1) = 96MB, so the cap raises the
+        // target to the whole file -> exactly ONE range. This is the ONLY test driving the cap escalation
+        // (Math.max(result, minSplitSizeForMaxNum)). MUTATION: dropping the cap -> target stays 32MB -> >1 -> red.
+        ConnectorSession capOne = new FakeScanSession("UTC", Collections.singletonMap("max_file_split_num", "1"));
+        List<ConnectorScanRange> capped = provider.planScan(
+                capOne, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, capped.size(), "max_file_split_num=1 must collapse to one whole-file range");
+        Assertions.assertEquals(0L, capped.get(0).getStart());
+        Assertions.assertEquals(96 * mb, capped.get(0).getLength());
+    }
+
+    @Test
+    public void planScanPartitionBearingFileWithNoIdentityValuesEmitsNoColumnsFromPath() {
+        // NF-1: a table partitioned by a NON-identity transform (bucket) is partition-bearing (spec id set) but
+        // has ZERO identity columns-from-path — the T03 Bug2 shape (partition evolution / bucket-only spec). The
+        // range must report isPartitionBearing()==true (so the engine does NOT fall back to Hive path-parsing,
+        // which throws on iceberg's non-key=value layout) yet emit an EMPTY partition-values list and NO
+        // columns-from-path. The carrier unit test pins isPartitionBearing in isolation; this drives the empty
+        // path end-to-end through buildRange. MUTATION: deriving isPartitionBearing from a non-empty values list
+        // -> false here -> the engine path-parses -> red.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).bucket("id", 4).build();
+        Table table = createTable("ev", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/ev/f.parquet", 512, null, "id_bucket=0", FileFormat.PARQUET))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "ev"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertTrue(range.isPartitionBearing(), "a bucket-partitioned file is partition-bearing");
+        Assertions.assertTrue(range.getPartitionValues().isEmpty(), "no identity columns -> empty partition values");
+
+        TFileRangeDesc rd = populate(range);
+        Assertions.assertTrue(rd.getTableFormatParams().getIcebergParams().isSetPartitionSpecId(),
+                "partition-bearing -> spec id is emitted");
+        Assertions.assertFalse(rd.isSetColumnsFromPathKeys(), "no identity values -> no columns-from-path keys");
+        Assertions.assertFalse(rd.isSetColumnsFromPath());
+        Assertions.assertFalse(rd.isSetColumnsFromPathIsNull());
+    }
+
+    @Test
+    public void convertDeletePositionDeleteTreatsStoredMinusOneBoundAsUnset() {
+        // G1: a genuinely-STORED -1L DELETE_FILE_POS bound (distinct from an ABSENT bounds map) must collapse to
+        // UNSET (readPositionBound:483 `value == -1L -> null`), mirroring legacy IcebergDeleteFileFilter's -1
+        // sentinel. The existing no-bounds test passes a null map (early return), never reaching the value==-1L
+        // arm. MUTATION: dropping the `|| value == -1L` arm (emitting -1 as a real bound) -> red.
+        DeleteFile bothMinusOne = positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, -1L, -1L);
+        TIcebergDeleteFileDesc d = provider().convertDelete(bothMinusOne, Collections.emptyMap()).toThrift();
+        Assertions.assertEquals(1, d.getContent());
+        Assertions.assertFalse(d.isSetPositionLowerBound());
+        Assertions.assertFalse(d.isSetPositionUpperBound());
+
+        // Mixed: only the -1L bound is dropped; a real lower bound still emits.
+        DeleteFile mixed = positionDeleteFile("s3://b/db/t1/pos2.parquet", FileFormat.PARQUET, 3L, -1L);
+        TIcebergDeleteFileDesc m = provider().convertDelete(mixed, Collections.emptyMap()).toThrift();
+        Assertions.assertEquals(3L, m.getPositionLowerBound());
+        Assertions.assertFalse(m.isSetPositionUpperBound());
+    }
+
+    @Test
+    public void extractVendedTokenCredentialWinsOnKeyCollision() {
+        // VC-2: extractVendedToken seeds io.properties() then putAll(credential.config()), so on a DUPLICATE key
+        // the server-vended StorageCredential WINS (legacy IcebergVendedCredentialsProvider ordering). The
+        // existing merge test uses disjoint keys and cannot pin this precedence. MUTATION: seeding credentials
+        // first then overlaying io.properties() -> s3.access-key-id == "io-ak" -> red.
+        FakeIcebergTable table = fakeTable("t1");
+        Map<String, String> ioProps = new HashMap<>();
+        ioProps.put("s3.access-key-id", "io-ak");   // colliding key, io value
+        ioProps.put("s3.endpoint", "io-ep");        // disjoint key, must survive
+        StorageCredential cred =
+                StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "cred-ak"));
+        table.setIo(new VendedFileIO(ioProps, Collections.singletonList(cred)));
+
+        Map<String, String> token = IcebergScanPlanProvider.extractVendedToken(table, true);
+        Assertions.assertEquals("cred-ak", token.get("s3.access-key-id"));
+        Assertions.assertEquals("io-ep", token.get("s3.endpoint"));
+    }
+
+    @Test
+    public void planScanCombinesPartitionPruneDeleteAndPathNormalizeOnOneRange() {
+        // G2 + E2E-1 + E2E-2: a real-query shape legacy builds in a single createIcebergSplit pass — a partitioned
+        // v2 object-store table with a position delete, scanned under WHERE p=1. The existing delete e2e tests all
+        // use UNPARTITIONED tables, so the co-existence of partition + delete + normalization carriers on the ONE
+        // range a predicate leaves was never pinned. The surviving p=1 range must carry TOGETHER: (a) a
+        // scheme-normalized data path with a RAW original_file_path, (b) partition columns-from-path, (c) its
+        // position delete (also scheme-normalized). MUTATION: a predicate path skipping delete attachment, or the
+        // partition block clobbering the delete block (or vice-versa), drops one of these -> red.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
+        Table table = createTable("pt", PART_SCHEMA, spec, v2);
+        table.newAppend()
+                .appendFile(dataFile(spec, "oss://b/db/pt/p=1/a.parquet", 512, null, "p=1"))
+                .appendFile(dataFile(spec, "oss://b/db/pt/p=2/b.parquet", 512, null, "p=2"))
+                .commit();
+        // Position delete on the p=1 data file, committed in a LATER snapshot (higher seq) and tagged to the p=1
+        // partition so DeleteFileIndex.forDataFile resolves it to a.parquet only.
+        DeleteFile posDelete = FileMetadata.deleteFileBuilder(spec)
+                .ofPositionDeletes()
+                .withPath("oss://b/db/pt/p=1/a-pos-del.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(2L)
+                .withPartitionPath("p=1")
+                .withReferencedDataFile("oss://b/db/pt/p=1/a.parquet")
+                .build();
+        table.newRowDelta().addDeletes(posDelete).commit();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.of(eqInt("p", 1)));
+
+        // (a) predicate pruned p=2 -> exactly the p=1 data file survives, scheme-normalized; original raw.
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertEquals("s3://b/db/pt/p=1/a.parquet", range.getPath().get());
+        TFileRangeDesc rd = populate(range);
+        TIcebergFileDesc fd = rd.getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals("oss://b/db/pt/p=1/a.parquet", fd.getOriginalFilePath());
+        // (b) partition columns-from-path on the surviving range.
+        Assertions.assertEquals(Collections.singletonList("p"), rd.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("1"), rd.getColumnsFromPath());
+        Assertions.assertEquals(Collections.singletonList(false), rd.getColumnsFromPathIsNull());
+        Assertions.assertEquals("[\"1\"]", fd.getPartitionDataJson());
+        // (c) the position delete attached to THIS range, path scheme-normalized.
+        Assertions.assertEquals(1, fd.getDeleteFilesSize());
+        Assertions.assertEquals("s3://b/db/pt/p=1/a-pos-del.parquet", fd.getDeleteFiles().get(0).getPath());
+        Assertions.assertEquals(1, fd.getDeleteFiles().get(0).getContent());
+    }
+
     // --- T09 helpers ---
 
     private static FakeIcebergTable fakeTable(String name) {
