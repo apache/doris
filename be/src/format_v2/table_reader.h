@@ -137,15 +137,17 @@ struct SplitReadOptions {
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
 
-// table-level reader 基类。
-// 该层负责多文件编排和动态分区裁剪等通用 table-level 逻辑，对外输出 table block。
-// 子类只需要实现“如何打开下一个具体 reader”和“如何读取当前 reader”的表格式语义。
+// Base class for table-level readers.
+// This layer owns common table-level orchestration, such as split iteration, dynamic partition
+// pruning, delete handling and conversion from file-local blocks to table-schema blocks. Concrete
+// table-format readers only need to provide format-specific hooks for opening readers and parsing
+// split metadata.
 class TableReader {
 public:
     virtual ~TableReader() = default;
 
-    // 初始化 table reader 的通用运行参数。
-    // 子类可以在自己的 init(options) 中调用该方法；这里不接收具体表格式 schema/task。
+    // Initialize common runtime options for the table reader. Subclasses may call this from their
+    // own init(options); table-format schema and split metadata are provided later per split.
     virtual Status init(TableReadOptions&& options);
 
     // Prepare for reading a new split/task.
@@ -153,9 +155,9 @@ public:
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
     virtual Status prepare_split(const SplitReadOptions& options);
 
-    // 对外读取 table block 的统一入口。
-    // 基类负责 current reader 的打开、EOF 后切换和关闭；子类只实现 protected hook。
-    // table_block 的列必须已经是 table/global schema 语义。
+    // Public entry point for reading a table-schema block. The base class opens the current reader,
+    // advances across EOF, and closes exhausted readers. Subclasses provide protected hooks for
+    // table-format-specific behavior.
     virtual Status get_block(Block* block, bool* eos) {
         SCOPED_TIMER(_profile.exec_timer);
         DORIS_CHECK(block->columns() == _projected_columns.size());
@@ -222,8 +224,8 @@ public:
         }
     }
 
-    // 关闭 table reader 及当前正在读取的底层 reader。
-    // 子类如果持有额外表格式资源，应 override 后先调用 TableReader::close()。
+    // Close the table reader and the currently active file reader. Subclasses that hold additional
+    // table-format resources should override this and call TableReader::close() first.
     virtual Status close() {
         if (_data_reader.reader) {
             RETURN_IF_ERROR(close_current_reader());
@@ -255,8 +257,8 @@ protected:
         return Status::OK();
     }
 
-    // 切换到下一个 reader 的通用流程。
-    // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
+    // Advance to the next reader. This closes the current reader first and then opens the next
+    // concrete reader. Subclasses should not duplicate this loop.
     Status create_next_reader(bool* eos);
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
@@ -265,14 +267,14 @@ protected:
         return Status::OK();
     }
 
-    // 打开当前具体 reader。
-    // 子类在这里基于当前 split/task 初始化底层 FileReader。
+    // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {
         SCOPED_TIMER(_profile.open_reader_timer);
         // 1. Get file schema and create column mapping.
         std::vector<ColumnDefinition> file_schema;
         RETURN_IF_ERROR(_data_reader.reader->get_schema(&file_schema));
-        // For Paimon/Hudi, field ID is set by `history_schema_info` from FE. So we need to annotate file schema with Field ID before creating column mapping when mapping by field ID.
+        // For Paimon/Hudi, FE can provide field ids through `history_schema_info`. Annotate the
+        // file schema before column mapping when the table format maps columns by field id.
         RETURN_IF_ERROR(annotate_file_schema(&file_schema));
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = mapping_mode();
@@ -553,8 +555,8 @@ protected:
         return Status::OK();
     }
 
-    // 关闭当前具体 reader。
-    // 该 hook 会被 create_next_reader 和 close 调用；实现应保持幂等。
+    // Close the current concrete reader. This hook is called by both create_next_reader() and
+    // close(), so it should remain idempotent.
     virtual Status close_current_reader() {
         _finalize_reader_condition_cache();
         RETURN_IF_ERROR(_data_reader.reader->close());
@@ -582,12 +584,15 @@ protected:
             idx++;
         }
         RETURN_IF_ERROR(materialize_virtual_columns(block));
-        // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
+        // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
+        // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
         return Status::OK();
     }
 
-    // Materialize virtual columns in table block, such as _row_id and _last_updated_sequence_number in Iceberg. This is called after finalize_chunk, so the virtual column can be referenced in finalize_expr.
+    // Materialize virtual columns in the table block, such as Iceberg _row_id and
+    // _last_updated_sequence_number. This runs after normal column materialization so finalize
+    // expressions can reference those virtual columns.
     virtual Status materialize_virtual_columns(Block* table_block) { return Status::OK(); }
 
 #ifndef NDEBUG
@@ -740,8 +745,11 @@ protected:
         return Status::OK();
     }
 
-    // Only truncate CHAR/VARCHAR columns when target length is smaller than file schema, eg: varchar(10) vs varchar(20),
-    // or file schema doesn't have length limit but table schema has. eg: varchar(10) vs string
+    // Return true when the table schema has a bounded CHAR/VARCHAR length that is stricter than
+    // the file-side type. Examples:
+    // - table VARCHAR(10), file VARCHAR(20): truncate to 10;
+    // - table VARCHAR(10), file STRING: truncate to 10 because STRING has no declared bound;
+    // - table STRING, any file type: no truncation because the target has no bound.
     static bool _should_truncate_char_or_varchar_column(const ColumnMapping& mapping) {
         if (mapping.table_type == nullptr) {
             return false;
@@ -770,7 +778,10 @@ protected:
         return file_len < 0 || target_len < file_len;
     }
 
-    // VARCHAR substring(VARCHAR str, INT pos[, INT len])
+    // Truncate a materialized CHAR/VARCHAR column in place by reusing the vectorized substring
+    // implementation: substring(column, 1, len). Nullable columns are unwrapped before substring
+    // execution and wrapped back with the original null map afterward, because substring operates
+    // on the nested string payload only.
     static void _truncate_char_or_varchar_column(Block* block, size_t idx, int len) {
         DORIS_CHECK(block != nullptr);
         auto int_type = std::make_shared<DataTypeInt32>();
