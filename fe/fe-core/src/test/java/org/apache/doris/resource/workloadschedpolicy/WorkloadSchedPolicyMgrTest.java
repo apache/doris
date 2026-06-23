@@ -17,13 +17,17 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.persist.EditLog;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,23 +35,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Unit tests for the workload_group property format enforced by
- * {@link WorkloadSchedPolicyMgr#checkProperties(Map, List)}.
- *
- * The contract:
- *
- *   - Cloud mode    : workload_group must be '<compute_group>.<workload_group>'.
- *   - Non-cloud mode: workload_group may be '<workload_group>' (defaulting the
- *                     resource group to Tag.VALUE_DEFAULT_TAG) or the
- *                     '<resource_group>.<workload_group>' form — the dotted
- *                     prefix is a resource group (Tag) here, sharing the cloud-mode
- *                     grammar purely for consistency.
- *
- * Invalid forms must be rejected BEFORE any compute-group lookup, so the
- * rejection is exercisable here without bootstrapping the full Env.
+ * Unit tests for workload schedule policy validation paths.
  */
 public class WorkloadSchedPolicyMgrTest {
 
+    private Env env;
+    private EditLog editLog;
+    private MockedStatic<Env> mockedEnv;
     private String originDeployMode;
     private String originCloudUniqueId;
     private WorkloadSchedPolicyMgr mgr;
@@ -57,18 +51,164 @@ public class WorkloadSchedPolicyMgrTest {
         originDeployMode = Config.deploy_mode;
         originCloudUniqueId = Config.cloud_unique_id;
         mgr = new WorkloadSchedPolicyMgr();
+        env = Mockito.mock(Env.class);
+        editLog = Mockito.mock(EditLog.class);
+        mockedEnv = Mockito.mockStatic(Env.class);
+
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
     }
 
     @After
     public void tearDown() {
         Config.deploy_mode = originDeployMode;
         Config.cloud_unique_id = originCloudUniqueId;
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
     }
 
     private Map<String, String> propsWith(String workloadGroupValue) {
         Map<String, String> p = new HashMap<>();
         p.put(WorkloadSchedPolicy.WORKLOAD_GROUP, workloadGroupValue);
         return p;
+    }
+
+    @Test
+    public void testCheckPolicyCondition() {
+        // Case 1: USERNAME (Shared) + BE Metric + BE Action -> OK
+        try {
+            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", "user1"));
+            conditionMetas.add(new WorkloadConditionMeta("be_scan_rows", ">", "1000"));
+
+            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+            actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
+
+            mgr.createWorkloadSchedPolicy("policy_mixed_be", false, conditionMetas, actionMetas, null);
+        } catch (UserException e) {
+            Assert.fail("Should not throw exception for mixed USERNAME and BE metrics: " + e.getMessage());
+        }
+
+        // Case 2: USERNAME (Shared) + FE Action -> OK
+        try {
+            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", "user1"));
+
+            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+            actionMetas.add(new WorkloadActionMeta("set_session_variable", "workload_group=normal"));
+
+            mgr.createWorkloadSchedPolicy("policy_fe_only", false, conditionMetas, actionMetas, null);
+        } catch (UserException e) {
+            Assert.fail("Should not throw exception for USERNAME + FE Action: " + e.getMessage());
+        }
+
+        // Case 3: USERNAME (Shared) + BE Action -> OK
+        try {
+            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", "user1"));
+
+            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+            actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
+
+            mgr.createWorkloadSchedPolicy("policy_username_be_action", false, conditionMetas, actionMetas, null);
+        } catch (UserException e) {
+            Assert.fail("Should not throw exception for USERNAME + BE Action: " + e.getMessage());
+        }
+
+        // Case 4: BE Metric + FE Action -> Error
+        try {
+            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+            conditionMetas.add(new WorkloadConditionMeta("query_time", ">", "1000"));
+
+            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+            actionMetas.add(new WorkloadActionMeta("set_session_variable", "workload_group=normal"));
+
+            mgr.createWorkloadSchedPolicy("policy_error_1", false, conditionMetas, actionMetas, null);
+            Assert.fail("Should throw exception for BE Metric + FE Action");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("action and metric must run in FE together or run in BE together"));
+        }
+
+        // Case 5: USERNAME + BE Metric + FE Action -> Error
+        try {
+            List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", "user1"));
+            conditionMetas.add(new WorkloadConditionMeta("query_time", ">", "1000"));
+
+            List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+            actionMetas.add(new WorkloadActionMeta("set_session_variable", "workload_group=normal"));
+
+            mgr.createWorkloadSchedPolicy("policy_error_2", false, conditionMetas, actionMetas, null);
+            Assert.fail("Should throw exception for USERNAME + BE Metric + FE Action");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("action and metric must run in FE together or run in BE together"));
+        }
+    }
+
+    @Test
+    public void testCheckProperties() throws UserException {
+        List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+        conditionMetas.add(new WorkloadConditionMeta("username", "=", "user1"));
+        List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+        actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
+
+        // Test valid priority.
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put("priority", "10");
+            props.put("enabled", "true");
+            mgr.createWorkloadSchedPolicy("policy_prop_valid", false, conditionMetas, actionMetas, props);
+        } catch (UserException e) {
+            Assert.fail("Should not throw exception for valid properties: " + e.getMessage());
+        }
+
+        // Test invalid priority.
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put("priority", "101");
+            mgr.createWorkloadSchedPolicy("policy_prop_invalid_prio", false, conditionMetas, actionMetas, props);
+            Assert.fail("Should throw exception for invalid priority");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("policy's priority can only between 0 ~ 100"));
+        }
+
+        // Test invalid enabled.
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put("enabled", "yes");
+            mgr.createWorkloadSchedPolicy("policy_prop_invalid_enabled", false, conditionMetas, actionMetas, props);
+            Assert.fail("Should throw exception for invalid enabled");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("invalid enabled property value"));
+        }
+    }
+
+    @Test
+    public void testUsernameConditionRejectsBlankValue() throws UserException {
+        List<WorkloadConditionMeta> conditionMetas = new ArrayList<>();
+        List<WorkloadActionMeta> actionMetas = new ArrayList<>();
+        actionMetas.add(new WorkloadActionMeta("cancel_query", ""));
+
+        // Reject an explicit empty username to avoid matching queries without user metadata.
+        try {
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", ""));
+            mgr.createWorkloadSchedPolicy("policy_empty_username", false, conditionMetas, actionMetas, null);
+            Assert.fail("Should throw exception for empty username");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("username can not be empty"));
+        }
+
+        conditionMetas.clear();
+
+        // Reject a blank username for the same reason.
+        try {
+            conditionMetas.add(new WorkloadConditionMeta("username", "=", "   "));
+            mgr.createWorkloadSchedPolicy("policy_blank_username", false, conditionMetas, actionMetas, null);
+            Assert.fail("Should throw exception for blank username");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("username can not be empty"));
+        }
     }
 
     @Test

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -441,6 +442,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 }
                 if (table instanceof MTMV) {
                     Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+                }
+
+                if (table instanceof BaseTableStream) {
+                    Env.getCurrentEnv().getTableStreamManager().addTableStream((BaseTableStream) table);
                 }
                 if (!isReplay) {
                     // Write edit log

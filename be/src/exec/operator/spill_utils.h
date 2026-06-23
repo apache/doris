@@ -70,23 +70,6 @@ struct SpillContext {
     }
 };
 
-// helper to execute a spill function synchronously.  The old code used
-// SpillRunnable/SpillSinkRunnable/SpillRecoverRunnable wrappers to track
-// counters and optionally notify a SpillContext.  Since spill operations are
-// now performed synchronously and external code already maintains any
-// necessary counters, those wrappers are no longer necessary.  We keep a
-// small utility to run the provided callbacks and forward cancellation.
-inline Status run_spill_task(RuntimeState* state, std::function<Status()> exec_func,
-                             std::function<Status()> fin_cb = {}) {
-    RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(exec_func());
-    if (fin_cb) {
-        RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(fin_cb());
-    }
-    return Status::OK();
-}
-
 template <bool accumulating>
 inline void update_profile_from_inner_profile(const std::string& name,
                                               RuntimeProfile* runtime_profile,

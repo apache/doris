@@ -504,9 +504,7 @@ Status PartitionedAggSinkLocalState::_revoke_memory(RuntimeState* state) {
         return status;
     };
 
-    // old code used SpillSinkRunnable, but spills are synchronous and counters
-    // are tracked externally.  Call the spill function directly.
-    return run_spill_task(state, std::move(spill_func));
+    return spill_func();
 }
 
 void PartitionedAggSinkLocalState::_reset_tmp_data() {

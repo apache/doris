@@ -170,6 +170,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
     // async mode, sync mode, off mode
     sql """ truncate table ${tableName} """
     connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        sql """ set enable_strict_cast = false; """
 
         sql """ set group_commit = sync_mode; """
         group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1
@@ -183,15 +184,15 @@ suite("insert_group_commit_into_max_filter_ratio") {
         sql """ set enable_insert_strict = false; """
         group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
 
-        // The row 6 and 7 is different between legacy and nereids
         try {
             sql """ set group_commit = off_mode; """
-            sql """ set enable_insert_strict = true; """
+            sql """ set enable_strict_cast = true; """
             sql """ insert into ${dbTableName} values (6, 'a', 'a'); """
         } catch (Exception e) {
             logger.info("exception: " + e)
             assertTrue(e.toString().contains("can't cast"))
         }
+        sql """ set enable_strict_cast = false; """
 
         try {
             sql """ set group_commit = off_mode; """
@@ -210,7 +211,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         sql """ set group_commit = async_mode; """
         sql """ set enable_insert_strict = false; """
         group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
-        get_row_count_with_retry(8)
+        get_row_count_with_retry(7)
         order_qt_sql """ select * from ${dbTableName} """
     }
     sql """ truncate table ${tableName} """

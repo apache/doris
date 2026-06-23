@@ -17,7 +17,7 @@
 
 suite("test_pinyin_phrase", "p0") {
     def indexTbName = "test_pinyin_phrase_table"
-    
+
     sql """ set enable_match_without_inverted_index = false """
 
     // Create pinyin analyzer
@@ -32,14 +32,14 @@ suite("test_pinyin_phrase", "p0") {
 
     // Drop table if exists
     sql "DROP TABLE IF EXISTS ${indexTbName}"
-    
+
     // Create table with inverted index using pinyin analyzer
     sql """
         CREATE TABLE ${indexTbName} (
             `a` bigint NOT NULL AUTO_INCREMENT(1),
             `ch` text NULL,
             INDEX idx_ch (`ch`) USING INVERTED PROPERTIES(
-                "analyzer" = "cp_test", 
+                "analyzer" = "cp_test",
                 "support_phrase" = "true"
             )
         ) ENGINE=OLAP
@@ -58,7 +58,7 @@ suite("test_pinyin_phrase", "p0") {
 
     try {
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         qt_sql_1 """ SELECT a, ch FROM ${indexTbName} WHERE search('ch:"合作"') ORDER BY a; """
         qt_sql_2 """ SELECT a, ch FROM ${indexTbName} WHERE search('ch:"高峰论坛"') ORDER BY a; """

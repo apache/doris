@@ -49,11 +49,6 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         _bloom_filter_func->init_params(params);
         return;
     }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        _bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
-        _bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
-        return;
-    }
     default:
         break;
     }
@@ -115,26 +110,6 @@ Status RuntimeFilterWrapper::insert(const ColumnPtr& column, size_t start) {
         } else {
             _hybrid_set->insert_fixed_len(column, start);
         }
-        break;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        std::vector<const BitmapValue*> bitmaps;
-        if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& col = assert_cast<const ColumnBitmap&>(nullable->get_nested_column());
-            const auto& nullmap = nullable->get_null_map_column().get_data();
-            for (size_t i = start; i < column->size(); i++) {
-                if (!nullmap[i]) {
-                    bitmaps.push_back(&(col.get_data()[i]));
-                }
-            }
-        } else {
-            const auto* col = assert_cast<const ColumnBitmap*>(column.get());
-            for (size_t i = start; i < column->size(); i++) {
-                bitmaps.push_back(&(col->get_data()[i]));
-            }
-        }
-        _bitmap_filter_func->insert_many(bitmaps);
         break;
     }
     default:
@@ -225,11 +200,6 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                 RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
             }
         }
-        break;
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        // use input bitmap directly because we assume bitmap filter join always have full data
-        _bitmap_filter_func = other->_bitmap_filter_func;
         break;
     }
     default:
@@ -662,10 +632,6 @@ std::string RuntimeFilterWrapper::debug_string() const {
         }
         if (get_real_type() == RuntimeFilterType::IN_FILTER) {
             result += fmt::format(", size: {}, max_in_num: {}", _hybrid_set->size(), _max_in_num);
-        }
-        if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
-            result += fmt::format(", size: {}, not_in: {}", _bitmap_filter_func->size(),
-                                  _bitmap_filter_func->is_not_in() ? "true" : "false");
         }
     }
 

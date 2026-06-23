@@ -372,13 +372,15 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     if (compaction_level >= 2) {
         int64_t continuous_size = 0;
         std::vector<RowsetSharedPtr> level1_rowsets;
+        int64_t level2_compaction_timeout = MAX_LEVEL2_COMPACTION_TIMEOUT;
+        DBUG_EXECUTE_IF("time_series_level2_file_count", { level2_compaction_timeout = -1; });
         for (const auto& rowset : candidate_rowsets) {
             const auto& rs_meta = rowset->rowset_meta();
             if (rs_meta->compaction_level() == 0) {
                 break;
             }
             if (rs_meta->compaction_level() == 1 &&
-                (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
+                (now - rs_meta->creation_time()) <= level2_compaction_timeout) {
                 continue;
             }
             level1_rowsets.push_back(rowset);

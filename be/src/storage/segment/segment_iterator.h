@@ -204,7 +204,6 @@ private:
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
-    void _vec_init_char_column_id();
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -426,8 +425,6 @@ private:
     MutableColumns _seek_block;
 
     io::FileReaderSPtr _file_reader;
-
-    std::vector<bool> _is_char_type;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;

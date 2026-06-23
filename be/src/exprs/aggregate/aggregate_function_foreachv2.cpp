@@ -52,7 +52,7 @@ public:
         auto& offsets_to = arr_to.get_offsets();
         IColumn& elems_nullable = arr_to.get_data();
 
-        DCHECK(elems_nullable.is_nullable());
+        DCHECK(is_column_nullable(elems_nullable));
         auto& elems_to = assert_cast<ColumnNullable&>(elems_nullable).get_nested_column();
         auto& elements_null_map =
                 assert_cast<ColumnNullable&>(elems_nullable).get_null_map_column();

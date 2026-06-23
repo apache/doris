@@ -90,7 +90,7 @@ inline DictionaryPtr create_complex_hash_map_dict_from_column(
     ColumnPtrs key_columns;
     DataTypes key_types;
     for (const auto& key : key_data) {
-        if (key.column->is_nullable()) {
+        if (is_column_nullable(*key.column)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "ComplexHashMapDictionary key column should not be nullable");
         }

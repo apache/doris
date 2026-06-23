@@ -57,8 +57,6 @@ protected:
     friend class SpillSortSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 
-    bool _opened = false;
-
     std::vector<SpillFileSPtr> _current_merging_files;
     /// Readers held alive during merge; one per SpillFile, reads parts sequentially.
     std::vector<SpillFileReaderSPtr> _current_merging_readers;

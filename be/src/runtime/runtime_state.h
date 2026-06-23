@@ -213,7 +213,6 @@ public:
         TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
-    const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     // should only be called in pipeline engine
@@ -843,6 +842,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_candidate_rows_threshold =
+                _query_options.__isset.ann_index_candidate_rows_threshold
+                        ? _query_options.ann_index_candidate_rows_threshold
+                        : 0;
+        params.ann_index_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 
@@ -892,9 +899,6 @@ private:
 
     // _error_log[_unreported_error_idx+] has been not reported to the coordinator.
     int _unreported_error_idx;
-
-    // Username of user that is executing the query to which this RuntimeState belongs.
-    std::string _user;
 
     //Query-global timestamp_ms
     int64_t _timestamp_ms;
