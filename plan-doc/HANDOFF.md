@@ -10,13 +10,17 @@
 
 > **✅ P6.2 = DONE（本 session 2026-06-23 收口 T11）**：scan + MVCC + cache + vended 全实现。T11（汇总设计 `designs/P6-T11-iceberg-scan-summary-design.md` + validation gate 核对 + UT-不可见 deviation 中央注册 DV-038/039/040 + 本 HANDOFF + PROGRESS/connectors 同步）见下「✅ P6.2-T11 = DONE」。**验收全绿**：fe-connector-iceberg UT **278/0/1**（本 session 重跑实证 BUILD SUCCESS）、validation gate test 7/0、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、T11 **0 产品码改**（纯文档）。
 >
-> **✅ P6.3 RFC = 已起草（2026-06-23，本 session，纯文档 0 产品码，未 commit）= `plan-doc/06-iceberg-write-path-rfc.md`**。完成 research-design-workflow 的 **research + design-doc** 阶段：recon `research/p6.3-iceberg-write-recon.md` + RFC + Trino 北极星调研（`.audit-scratch/p6.3-research/{findings,unification,trino-dml-analysis}.md`）。**3 决策签字**（RFC §4）：
+> **✅ P6.3 RFC = 已评审通过（PMC review done，2026-06-23）+ commit `a49720820f9`（未 push，纯文档 0 产品码）= `plan-doc/06-iceberg-write-path-rfc.md`**。完成 research-design-workflow 的 **research + design-doc** 阶段：recon `research/p6.3-iceberg-write-recon.md` + RFC + Trino 北极星调研（`.audit-scratch/p6.3-research/{findings,unification,trino-dml-analysis}.md`）。**逐 task 拆解（T01–T09）见 `tasks/P6-iceberg-migration.md` §「P6.3 逐 task 拆解」。3 决策 + 3 OQ 全签字**（RFC §4/§6）：
 > - **Q2 = 全面统一写框架**：单 `ConnectorTransaction` 模型；删 `usesConnectorTransaction()` fork + `ConnectorInsertHandle`/insert-handle 方法 + dead delete/merge handle 面；jdbc 退化 no-op txn；改 jdbc/maxcompute 配字节 parity。plan-provider-only sink、capability 派发无 instanceof。
 > - **Q1 = Route B / option (i)**（务实迁移）：通用 `RowLevelDmlCommand` 壳 + capability 派发，iceberg `$row_id`/branch-label/投影代数**暂留 fe-core**（连接器-键控、有界 deviation DV-04x），保现有 plan/EXPLAIN parity。拒 (ii) 新 nereids-spi 模块（为单一消费者放松 import-gate 违 Rule 2）。
 > - **Q3 = O5-2**：`ConnectorTransaction.applyWriteConstraint(ConnectorPredicate)` default-no-op，复用 P6.2-T02 `IcebergPredicateConverter`。
 > - **北极星 = Trino 式 (iii) 通用化**（连接器 0 优化器 import、引擎核心全 DML 合成；Trino 实证）→ 后续专门 RFC，演进触发 = hive P7/paimon 第二行级-DML 消费者。
 >
-> **下一步 = (1) PMC 评审 RFC**（3 个 open item 待 PMC：OQ-1 jdbc thrift 移位 vs fallback / OQ-2 `ConnectorWriteType` 去留 / OQ-3 EXPLAIN sink-标签 diff）；**(2) 过审后实现 RFC §11 TODO T01–T09**（T01 框架统一 SPI 收口 → T02 jdbc 退化 adopter → T03–T05 IcebergConnectorTransaction+op 选择+commit 校验+O5-2 → T06 sink 统一 → T07 通用 RowLevelDmlCommand → T08 parity 审计+deviation → T09 收口）。起步先读 RFC + recon。
+> - **3 OQ 已裁定**：OQ-1 = jdbc thrift 移入连接器 `planWrite`（F2 全消，须字节 parity 测）；OQ-2 = 删 config-bag 三件套 `ConnectorWriteType`/`ConnectorWriteConfig`/`getWriteConfig`（实测仅 jdbc 用，移入后死）；OQ-3 = 统一 sink 后 EXPLAIN sink-标签 diff 接受为非回归。
+>
+> **🎯 下一步 = 逐一实现 P6.3 §11 TODO T01–T09**（RFC 已评审通过；详见 `tasks/P6-iceberg-migration.md` §「P6.3 逐 task 拆解」）：**T01** 框架统一·SPI 收口（删 `usesConnectorTransaction`/insert-handle/dead delete-merge handle，`beginTransaction` mandatory，改 maxcompute）→ **T02** jdbc 退化 no-op adopter + thrift 移入 + 删 config-bag（字节 parity 测）→ **T03** `IcebergConnectorTransaction` 骨架+`addCommitData` → **T04** op 选择+`IcebergWriterHelper` 等价 → **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
+>
+> **每 task 节奏**（AGENT-PLAYBOOK §5.1）：先 code-grounded recon（大文件如 `IcebergTransaction` 981 / `IcebergMergeCommand` 用 subagent 总结）→ TDD RED→GREEN → 对抗 parity workflow（每发现独立 skeptic verify，镜像 P6.2）→ UT/checkstyle/import-gate 绿 + **断 assembled Thrift/校验套件 vs legacy** → 文档同步 → commit + handoff。**起步先读 RFC `06-iceberg-write-path-rfc.md` + recon `research/p6.3-iceberg-write-recon.md`。**
 >
 > **⚠️ 仍不碰 `SPI_READY_TYPES`**（翻闸只在 P6.6，须等 P6.1–P6.5 全完；现 scan/write/procedure/sys-table 未齐，翻闸即全断）。
 >
