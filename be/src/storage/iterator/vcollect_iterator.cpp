@@ -42,6 +42,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/binlog.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
@@ -72,6 +73,10 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         (_reader->_direct_mode || _reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
          (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
+        _merge = false;
+    }
+
+    if (_reader->_reader_type == ReaderType::READER_BINLOG) {
         _merge = false;
     }
 
@@ -221,10 +226,16 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     }
 
     // if row cursors equal, compare data version.
-    // read data from higher version to lower version.
+    // By default, read data from higher version to lower version. If
+    // `_use_insert_order_when_same` is enabled, read from lower to higher.
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
-    bool lower = (cmp_res != 0) ? (cmp_res < 0) : (lhs->version() < rhs->version());
+    // Tie-break direction depends on `_small_seq_first`:
+    //   - false (UNIQUE_KEYS sequence column): larger value sorts first (cmp_res < 0 => lhs sorts first).
+    //   - true  (row binlog LSN column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
+    bool lower = (cmp_res != 0) ? (_small_seq_first ? (cmp_res > 0) : (cmp_res < 0))
+                                : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
+                                                               : (lhs->version() < rhs->version()));
     lower ? lhs->set_same(true) : rhs->set_same(true);
 
     return lower;
@@ -288,7 +299,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
         }
     }
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&clone_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
     for (auto column_idx : *sort_columns) {
@@ -380,7 +391,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                 // create column that is not in mutable_block but in block
                 for (size_t j = mutable_block.columns(); j < block->columns(); ++j) {
                     auto col = block->get_by_position(j).clone_empty();
-                    mutable_block.mutable_columns().push_back(col.column->assume_mutable());
+                    mutable_block.mutable_columns().push_back(col.column->assert_mutable());
                     mutable_block.data_types().push_back(std::move(col.type));
                     mutable_block.get_names().push_back(std::move(col.name));
                 }
@@ -409,7 +420,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                                << mutable_block.rows() << " rows";
                     Block tmp_block = mutable_block.to_block();
                     clone_block = tmp_block.clone_empty();
-                    mutable_block = MutableBlock::build_mutable_block(&clone_block);
+                    mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
                     for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
                         mutable_block.add_row(&tmp_block, cast_set<int>(*it));
                     }
@@ -686,7 +697,21 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
                 break;
             }
         }
-        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(sequence_loc, _is_reverse));
+
+        int32_t lsn_col_id = _reader->_tablet_schema->binlog_lsn_col_idx();
+        if (lsn_col_id >= 0) {
+            DCHECK(sequence_loc == -1);
+            for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {
+                if (_reader->_return_columns[loc] == static_cast<uint32_t>(lsn_col_id)) {
+                    sequence_loc = loc;
+                    break;
+                }
+            }
+        }
+
+        _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
+                sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same,
+                lsn_col_id >= 0));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
@@ -754,10 +779,17 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _heap->pop();
         } else {
             _ref.reset();
+            // Keep _ref and _cur_child consistent: once EOF is returned and the heap
+            // is drained, no further reads are valid. Resetting _cur_child here lets
+            // the nullptr guard in next(Block*)/next(IteratorRowRef*) actually fire if
+            // the caller mistakenly invokes us again (e.g. when an upstream scanner
+            // overrides *eof for non-empty blocks).
+            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
+        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -839,8 +871,6 @@ bool VCollectIterator::Level1Iterator::collected_enough_rows(const MutableColumn
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_merge_next_timer);
     int target_block_row = 0;
-    auto target_columns = block->mutate_columns();
-    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -848,6 +878,9 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
         block->insert(cur_row.block->get_by_position(i).clone_empty());
     }
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
+    size_t column_count = target_columns.size();
 
     auto batch_size = _reader->batch_max_rows();
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
@@ -879,7 +912,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
-            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -896,7 +928,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
-            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {
@@ -928,7 +959,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
-            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
     } while (true);

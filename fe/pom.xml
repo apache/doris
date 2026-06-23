@@ -224,6 +224,7 @@ under the License.
         <module>fe-extension-spi</module>
         <module>fe-connector</module>
         <module>fe-extension-loader</module>
+        <module>fe-sql-parser</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
@@ -265,8 +266,8 @@ under the License.
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
         <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
-        <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
+        <commons-net.version>3.13.0</commons-net.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
@@ -278,7 +279,6 @@ under the License.
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
-
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
@@ -291,9 +291,8 @@ under the License.
         <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <!--Netty 4.1.94 is not compatible with arrow flight.-->
-        <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.132.Final</netty-all.version>
+        <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
+        <netty-all.version>4.2.15.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -403,8 +402,10 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.3.4</azure.sdk.version>
+        <azure.sdk.version>1.3.7</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
+        <msal4j.version>1.25.0</msal4j.version>
+        <azure.keyvault.core.version>1.2.6</azure.keyvault.core.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
         <!--Fixes the regression described in https://github.com/aws/aws-sdk-java-v2/issues/5805 that forced us to downgrade aws-s3 to version 2.29.x.-->
@@ -855,18 +856,17 @@ under the License.
                 <artifactId>commons-codec</artifactId>
                 <version>${commons-codec.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
-            <!-- upgrade commons-lang from 2.4 to 2.6 to fix incompatibility of with versioning scheme of Java 9 and later -->
-            <dependency>
-                <groupId>commons-lang</groupId>
-                <artifactId>commons-lang</artifactId>
-                <version>${commons-lang.version}</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
+            </dependency>
+            <!-- Pulled in by hive-exec -> hadoop-yarn-registry and hadoop-common. -->
+            <dependency>
+                <groupId>commons-net</groupId>
+                <artifactId>commons-net</artifactId>
+                <version>${commons-net.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-math3 -->
             <dependency>
@@ -1434,7 +1434,7 @@ under the License.
                 <version>${maxcompute.version}</version>
             </dependency>
             <dependency>
-                <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->
+                <!-- Keep tea pinned for Alibaba SDK dependency chains that allow com.aliyun:tea:[1.1.14,2.0.0). -->
                 <groupId>com.aliyun</groupId>
                 <artifactId>tea</artifactId>
                 <version>1.4.1</version>
@@ -1835,6 +1835,18 @@ under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Pulled in by azure-identity and msal4j-persistence-extension. -->
+            <dependency>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>msal4j</artifactId>
+                <version>${msal4j.version}</version>
+            </dependency>
+            <!-- Pulled in by hadoop-azure -> azure-storage. -->
+            <dependency>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>azure-keyvault-core</artifactId>
+                <version>${azure.keyvault.core.version}</version>
+            </dependency>
             <!-- tencent COS -->
             <dependency>
                 <groupId>com.qcloud</groupId>
@@ -1967,7 +1979,6 @@ under the License.
             <artifactId>junit-platform-launcher</artifactId>
             <scope>test</scope>
         </dependency>
-
         <!-- should be used in test scope -->
         <dependency>
             <groupId>org.awaitility</groupId>

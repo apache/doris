@@ -149,6 +149,7 @@ struct TWarmUpCacheAsyncRequest {
     1: required string host
     2: required i32 brpc_port
     3: required list<i64> tablet_ids
+    4: optional string cloud_compute_group_id
 }
 
 struct TWarmUpCacheAsyncResponse {
@@ -222,6 +223,7 @@ struct TWarmUpTabletsRequest {
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
     5: optional TWarmUpEventType event
+    6: optional list<i64> table_ids
 }
 
 struct TWarmUpTabletsResponse {
@@ -309,7 +311,8 @@ enum TWorkloadMetricType {
     QUERY_TIME = 0,
     BE_SCAN_ROWS = 1,
     BE_SCAN_BYTES = 2,
-    QUERY_BE_MEMORY_BYTES = 3
+    QUERY_BE_MEMORY_BYTES = 3,
+    USERNAME = 4
 }
 
 enum TCompareOperator {

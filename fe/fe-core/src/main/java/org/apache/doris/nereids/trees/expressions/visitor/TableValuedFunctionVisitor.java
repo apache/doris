@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
+import org.apache.doris.nereids.trees.expressions.functions.table.Binlog;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
@@ -46,6 +47,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitBackends(Backends backends, C context) {
         return visitTableValuedFunction(backends, context);
+    }
+
+    default R visitBinlog(Binlog binlog, C context) {
+        return visitTableValuedFunction(binlog, context);
     }
 
     default R visitCatalogs(Catalogs catalogs, C context) {

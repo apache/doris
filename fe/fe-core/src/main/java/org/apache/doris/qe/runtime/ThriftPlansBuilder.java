@@ -41,7 +41,6 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -68,6 +67,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRecCTENode;
 import org.apache.doris.thrift.TRecCTEResetInfo;
 import org.apache.doris.thrift.TRecCTETarget;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -190,12 +190,10 @@ public class ThriftPlansBuilder {
         return workerToInstances;
     }
 
-    private static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
+    static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode instanceof OlapScanNode) {
-                for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
-                    topnFilterSortNode.setHasRuntimePredicate();
-                }
+            for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
+                topnFilterSortNode.setHasRuntimePredicate();
             }
         }
     }
@@ -430,6 +428,13 @@ public class ThriftPlansBuilder {
             params.setLocalParams(Lists.newArrayList());
             params.setWorkloadGroups(coordinatorContext.getWorkloadGroups());
 
+            if (connectContext != null && connectContext.getCurrentUserIdentity() != null) {
+                TResourceInfo resourceInfo = new TResourceInfo();
+                resourceInfo.setUser(connectContext.getCurrentUserIdentity().getQualifiedUser());
+                resourceInfo.setGroup("");
+                params.setResourceInfo(resourceInfo);
+            }
+
             params.setFileScanParams(fileScanRangeParamsMap);
 
             if (fragmentPlan.getFragmentJob() instanceof UnassignedScanBucketOlapTableJob) {
@@ -594,13 +599,32 @@ public class ThriftPlansBuilder {
             PipelineDistributedPlan receivePlan, DistributedPlanWorker filterWorker,
             BiConsumer<AssignedJob, Integer> computeFn) {
 
-        // current only support all input plans have same destination with same order,
-        // so we can get first input plan to compute shuffle index to instance id
-        Set<Entry<ExchangeNode, DistributedPlan>> exchangeToChildPlanSet = receivePlan.getInputs().entries();
-        if (exchangeToChildPlanSet.isEmpty()) {
+        // When a fragment has multiple ExchangeNode inputs (e.g. NLJ with probe + BROADCAST
+        // build), pick the one with the most destinations on this worker. A BROADCAST input has
+        // 1 dest per BE while HASH-partitioned has N; using BROADCAST would produce a 1-entry
+        // map and cause 'Rows mismatched' for GLOBAL_HASH LOCAL_EXCHANGE.
+        Entry<ExchangeNode, DistributedPlan> exchangeToChildPlan = null;
+        int maxDestsOnWorker = -1;
+        for (Entry<ExchangeNode, DistributedPlan> entry : receivePlan.getInputs().entries()) {
+            ExchangeNode exchNode = entry.getKey();
+            PipelineDistributedPlan childPlan = (PipelineDistributedPlan) entry.getValue();
+            for (Entry<DataSink, List<AssignedJob>> kv : childPlan.getDestinations().entrySet()) {
+                if (kv.getKey().getExchNodeId().asInt() != exchNode.getId().asInt()) {
+                    continue;
+                }
+                int destsOnWorker = (int) kv.getValue().stream()
+                        .filter(j -> j.getAssignedWorker().id() == filterWorker.id())
+                        .count();
+                if (destsOnWorker > maxDestsOnWorker) {
+                    maxDestsOnWorker = destsOnWorker;
+                    exchangeToChildPlan = entry;
+                }
+                break;
+            }
+        }
+        if (exchangeToChildPlan == null) {
             return;
         }
-        Entry<ExchangeNode, DistributedPlan> exchangeToChildPlan = exchangeToChildPlanSet.iterator().next();
         ExchangeNode linkNode = exchangeToChildPlan.getKey();
         PipelineDistributedPlan firstInputPlan = (PipelineDistributedPlan) exchangeToChildPlan.getValue();
         Map<DataSink, List<AssignedJob>> sinkToDestInstances = firstInputPlan.getDestinations();

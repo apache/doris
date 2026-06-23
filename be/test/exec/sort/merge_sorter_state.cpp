@@ -101,4 +101,155 @@ TEST_F(MergeSorterStateTest, test1) {
                                               ColumnHelper::create_block<DataTypeInt64>({5, 6})));
     }
 }
+
+TEST_F(MergeSorterStateTest, whole_block_fast_path_swaps_block) {
+    state.reset(new MergeSorterState(*row_desc, 0));
+    auto first_block = create_block({1, 2, 3});
+    auto second_block = create_block({4, 5, 6});
+    auto first_column = first_block->get_by_position(0).column;
+
+    state->add_sorted_block(first_block);
+    state->add_sorted_block(second_block);
+
+    SortDescription desc {SortColumnDescription {0, 1, -1}};
+    ASSERT_TRUE(state->build_merge_tree(desc));
+
+    Block block;
+    bool eos = false;
+    Status status = state->merge_sort_read(&block, 3, &eos);
+    ASSERT_TRUE(status.ok());
+    EXPECT_FALSE(eos);
+    EXPECT_TRUE(
+            ColumnHelper::block_equal(block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3})));
+    EXPECT_EQ(block.get_by_position(0).column.get(), first_column.get());
+}
+
+TEST_F(MergeSorterStateTest, whole_block_fast_path_allows_smaller_than_batch) {
+    state.reset(new MergeSorterState(*row_desc, 0));
+    auto first_block = create_block({1, 2, 3});
+    auto second_block = create_block({4, 5, 6});
+    auto first_column = first_block->get_by_position(0).column;
+    auto second_column = second_block->get_by_position(0).column;
+
+    state->add_sorted_block(first_block);
+    state->add_sorted_block(second_block);
+
+    SortDescription desc {SortColumnDescription {0, 1, -1}};
+    ASSERT_TRUE(state->build_merge_tree(desc));
+
+    {
+        Block block;
+        bool eos = false;
+        Status status = state->merge_sort_read(&block, 4, &eos);
+        ASSERT_TRUE(status.ok());
+        EXPECT_FALSE(eos);
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3})));
+        EXPECT_EQ(block.get_by_position(0).column.get(), first_column.get());
+    }
+
+    {
+        Block block;
+        bool eos = false;
+        Status status = state->merge_sort_read(&block, 4, &eos);
+        ASSERT_TRUE(status.ok());
+        EXPECT_FALSE(eos);
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block, ColumnHelper::create_block<DataTypeInt64>({4, 5, 6})));
+        EXPECT_EQ(block.get_by_position(0).column.get(), second_column.get());
+    }
+
+    {
+        Block block;
+        bool eos = false;
+        Status status = state->merge_sort_read(&block, 4, &eos);
+        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 0);
+    }
+}
+
+TEST_F(MergeSorterStateTest, test_reset_clears_all_state) {
+    state.reset(new MergeSorterState(*row_desc, 0));
+
+    // Add sorted blocks and build merge tree (simulates a sort-write cycle)
+    state->add_sorted_block(create_block({1, 3, 5}));
+    state->add_sorted_block(create_block({2, 4, 6}));
+    EXPECT_EQ(state->num_rows(), 6);
+
+    SortDescription desc {SortColumnDescription {0, 1, -1}};
+    ASSERT_TRUE(state->build_merge_tree(desc));
+    EXPECT_EQ(state->get_queue().size(), 2);
+
+    // Drain the queue (simulates _write_sorted_data completing)
+    Block block;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(state->merge_sort_read(&block, 10, &eos).ok());
+        block.clear_column_data();
+    }
+    EXPECT_EQ(state->get_queue().size(), 0);
+
+    // reset() must clear all state for the next batch
+    state->reset();
+    EXPECT_EQ(state->get_sorted_block().size(), 0); // _sorted_blocks cleared
+    EXPECT_EQ(state->get_queue().size(), 0);        // _queue cleared
+    EXPECT_EQ(state->num_rows(), 0);                // _num_rows reset
+    EXPECT_EQ(state->data_size(), 0);               // no accumulated data
+
+    // Verify the sorter is fully reusable after reset
+    state->add_sorted_block(create_block({10, 20}));
+    EXPECT_EQ(state->num_rows(), 2);
+    ASSERT_TRUE(state->build_merge_tree(desc));
+    EXPECT_EQ(state->get_queue().size(), 1);
+
+    Block block2;
+    bool eos2 = false;
+    ASSERT_TRUE(state->merge_sort_read(&block2, 10, &eos2).ok());
+    EXPECT_TRUE(
+            ColumnHelper::block_equal(block2, ColumnHelper::create_block<DataTypeInt64>({10, 20})));
+}
+
+TEST_F(MergeSorterStateTest, test_reset_with_partial_drain) {
+    state.reset(new MergeSorterState(*row_desc, 0));
+
+    state->add_sorted_block(create_block({1, 2, 3}));
+    state->add_sorted_block(create_block({4, 5, 6}));
+
+    SortDescription desc {SortColumnDescription {0, 1, -1}};
+    ASSERT_TRUE(state->build_merge_tree(desc));
+    EXPECT_EQ(state->get_queue().size(), 2);
+
+    // Read only part of the data — queue is NOT fully drained
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(state->merge_sort_read(&block, 2, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_GT(state->get_queue().size(), 0);
+
+    // reset() must cleanly discard the in-flight queue
+    state->reset();
+    EXPECT_EQ(state->get_queue().size(), 0);
+    EXPECT_EQ(state->num_rows(), 0);
+
+    // Sorter must be fully usable after mid-cycle reset
+    state->add_sorted_block(create_block({7, 8}));
+    ASSERT_TRUE(state->build_merge_tree(desc));
+    Block block2;
+    bool eos2 = false;
+    ASSERT_TRUE(state->merge_sort_read(&block2, 10, &eos2).ok());
+    EXPECT_TRUE(
+            ColumnHelper::block_equal(block2, ColumnHelper::create_block<DataTypeInt64>({7, 8})));
+}
+
+TEST_F(MergeSorterStateTest, test_reset_on_fresh_state) {
+    state.reset(new MergeSorterState(*row_desc, 0));
+
+    // reset() on a state that has never had data must not crash
+    state->reset();
+    EXPECT_EQ(state->get_sorted_block().size(), 0);
+    EXPECT_EQ(state->get_queue().size(), 0);
+    EXPECT_EQ(state->num_rows(), 0);
+    EXPECT_EQ(state->data_size(), 0);
+}
 } // namespace doris

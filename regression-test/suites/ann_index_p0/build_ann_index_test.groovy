@@ -65,7 +65,7 @@ suite("build_ann_index_test") {
         return "wait_timeout"
     }
 
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
 
     // case 1: create table -- insert data -- create index -- build index
     def tableName = "table_build_ann_index_test"

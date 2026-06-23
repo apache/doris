@@ -20,7 +20,6 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.AssertNumRowsElement;
-import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
@@ -38,7 +37,9 @@ import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -237,7 +238,6 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -872,6 +872,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
+        if (olapScan.isIncrementalScan()) {
+            olapTable = new RowBinlogTableWrapper(((OlapTableStreamWrapper) olapTable).getBaseTable(),
+                    (OlapTableStreamWrapper) olapTable);
+        }
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
         List<SlotDescriptor> slotDescriptors = tupleDescriptor.getSlots();
@@ -888,7 +892,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // generate base index tuple because this fragment partitioned expr relay on slots of based index
-        if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+        if (!olapScan.isIncrementalScan() && olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
             generateTupleDesc(olapScan.getBaseOutputs(), olapTable, context);
         }
 
@@ -949,16 +953,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
         }
 
-        // TODO:  remove this switch?
-        switch (olapScan.getTable().getKeysType()) {
-            case AGG_KEYS:
-            case UNIQUE_KEYS:
-            case DUP_KEYS:
-                PreAggStatus preAgg = olapScan.getPreAggStatus();
-                olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(), preAgg.getOffReason());
-                break;
-            default:
-                throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
+        if (olapScan.isIncrementalScan()) {
+            olapScanNode.setSelectedIndexInfo(olapTable.getBaseIndexId(), false, "binlog<row> read");
+        } else {
+            // TODO:  remove this switch?
+            switch (olapScan.getTable().getKeysType()) {
+                case AGG_KEYS:
+                case UNIQUE_KEYS:
+                case DUP_KEYS:
+                    PreAggStatus preAgg = olapScan.getPreAggStatus();
+                    olapScanNode.setSelectedIndexInfo(olapScan.getSelectedIndexId(), preAgg.isOn(),
+                            preAgg.getOffReason());
+                    break;
+                default:
+                    throw new RuntimeException("Not supported key type: " + olapScan.getTable().getKeysType());
+            }
+        }
+
+        // apply change scan info if present
+        if (olapScan.getScanParams().isPresent()) {
+            olapScanNode.setScanParams(olapScan.getScanParams().get());
         }
 
         // create scan range
@@ -1157,9 +1171,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                         aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
                             }
                         }
-                        // no need to traverse children, because AggregateExpression
-                        // should not have a AggregateExpression child
-                        return true;
+                        // Continue through transparent guards unless this guard directly wraps
+                        // the aggregate expression already processed above.
+                        return guardExpr.child() instanceof AggregateExpression;
                     }
                     if (c instanceof AggregateExpression) {
                         AggregateExpression aggregateExpression = (AggregateExpression) c;
@@ -1933,9 +1947,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
             List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
             runtimeFilterTranslator.createLegacyRuntimeFilters(filters, nestedLoopJoinNode, context);
-            if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
-                nestedLoopJoinNode.setOutputLeftSideOnly(true);
-            }
         });
 
         Map<ExprId, SlotReference> leftChildOutputMap = nestedLoopJoin.child(0).getOutput().stream()
@@ -1970,6 +1981,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(e -> e.getInputSlots().stream())
                 .map(SlotReference.class::cast)
                 .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+        Map<ExprId, SlotReference> materializedSlotReferenceMap = Maps.newHashMap(outputSlotReferenceMap);
+        nestedLoopJoinNode.enableMaterializedSlotIds();
         List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
@@ -1983,17 +1996,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
             SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
             SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+            if (materializedSlotReferenceMap.get(sf.getExprId()) != null) {
+                nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(sd.getId());
+            }
+            nestedLoopJoinNode.getMaterializedSlotIdMap().put(sf.getExprId(), sd.getId());
             leftIntermediateSlotDescriptor.add(sd);
         }
         for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
             SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
             SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+            if (materializedSlotReferenceMap.get(sf.getExprId()) != null) {
+                nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(sd.getId());
+            }
+            nestedLoopJoinNode.getMaterializedSlotIdMap().put(sf.getExprId(), sd.getId());
             rightIntermediateSlotDescriptor.add(sd);
         }
 
         if (nestedLoopJoin.getMarkJoinSlotReference().isPresent()) {
-            outputSlotReferences.add(nestedLoopJoin.getMarkJoinSlotReference().get());
-            context.createSlotDesc(intermediateDescriptor, nestedLoopJoin.getMarkJoinSlotReference().get());
+            SlotReference markJoinSlotReference = nestedLoopJoin.getMarkJoinSlotReference().get();
+            outputSlotReferences.add(markJoinSlotReference);
+            SlotDescriptor markJoinSlotDescriptor = context.createSlotDesc(intermediateDescriptor,
+                    markJoinSlotReference);
+            if (materializedSlotReferenceMap.get(markJoinSlotReference.getExprId()) != null) {
+                nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(markJoinSlotDescriptor.getId());
+            }
+            nestedLoopJoinNode.getMaterializedSlotIdMap().put(markJoinSlotReference.getExprId(),
+                    markJoinSlotDescriptor.getId());
         }
 
         // set slots as nullable for outer join
@@ -2019,17 +2047,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
         List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
-                .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-
-        if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
-            // left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
-            joinConjuncts.add(new BoolLiteral(true));
-        }
 
         nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
-        if (!nestedLoopJoin.getOtherJoinConjuncts().isEmpty()) {
+        if (!nestedLoopJoin.getMarkJoinConjuncts().isEmpty()) {
             List<Expr> markJoinConjuncts = nestedLoopJoin.getMarkJoinConjuncts().stream()
                     .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
             nestedLoopJoinNode.setMarkJoinConjuncts(markJoinConjuncts);
@@ -2255,6 +2277,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     for (SlotId slotId : oldHashOutputSlotIds) {
                         ((HashJoinNode) joinNode).addSlotIdToHashOutputSlotIds(slotId);
                         break;
+                    }
+                }
+            } else if (joinNode instanceof NestedLoopJoinNode) {
+                NestedLoopJoinNode nestedLoopJoinNode = (NestedLoopJoinNode) joinNode;
+                nestedLoopJoinNode.getMaterializedSlotIds().clear();
+                nestedLoopJoinNode.enableMaterializedSlotIds();
+                Set<ExprId> requiredExprIds = Sets.newHashSet();
+                requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                for (ExprId exprId : requiredExprIds) {
+                    SlotId slotId = nestedLoopJoinNode.getMaterializedSlotIdMap().get(exprId);
+                    if (slotId != null) {
+                        nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(slotId);
                     }
                 }
             }
@@ -2778,7 +2812,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             useRowStore = olapTable.storeRowColumn()
                     && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
         }
-        return useRowStore && canUseRowStoreForLazySlots(lazySlots);
+        return useRowStore && canUseRowStoreForLazySlots(lazySlots)
+                && !hasNestedAccessPaths(rel, lazySlots);
+    }
+
+    private boolean hasNestedAccessPaths(Relation rel, List<Slot> lazySlots) {
+        Set<Integer> lazyColumnUniqueIds = new HashSet<>();
+        for (Slot lazySlot : lazySlots) {
+            SlotReference slotReference = (SlotReference) lazySlot;
+            lazyColumnUniqueIds.add(slotReference.getOriginalColumn().get().getUniqueId());
+        }
+        for (Slot outputSlot : rel.getOutput()) {
+            if (outputSlot instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) outputSlot;
+                if (slotReference.getOriginalColumn().isPresent()
+                        && lazyColumnUniqueIds.contains(slotReference.getOriginalColumn().get().getUniqueId())
+                        && hasNestedAccessPaths(slotReference)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasNestedAccessPaths(SlotReference slotReference) {
+        return slotReference.getAllAccessPaths().map(paths -> !paths.isEmpty()).orElse(false)
+                || slotReference.getPredicateAccessPaths().map(paths -> !paths.isEmpty()).orElse(false);
     }
 
     @Override

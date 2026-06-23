@@ -116,6 +116,8 @@ private:
     std::string _get_header_full_path(const TabletSharedPtr& ref_tablet,
                                       const std::string& schema_hash_path) const;
 
+    std::string _get_row_binlog_full_path(const std::string& schema_hash_path) const;
+
     std::string _get_json_header_full_path(const TabletSharedPtr& ref_tablet,
                                            const std::string& schema_hash_path) const;
 

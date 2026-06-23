@@ -21,6 +21,7 @@ import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
 import org.apache.flink.table.data.TimestampData;
@@ -68,6 +69,7 @@ import io.debezium.time.NanoTime;
 import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
+import io.debezium.time.ZonedTime;
 import io.debezium.time.ZonedTimestamp;
 import lombok.Getter;
 import lombok.Setter;
@@ -161,6 +163,7 @@ public class DebeziumJsonDeserializer
                             if (!excludeColumns.contains(field.name())) {
                                 Object valueConverted =
                                         convert(
+                                                field.name(),
                                                 field.schema(),
                                                 after.getWithoutDefault(field.name()));
                                 record.put(field.name(), valueConverted);
@@ -185,6 +188,7 @@ public class DebeziumJsonDeserializer
                             if (!excludeColumns.contains(field.name())) {
                                 Object valueConverted =
                                         convert(
+                                                field.name(),
                                                 field.schema(),
                                                 before.getWithoutDefault(field.name()));
                                 record.put(field.name(), valueConverted);
@@ -194,7 +198,20 @@ public class DebeziumJsonDeserializer
         return objectMapper.writeValueAsString(record);
     }
 
-    private Object convert(Schema fieldSchema, Object dbzObj) {
+    private Object convert(String fieldName, Schema fieldSchema, Object dbzObj) {
+        try {
+            return convertInternal(fieldSchema, dbzObj);
+        } catch (Exception e) {
+            String msg =
+                    String.format(
+                            "Failed to convert column '%s' value=%s: %s",
+                            fieldName, dbzObj, ExceptionUtils.getMessage(e));
+            LOG.error(msg, e);
+            throw new RuntimeException(msg);
+        }
+    }
+
+    private Object convertInternal(Schema fieldSchema, Object dbzObj) {
         if (dbzObj == null) {
             return null;
         }
@@ -239,6 +256,8 @@ public class DebeziumJsonDeserializer
                     return convertTimestamp(name, dbzObj);
                 case ZonedTimestamp.SCHEMA_NAME:
                     return convertZoneTimestamp(dbzObj);
+                case ZonedTime.SCHEMA_NAME:
+                    return convertZoneTime(dbzObj);
                 case Decimal.LOGICAL_NAME:
                     return convertDecimal(dbzObj, fieldSchema);
                 case Bits.LOGICAL_NAME:
@@ -301,21 +320,43 @@ public class DebeziumJsonDeserializer
         return dbzObj.toString();
     }
 
+    private Object convertZoneTime(Object dbzObj) {
+        // timetz has no date, so a named zone's DST offset cannot be resolved. Following
+        // Debezium/PostgreSQL semantics, keep Debezium's UTC-normalized ZonedTime string as-is
+        // (offset preserved) rather than shifting it into serverTimeZone, which would drop the
+        // offset and mishandle DST.
+        if (dbzObj instanceof String) {
+            return dbzObj;
+        }
+        LOG.warn("Unable to convert to zone time, default {}", dbzObj);
+        return dbzObj.toString();
+    }
+
     private Object convertTimestamp(String typeName, Object dbzObj) {
         if (dbzObj instanceof Long) {
             switch (typeName) {
                 case Timestamp.SCHEMA_NAME:
                     return TimestampData.fromEpochMillis((Long) dbzObj).toTimestamp().toString();
                 case MicroTimestamp.SCHEMA_NAME:
-                    long micro = (long) dbzObj;
-                    return TimestampData.fromEpochMillis(micro / 1000, (int) (micro % 1000 * 1000))
-                            .toTimestamp()
-                            .toString();
+                    {
+                        // floorDiv/floorMod keep nanoOfMillisecond non-negative for pre-1970
+                        // values.
+                        long micro = (long) dbzObj;
+                        long millis = Math.floorDiv(micro, 1000L);
+                        int nanos = (int) Math.floorMod(micro, 1000L) * 1000;
+                        return TimestampData.fromEpochMillis(millis, nanos)
+                                .toTimestamp()
+                                .toString();
+                    }
                 case NanoTimestamp.SCHEMA_NAME:
-                    long nano = (long) dbzObj;
-                    return TimestampData.fromEpochMillis(nano / 1000_000, (int) (nano % 1000_000))
-                            .toTimestamp()
-                            .toString();
+                    {
+                        long nano = (long) dbzObj;
+                        long millis = Math.floorDiv(nano, 1_000_000L);
+                        int nanos = (int) Math.floorMod(nano, 1_000_000L);
+                        return TimestampData.fromEpochMillis(millis, nanos)
+                                .toTimestamp()
+                                .toString();
+                    }
             }
         }
         LocalDateTime localDateTime = TemporalConversions.toLocalDateTime(dbzObj, serverTimeZone);
@@ -364,7 +405,7 @@ public class DebeziumJsonDeserializer
             Schema elementSchema = fieldSchema.valueSchema();
             List<Object> result = new ArrayList<>();
             for (Object element : (List<?>) dbzObj) {
-                result.add(element == null ? null : convert(elementSchema, element));
+                result.add(element == null ? null : convertInternal(elementSchema, element));
             }
             return result;
         }

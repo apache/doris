@@ -34,11 +34,14 @@
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/function_filter.h"
 #include "runtime/runtime_state.h"
+#include "storage/binlog.h"
+#include "storage/iterator/binlog_block_reader_utils.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -72,6 +75,325 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
         }
     }
     return res;
+}
+
+// Lazily resolves the positions of the binlog meta columns (op / lsn / tso) inside the
+// merged source block, and builds _before_column_idx mapping each non-meta column to its
+// __BEFORE__ mirror. The resolved positions are reused across blocks; if the column
+// layout changes (detected via _binlog_op_pos sanity check), they are re-resolved.
+Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
+    if (_binlog_column_pos_inited) {
+        if (_binlog_op_pos >= 0 && _binlog_op_pos < src_block.columns() &&
+            src_block.get_by_position(_binlog_op_pos).name == kRowBinlogOpColName) {
+            return Status::OK();
+        }
+        _binlog_op_pos = -1;
+        _binlog_lsn_pos = -1;
+        _binlog_timestamp_pos = -1;
+        _binlog_column_pos_inited = false;
+    }
+
+    const uint32_t col_num = src_block.columns();
+    _before_column_idx.resize(col_num);
+    for (uint32_t i = 0; i < col_num; ++i) {
+        const auto& name = src_block.get_by_position(i).name;
+        if (name == kRowBinlogOpColName) {
+            _binlog_op_pos = static_cast<int>(i);
+        } else if (name == kRowBinlogLsnColName) {
+            _binlog_lsn_pos = static_cast<int>(i);
+        } else if (name == kRowBinlogTimestampColName) {
+            _binlog_timestamp_pos = static_cast<int>(i);
+        } else {
+            std::string before_name = binlog::build_before_column_name(name);
+            int tmp_idx = src_block.get_position_by_name(before_name);
+            _before_column_idx[i] = tmp_idx < 0 ? i : tmp_idx;
+        }
+    }
+    _binlog_column_pos_inited = true;
+    return Status::OK();
+}
+
+int64_t BlockReader::_read_binlog_op(const IColumn& col, size_t row) const {
+    const IColumn* cur = &col;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
+        if (nullable->is_null_at(row)) {
+            return binlog::ROW_BINLOG_UNKNOWN;
+        }
+        cur = &nullable->get_nested_column();
+    }
+
+    if (const auto* int64_col = check_and_get_column<ColumnInt64>(*cur)) {
+        return int64_col->get_element(row);
+    }
+
+    return binlog::ROW_BINLOG_UNKNOWN;
+}
+
+Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
+    IColumn* cur = &col;
+    ColumnNullable* nullable = nullptr;
+    if (auto* n = typeid_cast<ColumnNullable*>(cur)) {
+        nullable = n;
+        cur = &nullable->get_nested_column();
+    }
+
+    if (auto* int64_col = typeid_cast<ColumnInt64*>(cur)) {
+        int64_col->insert_value(op);
+    } else {
+        return Status::InternalError("invalid column type");
+    }
+
+    if (nullable != nullptr) {
+        nullable->get_null_map_data().push_back(0);
+    }
+    return Status::OK();
+}
+
+bool BlockReader::_is_binlog_meta_column(int idx) const {
+    return idx == _binlog_op_pos || idx == _binlog_lsn_pos || idx == _binlog_timestamp_pos;
+}
+
+// Resolves which source-block column to read from for a given binlog row position.
+// When use_before is true and idx is a regular data column, return the index of its
+// __BEFORE__ mirror (built in _before_column_idx); otherwise return idx itself.
+// Binlog meta columns (op / lsn / tso) have no BEFORE mirror, so they always pass through.
+int BlockReader::_resolve_source_column_index(int idx, bool use_before) const {
+    if (!use_before || _is_binlog_meta_column(idx)) {
+        return idx;
+    }
+
+    return _before_column_idx[idx];
+}
+
+void BlockReader::_init_pending_row_columns(const Block& block) {
+    if (!_pending_row_columns.empty()) {
+        return;
+    }
+    _pending_row_columns = block.clone_empty_columns();
+}
+
+// Drains the carry-over row produced on the previous batch boundary into the current
+// output block. Returns true if a row was emitted, false if no pending row exists.
+bool BlockReader::_emit_pending_row(MutableColumns& target_columns, size_t& output_row_count) {
+    if (!_has_pending_row) {
+        return false;
+    }
+    for (size_t i = 0; i < _pending_row_columns.size(); ++i) {
+        target_columns[i]->insert_from(*_pending_row_columns[i], 0);
+        _pending_row_columns[i]->clear();
+    }
+    _has_pending_row = false;
+    output_row_count++;
+    return true;
+}
+
+// Copies one source row into target_columns with the given output op code, picking BEFORE
+// or AFTER values per column according to use_before. Used by _detail_change_next_block to
+// materialize the BEFORE / AFTER halves of an UPDATE pair (and INSERT / DELETE singletons).
+Status BlockReader::_append_change_row(MutableColumns& target_columns, const Block& src_block,
+                                       size_t row_pos, int64_t output_op, bool use_before) {
+    for (auto idx : _normal_columns_idx) {
+        int target_col_idx = _return_columns_loc[idx];
+        if (target_col_idx < 0) {
+            continue;
+        }
+        if (idx == _binlog_op_pos) {
+            RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx], output_op));
+            continue;
+        }
+        int source_idx = _resolve_source_column_index(idx, use_before);
+        target_columns[target_col_idx]->insert_from(*src_block.get_by_position(source_idx).column,
+                                                    row_pos);
+    }
+    return Status::OK();
+}
+
+// MIN_DELTA reader: groups consecutive rows sharing the same primary key in
+// _stored_data_columns, then collapses the group into the minimum equivalent change
+// (SKIP / INSERT / DELETE / UPDATE_BEFORE+AFTER) via AggregateFunctionMinDelta.
+Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
+    if (UNLIKELY(_eof && !_has_pending_row)) {
+        *eof = true;
+        return Status::OK();
+    }
+
+    if (_stored_data_columns.empty()) {
+        _stored_data_columns = _next_row.block->clone_empty_columns();
+    }
+
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
+    size_t output_row_count = 0;
+    _init_pending_row_columns(*block);
+    RETURN_IF_ERROR(_ensure_binlog_column_pos(*_next_row.block));
+    while (output_row_count < batch_max_rows()) {
+        if (_emit_pending_row(target_columns, output_row_count)) {
+            continue;
+        }
+        if (_eof) {
+            break;
+        }
+        bool need_pop = _stored_data_columns[0]->size() > 1;
+        for (size_t i = 0; i < _stored_data_columns.size(); ++i) {
+            if (need_pop) {
+                _stored_data_columns[i]->pop_back(1);
+            }
+            _stored_data_columns[i]->insert_from(*_next_row.block->get_by_position(i).column,
+                                                 _next_row.row_pos);
+        }
+        auto res = _vcollect_iter.next(&_next_row);
+        if (UNLIKELY(res.is<END_OF_FILE>())) {
+            _eof = true;
+        } else if (UNLIKELY(!res.ok())) {
+            return res;
+        }
+
+        if (!_eof && _next_row.is_same) {
+            continue;
+        }
+        size_t group_size = _stored_data_columns[0]->size();
+        auto first_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], 0);
+        auto last_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], group_size - 1);
+        auto result = binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
+        switch (result) {
+        case binlog::AggregateFunctionMinDelta::ResultType::SKIP:
+            break;
+        case binlog::AggregateFunctionMinDelta::ResultType::INSERT:
+            for (auto idx : _normal_columns_idx) {
+                int target_col_idx = _return_columns_loc[idx];
+                if (idx == _binlog_op_pos) {
+                    RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
+                                                     binlog::STREAM_CHANGE_INSERT));
+                } else {
+                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
+                                                                group_size - 1);
+                }
+            }
+            output_row_count++;
+            break;
+        case binlog::AggregateFunctionMinDelta::ResultType::DELETE:
+            for (auto idx : _normal_columns_idx) {
+                int target_col_idx = _return_columns_loc[idx];
+                if (idx == _binlog_op_pos) {
+                    RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
+                                                     binlog::STREAM_CHANGE_DELETE));
+                } else {
+                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
+                                                                group_size - 1);
+                }
+            }
+            output_row_count++;
+            break;
+        case binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
+            for (auto idx : _normal_columns_idx) {
+                int target_col_idx = _return_columns_loc[idx];
+                if (idx == _binlog_op_pos) {
+                    RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
+                                                     binlog::STREAM_CHANGE_UPDATE_BEFORE));
+                } else if (idx == _binlog_lsn_pos) {
+                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
+                                                                group_size - 1);
+                } else {
+                    int source_idx = _resolve_source_column_index(idx, true);
+                    target_columns[target_col_idx]->insert_from(*_stored_data_columns[source_idx],
+                                                                0);
+                }
+            }
+            output_row_count++;
+            if (output_row_count >= batch_max_rows()) {
+                for (auto idx : _normal_columns_idx) {
+                    int target_col_idx = _return_columns_loc[idx];
+                    if (idx == _binlog_op_pos) {
+                        RETURN_IF_ERROR(_write_binlog_op(*_pending_row_columns[target_col_idx],
+                                                         binlog::STREAM_CHANGE_UPDATE_AFTER));
+                    } else {
+                        _pending_row_columns[target_col_idx]->insert_from(
+                                *_stored_data_columns[idx], group_size - 1);
+                    }
+                }
+                _has_pending_row = true;
+            } else {
+                for (auto idx : _normal_columns_idx) {
+                    int target_col_idx = _return_columns_loc[idx];
+                    if (idx == _binlog_op_pos) {
+                        RETURN_IF_ERROR(_write_binlog_op(*target_columns[target_col_idx],
+                                                         binlog::STREAM_CHANGE_UPDATE_AFTER));
+                    } else {
+                        target_columns[target_col_idx]->insert_from(*_stored_data_columns[idx],
+                                                                    group_size - 1);
+                    }
+                }
+                output_row_count++;
+            }
+            break;
+        }
+
+        for (auto& col : _stored_data_columns) {
+            col->clear();
+        }
+    }
+    *eof = _eof && !_has_pending_row;
+    return Status::OK();
+}
+
+// DETAIL reader: emits every recorded binlog change verbatim. APPEND -> single INSERT row,
+// DELETE -> single DELETE row, UPDATE -> a BEFORE+AFTER pair. When the AFTER row would
+// overflow batch_max_rows(), it is parked in _pending_row_columns and flushed next call.
+Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
+    if (UNLIKELY(_eof && !_has_pending_row)) {
+        *eof = true;
+        return Status::OK();
+    }
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
+    size_t output_row_count = 0;
+    _init_pending_row_columns(*block);
+    RETURN_IF_ERROR(_ensure_binlog_column_pos(*_next_row.block));
+    while (output_row_count < batch_max_rows()) {
+        if (_emit_pending_row(target_columns, output_row_count)) {
+            continue;
+        }
+        if (_eof) {
+            break;
+        }
+        if (UNLIKELY(_next_row.block == nullptr)) {
+            return Status::InternalError("invalid row reference in detail change reader");
+        }
+        const Block& source_block = *_next_row.block;
+        const size_t row = _next_row.row_pos;
+        int64_t op = _read_binlog_op(*source_block.get_by_position(_binlog_op_pos).column, row);
+        if (op == ROW_BINLOG_UPDATE) {
+            RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
+                                               binlog::STREAM_CHANGE_UPDATE_BEFORE, true));
+            output_row_count++;
+            if (output_row_count >= batch_max_rows()) {
+                RETURN_IF_ERROR(_append_change_row(_pending_row_columns, source_block, row,
+                                                   binlog::STREAM_CHANGE_UPDATE_AFTER, false));
+                _has_pending_row = true;
+            } else {
+                RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
+                                                   binlog::STREAM_CHANGE_UPDATE_AFTER, false));
+                output_row_count++;
+            }
+        } else if (op == ROW_BINLOG_APPEND) {
+            RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
+                                               binlog::STREAM_CHANGE_INSERT, false));
+            output_row_count++;
+        } else if (op == ROW_BINLOG_DELETE) {
+            RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
+                                               binlog::STREAM_CHANGE_DELETE, false));
+            output_row_count++;
+        }
+
+        auto res = _vcollect_iter.next(&_next_row);
+        if (UNLIKELY(res.is<END_OF_FILE>())) {
+            _eof = true;
+        } else if (UNLIKELY(!res.ok())) {
+            return res;
+        }
+    }
+    *eof = _eof && !_has_pending_row;
+    return Status::OK();
 }
 
 bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
@@ -118,8 +440,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
         _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
-        _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                            read_params.read_orderby_key_reverse);
+        const bool is_min_delta_stream = read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA;
+        const bool force_merge = read_params.read_orderby_key || is_min_delta_stream;
+        const bool is_reverse = !is_min_delta_stream && read_params.read_orderby_key_reverse;
+        _vcollect_iter.init(this, _is_rowsets_overlapping, force_merge, is_reverse);
     }
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
@@ -167,8 +491,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
         return Status::OK();
     }
 
-    _stored_data_columns =
-            _next_row.block->create_same_struct_block(batch_max_rows())->mutate_columns();
+    auto stored_block = _next_row.block->create_same_struct_block(batch_max_rows());
+    _stored_data_columns = std::move(*stored_block).mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_variable_length_tag.resize(_stored_data_columns.size());
@@ -274,6 +598,19 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return status;
     }
 
+    // MIN_DELTA: collapse consecutive same-key changes to the minimum equivalent change set
+    // (e.g. INSERT+DELETE -> SKIP, INSERT+UPDATE -> INSERT). Reduces downstream traffic.
+    if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA) {
+        _next_block_func = &BlockReader::_min_delta_next_block;
+        return Status::OK();
+    }
+    // DETAIL: emit every recorded change as-is, with BEFORE+AFTER rows for UPDATE.
+    // Used when the consumer needs full change history rather than the net delta.
+    if (read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
+        _next_block_func = &BlockReader::_detail_change_next_block;
+        return Status::OK();
+    }
+
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
@@ -287,7 +624,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    switch (tablet()->keys_type()) {
+    switch (_tablet_schema->keys_type()) {
     case KeysType::DUP_KEYS:
         _next_block_func = &BlockReader::_direct_next_block;
         break;
@@ -309,7 +646,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
-        DCHECK(false) << "No next row function for type:" << tablet()->keys_type();
+        DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
 
@@ -344,7 +681,8 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
     }
 
     auto target_block_row = 0;
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
     // currently seq mapping only support mor table
     // so this will not be executed for the time being
     if (UNLIKELY(_reader_context.record_rowids)) {
@@ -476,7 +814,8 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
 
     auto target_block_row = 0;
     auto merged_row = 0;
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
     RETURN_IF_ERROR(_insert_data_normal(target_columns));
     target_block_row++;
     _append_agg_data(target_columns);
@@ -520,7 +859,6 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
-    block->set_columns(std::move(target_columns));
 
     _merged_rows += merged_row;
     return Status::OK();
@@ -533,7 +871,8 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     auto target_block_row = 0;
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
     if (UNLIKELY(_reader_context.record_rowids)) {
         _block_row_locations.resize(batch_max_rows());
     }
@@ -580,9 +919,10 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
                          << delete_sign_idx
                          << " not invalid, skip filter delete in base compaction";
+            target_columns_guard.restore();
             return Status::OK();
         }
-        MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
+        auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
         auto* __restrict filter_data =
@@ -603,18 +943,17 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
         }
         auto target_columns_size = target_columns.size();
+        _delete_filter_column = std::move(delete_filter_column);
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
-        block->set_columns(std::move(target_columns));
+        target_columns_guard.restore();
         block->insert(column_with_type_and_name);
         RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
-    } else {
-        block->set_columns(std::move(target_columns));
     }
     return Status::OK();
 }

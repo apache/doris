@@ -56,6 +56,7 @@ class TupleDescriptor;
 
 struct OlapTableIndexSchema {
     int64_t index_id;
+    int64_t row_binlog_id = 0;
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
@@ -79,6 +80,7 @@ public:
 
     TupleDescriptor* tuple_desc() const { return _tuple_desc; }
     const std::vector<OlapTableIndexSchema*>& indexes() const { return _indexes; }
+    const OlapTableIndexSchema* row_binlog_index_schema() const { return _row_binlog_index_schema; }
 
     void to_protobuf(POlapTableSchemaParam* pschema) const;
 
@@ -103,7 +105,7 @@ public:
         return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
     }
 
-    std::set<std::string> partial_update_input_columns() const {
+    const std::set<std::string>& partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
     PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {
@@ -131,6 +133,7 @@ private:
     TupleDescriptor* _tuple_desc = nullptr;
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
+    OlapTableIndexSchema* _row_binlog_index_schema = nullptr;
     mutable ObjectPool _obj_pool;
     UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
     PartialUpdateNewRowPolicyPB _partial_update_new_row_policy {

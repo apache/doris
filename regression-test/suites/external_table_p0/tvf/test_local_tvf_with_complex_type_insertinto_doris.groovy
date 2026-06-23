@@ -60,8 +60,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0,external") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             ); """
 
     qt_sql """
@@ -113,8 +112,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0,external") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             ); """
 
 

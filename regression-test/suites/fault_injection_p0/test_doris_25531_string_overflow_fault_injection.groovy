@@ -16,58 +16,14 @@
 // under the License.
 
 suite("test_doris_25531_string_overflow_fault_injection", "nonConcurrent") {
-    def forcedOverflowSize = "31"
+    def debugPoint = "ColumnStr.convert_column_if_overflow.max_string_size"
+    def forcedMaxStringSize = 31
 
-    def normalizeRows = { rows ->
-        rows.collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        }
-    }
-
-    def backendIdToBackendIP = [:]
-    def backendIdToBackendHttpPort = [:]
-    getBackendIpHttpPort(backendIdToBackendIP, backendIdToBackendHttpPort)
-
-    def originalStringOverflowSize = "4294967295"
-    if (!backendIdToBackendIP.isEmpty()) {
-        def backendId = backendIdToBackendIP.keySet()[0]
-        def (code, out, err) = show_be_config(
-                backendIdToBackendIP.get(backendId), backendIdToBackendHttpPort.get(backendId))
-        logger.info("show BE config: code=${code}, out=${out}, err=${err}")
-        assertEquals(0, code)
-        def configList = parseJson(out.trim())
-        for (Object entry in (List) configList) {
-            def values = (List<String>) entry
-            if (values[0] == "string_overflow_size") {
-                originalStringOverflowSize = values[2]
-                break
-            }
-        }
-    }
-
-    def expectStringOverflow = { query ->
-        test {
-            sql query
-            check { result, exception, startTime, endTime ->
-                assert exception != null: "Expected query to fail with string overflow"
-                def details = exception.toString()
-                logger.info("Expected string overflow exception: ${details}".toString())
-                assert details.contains("string column length is too large")
-            }
-        }
-    }
-
-    def overflowQuery = """
-        SELECT repeat(v, 20)
-        FROM test_doris_25531_string_overflow_error
-        ORDER BY 1
-    """
-
-    sql """ DROP TABLE IF EXISTS test_doris_25531_string_overflow_error """
+    sql """ DROP TABLE IF EXISTS test_doris_25531_string_overflow_fault_injection """
     sql """
-        CREATE TABLE test_doris_25531_string_overflow_error (
+        CREATE TABLE test_doris_25531_string_overflow_fault_injection (
             k INT,
-            v STRING
+            dt DATETIMEV2
         )
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -76,20 +32,31 @@ suite("test_doris_25531_string_overflow_fault_injection", "nonConcurrent") {
         )
     """
     sql """
-        INSERT INTO test_doris_25531_string_overflow_error VALUES
-            (1, 'a'),
-            (2, 'b')
+        INSERT INTO test_doris_25531_string_overflow_fault_injection VALUES
+            (1, '2024-01-01 00:00:00'),
+            (2, '2024-01-01 01:00:00')
     """
 
+    def joinWithConvertTz = """
+        SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */
+               l.k,
+               r.k,
+               CAST(convert_tz(l.dt, 'UTC', 'Asia/Shanghai') AS STRING) AS converted_dt
+        FROM test_doris_25531_string_overflow_fault_injection l
+        JOIN test_doris_25531_string_overflow_fault_injection r
+          ON repeat(CAST(convert_tz(l.dt, 'UTC', 'Asia/Shanghai') AS STRING), 2)
+           = repeat(CAST(convert_tz(r.dt, 'UTC', 'Asia/Shanghai') AS STRING), 2)
+        ORDER BY 1, 2
+    """
+
+    qt_sql_without_debug_point joinWithConvertTz
+
     try {
-        update_all_be_config("string_overflow_size", forcedOverflowSize)
-
-        assertEquals([["a"], ["b"]],
-                normalizeRows(sql("SELECT v FROM test_doris_25531_string_overflow_error ORDER BY k")))
-        expectStringOverflow(overflowQuery)
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        GetDebugPoint().enableDebugPointForAllBEs(debugPoint, [max_string_size: forcedMaxStringSize])
+        qt_sql_with_debug_point joinWithConvertTz
     } finally {
-        update_all_be_config("string_overflow_size", originalStringOverflowSize)
+        GetDebugPoint().disableDebugPointForAllBEs(debugPoint)
+        GetDebugPoint().clearDebugPointsForAllBEs()
     }
-
-    assertEquals([["aaaaaaaaaaaaaaaaaaaa"], ["bbbbbbbbbbbbbbbbbbbb"]], normalizeRows(sql(overflowQuery)))
 }

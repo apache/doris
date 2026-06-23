@@ -17,16 +17,37 @@
 
 package org.apache.doris.filesystem.oss;
 
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
+
+import com.aliyun.oss.ClientBuilderConfiguration;
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.common.comm.RequestMessage;
+import com.aliyun.oss.common.utils.HttpHeaders;
+import com.aliyun.oss.internal.OSSHeaders;
+import com.aliyun.oss.model.CopyObjectRequest;
+import com.aliyun.oss.model.DeleteObjectsRequest;
+import com.aliyun.oss.model.DeleteObjectsResult;
 import com.aliyun.oss.model.GeneratePresignedUrlRequest;
+import com.aliyun.oss.model.ListObjectsRequest;
+import com.aliyun.oss.model.OSSObjectSummary;
+import com.aliyun.oss.model.ObjectListing;
+import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.PutObjectRequest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -35,80 +56,6 @@ import java.util.Map;
  * <p>Cloud calls are replaced with mocks; no real OSS credentials are required.
  */
 class OssObjStorageTest {
-
-    // ------------------------------------------------------------------
-    // toS3Props() key-translation tests
-    // ------------------------------------------------------------------
-
-    @Test
-    void toS3Props_ossKeysTranslatedToAwsKeys() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("OSS_ENDPOINT", "https://oss-cn-hangzhou.aliyuncs.com");
-        ossProps.put("OSS_ACCESS_KEY", "myAK");
-        ossProps.put("OSS_SECRET_KEY", "mySK");
-        ossProps.put("OSS_BUCKET", "my-bucket");
-        ossProps.put("OSS_REGION", "cn-hangzhou");
-        ossProps.put("OSS_ROLE_ARN", "acs:ram::12345:role/DorisRole");
-
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
-
-        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("myAK", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("mySK", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("my-bucket", s3Props.get("AWS_BUCKET"));
-        Assertions.assertEquals("cn-hangzhou", s3Props.get("AWS_REGION"));
-        Assertions.assertEquals("acs:ram::12345:role/DorisRole", s3Props.get("AWS_ROLE_ARN"));
-        Assertions.assertEquals("false", s3Props.get("use_path_style"));
-    }
-
-    @Test
-    void toS3Props_awsKeysPreservedWhenBothPresent() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("OSS_ENDPOINT", "https://oss.aliyuncs.com");
-        ossProps.put("AWS_ENDPOINT", "https://custom.endpoint");
-        ossProps.put("OSS_ACCESS_KEY", "ossAK");
-        ossProps.put("AWS_ACCESS_KEY", "awsAK");
-
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
-
-        // AWS_* keys take precedence when both exist
-        Assertions.assertEquals("https://custom.endpoint", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("awsAK", s3Props.get("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    void toS3Props_awsOnlyKeysPassedThrough() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
-        ossProps.put("AWS_ACCESS_KEY", "akid");
-        ossProps.put("AWS_SECRET_KEY", "sk");
-        ossProps.put("AWS_BUCKET", "bucket");
-
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
-
-        Assertions.assertEquals("https://s3.amazonaws.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("akid", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("sk", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("bucket", s3Props.get("AWS_BUCKET"));
-    }
-
-    @Test
-    void toS3Props_sessionTokenTranslated() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("OSS_ENDPOINT", "https://oss.aliyuncs.com");
-        ossProps.put("OSS_ACCESS_KEY", "ak");
-        ossProps.put("OSS_SECRET_KEY", "sk");
-        ossProps.put("OSS_TOKEN", "session-token-xyz");
-        ossProps.put("OSS_BUCKET", "bkt");
-
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
-
-        Assertions.assertEquals("session-token-xyz", s3Props.get("AWS_TOKEN"));
-    }
-
-    // ------------------------------------------------------------------
-    // getPresignedUrl() with mocked OSS client
-    // ------------------------------------------------------------------
 
     @Test
     void getPresignedUrl_returnsSignedUrlFromOssClient() throws Exception {
@@ -131,12 +78,41 @@ class OssObjStorageTest {
     }
 
     @Test
+    void isUsePathStyle_reflectsConfiguredProperty() {
+        Map<String, String> props = buildBasicProps();
+        props.put("use_path_style", "true");
+        Assertions.assertTrue(new OssObjStorage(props).isUsePathStyle());
+        Assertions.assertFalse(new OssObjStorage(buildBasicProps()).isUsePathStyle());
+    }
+
+    @Test
+    void resolvePathStyle_fallsBackForNonDnsBucketNames() {
+        // Explicit use_path_style=true always wins.
+        Map<String, String> explicit = buildBasicProps();
+        explicit.put("use_path_style", "true");
+        OssObjStorage explicitStorage = new OssObjStorage(explicit);
+        Assertions.assertTrue(explicitStorage.resolvePathStyle("my-bucket"));
+
+        OssObjStorage storage = new OssObjStorage(buildBasicProps());
+        // DNS-compatible bucket name -> virtual-hosted style.
+        Assertions.assertFalse(storage.resolvePathStyle("my-bucket"));
+        // Underscore (and other non-DNS-safe names) cannot be virtual-hosted -> path-style,
+        // mirroring the legacy AWS-SDK auto-fallback so such buckets keep working.
+        Assertions.assertTrue(storage.resolvePathStyle("useless_bucket"));
+        Assertions.assertTrue(storage.resolvePathStyle("Upper_Case"));
+        // No bucket known yet -> leave addressing at the default (virtual-hosted).
+        Assertions.assertFalse(storage.resolvePathStyle(""));
+        Assertions.assertFalse(storage.resolvePathStyle(null));
+    }
+
+    @Test
     void getPresignedUrl_missingBucketThrowsIOException() {
         OSS mockOss = Mockito.mock(OSS.class);
         Map<String, String> props = new HashMap<>();
         props.put("AWS_ENDPOINT", "https://oss.aliyuncs.com");
         props.put("OSS_ACCESS_KEY", "ak");
         props.put("OSS_SECRET_KEY", "sk");
+        props.put("OSS_REGION", "cn-hangzhou");
         // no bucket
 
         OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
@@ -164,6 +140,140 @@ class OssObjStorageTest {
         storage.getPresignedUrl("key");
     }
 
+    @Test
+    void getClient_returnsOssClient() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        Assertions.assertSame(mockOss, storage.getClient());
+    }
+
+    @Test
+    void buildOssClient_allowsAnonymousCredentials() throws Exception {
+        InspectableOssObjStorage storage = new InspectableOssObjStorage(Map.of(
+                "OSS_ENDPOINT", "https://oss-cn-hongkong-internal.aliyuncs.com"));
+
+        OSS client = storage.createClient();
+
+        Assertions.assertNotNull(client);
+        client.shutdown();
+    }
+
+    @Test
+    void anonymousClientConfiguration_removesAuthHeaders() throws Exception {
+        ClientBuilderConfiguration config = OssObjStorage.anonymousClientConfiguration(false);
+        RequestMessage request = new RequestMessage("bucket", "key");
+        request.getHeaders().put(HttpHeaders.AUTHORIZATION, "OSS anonymous:signature");
+        request.getHeaders().put(OSSHeaders.OSS_SECURITY_TOKEN, "token");
+
+        config.getSignerHandlers().get(0).sign(request);
+
+        Assertions.assertFalse(request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION));
+        Assertions.assertFalse(request.getHeaders().containsKey(OSSHeaders.OSS_SECURITY_TOKEN));
+    }
+
+    @Test
+    void listObjects_usesOssNativeClientAndMapsResult() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OSSObjectSummary summary = new OSSObjectSummary();
+        summary.setKey("stage/f1.parquet");
+        summary.setETag("etag-1");
+        summary.setSize(12L);
+        summary.setLastModified(new Date(123456789L));
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(Collections.singletonList(summary));
+        listing.setTruncated(true);
+        listing.setNextMarker("next-marker");
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class)))
+                .thenReturn(listing);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        RemoteObjects result = storage.listObjects("oss://my-bucket/stage/", "marker-1");
+
+        Assertions.assertTrue(result.isTruncated());
+        Assertions.assertEquals("next-marker", result.getContinuationToken());
+        RemoteObject file = result.getObjectList().get(0);
+        Assertions.assertEquals("stage/f1.parquet", file.getKey());
+        Assertions.assertEquals("f1.parquet", file.getRelativePath());
+        Assertions.assertEquals("etag-1", file.getEtag());
+        Assertions.assertEquals(12L, file.getSize());
+        Assertions.assertEquals(123456789L, file.getModificationTime());
+        ArgumentCaptor<ListObjectsRequest> captor = ArgumentCaptor.forClass(ListObjectsRequest.class);
+        Mockito.verify(mockOss).listObjects(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertEquals("stage/", captor.getValue().getPrefix());
+        Assertions.assertEquals("marker-1", captor.getValue().getMarker());
+    }
+
+    @Test
+    void headObject_usesOssNativeClientAndMapsMetadata() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(34L);
+        metadata.setHeader("ETag", "etag-head");
+        metadata.setLastModified(new Date(22334455L));
+        Mockito.when(mockOss.getObjectMetadata("my-bucket", "stage/f2.parquet"))
+                .thenReturn(metadata);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        RemoteObject result = storage.headObject("oss://my-bucket/stage/f2.parquet");
+
+        Assertions.assertEquals("stage/f2.parquet", result.getKey());
+        Assertions.assertEquals("stage/f2.parquet", result.getRelativePath());
+        Assertions.assertEquals("etag-head", result.getEtag());
+        Assertions.assertEquals(34L, result.getSize());
+        Assertions.assertEquals(22334455L, result.getModificationTime());
+    }
+
+    @Test
+    void putObject_usesOssNativeClientWithRequestBody() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        byte[] content = "hello oss".getBytes(StandardCharsets.UTF_8);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.putObject("oss://my-bucket/stage/f3.txt",
+                RequestBody.of(new ByteArrayInputStream(content), content.length));
+
+        ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        Mockito.verify(mockOss).putObject(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertEquals("stage/f3.txt", captor.getValue().getKey());
+        Assertions.assertEquals(content.length, captor.getValue().getMetadata().getContentLength());
+    }
+
+    @Test
+    void copyObject_usesOssNativeClient() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.copyObject("oss://my-bucket/src.txt", "oss://my-bucket/dst.txt");
+
+        ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        Mockito.verify(mockOss).copyObject(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getSourceBucketName());
+        Assertions.assertEquals("src.txt", captor.getValue().getSourceKey());
+        Assertions.assertEquals("my-bucket", captor.getValue().getDestinationBucketName());
+        Assertions.assertEquals("dst.txt", captor.getValue().getDestinationKey());
+    }
+
+    @Test
+    void deleteObjectsByKeys_usesOssNativeBatchDelete() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        Mockito.when(mockOss.deleteObjects(Mockito.any(DeleteObjectsRequest.class)))
+                .thenReturn(new DeleteObjectsResult(Collections.emptyList()));
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.deleteObjectsByKeys("my-bucket", List.of("a.txt", "b.txt"));
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        Mockito.verify(mockOss).deleteObjects(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertTrue(captor.getValue().isQuiet());
+        Assertions.assertEquals(List.of("a.txt", "b.txt"), captor.getValue().getKeys());
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -188,8 +298,18 @@ class OssObjStorageTest {
         }
 
         @Override
-        protected OSS buildOssClient() {
+        protected OSS buildOssClient(boolean pathStyle) {
             return mockOss;
+        }
+    }
+
+    private static class InspectableOssObjStorage extends OssObjStorage {
+        InspectableOssObjStorage(Map<String, String> props) {
+            super(props);
+        }
+
+        OSS createClient() throws IOException {
+            return buildOssClient(false);
         }
     }
 }

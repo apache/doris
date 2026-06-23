@@ -61,7 +61,6 @@
 #include "load/stream_load/stream_load_recorder.h"
 #include "runtime/exec_env.h"
 #include "storage/binlog.h"
-#include "storage/compaction/single_replica_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/id_manager.h"
 #include "storage/olap_common.h"
@@ -257,6 +256,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     stop();
 }
 
@@ -743,7 +743,7 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    THREAD_JOIN(_update_replica_infos_thread);
+    THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -771,8 +771,8 @@ void StorageEngine::stop() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
+    if (_binlog_compaction_thread_pool) {
+        _binlog_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {
@@ -943,6 +943,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
+            rowset_meta->set_rowset_id(rowset_id);
+            rowset_meta->set_tablet_uid(tablet_uid);
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
@@ -988,6 +990,45 @@ void StorageEngine::_clean_unused_rowset_metas() {
         }
         return true;
     };
+    std::vector<std::pair<RowsetId, RowsetMetaSharedPtr>> invalid_row_binlog_metas;
+    auto clean_row_binlog_rowsets = [this, &invalid_row_binlog_metas](
+                                            const TabletUid& tablet_uid, RowsetId rowset_id,
+                                            RowsetId row_binlog_rowset_id,
+                                            const std::string& meta_str) -> bool {
+        // return false will break meta iterator, return true to skip this error
+        RowsetMetaSharedPtr row_binlog_rowset_meta(new RowsetMeta());
+        bool parsed = row_binlog_rowset_meta->init(meta_str);
+        if (!parsed) {
+            LOG(WARNING) << "parse binlog<row> meta string failed for rowset_id:"
+                         << row_binlog_rowset_id;
+            row_binlog_rowset_meta->set_rowset_id(row_binlog_rowset_id);
+            row_binlog_rowset_meta->set_tablet_uid(tablet_uid);
+            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
+            return true;
+        }
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(row_binlog_rowset_meta->tablet_id());
+        if (tablet == nullptr) {
+            LOG(INFO) << "failed to find tablet " << row_binlog_rowset_meta->tablet_id()
+                      << " for binlog<row>: " << row_binlog_rowset_meta->rowset_id()
+                      << ", tablet may be dropped";
+            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
+            return true;
+        }
+        if (tablet->tablet_uid() != row_binlog_rowset_meta->tablet_uid()) {
+            LOG(WARNING) << "binlog<row> meta's tablet uid " << row_binlog_rowset_meta->tablet_uid()
+                         << " does not equal to tablet uid: " << tablet->tablet_uid();
+            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
+            return true;
+        }
+        if (row_binlog_rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
+            !tablet->rowset_meta_is_useful(row_binlog_rowset_meta) &&
+            !check_rowset_id_in_unused_rowsets(rowset_id)) {
+            LOG(INFO) << "binlog<row> meta is not used any more, remove it. rowset_id="
+                      << row_binlog_rowset_meta->rowset_id();
+            invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
+        }
+        return true;
+    };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
         static_cast<void>(
@@ -1016,6 +1057,17 @@ void StorageEngine::_clean_unused_rowset_metas() {
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
+
+        static_cast<void>(RowsetMetaManager::traverse_row_binlog_metas(data_dir->get_meta(),
+                                                                       clean_row_binlog_rowsets));
+        for (auto& rs_id_to_meta : invalid_row_binlog_metas) {
+            static_cast<void>(RowsetMetaManager::remove_row_binlog(
+                    data_dir->get_meta(), rs_id_to_meta.second->tablet_uid(), rs_id_to_meta.first,
+                    rs_id_to_meta.second->rowset_id()));
+        }
+        LOG(INFO) << "remove " << invalid_row_binlog_metas.size()
+                  << " invalid binlog<row> meta from dir: " << data_dir->path();
+        invalid_row_binlog_metas.clear();
         invalid_rowset_metas.clear();
     }
 }
@@ -1541,23 +1593,6 @@ PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& 
     return _pending_remote_rowsets.add(ctx.rowset_id);
 }
 
-bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
-                                          std::string* token) {
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
-        return false;
-    }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.contains(tablet_id) &&
-        _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
-        *replica = _peer_replica_infos[tablet_id];
-        *token = _token;
-        return true;
-    }
-    return false;
-}
-
 bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -1598,7 +1633,6 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                      << tablet_id;
         return false;
     }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
         if (reps.empty()) [[unlikely]] {
@@ -1632,25 +1666,6 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                 .tag("tablet id", tablet_id)
                 .tag("replica num", backends->size());
         return true;
-    }
-    return false;
-}
-
-bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
-#ifdef BE_TEST
-    if (tablet_id % 2 == 0) {
-        return true;
-    }
-    return false;
-#endif
-    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
-        return false;
-    }
-    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.contains(tablet_id)) {
-        return _peer_replica_infos[tablet_id].replica_id != tablet->replica_id();
     }
     return false;
 }

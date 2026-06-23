@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "storage/field.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
@@ -54,11 +53,6 @@ protected:
         _index_meta = std::make_unique<MockTabletIndex>();
         _tablet_column_array = std::make_unique<MockTabletColumn>();
         _tablet_column_float = std::make_unique<MockTabletColumn>();
-
-        EXPECT_CALL(*_tablet_column_array, type())
-                .WillRepeatedly(testing::Return(FieldType::OLAP_FIELD_TYPE_ARRAY));
-
-        StorageField field(*_tablet_column_array);
 
         EXPECT_CALL(*_index_file_writer, open(_index_meta.get()))
                 .WillOnce(testing::Return(_ram_dir));

@@ -53,7 +53,12 @@ class AzureObjStorageExtensionTest {
     @Test
     void getPresignedUrl_missingAccountKeyThrowsIOException() {
         Map<String, String> props = new HashMap<>();
-        props.put("AZURE_ACCOUNT_NAME", "myaccount");
+        props.put("azure.account_name", "myaccount");
+        props.put("azure.auth_type", "OAuth2");
+        props.put("azure.oauth2_account_host", "myaccount.blob.core.windows.net");
+        props.put("azure.oauth2_client_id", "client-id");
+        props.put("azure.oauth2_client_secret", "client-secret");
+        props.put("azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant/oauth2/token");
         // no account key
 
         AzureObjStorage storage = new TestableAzureObjStorage(props, null);

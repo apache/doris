@@ -1000,6 +1000,12 @@ public class EditLog {
                     env.getBinlogManager().addModifyTableProperty(log, logId);
                     break;
                 }
+                case OperationType.OP_TABLE_STREAM_CLEANUP: {
+                    TableStreamCleanupInfo info =
+                            (TableStreamCleanupInfo) journal.getData();
+                    env.replayTableStreamCleanup(info);
+                    break;
+                }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
                     ModifyTableDefaultDistributionBucketNumOperationLog log =
                             (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
@@ -2281,6 +2287,10 @@ public class EditLog {
 
     public void logDynamicPartition(ModifyTablePropertyOperationLog info) {
         logModifyTableProperty(OperationType.OP_DYNAMIC_PARTITION, info);
+    }
+
+    public void logTableStreamCleanup(TableStreamCleanupInfo info) {
+        logEdit(OperationType.OP_TABLE_STREAM_CLEANUP, info);
     }
 
     public long logModifyReplicationNum(ModifyTablePropertyOperationLog info) {

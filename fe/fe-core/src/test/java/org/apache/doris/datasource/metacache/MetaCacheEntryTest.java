@@ -167,6 +167,29 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testStatsSnapshotContainsEvictionRate() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1L);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            Assert.assertEquals(0D, entry.stats().getEvictionRate(), 0D);
+            Assert.assertEquals(Integer.valueOf(1), entry.get("a"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("bb"));
+            extractLoadingCache(entry).cleanUp();
+            Assert.assertEquals(1L, entry.stats().getEvictionCount());
+            Assert.assertEquals(0.5D, entry.stats().getEvictionRate(), 0D);
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testContextualOnlyEntryRejectsDefaultGet() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {

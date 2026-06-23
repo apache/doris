@@ -36,6 +36,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -173,6 +174,138 @@ public class KafkaRoutineLoadJobTest {
                     Assert.fail();
                 }
             }
+        }
+    }
+
+    @Test
+    public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        partitionIdToOffset.put(2, 20L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        try (MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+            kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"), Mockito.anyMap(), Mockito.anyList()))
+                    .thenReturn(Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L)));
+
+            routineLoadJob.updateLag();
+
+            Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+        }
+    }
+
+    @Test
+    public void testUpdateLagRebuildsConvertedPropertiesAfterReplay() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "customKafkaPartitions", Lists.newArrayList(1));
+
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.mechanism", "PLAIN");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", Maps.newHashMap());
+
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        partitionIdToOffset.put(1, 10L);
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafkaUtilStatic = Mockito.mockStatic(KafkaUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            kafkaUtilStatic.when(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"),
+                    Mockito.<Map<String, String>>argThat(properties ->
+                            "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
+                                    && "PLAIN".equals(properties.get("sasl.mechanism"))),
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))))
+                    .thenReturn(Lists.newArrayList(Pair.of(1, 15L)));
+
+            routineLoadJob.updateLag();
+
+            Assert.assertEquals(5L, routineLoadJob.totalLag().longValue());
+            kafkaUtilStatic.verify(() -> KafkaUtil.getLatestOffsets(Mockito.eq(1L), Mockito.any(UUID.class),
+                    Mockito.eq("127.0.0.1:9020"), Mockito.eq("topic1"),
+                    Mockito.<Map<String, String>>argThat(properties ->
+                            "SASL_PLAINTEXT".equals(properties.get("security.protocol"))
+                                    && "PLAIN".equals(properties.get("sasl.mechanism"))),
+                    Mockito.argThat(partitions -> partitions.size() == 1 && partitions.contains(1))));
+        }
+    }
+
+    @Test
+    public void testUpdateProgressWarnsWhenReadCommittedTaskHasZeroRowsAndLag() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("isolation.level", "read_committed");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newHashMap();
+        cachedPartitionWithLatestOffsets.put(1, 20L);
+        Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                cachedPartitionWithLatestOffsets);
+
+        Map<Integer, Long> taskProgress = Maps.newHashMap();
+        taskProgress.put(1, 10L);
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "progress", new KafkaProgress(taskProgress));
+
+        Deencapsulation.invoke(routineLoadJob, "updateProgress", attachment);
+
+        String otherMsg = Deencapsulation.getField(routineLoadJob, "otherMsg");
+        Assert.assertTrue(otherMsg.contains("some records may be in uncommitted transactions"));
+    }
+
+    @Test
+    public void testReadCommittedZeroRowsWithLagDelaysNextTask() throws UserException {
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Mockito.when(routineLoadManager.getJob(1L)).thenReturn(routineLoadJob);
+
+            Map<String, String> customProperties = Maps.newHashMap();
+            customProperties.put("isolation.level", "read_committed");
+            Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+            Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newHashMap();
+            cachedPartitionWithLatestOffsets.put(1, 20L);
+            Deencapsulation.setField(routineLoadJob, "cachedPartitionWithLatestOffsets",
+                    cachedPartitionWithLatestOffsets);
+
+            Map<Integer, Long> taskProgress = Maps.newHashMap();
+            taskProgress.put(1, 10L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(taskProgress));
+
+            KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    taskProgress, false, 1000, false);
+            List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+            routineLoadTaskInfoList.add(kafkaTaskInfo);
+            Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+
+            RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+            Deencapsulation.setField(attachment, "progress", new KafkaProgress(taskProgress));
+            Deencapsulation.setField(attachment, "taskExecutionTimeMs",
+                    routineLoadJob.getMaxBatchIntervalS() * 1000);
+
+            kafkaTaskInfo.handleTaskByTxnCommitAttachment(attachment);
+
+            Assert.assertFalse(kafkaTaskInfo.getIsEof());
+            Assert.assertTrue(kafkaTaskInfo.needDedalySchedule());
+
+            RoutineLoadTaskInfo newTask = Deencapsulation.invoke(routineLoadJob,
+                    "unprotectRenewTask", kafkaTaskInfo, false);
+            Assert.assertTrue(newTask.needDedalySchedule());
         }
     }
 

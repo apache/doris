@@ -992,6 +992,21 @@ class Suite implements GroovyInterceptable {
         throw new RuntimeException("dictionary ${dictName} are not ready, status: ${result}")
     }
 
+    void waitForColocateGroupStable(String groupName, int timeoutSeconds = 60) {
+        waitForColocateGroupStable(context.dbName, groupName, timeoutSeconds)
+    }
+
+    void waitForColocateGroupStable(String dbName, String groupName, int timeoutSeconds = 60) {
+        String fullGroupName = groupName.startsWith("__global__") ? groupName : "${dbName}.${groupName}"
+        logger.info("wait colocate group ${fullGroupName} stable")
+        awaitUntil(timeoutSeconds) {
+            def groups = sql_return_maparray("SHOW PROC '/colocation_group'")
+            def group = groups.find { it.GroupName == fullGroupName }
+            return group != null && group.IsStable == "true"
+        }
+        logger.info("colocate group ${fullGroupName} is stable")
+    }
+
     void flightRecord(Closure actionSupplier) {
         runAction(new FlightRecordAction(context), actionSupplier)
     }
@@ -2308,6 +2323,11 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void testExpectNoResult(String testSql) {
+        def result = sql(testSql)
+        assertEquals(result.size(), 0)
+    }
+
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
         def sqlCacheOrigValue = sql("select @@enable_sql_cache")
@@ -2431,8 +2451,21 @@ class Suite implements GroovyInterceptable {
                 origin.put(key, rows[0].Value as String)
             }
         }
+
         try {
             tempVars.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+        } catch (Exception e) {
+            def err = e.getMessage()
+            log.warn("skip this case ${context.suiteName}, because ${err}")
+            if (err.toUpperCase().contains("ADMIN")) {
+                return
+            }
+
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+            throw e
+        }
+
+        try {
             actionSupplier()
         } finally {
             origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
@@ -2622,6 +2655,33 @@ class Suite implements GroovyInterceptable {
                 + expected_any_pre_rewrite_strategys
                 + ", current strategy = " + current_strategy)
         return false;
+    }
+
+    // Wait until the table row count reported by BE reaches the expected value.
+    // This is necessary before running sample analyze, because if row count is 0
+    // at task creation time, OlapAnalysisTask.doExecute() returns early without
+    // collecting any statistics, causing the analyze task to finish with an empty
+    // message instead of the expected skip reason.
+    void waitRowCountReady(String db, String table, long expectedRowCount) {
+        Awaitility.await().atMost(120, TimeUnit.SECONDS)
+                .pollInterval(3, TimeUnit.SECONDS).until {
+            def data = sql_return_maparray """SHOW DATA FROM ${db}.${table};"""
+            logger.info("SHOW DATA FROM ${db}.${table}: ${data}")
+            if (data.size() > 0) {
+                // Row 0 is the base index row which always has RowCount.
+                // The last row is "Total" whose RowCount may be empty.
+                def rc = data[0].RowCount
+                // RowCount may be empty string if BE hasn't reported yet.
+                if (rc == null || rc == '') {
+                    return false
+                }
+                def rowCount = (rc as long)
+                if (rowCount >= expectedRowCount) {
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     // Given tables to decide whether the table partition row count statistic is ready or not

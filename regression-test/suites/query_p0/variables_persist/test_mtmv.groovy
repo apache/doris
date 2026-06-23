@@ -141,14 +141,14 @@ suite("test_mtmv") {
         sql """
             select t1.f1*t1.f2, t1.f1, t1.f2 from test_decimal_mul_overflow_for_mv t1 where t1.f1>1;
         """
-        contains "where_mv chose"
+        contains "final projections: __multiply_0"
     }
     sql "set enable_decimal256=false;"
     explain {
         sql """
             select t1.f1*t1.f2, t1.f1, t1.f2 from test_decimal_mul_overflow_for_mv t1 where t1.f1>1;
         """
-        contains "where_mv not chose"
+        notContains "final projections: __multiply_0"
     }
     sql "drop materialized view  if exists where_mv;"
 

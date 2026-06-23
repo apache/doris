@@ -426,7 +426,7 @@ public class SchemaTable extends Table {
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
-                            .column("COMMIT_TSO", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMMIT_TSO", ScalarType.createVarchar(64))
                             .build()))
             .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
                     builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))
@@ -644,6 +644,7 @@ public class SchemaTable extends Table {
                                     .column("TOTAL_LOAD_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AVG_LOAD_PENALTY_MS", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("EVICTION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("EVICTION_RATE", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("INVALIDATE_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("LAST_LOAD_SUCCESS_TIME", ScalarType.createStringType())
                                     .column("LAST_LOAD_FAILURE_TIME", ScalarType.createStringType())

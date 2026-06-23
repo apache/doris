@@ -156,7 +156,7 @@ private:
                 continue;
             }
             std::tie(raw_then_columns[i], is_consts[i]) = unpack_if_const(then_columns[i]);
-            is_nullable[i] = raw_then_columns[i]->is_nullable();
+            is_nullable[i] = is_column_nullable(*raw_then_columns[i]);
         }
 
         auto* raw_result_column = result_column_ptr.get();
@@ -217,9 +217,9 @@ private:
             if (!then_columns[i]) {
                 continue;
             }
-            auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
-                            then_columns[i]->assume_mutable().get())
+            const auto* __restrict column_raw_data =
+                    assert_cast<const ColumnType*, TypeCheckOnRelease::DISABLE>(
+                            then_columns[i].get())
                             ->get_data()
                             .data();
             if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
@@ -260,7 +260,7 @@ private:
                 continue;
             }
 
-            if (raw_when_column->is_nullable()) {
+            if (is_column_nullable(*raw_when_column)) {
                 const auto* column_nullable_ptr =
                         assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                                 raw_when_column.get());
@@ -277,10 +277,7 @@ private:
                     continue;
                 }
                 const auto* __restrict cond_raw_nullmap =
-                        assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                column_nullable_ptr->get_null_map_column_ptr().get())
-                                ->get_data()
-                                .data();
+                        column_nullable_ptr->get_null_map_column_ptr()->get_data().data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
                                               !cond_raw_nullmap[row_idx]) *

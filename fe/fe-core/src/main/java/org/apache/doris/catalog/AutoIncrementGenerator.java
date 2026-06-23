@@ -63,6 +63,10 @@ public class AutoIncrementGenerator implements GsonPostProcessable {
         this.editLog = editLog;
     }
 
+    public long getColumnId() {
+        return columnId;
+    }
+
     public synchronized void applyChange(long columnId, long batchNextId) {
         if (this.columnId == columnId && batchEndId < batchNextId) {
             LOG.info("[auto-inc] AutoIncrementGenerator applyChange, db_id={}, table_id={}, column_id={}, "

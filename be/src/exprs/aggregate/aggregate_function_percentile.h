@@ -736,7 +736,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
-        if (to_nested_col.is_nullable()) {
+        if (is_column_nullable(to_nested_col)) {
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             AggregateFunctionPercentileArray::data(place).insert_result_into(
                     col_null->get_nested_column());
@@ -926,7 +926,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
-        if (to_nested_col.is_nullable()) {
+        if (is_column_nullable(to_nested_col)) {
             auto* col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             AggregateFunctionPercentileArrayV2::data(place).insert_result_into(
                     col_null->get_nested_column());

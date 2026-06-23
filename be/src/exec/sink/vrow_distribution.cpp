@@ -27,7 +27,6 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
-#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -63,6 +62,7 @@ Status VRowDistribution::_save_missing_values(
         cur_row_values.clear();
         for (int col = 0; col < col_size; ++col) {
             TNullableStringLiteral node;
+            // OlapTableBlockConvertor::_validate_data() materializes destination slots so won't be const.
             const auto* null_map = col_null_maps[col]; // null map for this col
             node.__set_is_null((null_map && (*null_map)[filter[row]])
                                        ? true
@@ -111,6 +111,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
     request.__set_write_single_replica(_write_single_replica);
+    request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -212,6 +213,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
+    request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     if (_state && _state->get_query_ctx()) {
         // Pass query_id to FE so it can determine if this is a multi-instance load by checking Coordinator
         request.__set_query_id(_state->get_query_ctx()->query_id());
@@ -416,8 +418,6 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     rows_stat_val -= new_bt_rows - old_bt_rows;
     _state->update_num_rows_load_total(old_bt_rows - new_bt_rows);
     _state->update_num_bytes_load_total(old_bt_bytes - new_bt_bytes);
-    DorisMetrics::instance()->load_rows->increment(old_bt_rows - new_bt_rows);
-    DorisMetrics::instance()->load_bytes->increment(old_bt_bytes - new_bt_bytes);
 
     return Status::OK();
 }

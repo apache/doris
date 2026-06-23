@@ -29,6 +29,7 @@ import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
@@ -54,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils.SCHEMA_HEARTBEAT_EVENT_KEY_NAME;
 
@@ -61,9 +63,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import io.debezium.data.Envelope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -77,19 +82,22 @@ public class PipelineCoordinator {
     // taskId -> list of split offsets (accumulates all splits processed in one task)
     private final Map<String, List<Map<String, String>>> taskOffsetCache =
             new ConcurrentHashMap<>();
-    // taskId -> writeFailReason
-    private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
+    // taskId -> writeFailReason, bounded so old entries are evicted instead of accumulating
+    // unbounded
+    private final Cache<String, String> taskErrorMaps =
+            CacheBuilder.newBuilder().maximumSize(1000).build();
+    private final Map<String, AtomicLong> taskProgressMap = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
-    private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
-    public PipelineCoordinator() {
+    public PipelineCoordinator(
+            @Value("${pipeline.max-concurrent-tasks:10}") int maxConcurrentTasks) {
         this.executor =
                 new ThreadPoolExecutor(
-                        MAX_CONCURRENT_TASKS,
-                        MAX_CONCURRENT_TASKS,
+                        maxConcurrentTasks,
+                        maxConcurrentTasks,
                         60L,
                         TimeUnit.SECONDS,
                         new LinkedBlockingQueue<>(QUEUE_CAPACITY),
@@ -168,6 +176,7 @@ public class PipelineCoordinator {
                     long elapsedTime = System.currentTimeMillis() - startTime;
                     boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             hasReceivedData,
                             lastMessageIsHeartbeat,
@@ -315,6 +324,7 @@ public class PipelineCoordinator {
                     boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
 
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             hasReceivedData,
                             lastMessageIsHeartbeat,
@@ -403,6 +413,13 @@ public class PipelineCoordinator {
                         closeJobStreamLoad(writeRecordRequest.getJobId());
                         String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
                         taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
+                        taskProgressMap.remove(writeRecordRequest.getTaskId());
+                        DorisBatchStreamLoad.reportTaskFailure(
+                                writeRecordRequest.getFrontendAddress(),
+                                writeRecordRequest.getToken(),
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId(),
+                                rootCauseMessage);
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -440,7 +457,11 @@ public class PipelineCoordinator {
         Map<String, String> targetTableMappings =
                 ConfigUtil.parseAllTargetTableMappings(writeRecordRequest.getConfig());
 
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
+        // Get-or-create the reader and claim ownership atomically, so a concurrent stale
+        // releaseReader RPC cannot stop the reader this task is about to use.
+        SourceReader sourceReader =
+                Env.getCurrentEnv()
+                        .getReaderAndClaim(writeRecordRequest, writeRecordRequest.getTaskId());
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
@@ -456,6 +477,8 @@ public class PipelineCoordinator {
             long startTime = System.currentTimeMillis();
             long streamingStartTime = -1;
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
+            // Half the FE task timeout; exit setup phase before FE force-kills. 0 disables.
+            long searchTimeoutMs = writeRecordRequest.getTaskTimeoutMs() / 2;
             boolean shouldStop = false;
             boolean lastMessageIsHeartbeat = false;
 
@@ -473,6 +496,21 @@ public class PipelineCoordinator {
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
 
+                    // Stream-split setup stuck (WAL search / idle): bail out; snapshot has its own
+                    // completion logic.
+                    if (!isSnapshotSplit
+                            && streamingStartTime < 0
+                            && searchTimeoutMs > 0
+                            && System.currentTimeMillis() - startTime > searchTimeoutMs) {
+                        LOG.warn(
+                                "Streaming not started within {} ms for jobId={} taskId={}, "
+                                        + "stopping to commit offset",
+                                searchTimeoutMs,
+                                writeRecordRequest.getJobId(),
+                                writeRecordRequest.getTaskId());
+                        break;
+                    }
+
                     // Check if should stop
                     long elapsedTime =
                             streamingStartTime > 0
@@ -484,6 +522,7 @@ public class PipelineCoordinator {
                                     && elapsedTime >= maxIntervalMillis;
 
                     if (shouldStop(
+                            sourceReader,
                             isSnapshotSplit,
                             scannedRows > 0,
                             lastMessageIsHeartbeat,
@@ -554,6 +593,10 @@ public class PipelineCoordinator {
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
+                        taskProgressMap
+                                .computeIfAbsent(
+                                        writeRecordRequest.getTaskId(), k -> new AtomicLong())
+                                .set(scannedRows);
                     }
                 }
             }
@@ -595,6 +638,7 @@ public class PipelineCoordinator {
                 scannedRows,
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
+        taskProgressMap.remove(currentTaskId);
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
@@ -615,6 +659,7 @@ public class PipelineCoordinator {
      * @return true if should stop, false if should continue
      */
     private boolean shouldStop(
+            SourceReader sourceReader,
             boolean isSnapshotSplit,
             boolean hasData,
             boolean lastMessageIsHeartbeat,
@@ -622,11 +667,13 @@ public class PipelineCoordinator {
             long maxIntervalMillis,
             boolean timeoutReached) {
 
-        // 1. Snapshot split with data: if no more data in queue, stop immediately (no need to wait
-        // for timeout)
-        // snapshot split will be written to the debezium queue all at once.
-        // multiple snapshot splits are handled in the source reader.
+        // Snapshot split: wait until every split has received its high-watermark event;
+        // an empty poll alone is not a finish signal under pollWithoutBuffer where the
+        // fetcher returns one ChangeEventQueue batch at a time.
         if (isSnapshotSplit) {
+            if (!sourceReader.isSnapshotFinished()) {
+                return false;
+            }
             LOG.info(
                     "Snapshot split finished, no more data available. Total elapsed: {} ms",
                     elapsedTime);
@@ -701,8 +748,20 @@ public class PipelineCoordinator {
     }
 
     public String getTaskFailReason(String taskId) {
-        String taskReason = taskErrorMaps.remove(taskId);
+        String taskReason = taskErrorMaps.getIfPresent(taskId);
+        taskErrorMaps.invalidate(taskId);
         return taskReason == null ? "" : taskReason;
+    }
+
+    public StreamingTaskStatus getTaskStatus(String taskId) {
+        // On failure, drop progress so FE won't renew the deadline on a failed task.
+        String reason = taskErrorMaps.getIfPresent(taskId);
+        taskErrorMaps.invalidate(taskId);
+        if (StringUtils.isNotEmpty(reason)) {
+            return new StreamingTaskStatus(-1, reason);
+        }
+        AtomicLong scannedRows = taskProgressMap.get(taskId);
+        return new StreamingTaskStatus(scannedRows == null ? -1 : scannedRows.get(), "");
     }
 
     /**

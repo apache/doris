@@ -188,7 +188,7 @@ TEST_F(ByteArrayDictDecoderTest, test_empty_dict) {
 // Test decoding with ColumnDictI32
 TEST_F(ByteArrayDictDecoderTest, test_decode_with_column_dict_i32) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    MutableColumnPtr column = ColumnDictI32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
@@ -231,7 +231,7 @@ TEST_F(ByteArrayDictDecoderTest, test_decode_with_column_dict_i32) {
 // Test decoding with ColumnDictI32 and filter
 TEST_F(ByteArrayDictDecoderTest, test_decode_with_column_dict_i32_with_filter) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    MutableColumnPtr column = ColumnDictI32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
@@ -272,7 +272,7 @@ TEST_F(ByteArrayDictDecoderTest, test_decode_with_column_dict_i32_with_filter) {
 // Test decoding with ColumnDictI32 with filter and null
 TEST_F(ByteArrayDictDecoderTest, test_decode_with_column_dict_i32_with_filter_and_null) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    MutableColumnPtr column = ColumnDictI32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 2, padded to 8 values, [0 0 0 0 2]
@@ -509,6 +509,23 @@ TEST_F(ByteArrayDictDecoderTest, test_skip_value) {
         EXPECT_EQ(result_column->get_data_at(i).to_string(), expected_values[i])
                 << "Mismatch at value " << i;
     }
+}
+
+TEST_F(ByteArrayDictDecoderTest, test_set_dict_rejects_truncated_length_prefix) {
+    auto dict_data = make_unique_buffer<uint8_t>(2);
+    dict_data[0] = 1;
+    dict_data[1] = 0;
+
+    ByteArrayDictDecoder decoder;
+    ASSERT_FALSE(decoder.set_dict(dict_data, 2, 1).ok());
+}
+
+TEST_F(ByteArrayDictDecoderTest, test_set_dict_rejects_truncated_payload_after_prefix) {
+    auto dict_data = make_unique_buffer<uint8_t>(4);
+    encode_fixed32_le(dict_data.get(), 1);
+
+    ByteArrayDictDecoder decoder;
+    ASSERT_FALSE(decoder.set_dict(dict_data, 4, 1).ok());
 }
 
 } // namespace doris

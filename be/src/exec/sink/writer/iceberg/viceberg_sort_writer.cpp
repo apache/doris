@@ -55,9 +55,11 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 }
 
 Status VIcebergSortWriter::write(Block& block) {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    // Sample row size before append_block clears the block.
+    _update_spill_block_batch_row_count(block);
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));
-    _update_spill_block_batch_row_count(block);
 
     // When accumulated data size reaches the target file size threshold,
     // sort the data in memory and flush it directly to a Parquet/ORC file.
@@ -72,7 +74,34 @@ Status VIcebergSortWriter::write(Block& block) {
     return Status::OK();
 }
 
+size_t VIcebergSortWriter::data_size() const {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    return _sorter == nullptr ? 0 : _sorter->data_size();
+}
+
+size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    return _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
+}
+
+Status VIcebergSortWriter::trigger_spill() {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    if (_closed || _sorter == nullptr) {
+        return Status::OK();
+    }
+    return _do_spill();
+}
+
 Status VIcebergSortWriter::close(const Status& status) {
+    std::lock_guard<std::mutex> lock(_sorter_mutex);
+    if (_closed) {
+        return Status::OK();
+    }
+    Defer mark_closed {[&]() { _closed = true; }};
+    return _close_locked(status);
+}
+
+Status VIcebergSortWriter::_close_locked(const Status& status) {
     // Track the actual internal status of operations performed during close.
     // This is important because if intermediate operations (like do_sort()) fail,
     // we need to propagate the actual error status to the underlying partition writer's

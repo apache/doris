@@ -1760,10 +1760,12 @@ Status VTabletWriter::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
+        Defer recover_batching_block([&]() {
+            _row_distribution._batching_block->set_mutable_columns(
+                    std::move(tmp_block).mutate_columns());
+            _row_distribution._batching_block->clear_column_data();
+        });
         RETURN_IF_ERROR(this->write(_state, tmp_block));
-        _row_distribution._batching_block->set_mutable_columns(
-                tmp_block.mutate_columns()); // Recovery back
-        _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
     return Status::OK();
@@ -2062,6 +2064,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
+    const bool is_replaying_batched_block = _row_distribution._deal_batched;
     auto rows = input_block.rows();
     auto bytes = input_block.bytes();
     if (UNLIKELY(rows == 0)) {
@@ -2076,8 +2079,10 @@ Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(rows);
     _state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
+    if (!is_replaying_batched_block) {
+        DorisMetrics::instance()->load_rows->increment(rows);
+        DorisMetrics::instance()->load_bytes->increment(bytes);
+    }
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(

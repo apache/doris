@@ -148,6 +148,8 @@ public class NereidsCoordinator extends Coordinator {
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragments
                 = ThriftPlansBuilder.plansToThrift(coordinatorContext);
         executionTask = PipelineExecutionTaskBuilder.build(coordinatorContext, workerToFragments);
+        waitForTimeBasedReadTransactionsVisible(coordinatorContext.connectContext, coordinatorContext.scanNodes,
+                coordinatorContext.queryGlobals);
         executionTask.execute();
     }
 

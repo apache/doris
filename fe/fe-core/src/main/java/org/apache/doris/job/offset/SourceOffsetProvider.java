@@ -45,11 +45,11 @@ public interface SourceOffsetProvider {
     default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
 
     /**
-     * Performs one-time initialization that must run only on fresh job creation, not on FE restart.
-     * For example, fetching and persisting snapshot splits to the meta table.
+     * One-time initialization on fresh job creation (not on FE restart). Subclasses may
+     * initialize split progress, fetch initial splits, or open remote readers.
      * Default: no-op (most providers need no extra setup).
      */
-    default void initOnCreate() throws JobException {}
+    default void initOnCreate(List<String> syncTables) throws JobException {}
 
     /**
      * Get next offset to consume
@@ -178,6 +178,29 @@ public interface SourceOffsetProvider {
      */
     default boolean hasReachedEnd() {
         return false;
+    }
+
+    /**
+     * Advance one batch of split fetching, called by scheduler each tick during PENDING/RUNNING.
+     * For providers without async splitting work (e.g. S3, Kafka), default is no-op.
+     * Aligned with flink-cdc SnapshotSplitAssigner naming.
+     *
+     * @throws JobException if fetching splits fails fatally
+     */
+    default void advanceSplits() throws JobException {}
+
+    /**
+     * Returns true if no more splits will be produced.
+     * For providers without splitting concept, always returns true.
+     * Aligned with flink-cdc SnapshotSplitAssigner.noMoreSplits() naming.
+     */
+    default boolean noMoreSplits() {
+        return true;
+    }
+
+    /** Splits produced but not yet consumed (FE-side backlog). */
+    default int pendingSplitCount() {
+        return 0;
     }
 
     /**

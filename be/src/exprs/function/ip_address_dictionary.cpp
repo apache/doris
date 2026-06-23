@@ -84,9 +84,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
         // input key column without nullable
         const auto* ipv6_column = assert_cast<const ColumnIPv6*>(remove_nullable(key_column).get());
         // if input key column is nullable, will not be null
-        const ColumnNullable* null_key =
-                key_column->is_nullable() ? assert_cast<const ColumnNullable*>(key_column.get())
-                                          : nullptr;
+        const auto* null_key = check_and_get_column<ColumnNullable>(key_column.get());
         std::visit(
                 [&](auto&& arg, auto key_is_nullable, auto value_is_nullable) {
                     using ValueDataType = std::decay_t<decltype(arg)>;
@@ -121,9 +119,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
         // input key column without nullable
         const auto* ipv4_column = assert_cast<const ColumnIPv4*>(remove_nullable(key_column).get());
         // if input key column is nullable, will not be null
-        const ColumnNullable* null_key =
-                key_column->is_nullable() ? assert_cast<const ColumnNullable*>(key_column.get())
-                                          : nullptr;
+        const auto* null_key = check_and_get_column<ColumnNullable>(key_column.get());
         std::visit(
                 [&](auto&& arg, auto key_is_nullable, auto value_is_nullable) {
                     using ValueDataType = std::decay_t<decltype(arg)>;

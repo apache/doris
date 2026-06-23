@@ -54,6 +54,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
@@ -321,6 +322,12 @@ public class SchemaChangeHandler extends AlterHandler {
     private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
+        if (!newColumn.isVisible()) {
+            // row binlog schema is generated from visible columns only, so schema change must not
+            // sync hidden system columns such as sequence/delete/version/skip-bitmap columns.
+            return;
+        }
+
         if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
             throw new DdlException("can't add AutoInc/Variant column " + " on table with binlog<Row>, column: "
                     + newColumn.getDataType());
@@ -2044,14 +2051,23 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
+                // All shadow tablets of the same (partition, shadow index) share the same TabletMeta;
+                // build it once and bulk-publish to MaterializedIndex.tablets after the per-tablet
+                // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
+                // per-iteration because Tablet.addReplica(...) below needs the tablet present
+                // in the inverted index.
+                TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
+                        newSchemaHash, medium);
+                List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
+                        originIndex.getTablets().size());
+                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 for (Tablet originTablet : originIndex.getTablets()) {
-                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                            newSchemaHash, medium);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 
                     Tablet shadowTablet = EnvFactory.getInstance().createTablet(shadowTabletId);
-                    shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
+                    invertedIndex.addTablet(shadowTabletId, shadowTabletMeta);
+                    shadowTabletsForPartition.add(shadowTablet);
                     addedTablets.add(shadowTablet);
 
                     schemaChangeJob.addTabletIdMap(partitionId, shadowIndexId, shadowTabletId, originTabletId);
@@ -2108,6 +2124,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                 "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
                     }
                 }
+
+                // Bulk-publish all shadow tablets for this partition in one copy-on-write.
+                shadowIndex.appendTablets(shadowTabletsForPartition);
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
@@ -2805,8 +2824,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
-                add(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-                add(PropertyAnalyzer.PROPERTIES_ENABLE_TSO);
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
@@ -2913,29 +2930,16 @@ public class SchemaChangeHandler extends AlterHandler {
                 && verticalCompactionNumColumnsPerGroup < 0
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             LOG.info("Properties already up-to-date");
             return;
-        }
-
-        String singleCompaction = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        int enableSingleCompaction = -1; // < 0 means don't update
-        if (singleCompaction != null) {
-            enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
-        }
-
-        if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
-            throw new UserException(
-                    "enable_single_replica_compaction property is not supported for merge-on-write table");
         }
 
         String enableMowLightDelete = properties.get(
@@ -2957,10 +2961,35 @@ public class SchemaChangeHandler extends AlterHandler {
             skip = Boolean.parseBoolean(skipWriteIndexOnLoad) ? 1 : 0;
         }
 
-        for (Partition partition : partitions) {
-            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
-                                    disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
+        // Only iterate partitions when there are properties that actually need to be
+        // dispatched to each partition's tablets. Pure catalog-level metadata properties
+        // such as partition.retention_count do not require per-partition updates, and
+        // iterating over a stale partition snapshot can race with concurrent partition
+        // drops (e.g., by DynamicPartitionScheduler when retention_count or dynamic_partition
+        // is enabled) and fail with "Partition does not exist".
+        boolean needPerPartitionUpdate = isInMemory >= 0 || storagePolicyId >= 0
+                || compactionPolicy != null || !timeSeriesCompactionConfig.isEmpty()
+                || skip >= 0 || disableAutoCompaction >= 0
+                || verticalCompactionNumColumnsPerGroup >= 0;
+        if (needPerPartitionUpdate) {
+            for (Partition partition : partitions) {
+                try {
+                    updatePartitionProperties(db, olapTable.getName(), partition.getName(),
+                            storagePolicyId, isInMemory, null, compactionPolicy, timeSeriesCompactionConfig,
+                            skip, disableAutoCompaction,
+                            verticalCompactionNumColumnsPerGroup);
+                } catch (DdlException e) {
+                    // The partition may have been dropped concurrently (e.g., by
+                    // DynamicPartitionScheduler). It is safe to skip the meta dispatch
+                    // for a partition that no longer exists.
+                    if (olapTable.getPartition(partition.getName()) == null) {
+                        LOG.info("partition {} of table {} was dropped concurrently, "
+                                + "skip updating its properties", partition.getName(), olapTable.getName());
+                        continue;
+                    }
+                    throw e;
+                }
+            }
         }
 
         olapTable.writeLockOrDdlException();
@@ -3009,7 +3038,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName,
-                        storagePolicyId, isInMemory, null, null, null, -1, -1, -1, -1);
+                        storagePolicyId, isInMemory, null, null, null, -1, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -3025,7 +3054,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
-                                          int enableSingleCompaction, int skipWriteIndexOnLoad,
+                                          int skipWriteIndexOnLoad,
                                           int disableAutoCompaction,
                                           int verticalCompactionNumColumnsPerGroup) throws UserException {
         // be id -> <tablet id,schemaHash>
@@ -3060,7 +3089,7 @@ public class SchemaChangeHandler extends AlterHandler {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
-                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
+                                            timeSeriesCompactionConfig, skipWriteIndexOnLoad,
                                             disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
             batchTask.addTask(task);
         }
@@ -3936,7 +3965,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                    newBinlogConfig, null, null, -1, -1, -1, -1);
+                    newBinlogConfig, null, null, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

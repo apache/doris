@@ -138,10 +138,36 @@ public class ClientController {
         return RestResponse.success(true);
     }
 
+    /** Release a job's reader on this backend: stop engine, keep the replication slot. */
+    @RequestMapping(path = "/api/releaseReader/{taskId}", method = RequestMethod.POST)
+    public Object releaseReader(
+            @PathVariable("taskId") String taskId, @RequestBody JobBaseConfig jobConfig) {
+        LOG.info("Releasing reader (keep slot) for job {} task {}", jobConfig.getJobId(), taskId);
+        Env env = Env.getCurrentEnv();
+        // Only the owning task may release; detach removes the context under the per-job lock so a
+        // racing claim rebuilds a fresh reader, and a stale RPC is a no-op.
+        SourceReader reader = env.detachReaderIfOwner(jobConfig.getJobId(), taskId);
+        if (reader == null) {
+            LOG.info(
+                    "No owned reader for job {} task {}, skip release",
+                    jobConfig.getJobId(),
+                    taskId);
+            return RestResponse.success(true);
+        }
+        // Upstream-only: stop engine, keep slot. Loader is job-scoped, cleaned up by /api/close.
+        reader.release(jobConfig);
+        return RestResponse.success(true);
+    }
+
     /** get task fail reason */
     @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
     public Object getFailReason(@PathVariable("taskId") String taskId) {
         return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskStatus/{taskId}", method = RequestMethod.POST)
+    public Object getTaskStatus(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskStatus(taskId));
     }
 
     @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)

@@ -26,6 +26,7 @@
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/get_least_supertype.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
@@ -84,7 +85,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
-    DCHECK(nested_column.is_nullable());
+    DORIS_CHECK(nested_column.is_nullable());
     if (slice[0] != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        slice[0]);
@@ -162,7 +163,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
     auto& array_column = assert_cast<ColumnArray&>(column);
     auto& offsets = array_column.get_offsets();
     IColumn& nested_column = array_column.get_data();
-    DCHECK(nested_column.is_nullable());
+    DORIS_CHECK(nested_column.is_nullable());
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
@@ -303,12 +304,10 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
     auto* nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
         if (null_map && (*null_map)[array_idx]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
             continue;
         }
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
-                                         array_builder->type()->name()));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
         RETURN_IF_ERROR(nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
                                                             offsets[array_idx - 1],
                                                             offsets[array_idx], ctz));
@@ -504,16 +503,29 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
     auto& array = field.get<TYPE_ARRAY>();
-    PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
+    // Element type is the common type of all elements, not the last element's type.
+    // For a mixed-type array like ["1", 2, 1.1] the last-element rule picks array<double>
+    // and loses the string, which crashes later when the field is re-inserted.
+    PrimitiveTypeSet element_types;
     for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;
         data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, info);
         array[i] = std::move(nested_field);
         if (info.scalar_type_id != PrimitiveType::TYPE_NULL) {
-            nested_type = info.scalar_type_id;
+            element_types.insert(info.scalar_type_id);
         }
     }
-    info.scalar_type_id = nested_type;
+    if (element_types.empty()) {
+        info.scalar_type_id = PrimitiveType::TYPE_NULL;
+    } else if (element_types.size() == 1) {
+        info.scalar_type_id = *element_types.begin();
+    } else {
+        DataTypePtr common_type;
+        get_least_supertype_jsonb(element_types, &common_type);
+        info.scalar_type_id = common_type->get_primitive_type();
+        // Mixed-type elements need converting to the common type on insert.
+        info.need_convert = true;
+    }
     return data;
 }
 

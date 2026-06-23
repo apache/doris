@@ -86,6 +86,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         createDatabase("test_db");
         createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
                 + "properties('replication_num' = '1');");
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 2;
         createTable("create table test_db.partitioned_t(k1 int, p1 int)\n"
                 + "duplicate key(k1, p1)\n"
                 + "partition by range(`p1`)\n"

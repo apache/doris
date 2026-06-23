@@ -36,12 +36,14 @@ public class OlapTableWrapper extends OlapTable {
         super(originTable.getId(), wrapperName, baseSchema,
                 keysType, originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
+        this.setQualifiedDbName(originTable.getQualifiedDbName());
     }
 
     protected OlapTableWrapper(OlapTable originTable) {
         super(originTable.getId(), originTable.getName(), originTable.getBaseSchema(),
                 originTable.getKeysType(), originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
+        this.setQualifiedDbName(originTable.getQualifiedDbName());
     }
 
     public OlapTable getOriginTable() {
@@ -136,5 +138,20 @@ public class OlapTableWrapper extends OlapTable {
     @Override
     public Set<String> getDistributionColumnNames() {
         return originTable.getDistributionColumnNames();
+    }
+
+    @Override
+    public boolean needRowBinlog() {
+        return originTable.needRowBinlog();
+    }
+
+    @Override
+    public MaterializedIndexMeta getBaseIndexMeta() {
+        return originTable.getBaseIndexMeta();
+    }
+
+    @Override
+    public MaterializedIndex getBaseIndex() {
+        return originTable.getBaseIndex();
     }
 }

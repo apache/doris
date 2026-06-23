@@ -86,7 +86,7 @@ public:
             auto& col = block.get_by_position(arguments[i]).column;
             col = col->convert_to_full_column_if_const();
             arg[i] = col;
-            if (result_nested_col.is_nullable() && !col->is_nullable()) {
+            if (is_column_nullable(result_nested_col) && !is_column_nullable(*col)) {
                 arg[i] = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
         }

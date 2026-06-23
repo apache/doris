@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -70,9 +71,10 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -122,6 +124,9 @@ import java.util.stream.Collectors;
 public class ExpressionUtils {
 
     public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
+    private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
+    private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
+    private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
 
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
@@ -643,11 +648,12 @@ public class ExpressionUtils {
     }
 
     /**
-     * set ignore unique id for unique functions
+     * Set ignore unique id for volatile expressions.
      */
-    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+    public static Expression setIgnoreUniqueIdForVolatileExpression(Expression expression, boolean ignoreUniqueId) {
         return expression.rewriteDownShortCircuit(e ->
-                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+                e.isVolatile()
+                        ? ((VolatileExpression) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -783,7 +789,7 @@ public class ExpressionUtils {
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
         ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Expression predicate : predicates) {
+        for (Expression predicate : filterCheapPredicatesForNotNull(predicates)) {
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
                 Literal nullLiteral = new NullLiteral(slot.getDataType());
@@ -797,6 +803,56 @@ public class ExpressionUtils {
             }
         }
         return notNullSlots.build();
+    }
+
+    /**
+     * Return whether all predicates are cheap enough for not-null inference.
+     */
+    public static boolean isCheapEnoughToInferNotNull(Collection<? extends Expression> predicates) {
+        Set<Slot> inputSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                return false;
+            }
+            inputSlots = mergedInputSlots.get();
+        }
+        return true;
+    }
+
+    /**
+     * Filter predicates that are cheap enough for not-null inference.
+     */
+    public static Set<Expression> filterCheapPredicatesForNotNull(
+            Collection<? extends Expression> predicates) {
+        Set<Slot> inputSlots = new HashSet<>();
+        Set<Expression> cheapPredicates = Sets.newLinkedHashSet();
+        for (Expression predicate : predicates) {
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                continue;
+            }
+            inputSlots = mergedInputSlots.get();
+            cheapPredicates.add(predicate);
+        }
+        return cheapPredicates;
+    }
+
+    private static Optional<Set<Slot>> mergeInputSlotsIfCheap(Expression predicate, Set<Slot> inputSlots) {
+        if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+            return Optional.empty();
+        }
+        Set<Slot> predicateInputSlots = predicate.getInputSlots();
+        if (predicateInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        Set<Slot> mergedInputSlots = new HashSet<>(inputSlots);
+        mergedInputSlots.addAll(predicateInputSlots);
+        if (mergedInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+            return Optional.empty();
+        }
+        return Optional.of(mergedInputSlots);
     }
 
     /**
@@ -1080,6 +1136,20 @@ public class ExpressionUtils {
     }
 
     /**
+     * Strip only casts that preserve distinctness of the child expression.
+     */
+    public static Expression getExpressionCoveredBySafetyCast(Expression expression) {
+        while (expression instanceof Cast) {
+            if (((Cast) expression).child().getDataType().isInjectiveCastTo(expression.getDataType())) {
+                expression = ((Cast) expression).child();
+            } else {
+                break;
+            }
+        }
+        return expression;
+    }
+
+    /**
      * the expressions can be used as runtime filter targets
      */
     public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
@@ -1207,6 +1277,13 @@ public class ExpressionUtils {
         }
 
         return Optional.empty();
+    }
+
+    public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {
+        while (expr instanceof Nullable || expr instanceof NonNullable) {
+            expr = expr.child(0);
+        }
+        return expr instanceof Literal ? Optional.of((Literal) expr) : Optional.empty();
     }
 
     /** analyze the unbound expression and fold it to literal */
@@ -1343,13 +1420,13 @@ public class ExpressionUtils {
     }
 
     /**
-     * check if the expressions contain a unique function which exists multiple times
+     * check if the expressions contain a volatile expression which exists multiple times
      */
-    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
-        Set<UniqueFunction> counterSet = Sets.newHashSet();
+    public static boolean containVolatileExpressionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<Expression> counterSet = Sets.newHashSet();
         for (Expression expression : expressions) {
             if (expression.anyMatch(
-                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                    expr -> ((Expression) expr).isVolatile() && !counterSet.add((Expression) expr))) {
                 return true;
             }
         }

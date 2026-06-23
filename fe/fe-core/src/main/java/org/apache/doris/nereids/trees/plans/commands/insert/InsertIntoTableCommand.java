@@ -21,11 +21,13 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -295,9 +297,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
             List<ScanNode> tableStreamScanNodes =
                     buildResult.planner.getScanNodes().stream()
-                            .filter(s -> s.getTableIf() instanceof OlapTableStreamWrapper).collect(Collectors.toList());
+                            .filter((s -> (s.getTableIf() instanceof OlapTableStreamWrapper
+                                    || s instanceof OlapScanNode && ((OlapScanNode) s).isIncrementalScan())))
+                            .collect(Collectors.toList());
 
             if (!tableStreamScanNodes.isEmpty()) {
+                if (!Config.enable_feature_binlog) {
+                    throw new AnalysisException("Insert plan with Table stream failed."
+                            + " should enable binlog feature in FE config.");
+                }
                 // stream id -> <partition id, offset>
                 Map<Pair<Long, Long>, AbstractTableStreamUpdate> distinctUpdate =
                         new HashMap<>(tableStreamScanNodes.size());
@@ -305,7 +313,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     // only support OlapScanNode currently
                     Preconditions.checkArgument(scanNode instanceof OlapScanNode);
                     OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                    OlapTableStreamWrapper wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
+                    OlapTableStreamWrapper wrapper;
+                    if (scanNode.getTableIf() instanceof OlapTableStreamWrapper) {
+                        wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
+                    } else {
+                        Preconditions.checkArgument(scanNode.getTableIf() instanceof RowBinlogTableWrapper,
+                                "RowBinlogTableWrapper expected");
+                        Preconditions.checkArgument(((RowBinlogTableWrapper) scanNode.getTableIf())
+                                .getParent().isPresent(), "RowBinlogTableWrapper parent expected");
+                        wrapper = ((RowBinlogTableWrapper) scanNode.getTableIf()).getParent().get();
+                    }
                     if (!distinctUpdate.containsKey(
                             Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))) {
                         distinctUpdate.put(Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()),

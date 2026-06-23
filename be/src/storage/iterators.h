@@ -121,17 +121,20 @@ public:
     int topn_filter_target_node_id = -1;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
+    // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
+    // For example, use lower rowset version / segment id first.
+    bool use_insert_order_when_same = false;
+    int binlog_lsn_idx = -1;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
-    VExpr* remaining_vconjunct_root = nullptr;
-    std::vector<VExprSPtr> remaining_conjunct_roots;
     VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     Version version;
+    TsoRange commit_tso;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;

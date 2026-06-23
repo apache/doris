@@ -38,7 +38,6 @@
 #include "io/fs/file_system.h"
 #include "runtime/descriptors.h"
 #include "storage/cache/page_cache.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
 #include "storage/segment/page_handle.h"
@@ -145,8 +144,9 @@ public:
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
-    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
-                                  MutableColumnPtr& result,
+    // row_ids must be strictly increasing.
+    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
+                                  const std::vector<uint32_t>& row_ids, MutableColumnPtr& result,
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
 
@@ -187,9 +187,9 @@ public:
             int cid, const Schema& schema,
             const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
             const StorageReadOptions& read_options) {
-        const doris::StorageField* col = schema.column(cid);
+        const TabletColumn* col = schema.column(cid);
         DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
-        DataTypePtr storage_column_type = get_data_type_of(col->get_desc(), read_options);
+        DataTypePtr storage_column_type = get_data_type_of(*col, read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column
@@ -201,6 +201,14 @@ public:
             return false;
         }
     }
+
+    // The tso column (__DORIS_BINLOG_TIMESTAMP__) is a NULL placeholder on disk on a
+    // single-version binlog segment, replaced with the real commit_tso at read time
+    // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
+    // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
+    // Returns false for range (compaction) segments whose on-disk value is real.
+    bool is_tso_placeholder_col(int cid, const Schema& schema,
+                                const StorageReadOptions& read_options) const;
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
@@ -260,6 +268,9 @@ private:
 
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
+    // Relative path passed to `open`, used to derive the inverted index path (see
+    // _open_index_file_reader).
+    std::string _seg_path;
     uint32_t _segment_id;
     uint32_t _num_rows;
     AtomicStatus _healthy_status;
