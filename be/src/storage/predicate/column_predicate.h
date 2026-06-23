@@ -183,9 +183,10 @@ struct PredicateTypeTraits {
 };
 
 template <bool is_nullable, typename PredColumn, typename WithNullFunc, typename WithoutNullFunc>
-ALWAYS_INLINE void evaluate_by_selector(const PredColumn& pred_col, uint16_t size, uint16_t* sel,
-                                        uint16_t& new_size, WithNullFunc&& with_null_func,
-                                        WithoutNullFunc&& without_null_func) {
+inline ALWAYS_INLINE void evaluate_by_selector(const PredColumn& pred_col, uint16_t size,
+                                               uint16_t* sel, uint16_t& new_size,
+                                               WithNullFunc&& with_null_func,
+                                               WithoutNullFunc&& without_null_func) {
     const bool is_dense_column = pred_col.size() == size;
     for (uint16_t i = 0; i < size; i++) {
         uint16_t idx = is_dense_column ? i : sel[i];
