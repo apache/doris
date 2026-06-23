@@ -222,7 +222,6 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         "format" = "${fmt}")"""
 
     sql "unset variable all;"
-    sql "set enable_file_scanner_v2=false;"
     sql "set enable_condition_cache=true;"
     sql "set enable_profile=true;"
     sql "set profile_level=2;"

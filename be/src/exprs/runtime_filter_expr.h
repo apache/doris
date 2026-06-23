@@ -115,6 +115,9 @@ public:
     std::shared_ptr<RuntimeProfile::Counter> predicate_always_true_rows_counter() const {
         return _always_true_filter_rows;
     }
+    bool is_slot_ref() const override { return false; }
+    bool is_virtual_slot_ref() const override { return false; }
+    bool is_column_ref() const override { return false; }
 
 private:
     VExprSPtr _impl;

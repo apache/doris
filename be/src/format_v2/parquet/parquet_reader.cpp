@@ -322,6 +322,30 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     return Status::OK();
 }
 
+void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+    if (_state == nullptr) {
+        return;
+    }
+    _state->scheduler.set_condition_cache_context(std::move(ctx));
+    if (_io_ctx != nullptr) {
+        // Condition-cache HIT filters row ranges before batch reading, so skipped rows never belong
+        // to a later get_block() batch. Report the plan-level skipped rows at the same point where
+        // the scan plan is rewritten.
+        _io_ctx->condition_cache_filtered_rows += _state->scheduler.condition_cache_filtered_rows();
+    }
+}
+
+int64_t ParquetReader::get_total_rows() const {
+    if (_state == nullptr) {
+        return 0;
+    }
+    int64_t rows = 0;
+    for (const auto& row_group_plan : _state->scan_plan.row_groups) {
+        rows += row_group_plan.row_group_rows;
+    }
+    return rows;
+}
+
 Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& request,
                                            format::FileAggregateResult* result) {
     DORIS_CHECK(result != nullptr);

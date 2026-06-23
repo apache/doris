@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ranges>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -42,6 +43,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "roaring/roaring64map.hh"
+#include "storage/segment/condition_cache.h"
 #include "util/string_util.h"
 
 namespace doris::format {
@@ -307,8 +309,22 @@ std::string table_column_predicates_debug_string(const TableColumnPredicates& pr
     return out.str();
 }
 
+bool contains_runtime_filter(const VExprContextSPtrs& conjuncts) {
+    return std::ranges::any_of(conjuncts, [](const auto& conjunct) {
+        return conjunct != nullptr && conjunct->root() != nullptr &&
+               conjunct->root()->is_rf_wrapper();
+    });
+}
+
 void collect_global_indices(const VExprSPtr& expr, std::set<GlobalIndex>* global_indices) {
     if (expr == nullptr) {
+        return;
+    }
+    if (expr->is_rf_wrapper()) {
+        // RuntimeFilterExpr wraps a real predicate expression but its own thrift node can still
+        // look like SLOT_REF. Collect indices from the wrapped predicate; do not cast the wrapper
+        // itself to VSlotRef.
+        collect_global_indices(expr->get_impl(), global_indices);
         return;
     }
     if (expr->is_slot_ref()) {
@@ -504,6 +520,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
     _push_down_agg_type = options.push_down_agg_type;
+    _condition_cache_digest = options.condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
@@ -555,6 +572,92 @@ Status TableReader::_open_local_filter_exprs(const FileScanRequest& file_request
         RETURN_IF_ERROR(delete_conjunct->open(_runtime_state));
     }
     return Status::OK();
+}
+
+bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_request) const {
+    if (_condition_cache_digest == 0 || _push_down_agg_type == TPushAggOp::type::COUNT ||
+        _current_file_description == std::nullopt || _data_reader.reader == nullptr) {
+        return false;
+    }
+    // Condition cache is populated by file readers after evaluating file-local row-level
+    // conjuncts. ColumnPredicate-only scans can prune row groups/pages, but they do not produce a
+    // per-row survivor bitmap that can safely populate the cache.
+    if (file_request.conjuncts.empty()) {
+        return false;
+    }
+    // Delete files/deletion vectors are table-format state. They may change independently of the
+    // data file path/mtime/size used by the external cache key, so caching their result can become
+    // stale. Keep delete filtering enabled, but do not read or write condition cache.
+    if (_delete_rows != nullptr || !file_request.delete_conjuncts.empty()) {
+        return false;
+    }
+    // Runtime filters can arrive late and their payload is not guaranteed to be represented by the
+    // scan-local digest. Without a read-only mode, a MISS could insert a bitmap for P AND RF under
+    // the digest for only P. This mirrors the old FileScanner guard.
+    return !contains_runtime_filter(file_request.conjuncts);
+}
+
+Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_request) {
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
+    if (!_should_enable_condition_cache(file_request)) {
+        return Status::OK();
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    if (cache == nullptr) {
+        return Status::OK();
+    }
+    const auto& file = *_current_file_description;
+    _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
+            file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
+            file.range_size);
+
+    segment_v2::ConditionCacheHandle handle;
+    const bool condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
+    if (condition_cache_hit) {
+        _condition_cache = handle.get_filter_result();
+        ++_condition_cache_hit_count;
+    } else {
+        const int64_t total_rows = _data_reader.reader->get_total_rows();
+        if (total_rows <= 0) {
+            return Status::OK();
+        }
+        // Add one guard granule for split ranges that start in the middle of a granule. A guard
+        // false bit beyond the real range never overlaps real rows, but avoids boundary overflow
+        // when a reader marks the last partial granule.
+        const size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                    ConditionCacheContext::GRANULE_SIZE;
+        _condition_cache = std::make_shared<std::vector<bool>>(num_granules + 1, false);
+    }
+
+    if (_condition_cache != nullptr) {
+        _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
+        _condition_cache_ctx->is_hit = condition_cache_hit;
+        _condition_cache_ctx->filter_result = _condition_cache;
+        _data_reader.reader->set_condition_cache_context(_condition_cache_ctx);
+    }
+    return Status::OK();
+}
+
+void TableReader::_finalize_reader_condition_cache() {
+    if (_condition_cache_ctx == nullptr || _condition_cache_ctx->is_hit) {
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+    // LIMIT or scanner cancellation may close a reader before all selected row ranges are visited.
+    // Unvisited granules remain false in a MISS bitmap, so inserting a partial bitmap would make a
+    // later HIT skip valid rows. Only publish cache entries after the physical reader reaches EOF.
+    if (!_current_reader_reached_eof) {
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+    segment_v2::ConditionCache::instance()->insert(_condition_cache_key,
+                                                   std::move(_condition_cache));
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
 }
 
 Status TableReader::create_next_reader(bool* eos) {
@@ -613,10 +716,12 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
+    _current_file_description = *_current_task->data_file;
     _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
     _aggregate_pushdown_tried = false;
     _remaining_table_level_count = -1;
+    _current_reader_reached_eof = false;
     if (_push_down_agg_type == TPushAggOp::type::COUNT &&
         options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {

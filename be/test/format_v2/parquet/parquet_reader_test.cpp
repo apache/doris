@@ -36,6 +36,7 @@
 
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
@@ -60,6 +61,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/predicate/accept_null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris {
 namespace {
@@ -68,6 +70,25 @@ constexpr int64_t ROW_COUNT = 5;
 
 format::LocalColumnIndex field_projection(int32_t column_id) {
     return format::LocalColumnIndex {.index = column_id};
+}
+
+template <typename ColumnType>
+const ColumnType& nullable_nested_column(const Block& block, size_t position) {
+    const IColumn* column = block.get_by_position(position).column.get();
+    int nullable_depth = 0;
+    while (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        const auto& null_map = nullable->get_null_map_data();
+        for (size_t row = 0; row < null_map.size(); ++row) {
+            EXPECT_EQ(null_map[row], 0) << "Unexpected null at row " << row
+                                       << ", column position " << position
+                                       << ", nullable depth " << nullable_depth;
+        }
+        column = &nullable->get_nested_column();
+        ++nullable_depth;
+    }
+    EXPECT_GT(nullable_depth, 0) << "Expected a nullable file-local column at position "
+                                 << position;
+    return assert_cast<const ColumnType&>(*column);
 }
 
 class Int32GreaterThanExpr final : public VExpr {
@@ -79,8 +100,7 @@ public:
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
-        const auto& input =
-                assert_cast<const ColumnInt32&>(*block->get_by_position(_column_id).column);
+        const auto& input = nullable_nested_column<ColumnInt32>(*block, _column_id);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -110,10 +130,8 @@ public:
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
-        const auto& left_input =
-                assert_cast<const ColumnInt32&>(*block->get_by_position(_left_column_id).column);
-        const auto& right_input =
-                assert_cast<const ColumnInt32&>(*block->get_by_position(_right_column_id).column);
+        const auto& left_input = nullable_nested_column<ColumnInt32>(*block, _left_column_id);
+        const auto& right_input = nullable_nested_column<ColumnInt32>(*block, _right_column_id);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -144,8 +162,7 @@ public:
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
-        const auto& input =
-                assert_cast<const ColumnString&>(*block->get_by_position(_column_id).column);
+        const auto& input = nullable_nested_column<ColumnString>(*block, _column_id);
         auto result = ColumnUInt8::create();
         auto& result_data = result->get_data();
         result_data.resize(count);
@@ -306,6 +323,26 @@ void write_int_pair_parquet_file(const std::string& file_path, int64_t row_group
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
                                                       row_group_size, builder.build()));
+}
+
+void write_condition_cache_parquet_file(const std::string& file_path) {
+    constexpr int64_t row_count = ConditionCacheContext::GRANULE_SIZE * 2;
+    std::vector<int32_t> ids(row_count);
+    std::iota(ids.begin(), ids.end(), 0);
+
+    auto schema = arrow::schema({arrow::field("id", arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids)});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      row_count, builder.build()));
 }
 
 void write_struct_filter_parquet_file(const std::string& file_path) {
@@ -743,7 +780,8 @@ protected:
 
     std::unique_ptr<format::parquet::ParquetReader> create_reader(
             int64_t range_start_offset = 0, int64_t range_size = -1,
-            RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false) const {
+            RuntimeProfile* profile = nullptr, bool enable_mapping_timestamp_tz = false,
+            std::shared_ptr<io::IOContext> io_ctx = nullptr) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -752,7 +790,7 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         return std::make_unique<format::parquet::ParquetReader>(system_properties, file_description,
-                                                                nullptr, profile, std::nullopt,
+                                                                std::move(io_ctx), profile, std::nullopt,
                                                                 enable_mapping_timestamp_tz);
     }
 
@@ -838,8 +876,8 @@ TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, ROW_COUNT);
 
-    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& values = nullable_nested_column<ColumnString>(block, 1);
     ASSERT_EQ(ids.size(), ROW_COUNT);
     ASSERT_EQ(values.size(), ROW_COUNT);
     EXPECT_EQ(ids.get_element(0), 1);
@@ -847,6 +885,95 @@ TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {
     EXPECT_EQ(values.get_data_at(0).to_string(), "one");
     EXPECT_EQ(values.get_data_at(4).to_string(), "five");
 
+    rows = 0;
+    eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+}
+
+TEST_F(NewParquetReaderTest, ConditionCacheMissMarksSurvivingGranules) {
+    write_condition_cache_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            create_int32_greater_than_conjunct(0, ConditionCacheContext::GRANULE_SIZE - 1));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = false;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(3, false);
+    reader->set_condition_cache_context(ctx);
+
+    std::vector<int32_t> ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+
+    ASSERT_EQ(ids.size(), ConditionCacheContext::GRANULE_SIZE);
+    EXPECT_EQ(ids.front(), ConditionCacheContext::GRANULE_SIZE);
+    EXPECT_EQ(ids.back(), ConditionCacheContext::GRANULE_SIZE * 2 - 1);
+    EXPECT_FALSE((*ctx->filter_result)[0]);
+    EXPECT_TRUE((*ctx->filter_result)[1]);
+    EXPECT_FALSE((*ctx->filter_result)[2]);
+}
+
+TEST_F(NewParquetReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead) {
+    write_condition_cache_parquet_file(_file_path);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader(0, -1, nullptr, false, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            create_int32_greater_than_conjunct(0, ConditionCacheContext::GRANULE_SIZE - 1));
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(
+            std::vector<bool> {false, true, false});
+    reader->set_condition_cache_context(ctx);
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, ConditionCacheContext::GRANULE_SIZE);
+    EXPECT_EQ(io_ctx->condition_cache_filtered_rows, ConditionCacheContext::GRANULE_SIZE);
+
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    EXPECT_EQ(ids.get_element(0), ConditionCacheContext::GRANULE_SIZE);
+    EXPECT_EQ(ids.get_element(rows - 1), ConditionCacheContext::GRANULE_SIZE * 2 - 1);
+
+    block = build_file_block(schema);
     rows = 0;
     eof = false;
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
@@ -879,9 +1006,8 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             values.push_back(value_column.get_data_at(row).to_string());
@@ -919,8 +1045,8 @@ TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 3);
 
-    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& values = nullable_nested_column<ColumnString>(block, 1);
     ASSERT_EQ(ids.size(), 3);
     ASSERT_EQ(values.size(), 3);
     EXPECT_EQ(ids.get_element(0), 3);
@@ -987,8 +1113,8 @@ TEST_F(NewParquetReaderTest, ColumnPredicateOnlyPrunesAndDoesNotFilterRowsInside
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, ROW_COUNT);
 
-    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& values = nullable_nested_column<ColumnString>(block, 1);
     ASSERT_EQ(ids.size(), ROW_COUNT);
     ASSERT_EQ(values.size(), ROW_COUNT);
     EXPECT_EQ(ids.get_element(0), 1);
@@ -1054,8 +1180,8 @@ TEST_F(NewParquetReaderTest, ReadMultiPredicateColumnsBeforeExpressionFilter) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 2);
 
-    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& scores = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& scores = nullable_nested_column<ColumnInt32>(block, 1);
     ASSERT_EQ(ids.size(), 2);
     ASSERT_EQ(scores.size(), 2);
     EXPECT_EQ(ids.get_element(0), 4);
@@ -1085,8 +1211,8 @@ TEST_F(NewParquetReaderTest, PredicateColumnFiltersBeforeNonPredicateRead) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 3);
 
-    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& values = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& values = nullable_nested_column<ColumnString>(block, 1);
     ASSERT_EQ(ids.size(), 3);
     ASSERT_EQ(values.size(), 3);
     EXPECT_EQ(ids.get_element(0), 3);
@@ -1119,8 +1245,8 @@ TEST_F(NewParquetReaderTest, NonPredicateColumnKeepsSelectionFromPredicateColumn
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 3);
 
-    const auto& ids = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& scores = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& scores = nullable_nested_column<ColumnInt32>(block, 1);
     ASSERT_EQ(ids.size(), 3);
     ASSERT_EQ(scores.size(), 3);
     EXPECT_EQ(ids.get_element(0), 3);
@@ -1163,9 +1289,8 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByStatistics) {
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             values.push_back(value_column.get_data_at(row).to_string());
@@ -1245,9 +1370,8 @@ TEST_F(NewParquetReaderTest, PredicateFiltersRowGroupsByDictionary) {
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             values.push_back(value_column.get_data_at(row).to_string());
@@ -1529,9 +1653,8 @@ TEST_F(NewParquetReaderTest, PageIndexFilteredPagesDoNotDoubleSkipOutputColumns)
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& payload_column =
-                assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& payload_column = nullable_nested_column<ColumnInt32>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             payloads.push_back(payload_column.get_element(row));
@@ -1598,9 +1721,8 @@ TEST_F(NewParquetReaderTest, InPredicateFiltersRowGroupsByDictionary) {
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             values.push_back(value_column.get_data_at(row).to_string());
@@ -1652,9 +1774,8 @@ TEST_F(NewParquetReaderTest, DictionaryPageV2StringEdgesSurviveSelection) {
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             values.push_back(value_column.get_data_at(row).to_string());
@@ -1697,9 +1818,8 @@ TEST_F(NewParquetReaderTest, StatisticsPruningSkipsPrefixRowGroupsAndReadsLaterG
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-        const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& value_column = nullable_nested_column<ColumnString>(block, 1);
         for (size_t row = 0; row < rows; ++row) {
             ids.push_back(id_column.get_element(row));
             values.push_back(value_column.get_data_at(row).to_string());
@@ -1740,7 +1860,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderReturnsFileLocalPositions) {
         if (rows == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
         const auto& row_position_column =
                 assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
         for (size_t row = 0; row < rows; ++row) {
@@ -1778,7 +1898,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderKeepsPositionsAfterSelection) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 3);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
     const auto& row_position_column =
             assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
     EXPECT_EQ(id_column.get_element(0), 3);
@@ -1819,7 +1939,7 @@ TEST_F(NewParquetReaderTest, DeletePredicateFiltersRowPositions) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 3);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
     const auto& row_position_column =
             assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
     EXPECT_EQ(id_column.get_element(0), 1);
@@ -1862,7 +1982,7 @@ TEST_F(NewParquetReaderTest, QueryPredicateAndDeletePredicateFilterRowPositions)
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 2);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
     const auto& row_position_column =
             assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
     EXPECT_EQ(id_column.get_element(0), 3);
@@ -1907,7 +2027,7 @@ TEST_F(NewParquetReaderTest, RowPositionReaderUsesFileLocalPositionsForScanRange
                 continue;
             }
             const auto& id_column =
-                    assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+                    nullable_nested_column<ColumnInt32>(block, 0);
             const auto& row_position_column =
                     assert_cast<const ColumnInt64&>(*block.get_by_position(2).column);
             for (size_t row = 0; row < rows; ++row) {

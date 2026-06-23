@@ -244,10 +244,91 @@ namespace {
 // TODO: batch size in SessionVariable
 constexpr int64_t DEFAULT_PARQUET_READ_BATCH_SIZE = 4096;
 
+int64_t count_range_rows(const std::vector<RowRange>& ranges) {
+    int64_t rows = 0;
+    for (const auto& range : ranges) {
+        rows += range.length;
+    }
+    return rows;
+}
+
+void append_intersection(const RowRange& left, const RowRange& right,
+                         std::vector<RowRange>* result) {
+    const int64_t start = std::max(left.start, right.start);
+    const int64_t end = std::min(left.start + left.length, right.start + right.length);
+    if (start < end) {
+        result->push_back(RowRange {.start = start, .length = end - start});
+    }
+}
+
+std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRange>& ranges,
+                                                       const std::vector<bool>& cache,
+                                                       int64_t row_group_first_row,
+                                                       int64_t base_granule) {
+    std::vector<RowRange> result;
+    if (cache.empty()) {
+        return ranges;
+    }
+
+    // Cache coordinates are file-global granules; RowRange coordinates are row-group-relative.
+    // Walk every selected range in order and split it by granule. Granules covered by the bitmap
+    // are kept only when the bit is true. Granules outside the bitmap are kept conservatively, so
+    // an undersized or old-format cache entry cannot skip valid rows.
+    for (const auto& range : ranges) {
+        const int64_t global_start = row_group_first_row + range.start;
+        const int64_t global_end = global_start + range.length;
+        for (int64_t granule = global_start / ConditionCacheContext::GRANULE_SIZE;
+             granule <= (global_end - 1) / ConditionCacheContext::GRANULE_SIZE; ++granule) {
+            const int64_t cache_idx = granule - base_granule;
+            const bool keep = cache_idx < 0 || static_cast<size_t>(cache_idx) >= cache.size() ||
+                              cache[static_cast<size_t>(cache_idx)];
+            if (!keep) {
+                continue;
+            }
+            const int64_t granule_start = granule * ConditionCacheContext::GRANULE_SIZE;
+            const int64_t granule_end = granule_start + ConditionCacheContext::GRANULE_SIZE;
+            const RowRange file_granule_range {.start = granule_start - row_group_first_row,
+                                               .length = granule_end - granule_start};
+            append_intersection(range, file_granule_range, &result);
+        }
+    }
+    return result;
+}
+
 } // namespace
 
 void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
     _row_group_plans = std::move(plan.row_groups);
+    _condition_cache_filtered_rows = 0;
+    reset();
+}
+
+void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+    _condition_cache_ctx = std::move(ctx);
+    if (!_condition_cache_ctx || !_condition_cache_ctx->filter_result || _row_group_plans.empty()) {
+        return;
+    }
+
+    _condition_cache_ctx->base_granule =
+            _row_group_plans.front().first_file_row / ConditionCacheContext::GRANULE_SIZE;
+    if (!_condition_cache_ctx->is_hit) {
+        return;
+    }
+
+    std::vector<RowGroupReadPlan> filtered_plans;
+    filtered_plans.reserve(_row_group_plans.size());
+    for (auto& plan : _row_group_plans) {
+        const int64_t old_rows = count_range_rows(plan.selected_ranges);
+        plan.selected_ranges = filter_ranges_by_condition_cache(
+                plan.selected_ranges, *_condition_cache_ctx->filter_result, plan.first_file_row,
+                _condition_cache_ctx->base_granule);
+        const int64_t new_rows = count_range_rows(plan.selected_ranges);
+        _condition_cache_filtered_rows += old_rows - new_rows;
+        if (!plan.selected_ranges.empty()) {
+            filtered_plans.push_back(std::move(plan));
+        }
+    }
+    _row_group_plans = std::move(filtered_plans);
     reset();
 }
 
@@ -410,6 +491,7 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
 
 Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
                                                           const format::FileScanRequest& request,
+                                                          int64_t batch_first_file_row,
                                                           Block* file_block, size_t* rows) {
     if (_scan_profile.total_batches != nullptr) {
         COUNTER_UPDATE(_scan_profile.total_batches, 1);
@@ -429,6 +511,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     uint16_t selected_rows = static_cast<uint16_t>(batch_rows);
     RETURN_IF_ERROR(
             read_filter_columns(batch_rows, request, file_block, &selection, &selected_rows));
+    mark_condition_cache_granules(selection, selected_rows, batch_first_file_row);
 
     const bool need_filter_output = selected_rows != batch_rows;
     if (_scan_profile.selected_rows != nullptr) {
@@ -494,6 +577,24 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     return Status::OK();
 }
 
+void ParquetScanScheduler::mark_condition_cache_granules(const SelectionVector& selection,
+                                                         uint16_t selected_rows,
+                                                         int64_t batch_first_file_row) {
+    if (!_condition_cache_ctx || _condition_cache_ctx->is_hit ||
+        !_condition_cache_ctx->filter_result) {
+        return;
+    }
+    auto& cache = *_condition_cache_ctx->filter_result;
+    for (uint16_t selection_idx = 0; selection_idx < selected_rows; ++selection_idx) {
+        const int64_t file_row = batch_first_file_row + selection.get_index(selection_idx);
+        const int64_t granule = file_row / ConditionCacheContext::GRANULE_SIZE;
+        const int64_t cache_idx = granule - _condition_cache_ctx->base_granule;
+        if (cache_idx >= 0 && static_cast<size_t>(cache_idx) < cache.size()) {
+            cache[static_cast<size_t>(cache_idx)] = true;
+        }
+    }
+}
+
 Status ParquetScanScheduler::read_next_batch(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -538,7 +639,10 @@ Status ParquetScanScheduler::read_next_batch(
         const int64_t batch_rows =
                 std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
-        RETURN_IF_ERROR(read_current_row_group_batch(batch_rows, request, file_block, rows));
+        const int64_t batch_first_file_row =
+                _current_row_group_first_row + _current_row_group_rows_read;
+        RETURN_IF_ERROR(read_current_row_group_batch(batch_rows, request, batch_first_file_row,
+                                                     file_block, rows));
         _current_row_group_rows_read += physical_rows_read;
         _current_range_rows_read += physical_rows_read;
         if (_current_range_rows_read >= current_range.length) {

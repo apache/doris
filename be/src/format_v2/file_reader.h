@@ -37,6 +37,7 @@
 namespace doris {
 class Block;
 class ColumnPredicate;
+struct ConditionCacheContext;
 
 namespace io {
 struct IOContext;
@@ -257,6 +258,17 @@ public:
                                         FileAggregateResult* result) {
         return Status::NotSupported("FileReader does not support aggregate pushdown");
     }
+
+    // Condition cache is managed by TableReader and consumed by physical file readers.
+    // On cache HIT, readers may skip granules whose cached bit is false before doing column IO.
+    // On cache MISS, readers mark a granule true when row-level predicates keep at least one row
+    // in that granule. Readers that cannot map batch rows to stable file-global row ids should
+    // keep the default no-op implementation.
+    virtual void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {}
+
+    // Total rows covered by this physical reader. TableReader uses it to pre-size the miss bitmap.
+    // Readers should return 0 if the metadata is unavailable or the row coordinate is unstable.
+    virtual int64_t get_total_rows() const { return 0; }
 
     // 关闭当前物理文件 reader 并释放文件层状态。
     // 该方法不处理 table-level delete/finalize 状态，后者由 TableReader 子类管理。
