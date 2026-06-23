@@ -123,6 +123,14 @@ void ParquetBuildHelper::build_compression_type(
         builder.compression(arrow::Compression::LZ4);
         break;
     }
+    case TParquetCompressionType::LZ4_HADOOP: {
+        // Hadoop-framed LZ4 -> Parquet thrift codec "LZ4" (deprecated). This matches what
+        // Spark/Iceberg writes for `write.parquet.compression-codec=lz4` and is readable by
+        // Trino/Spark/Doris. Note arrow::Compression::LZ4 (above) instead emits LZ4_RAW, which
+        // Trino cannot read.
+        builder.compression(arrow::Compression::LZ4_HADOOP);
+        break;
+    }
     // arrow do not support lzo and bz2 compression type.
     // case TParquetCompressionType::LZO: {
     //     builder.compression(arrow::Compression::LZO);
