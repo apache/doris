@@ -142,7 +142,7 @@ static void align_orc_null_map(const ColumnPtr& src_column, ColumnNullable* dst_
         return;
     }
     DCHECK_EQ(dst_null_map.size(), old_rows);
-    if (src_column->is_nullable()) {
+    if (is_column_nullable(*src_column)) {
         const auto* src_nullable = assert_cast<const ColumnNullable*>(src_column.get());
         DCHECK_GE(src_nullable->get_null_map_column().size(), src_null_map_start + new_rows);
         dst_null_map.insert_range_from(src_nullable->get_null_map_column(), src_null_map_start,
@@ -2056,7 +2056,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         if (key_is_missing) {
             // Fill key column with default values (nulls or empty values)
             auto mutable_key_column = IColumn::mutate(std::move(doris_key_column));
-            if (mutable_key_column->is_nullable()) {
+            if (is_column_nullable(*mutable_key_column)) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_key_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
@@ -2074,7 +2074,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         if (value_is_missing) {
             // Fill value column with default values (nulls or empty values)
             auto mutable_value_column = IColumn::mutate(std::move(doris_value_column));
-            if (mutable_value_column->is_nullable()) {
+            if (is_column_nullable(*mutable_value_column)) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_value_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
@@ -2222,7 +2222,7 @@ Status OrcReader::_orc_column_to_doris_column(
         }
 
         size_t src_null_map_start = 0;
-        if (mutable_resolved_column->is_nullable()) {
+        if (is_column_nullable(*mutable_resolved_column)) {
             SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
             auto* nullable_column =
                     reinterpret_cast<ColumnNullable*>(mutable_resolved_column.get());
@@ -2255,7 +2255,7 @@ Status OrcReader::_orc_column_to_doris_column(
 
         doris_column = IColumn::mutate(std::move(doris_column));
         auto converted_column = doris_column->assert_mutable();
-        if (converted_column->is_nullable()) {
+        if (is_column_nullable(*converted_column)) {
             const size_t new_rows = remove_nullable(resolved_column)->size();
             align_orc_null_map(resolved_column,
                                reinterpret_cast<ColumnNullable*>(converted_column.get()),
@@ -2264,7 +2264,7 @@ Status OrcReader::_orc_column_to_doris_column(
         return converter->convert(resolved_column, converted_column);
     } else {
         auto mutable_column = IColumn::mutate(std::move(doris_column));
-        if (mutable_column->is_nullable()) {
+        if (is_column_nullable(*mutable_column)) {
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(num_values);
         } else {

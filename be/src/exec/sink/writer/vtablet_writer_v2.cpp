@@ -577,7 +577,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::create_unique(&req, streams, _state);
+        std::shared_ptr<WorkloadGroup> workload_group = nullptr;
+        if (_state->get_query_ctx()) {
+            workload_group = _state->workload_group();
+        }
+        return DeltaWriterV2::create_unique(&req, streams, workload_group);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -593,7 +597,12 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
         }
     }
     SCOPED_TIMER(_write_memtable_timer);
-    st = delta_writer->write(block.get(), rows.row_idxes);
+    st = delta_writer->write(block.get(), rows.row_idxes, [state = _state]() {
+        if (state->is_cancelled()) {
+            return state->cancel_reason();
+        }
+        return Status::OK();
+    });
     return st;
 }
 
@@ -678,7 +687,10 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _operator_profile);
+            RuntimeProfile* delta_writer_profile =
+                    (_state->enable_profile() && _state->profile_level() >= 2) ? _operator_profile
+                                                                               : nullptr;
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, delta_writer_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 _cancel(st);

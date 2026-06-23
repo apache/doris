@@ -66,9 +66,9 @@ using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             RuntimeState* state)
-        : _state(state),
-          _req(*req),
+                             std::shared_ptr<WorkloadGroup> workload_group)
+        : _req(*req),
+          _workload_group(std::move(workload_group)),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {}
@@ -129,19 +129,17 @@ Status DeltaWriterV2::init() {
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
-    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
-    if (_state->get_query_ctx()) {
-        wg_sptr = _state->get_query_ctx()->workload_group();
-    }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           wg_sptr, _streams[0]->enable_unique_mow(_req.index_id)));
+                                           _workload_group,
+                                           _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                            const std::function<Status()>& cancel_check) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -157,9 +155,8 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
                         { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
-            if (_state->is_cancelled()) {
-                return _state->cancel_reason();
-            }
+            DBUG_EXECUTE_IF("DeltaWriterV2.write.flush_limit_wait", DBUG_RUN_CALLBACK());
+            RETURN_IF_ERROR(cancel_check());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }

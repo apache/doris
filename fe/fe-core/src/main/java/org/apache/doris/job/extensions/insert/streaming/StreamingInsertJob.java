@@ -39,7 +39,9 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
@@ -134,12 +136,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("props")
     private Map<String, String> properties;
     private StreamingJobProperties jobProperties;
+    // Soft cap on produced-but-unconsumed splits buffered on FE; checked before each round,
+    // so the actual backlog may overshoot by up to one fetch batch.
+    private static final int MAX_PENDING_SPLITS = 512;
     @Getter
     @SerializedName("tvf")
     private String tvfType;
     private Map<String, String> originTvfProps;
     @Getter
-    AbstractStreamingTask runningStreamTask;
+    volatile AbstractStreamingTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Getter
     @Setter
@@ -709,12 +714,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
                 // When a job is manually paused, it does not need to be set again,
                 // otherwise, it may be woken up by auto resume.
+                // Pause before setting the reason: updateJobStatus's writeLock orders this after any
+                // task-success callback that clears failureReason, so a success can't wipe the reason.
+                this.updateJobStatus(JobStatus.PAUSED);
                 this.setFailureReason(
                         new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
                                 "Failed to fetch meta, " + ex.getMessage()));
-                // If fetching meta fails, the job is paused
-                // and auto resume will automatically wake it up.
-                this.updateJobStatus(JobStatus.PAUSED);
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
@@ -737,8 +742,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider.noMoreSplits()) {
             return;
         }
+        // Admit as many splits as possible this tick until the pending backlog hits the soft cap,
+        // then yield before the next tick (deadline) which resumes the rest.
+        long intervalMs = jobProperties.getMaxIntervalSecond() * 1000L;
+        long deadline = System.currentTimeMillis() + intervalMs - Math.min(1000L, intervalMs / 10);
         try {
-            offsetProvider.advanceSplits();
+            while (!offsetProvider.noMoreSplits()
+                    && offsetProvider.pendingSplitCount() < MAX_PENDING_SPLITS
+                    && System.currentTimeMillis() < deadline) {
+                int before = offsetProvider.pendingSplitCount();
+                offsetProvider.advanceSplits();
+                if (offsetProvider.pendingSplitCount() <= before) {
+                    break; // nothing produced this round; avoid spin
+                }
+            }
         } catch (Exception ex) {
             log.warn("advance splits failed, job id: {}", getJobId(), ex);
             if (this.getFailureReason() == null
@@ -1405,19 +1422,50 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * The current streamingTask times out; create a new streamingTask.
-     * Only applies to StreamingMultiTask.
+     * Push from cdc_client: fail the running task immediately on a hard write failure.
+     * Reports whose taskId no longer matches the current running task are dropped.
      */
-    public void processTimeoutTasks() throws JobException {
-        if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
+    public void reportTaskFailure(TaskFailureRequest request) throws JobException {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        if (runningMultiTask.getTaskId() != request.getTaskId()) {
             return;
         }
         writeLock();
         try {
-            StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
-            if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
-                    && runningMultiTask.isTimeout()) {
-                String timeoutReason = runningMultiTask.getTimeoutReason();
+            if (this.runningStreamTask == runningMultiTask
+                    && runningMultiTask.getTaskId() == request.getTaskId()
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())) {
+                runningMultiTask.onFail(request.getReason());
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * The current streamingTask times out; create a new streamingTask.
+     * Only applies to StreamingMultiTask.
+     */
+    public void processTimeoutTasks() throws JobException {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        if (!runningMultiTask.isLocalTimeout()) {
+            return;
+        }
+        StreamingTaskStatus status = runningMultiTask.fetchTaskStatus();
+        writeLock();
+        try {
+            if (this.runningStreamTask == runningMultiTask
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
+                    && runningMultiTask.isTimeout(status)) {
+                String timeoutReason = status == null ? "" : status.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
                     timeoutReason = "task failed cause timeout";
                 }

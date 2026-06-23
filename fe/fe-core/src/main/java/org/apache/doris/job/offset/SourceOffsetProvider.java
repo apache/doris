@@ -198,6 +198,11 @@ public interface SourceOffsetProvider {
         return true;
     }
 
+    /** Splits produced but not yet consumed (FE-side backlog). */
+    default int pendingSplitCount() {
+        return 0;
+    }
+
     /**
      * Get the lag of the data source in seconds.
      * For CDC sources, lag = (now - last consumed event timestamp) in seconds.

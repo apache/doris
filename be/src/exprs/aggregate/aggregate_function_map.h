@@ -197,17 +197,15 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        if (columns[0]->is_nullable()) {
-            const auto& nullable_col =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto& nullable_map = nullable_col.get_null_map_data();
+        if (const auto* nullable_col = check_and_get_column<ColumnNullable>(columns[0])) {
+            const auto& nullable_map = nullable_col->get_null_map_data();
             if (nullable_map[row_num]) {
                 return;
             }
             Field value;
             columns[1]->get(row_num, value);
             this->data(place).add(assert_cast<const KeyColumnType&, TypeCheckOnRelease::DISABLE>(
-                                          nullable_col.get_nested_column())
+                                          nullable_col->get_nested_column())
                                           .get_data_at(row_num),
                                   value);
         } else {

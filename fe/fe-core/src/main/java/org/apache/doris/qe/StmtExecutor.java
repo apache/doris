@@ -189,6 +189,10 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
+    // reverted, so the audit log (built after execute() returns) can reflect the values that
+    // were actually in effect for this statement. Null when no SET_VAR hint was used.
+    private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
@@ -551,6 +555,10 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public List<List<String>> getChangedSessionVarsForAudit() {
+        return changedSessionVarsForAudit;
+    }
+
     /**
      * Replace the executor statement context and synchronize it to the owning ConnectContext.
      */
@@ -650,6 +658,17 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
+            // so the audit log (logged after execute() returns, i.e. after the revert below) can
+            // reflect what was actually in effect for this statement instead of the reverted values.
+            if (sessionVariable.getIsSingleSetVar()) {
+                try {
+                    changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
+                } catch (Throwable t) {
+                    LOG.warn("failed to snapshot changed session variables for audit. {}",
+                            context.getQueryIdentifier(), t);
+                }
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -959,6 +978,16 @@ public class StmtExecutor {
                         + " but we need at least " + originStmt.idx + " statements.");
             }
             parsedStmt = statements.get(originStmt.idx);
+        }
+        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
+        // without a parsedStatement. Propagate it so that downstream code like
+        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
+        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
+        // Coordinator (which would fail with "fragment has no children").
+        // Only do this when isProxy is true, because other code paths like
+        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
+        if (isProxy) {
+            this.context.getStatementContext().setParsedStatement(parsedStmt);
         }
     }
 

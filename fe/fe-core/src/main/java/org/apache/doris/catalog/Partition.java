@@ -96,6 +96,8 @@ public class Partition extends MetaObject {
     protected long nextVersion;
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
+    @SerializedName(value = "tso")
+    private long tso = -1;
 
     private transient volatile String remoteMetaChecksum;
 
@@ -150,11 +152,15 @@ public class Partition extends MetaObject {
     }
 
     public void updateVisibleVersion(long visibleVersion) {
-        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis());
+        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis(), -1);
     }
 
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
-        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime, -1);
+    }
+
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime, long tso) {
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime, tso);
     }
 
     /* fromCache is only used in CloudPartition
@@ -189,6 +195,13 @@ public class Partition extends MetaObject {
     public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = visibleVersionTime;
+        this.tso = -1;
+    }
+
+    public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime, long tso) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionTime = visibleVersionTime;
+        this.tso = tso;
     }
 
     public PartitionState getState() {
@@ -499,5 +512,9 @@ public class Partition extends MetaObject {
             dataSize += mIndex.getDataSize(singleReplica, true);
         }
         return dataSize + getRemoteDataSize();
+    }
+
+    public Long getTso() {
+        return tso;
     }
 }

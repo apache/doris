@@ -982,6 +982,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                     "trustCertificateKeyStorePassword", SmallFileMgr.TRUSTSTORE_PASSWORD);
         }
 
+        // Keep genuinely ancient (<100) DATE/DATETIME years; MySQL already completes 2-digit years.
+        dbzProps.setProperty("enable.time.adjuster", "false");
+
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
