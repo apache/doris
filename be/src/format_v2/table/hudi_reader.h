@@ -17,17 +17,17 @@
 
 #pragma once
 
+#include <vector>
+
 #include "format_v2/table_reader.h"
 
-namespace doris {
-struct DeleteFileDesc;
-}
-namespace doris::format::paimon {
+namespace doris::format::hudi {
 
-class PaimonReader final : public format::TableReader {
+class HudiReader final : public format::TableReader {
 public:
-    ENABLE_FACTORY_CREATOR(PaimonReader);
-    ~PaimonReader() final = default;
+    ENABLE_FACTORY_CREATOR(HudiReader);
+    ~HudiReader() final = default;
+
     Status prepare_split(const format::SplitReadOptions& options) override;
 
 #ifdef BE_TEST
@@ -42,11 +42,8 @@ protected:
     format::TableColumnMappingMode mapping_mode() const override;
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
 
-    Status _parse_deletion_vector_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc* desc,
-                                       bool* has_delete_file) override;
-
 private:
     int64_t _split_schema_id = -1;
 };
 
-} // namespace doris::format::paimon
+} // namespace doris::format::hudi

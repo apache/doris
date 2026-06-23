@@ -49,6 +49,14 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
     return range;
 }
 
+TFileRangeDesc hudi_range_with_delta_logs() {
+    auto range = range_with_format("hudi", TFileFormatType::FORMAT_PARQUET);
+    THudiFileDesc hudi_params;
+    hudi_params.__set_delta_logs({"delta.log"});
+    range.table_format_params.__set_hudi_params(std::move(hudi_params));
+    return range;
+}
+
 TScanRangeParams scan_range_param(const TFileRangeDesc& range) {
     TScanRangeParams params;
     params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
@@ -77,7 +85,7 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"iceberg", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"paimon", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
-            {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
+            {"hudi", TFileFormatType::FORMAT_PARQUET, std::nullopt, true},
             {"jdbc", TFileFormatType::FORMAT_PARQUET, std::nullopt, false},
             {"", TFileFormatType::FORMAT_JNI, std::nullopt, false},
             {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
@@ -100,6 +108,10 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
                 << ", params_format=" << static_cast<int>(test_case.params_format)
                 << ", range_has_format=" << test_case.range_format.has_value();
     }
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
 // Scenario: SplitSourceConnector should route to FileScannerV2 only when every scan range in the
@@ -109,7 +121,7 @@ TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
 
     const auto supported = range_with_format("hive", TFileFormatType::FORMAT_PARQUET);
-    const auto unsupported_table = range_with_format("hudi", TFileFormatType::FORMAT_PARQUET);
+    const auto unsupported_table = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
     const auto unsupported_format = range_with_format("hive", TFileFormatType::FORMAT_ORC);
 
     LocalSplitSourceConnector all_supported(
@@ -117,6 +129,12 @@ TEST(FileScannerV2Test, SplitSourceAllScanRangesMatchRequiresEveryRangeSupported
              scan_range_param(range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET))},
             1);
     EXPECT_TRUE(all_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
+
+    LocalSplitSourceConnector hudi_supported(
+            {scan_range_param(supported),
+             scan_range_param(range_with_format("hudi", TFileFormatType::FORMAT_PARQUET))},
+            1);
+    EXPECT_TRUE(hudi_supported.all_scan_ranges_match(params, FileScannerV2::is_supported));
 
     LocalSplitSourceConnector table_mismatch(
             {scan_range_param(supported), scan_range_param(unsupported_table)}, 1);
