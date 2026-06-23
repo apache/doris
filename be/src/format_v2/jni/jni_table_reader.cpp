@@ -46,6 +46,9 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
     RETURN_IF_ERROR(TableReader::prepare_split(options));
     DORIS_CHECK(!_closed);
     DORIS_CHECK(!_scanner_opened);
+    if (_is_table_level_count_active()) {
+        return Status::OK();
+    }
     // Subclasses populate split-specific scanner params before calling this method, so the Java
     // scanner can be opened here instead of being lazily opened by the first get_block() call.
     return _open_jni_scanner();
@@ -54,10 +57,13 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
 Status JniTableReader::get_block(Block* output_block, bool* eos) {
     DORIS_CHECK(output_block != nullptr);
     DORIS_CHECK(eos != nullptr);
-    DORIS_CHECK(_scanner_opened);
     DORIS_CHECK(output_block->columns() == _projected_columns.size());
     output_block->clear_column_data(_projected_columns.size());
+    if (_is_table_level_count_active()) {
+        return _read_table_level_count(output_block, eos);
+    }
 
+    DORIS_CHECK(_scanner_opened);
     if (_eof) {
         *eos = true;
         return Status::OK();
@@ -70,6 +76,7 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
         RETURN_IF_ERROR(_get_next_jni_block(&current_rows, &current_eof));
         if (current_eof) {
             _eof = true;
+            RETURN_IF_ERROR(_close_jni_scanner());
             *eos = true;
             return Status::OK();
         }
@@ -166,47 +173,91 @@ Status JniTableReader::finalize_jni_block(Block* jni_block, Block* output_block,
     return Status::OK();
 }
 
+Status JniTableReader::build_jni_columns(std::vector<JniColumn>* columns) const {
+    DORIS_CHECK(columns != nullptr);
+    columns->clear();
+    columns->reserve(_projected_columns.size());
+    for (size_t i = 0; i < _projected_columns.size(); ++i) {
+        const auto& table_column = _projected_columns[i];
+        columns->push_back({
+                .java_name = table_column.name,
+                .output_index = i,
+                .output_type = table_column.type,
+                .transfer_type = table_column.type,
+                .replace_type = "not_replace",
+        });
+    }
+    return Status::OK();
+}
+
 Status JniTableReader::close() {
     if (_closed) {
         return Status::OK();
     }
     _closed = true;
-    if (_scanner_opened) {
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
-        if (_scanner_profile != nullptr) {
-            COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-            COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-        }
-
-        RETURN_ERROR_IF_EXC(env);
-        jlong append_data_time = 0;
-        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                                .call(&append_data_time));
-        jlong create_vector_table_time = 0;
-        RETURN_IF_ERROR(
-                _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                        .call(&create_vector_table_time));
-        if (_scanner_profile != nullptr) {
-            COUNTER_UPDATE(_java_append_data_time, append_data_time);
-            COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
-            COUNTER_UPDATE(_java_scan_time,
-                           _java_scan_watcher - append_data_time - create_vector_table_time);
-            _max_time_split_weight_counter->conditional_update(
-                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                    self_split_weight());
-        }
-
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-        _scanner_opened = false;
-    }
+    RETURN_IF_ERROR(_close_jni_scanner());
     return TableReader::close();
 }
 
-Status JniTableReader::_open_jni_scanner() {
+Status JniTableReader::_close_jni_scanner() {
+    if (!_scanner_opened) {
+        JNIEnv* env = nullptr;
+        if (!_jni_scanner_obj.uninitialized()) {
+            RETURN_IF_ERROR(Jni::Env::Get(&env));
+        }
+        _reset_split_state(env);
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    if (_scanner_profile != nullptr) {
+        COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+        COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+    }
+
+    RETURN_ERROR_IF_EXC(env);
+    jlong append_data_time = 0;
+    RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                            .call(&append_data_time));
+    jlong create_vector_table_time = 0;
+    RETURN_IF_ERROR(
+            _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                    .call(&create_vector_table_time));
+    if (_scanner_profile != nullptr) {
+        COUNTER_UPDATE(_java_append_data_time, append_data_time);
+        COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
+        COUNTER_UPDATE(_java_scan_time,
+                       _java_scan_watcher - append_data_time - create_vector_table_time);
+        _max_time_split_weight_counter->conditional_update(
+                _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
+                self_split_weight());
+    }
+
+    // _fill_jni_block may fail before releasing the current Java table. JniScanner::releaseTable()
+    // is idempotent, so closing the split always releases it.
+    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
+    RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
+    _reset_split_state(env);
+    return Status::OK();
+}
+
+void JniTableReader::_reset_split_state(JNIEnv* env) {
+    if (!_jni_scanner_obj.uninitialized()) {
+        DORIS_CHECK(env != nullptr);
+        _jni_scanner_obj.reset(env);
+    }
+    _scanner_opened = false;
+    _eof = false;
     _scanner_params.clear();
     _jni_columns.clear();
+    _jni_block_template.clear();
+    _jni_scanner_open_watcher = 0;
+    _java_scan_watcher = 0;
+    _fill_block_watcher = 0;
+}
+
+Status JniTableReader::_open_jni_scanner() {
     // subclasses build map<string,string> _scanner_params to JAVA side
     RETURN_IF_ERROR(build_scanner_params(&_scanner_params));
     // subclasses build _jni_columns info to JAVA side, including column name and column type
@@ -222,7 +273,8 @@ Status JniTableReader::_open_jni_scanner() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    RETURN_IF_ERROR(_register_jni_class_functions(env, cast_set<int>(_batch_size)));
+    RETURN_IF_ERROR(_register_jni_class_functions_once(env));
+    RETURN_IF_ERROR(_create_jni_scanner_object(env, cast_set<int>(_batch_size)));
     // call open() method in JAVA side.
     RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());
     RETURN_ERROR_IF_EXC(env);
@@ -259,21 +311,15 @@ void JniTableReader::_prepare_jni_scanner_schema() {
     }
 }
 
-Status JniTableReader::_register_jni_class_functions(JNIEnv* env, int batch_size) {
+Status JniTableReader::_register_jni_class_functions_once(JNIEnv* env) {
+    if (!_jni_scanner_cls.uninitialized()) {
+        return Status::OK();
+    }
+
     RETURN_IF_ERROR(
             Jni::Util::get_jni_scanner_class(env, connector_class().c_str(), &_jni_scanner_cls));
-
-    Jni::MethodId scanner_constructor;
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "<init>", "(ILjava/util/Map;)V",
-                                                &scanner_constructor));
-
-    Jni::LocalObject hashmap_object;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, _scanner_params, &hashmap_object));
-    RETURN_IF_ERROR(_jni_scanner_cls.new_object(env, scanner_constructor)
-                            .with_arg(batch_size)
-                            .with_arg(hashmap_object)
-                            .call(&_jni_scanner_obj));
-
+                                                &_jni_scanner_constructor));
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "open", "()V", &_jni_scanner_open));
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getNextBatchMeta", "()J",
                                                 &_jni_scanner_get_next_batch));
@@ -290,6 +336,19 @@ Status JniTableReader::_register_jni_class_functions(JNIEnv* env, int batch_size
                                                 &_jni_scanner_get_statistics));
     RETURN_IF_ERROR(
             _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
+    return Status::OK();
+}
+
+Status JniTableReader::_create_jni_scanner_object(JNIEnv* env, int batch_size) {
+    DORIS_CHECK(!_jni_scanner_cls.uninitialized());
+    DORIS_CHECK(!_jni_scanner_constructor.uninitialized());
+    DORIS_CHECK(_jni_scanner_obj.uninitialized());
+    Jni::LocalObject hashmap_object;
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, _scanner_params, &hashmap_object));
+    RETURN_IF_ERROR(_jni_scanner_cls.new_object(env, _jni_scanner_constructor)
+                            .with_arg(batch_size)
+                            .with_arg(hashmap_object)
+                            .call(&_jni_scanner_obj));
     return Status::OK();
 }
 

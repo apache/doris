@@ -46,7 +46,9 @@
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
+#include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
@@ -78,8 +80,15 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
            table_format == "iceberg" || table_format == "paimon";
 }
 
-bool is_supported_jdbc_table_format(const TFileRangeDesc& range) {
-    return table_format_name(range) == "jdbc";
+bool is_supported_jni_table_format(const TFileRangeDesc& range) {
+    const auto table_format = table_format_name(range);
+    if (table_format == "paimon") {
+        return range.__isset.table_format_params &&
+               range.table_format_params.__isset.paimon_params &&
+               range.table_format_params.paimon_params.__isset.reader_type &&
+               range.table_format_params.paimon_params.reader_type == TPaimonReaderType::PAIMON_JNI;
+    }
+    return table_format == "jdbc" || table_format == "iceberg";
 }
 
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
@@ -153,7 +162,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     if (format_type == TFileFormatType::FORMAT_PARQUET) {
         return is_supported_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
-        return is_supported_jdbc_table_format(range);
+        return is_supported_jni_table_format(range);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
         return false;
@@ -286,9 +295,17 @@ Status FileScannerV2::_create_table_reader_for_format(
     } else if (table_format == "hive") {
         *reader = format::hive::HiveReader::create_unique();
     } else if (table_format == "iceberg") {
-        *reader = std::make_unique<format::iceberg::IcebergTableReader>();
+        if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
+            *reader = std::make_unique<format::iceberg::IcebergSysTableJniReader>();
+        } else {
+            *reader = std::make_unique<format::iceberg::IcebergTableReader>();
+        }
     } else if (table_format == "paimon") {
-        *reader = format::paimon::PaimonReader::create_unique();
+        if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
+            *reader = std::make_unique<format::paimon::PaimonJniReader>();
+        } else {
+            *reader = format::paimon::PaimonReader::create_unique();
+        }
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
     } else {
