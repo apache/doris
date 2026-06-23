@@ -65,6 +65,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/predicate_creator.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris::format {
 namespace {
@@ -199,8 +200,8 @@ TEST(LocalColumnIndexTest, ProjectColumnDefinitionKeepsFileChildOrder) {
 }
 
 VExprSPtr table_int32_slot_ref(int slot_id, int column_id, const std::string& column_name) {
-    return VSlotRef::create_shared(slot_id, column_id, slot_id, std::make_shared<DataTypeInt32>(),
-                                   column_name);
+    const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    return VSlotRef::create_shared(slot_id, column_id, slot_id, nullable_int_type, column_name);
 }
 
 VExprSPtr table_int32_literal(int32_t value) {
@@ -262,8 +263,10 @@ VExprSPtr table_function_expr(const std::string& function_name, const DataTypePt
 
 VExprSPtr table_int32_greater_than_expr(int slot_id, int column_id, int32_t value) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
-                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
+    const auto nullable_int_type = make_nullable(int_type);
+    auto expr = table_function_expr("gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                    {nullable_int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                    TExprOpcode::GT);
     expr->add_child(table_int32_slot_ref(slot_id, column_id, "id"));
     expr->add_child(table_int32_literal(value));
     return expr;
@@ -283,7 +286,7 @@ VExprSPtr table_nullable_int64_binary_predicate(const std::string& function_name
                                                 int64_t value) {
     const auto int64_type = std::make_shared<DataTypeInt64>();
     const auto nullable_int64_type = make_nullable(int64_type);
-    auto expr = table_function_expr(function_name, std::make_shared<DataTypeUInt8>(),
+    auto expr = table_function_expr(function_name, make_nullable(std::make_shared<DataTypeUInt8>()),
                                     {nullable_int64_type, int64_type}, TExprNodeType::BINARY_PRED,
                                     opcode);
     expr->add_child(
@@ -392,7 +395,9 @@ public:
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                int right_column_id) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("add", int_type, {int_type, int_type});
+    const auto nullable_int_type = make_nullable(int_type);
+    auto expr =
+            table_function_expr("add", nullable_int_type, {nullable_int_type, nullable_int_type});
     expr->add_child(table_int32_slot_ref(left_slot_id, left_column_id, "id"));
     expr->add_child(table_int32_slot_ref(right_slot_id, right_column_id, "score"));
     return expr;
@@ -401,19 +406,10 @@ VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_s
 VExprSPtr table_int32_sum_greater_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                             int right_column_id, int32_t value) {
     const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("gt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
-                                    TExprNodeType::BINARY_PRED, TExprOpcode::GT);
-    expr->add_child(
-            table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
-    expr->add_child(table_int32_literal(value));
-    return expr;
-}
-
-VExprSPtr table_int32_sum_less_than_expr(int left_slot_id, int left_column_id, int right_slot_id,
-                                         int right_column_id, int32_t value) {
-    const auto int_type = std::make_shared<DataTypeInt32>();
-    auto expr = table_function_expr("lt", std::make_shared<DataTypeUInt8>(), {int_type, int_type},
-                                    TExprNodeType::BINARY_PRED, TExprOpcode::LT);
+    const auto nullable_int_type = make_nullable(int_type);
+    auto expr = table_function_expr("gt", make_nullable(std::make_shared<DataTypeUInt8>()),
+                                    {nullable_int_type, int_type}, TExprNodeType::BINARY_PRED,
+                                    TExprOpcode::GT);
     expr->add_child(
             table_int32_sum_expr(left_slot_id, left_column_id, right_slot_id, right_column_id));
     expr->add_child(table_int32_literal(value));
@@ -998,6 +994,9 @@ void expect_nullable_int64_column_optional_values(
 }
 
 const IColumn& expect_not_null_nullable_nested_column(const IColumn& column) {
+    if (!column.is_nullable()) {
+        return column;
+    }
     const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
     for (const auto is_null : nullable_column.get_null_map_data()) {
         EXPECT_EQ(is_null, 0);
@@ -1005,11 +1004,35 @@ const IColumn& expect_not_null_nullable_nested_column(const IColumn& column) {
     return nullable_column.get_nested_column();
 }
 
+void expect_nullable_column_all_null(const IColumn& column) {
+    const auto full_column = column.convert_to_full_column_if_const();
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*full_column);
+    for (const auto is_null : nullable_column.get_null_map_data()) {
+        EXPECT_EQ(is_null, 1);
+    }
+}
+
+const IColumn& expect_not_null_table_column(const Block& block, size_t position) {
+    return expect_not_null_nullable_nested_column(*block.get_by_position(position).column);
+}
+
+ColumnDefinition make_table_column(int32_t id, const std::string& name, const DataTypePtr& type);
+
 DataTypePtr make_iceberg_rowid_type() {
     return make_nullable(std::make_shared<DataTypeStruct>(
             DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt64>(),
                        std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()},
             Strings {"file_path", "row_pos", "partition_spec_id", "partition_data_json"}));
+}
+
+ColumnDefinition make_iceberg_row_lineage_row_id_column() {
+    return make_table_column(2147483540, "_row_id",
+                             make_nullable(std::make_shared<DataTypeInt64>()));
+}
+
+ColumnDefinition make_iceberg_last_updated_sequence_number_column() {
+    return make_table_column(2147483539, "_last_updated_sequence_number",
+                             make_nullable(std::make_shared<DataTypeInt64>()));
 }
 
 void expect_iceberg_rowid_column_values(const IColumn& column, const std::string& file_path,
@@ -1020,11 +1043,14 @@ void expect_iceberg_rowid_column_values(const IColumn& column, const std::string
     const auto& nullable_column = assert_cast<const ColumnNullable&>(*full_column);
     const auto& struct_column =
             assert_cast<const ColumnStruct&>(nullable_column.get_nested_column());
-    const auto& file_path_column = assert_cast<const ColumnString&>(struct_column.get_column(0));
-    const auto& row_pos_column = assert_cast<const ColumnInt64&>(struct_column.get_column(1));
-    const auto& spec_id_column = assert_cast<const ColumnInt32&>(struct_column.get_column(2));
-    const auto& partition_data_column =
-            assert_cast<const ColumnString&>(struct_column.get_column(3));
+    const auto& file_path_column = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(struct_column.get_column(0)));
+    const auto& row_pos_column = assert_cast<const ColumnInt64&>(
+            expect_not_null_nullable_nested_column(struct_column.get_column(1)));
+    const auto& spec_id_column = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(struct_column.get_column(2)));
+    const auto& partition_data_column = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(struct_column.get_column(3)));
 
     ASSERT_EQ(nullable_column.size(), row_positions.size());
     for (size_t row = 0; row < row_positions.size(); ++row) {
@@ -1039,7 +1065,8 @@ void expect_iceberg_rowid_column_values(const IColumn& column, const std::string
 void expect_int32_column_values(const IColumn& column,
                                 const std::vector<int32_t>& expected_values) {
     const auto full_column = column.convert_to_full_column_if_const();
-    const auto& values = assert_cast<const ColumnInt32&>(*full_column).get_data();
+    const auto& nested_column = expect_not_null_nullable_nested_column(*full_column);
+    const auto& values = assert_cast<const ColumnInt32&>(nested_column).get_data();
     ASSERT_EQ(values.size(), expected_values.size());
     for (size_t row = 0; row < expected_values.size(); ++row) {
         EXPECT_EQ(values[row], expected_values[row]);
@@ -1165,7 +1192,8 @@ std::vector<int32_t> read_iceberg_ids(doris::format::iceberg::IcebergTableReader
         if (block.rows() == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
         for (size_t row = 0; row < block.rows(); ++row) {
             ids.push_back(id_column.get_element(row));
         }
@@ -1197,13 +1225,39 @@ SplitReadOptions build_split_options_for_row_group_mid(const std::string& file_p
     return options;
 }
 
+DataTypePtr make_table_test_type(const DataTypePtr& type, bool nullable_root = true) {
+    DORIS_CHECK(type != nullptr);
+    const auto nested_type = remove_nullable(type);
+    DataTypePtr result;
+    if (const auto* struct_type = typeid_cast<const DataTypeStruct*>(nested_type.get())) {
+        DataTypes child_types;
+        child_types.reserve(struct_type->get_elements().size());
+        for (const auto& child_type : struct_type->get_elements()) {
+            child_types.push_back(make_table_test_type(child_type));
+        }
+        result = std::make_shared<DataTypeStruct>(child_types, struct_type->get_element_names());
+    } else if (const auto* array_type = typeid_cast<const DataTypeArray*>(nested_type.get())) {
+        result = std::make_shared<DataTypeArray>(
+                make_table_test_type(array_type->get_nested_type()));
+    } else if (const auto* map_type = typeid_cast<const DataTypeMap*>(nested_type.get())) {
+        result = std::make_shared<DataTypeMap>(make_table_test_type(map_type->get_key_type()),
+                                               make_table_test_type(map_type->get_value_type()));
+    } else {
+        result = nested_type;
+    }
+    return nullable_root ? make_nullable(result) : result;
+}
+
 ColumnDefinition make_table_column(int32_t id, const std::string& name, const DataTypePtr& type) {
     ColumnDefinition column;
     if (id >= 0) {
         column.identifier = Field::create_field<TYPE_INT>(id);
     }
     column.name = name;
-    column.type = type;
+    // TableReader tests model external table scan descriptors. Those table columns are nullable
+    // even when the Parquet file field itself is required, so keep the test schema aligned with
+    // the real scan contract at the construction boundary.
+    column.type = make_table_test_type(type);
     return column;
 }
 
@@ -1212,8 +1266,24 @@ ColumnDefinition make_file_column(int32_t id, const std::string& name, const Dat
     field.identifier = Field::create_field<TYPE_INT>(id);
     field.local_id = id;
     field.name = name;
-    field.type = type;
+    field.type = make_table_test_type(type);
     return field;
+}
+
+ColumnDefinition make_nullable_column_definition(ColumnDefinition column) {
+    column.type = make_table_test_type(column.type);
+    for (auto& child : column.children) {
+        child = make_nullable_column_definition(std::move(child));
+    }
+    return column;
+}
+
+MutableColumnPtr make_not_null_nullable_column(MutableColumnPtr nested_column) {
+    auto null_map = ColumnUInt8::create();
+    for (size_t i = 0; i < nested_column->size(); ++i) {
+        null_map->insert_value(0);
+    }
+    return ColumnNullable::create(std::move(nested_column), std::move(null_map));
 }
 
 class TableReaderCharVarcharTestHelper final : public TableReader {
@@ -1305,7 +1375,11 @@ struct FakeFileReaderState {
     int init_count = 0;
     int open_count = 0;
     int close_count = 0;
+    int64_t total_rows = 2;
+    bool eof_with_first_batch = true;
+    bool inject_delete_conjunct = false;
     std::shared_ptr<FileScanRequest> last_request;
+    std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
 };
 
 class FakeFileReader final : public FileReader {
@@ -1327,6 +1401,9 @@ public:
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override {
         DORIS_CHECK(file_schema != nullptr);
         *file_schema = _schema;
+        for (auto& column : *file_schema) {
+            column = make_nullable_column_definition(std::move(column));
+        }
         return Status::OK();
     }
 
@@ -1354,21 +1431,19 @@ public:
                 auto column = ColumnInt32::create();
                 column->insert_value(1);
                 column->insert_value(2);
-                file_block->replace_by_position(block_position.value(), std::move(column));
+                file_block->replace_by_position(block_position.value(),
+                                                make_not_null_nullable_column(std::move(column)));
             } else if (file_column_id == LocalColumnId(1)) {
                 auto column = ColumnString::create();
                 column->insert_data("one", 3);
                 column->insert_data("two", 3);
-                file_block->replace_by_position(block_position.value(), std::move(column));
+                file_block->replace_by_position(block_position.value(),
+                                                make_not_null_nullable_column(std::move(column)));
             } else if (file_column_id == LocalColumnId(2)) {
                 auto country_values = ColumnString::create();
                 country_values->insert_data("USA", 3);
                 country_values->insert_data("UK", 2);
-                auto country_null_map = ColumnUInt8::create();
-                country_null_map->insert_value(0);
-                country_null_map->insert_value(0);
-                auto country_column = ColumnNullable::create(std::move(country_values),
-                                                             std::move(country_null_map));
+                auto country_column = make_not_null_nullable_column(std::move(country_values));
 
                 auto city_column = ColumnString::create();
                 city_column->insert_data("New York", 8);
@@ -1376,15 +1451,12 @@ public:
 
                 MutableColumns struct_children;
                 struct_children.push_back(std::move(country_column));
-                struct_children.push_back(std::move(city_column));
+                struct_children.push_back(make_not_null_nullable_column(std::move(city_column)));
                 auto struct_column = ColumnStruct::create(std::move(struct_children));
 
-                auto root_null_map = ColumnUInt8::create();
-                root_null_map->insert_value(0);
-                root_null_map->insert_value(0);
-                auto nullable_struct =
-                        ColumnNullable::create(std::move(struct_column), std::move(root_null_map));
-                file_block->replace_by_position(block_position.value(), std::move(nullable_struct));
+                file_block->replace_by_position(
+                        block_position.value(),
+                        make_not_null_nullable_column(std::move(struct_column)));
             } else {
                 return Status::InvalidArgument("Unexpected fake file column id {}",
                                                file_column_id.value());
@@ -1393,9 +1465,23 @@ public:
 
         _returned_batch = true;
         *rows = 2;
-        *eof = true;
+        *eof = _state->eof_with_first_batch;
+        if (_state->condition_cache_ctx != nullptr && !_state->condition_cache_ctx->is_hit &&
+            _state->condition_cache_ctx->filter_result != nullptr &&
+            !_state->condition_cache_ctx->filter_result->empty()) {
+            // The real file reader marks a granule after local row-level predicates keep at least
+            // one row from that granule. The fake reader does it here so TableReader tests can
+            // focus on condition-cache lifecycle decisions without depending on Parquet internals.
+            (*_state->condition_cache_ctx->filter_result)[0] = true;
+        }
         return Status::OK();
     }
+
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _state->condition_cache_ctx = std::move(ctx);
+    }
+
+    int64_t get_total_rows() const override { return _state->total_rows; }
 
     Status close() override {
         ++_state->close_count;
@@ -1428,9 +1514,39 @@ protected:
         return Status::OK();
     }
 
+    Status customize_file_scan_request(FileScanRequest* file_request) override {
+        RETURN_IF_ERROR(TableReader::customize_file_scan_request(file_request));
+        if (_state->inject_delete_conjunct) {
+            // Table-format delete handling is represented in v2 by TableReader injecting
+            // delete_conjuncts into the file scan request. The fake reader does not execute it;
+            // this only tests that condition cache is disabled once such table-level delete state
+            // is present in the request.
+            file_request->delete_conjuncts.push_back(
+                    VExprContext::create_shared(table_int32_literal(1)));
+        }
+        return Status::OK();
+    }
+
 private:
     std::vector<ColumnDefinition> _file_schema;
     std::shared_ptr<FakeFileReaderState> _state;
+};
+
+class ScopedConditionCacheForTest {
+public:
+    ScopedConditionCacheForTest()
+            : _previous(ExecEnv::GetInstance()->get_condition_cache()),
+              _cache(segment_v2::ConditionCache::create_global_cache(1024 * 1024, 4)) {
+        ExecEnv::GetInstance()->_condition_cache = _cache.get();
+    }
+
+    ~ScopedConditionCacheForTest() { ExecEnv::GetInstance()->_condition_cache = _previous; }
+
+    segment_v2::ConditionCache* get() { return _cache.get(); }
+
+private:
+    segment_v2::ConditionCache* _previous = nullptr;
+    std::unique_ptr<segment_v2::ConditionCache> _cache;
 };
 
 TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
@@ -1477,8 +1593,9 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
               std::vector<int32_t>({1, 0}));
     EXPECT_TRUE(fake_state->last_request->predicate_columns.empty());
 
-    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(0).column);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& value_column =
+            assert_cast<const ColumnString&>(expect_not_null_table_column(block, 0));
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(value_column.get_data_at(0).to_string(), "one");
     EXPECT_EQ(value_column.get_data_at(1).to_string(), "two");
@@ -1495,9 +1612,9 @@ TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {
     const auto string_type = std::make_shared<DataTypeString>();
     const auto nullable_string_type = make_nullable(string_type);
     const auto file_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {string_type, string_type}, Strings {"country", "city"}));
+            DataTypes {nullable_string_type, string_type}, Strings {"country", "city"}));
     auto file_struct_column = make_file_column(2, "struct_column", file_struct_type);
-    file_struct_column.children = {make_file_column(0, "country", string_type),
+    file_struct_column.children = {make_file_column(0, "country", nullable_string_type),
                                    make_file_column(1, "city", string_type)};
     std::vector<ColumnDefinition> file_schema = {file_struct_column};
 
@@ -1608,8 +1725,9 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
         ASSERT_FALSE(eos);
 
         const auto& value_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(0).column);
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+                assert_cast<const ColumnString&>(expect_not_null_table_column(block, 0));
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
         ASSERT_EQ(id_column.size(), 1);
         ASSERT_EQ(value_column.size(), 1);
         ids.push_back(id_column.get_element(0));
@@ -1622,6 +1740,230 @@ TEST(TableReaderTest, ReopenSplitAfterClose) {
     EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three"}));
 
     std::filesystem::remove_all(test_dir);
+}
+
+// Scenario: column predicates are pruning hints only. They do not produce a row-level survivor
+// bitmap, so TableReader must not enable condition cache when the scan request has no conjuncts.
+TEST(TableReaderTest, ConditionCacheSkipsColumnPredicateOnlyRequest) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    TableColumnPredicates column_predicates;
+    add_column_predicate(&column_predicates, GlobalIndex(0),
+                         create_comparison_predicate<PredicateType::GT>(
+                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
+                                 Field::create_field<TYPE_INT>(0), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: runtime filters can arrive late and are not represented by the stable predicate digest.
+// A MISS must not insert a bitmap for `stable predicate AND runtime filter` under the stable digest.
+TEST(TableReaderTest, ConditionCacheSkipsRuntimeFilterConjunct) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(
+            reader.init({
+                                .projected_columns = projected_columns,
+                                .column_predicates = {},
+                                .conjuncts = {prepared_conjunct(
+                                        &state, runtime_filter_wrapper_expr(
+                                                        table_int32_greater_than_expr(0, 0, 0)))},
+                                .format = FileFormat::PARQUET,
+                                .scan_params = nullptr,
+                                .io_ctx = nullptr,
+                                .runtime_state = &state,
+                                .scanner_profile = nullptr,
+                                .condition_cache_digest = 7,
+                        })
+                    .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: table-format delete files/deletion vectors are outside the data-file cache key. When
+// TableReader injects delete conjuncts into the file scan request, condition cache must be disabled
+// for that split.
+TEST(TableReaderTest, ConditionCacheSkipsRequestWithDeleteConjuncts) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->inject_delete_conjunct = true;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_EQ(reader.condition_cache_hit_count(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: a MISS bitmap is safe to publish only after the physical reader reaches EOF. This test
+// returns EOF together with the first batch and verifies TableReader publishes the marked bitmap.
+TEST(TableReaderTest, ConditionCacheMissPublishesBitmapAfterReaderEof) {
+    ScopedConditionCacheForTest cache;
+
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
+
+    segment_v2::ConditionCache::ExternalCacheKey key("fake-table-reader-input", 0, -1, 7, 0, -1);
+    segment_v2::ConditionCacheHandle handle;
+    ASSERT_TRUE(cache.get()->lookup(key, &handle));
+    const auto cached_bitmap = handle.get_filter_result();
+    ASSERT_NE(cached_bitmap, nullptr);
+    ASSERT_FALSE(cached_bitmap->empty());
+    EXPECT_TRUE((*cached_bitmap)[0]);
+
+    ASSERT_TRUE(reader.close().ok());
+}
+
+// Scenario: LIMIT/cancel can close a reader before it reaches EOF. TableReader must drop the MISS
+// bitmap because unvisited granules would still be false and unsafe for future cache hits.
+TEST(TableReaderTest, ConditionCacheMissIsDroppedWhenReaderClosesBeforeEof) {
+    ScopedConditionCacheForTest cache;
+
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    fake_state->eof_with_first_batch = false;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_NE(fake_state->condition_cache_ctx, nullptr);
+    EXPECT_FALSE(fake_state->condition_cache_ctx->is_hit);
+
+    ASSERT_TRUE(reader.close().ok());
+    segment_v2::ConditionCache::ExternalCacheKey key("fake-table-reader-input", 0, -1, 7, 0, -1);
+    segment_v2::ConditionCacheHandle handle;
+    EXPECT_FALSE(cache.get()->lookup(key, &handle));
 }
 
 TEST(TableReaderTest, PushDownCountFromNewParquetReader) {
@@ -1757,8 +2099,9 @@ TEST(TableReaderTest, PushDownMinMaxFromNewParquetReader) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& score_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+    const auto& score_column =
+            assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 5);
     EXPECT_EQ(score_column.get_element(0), 10);
@@ -1804,7 +2147,7 @@ TEST(TableReaderTest, PushDownMinMaxCastsFileValueToTableType) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt64&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 5);
 
@@ -1851,7 +2194,8 @@ TEST(TableReaderTest, PushDownMinMaxFromProjectedStructLeaf) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
+    const auto& struct_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
     ASSERT_EQ(struct_result.get_columns().size(), 1);
     const auto& ids = assert_cast<const ColumnInt32&>(
             expect_not_null_nullable_nested_column(struct_result.get_column(0)));
@@ -1903,7 +2247,8 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedListStructLeaf) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    const auto& array_result =
+            assert_cast<const ColumnArray&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(array_result.get_offsets()[0], 2);
     EXPECT_EQ(array_result.get_offsets()[1], 3);
     EXPECT_EQ(array_result.get_offsets()[2], 4);
@@ -1972,7 +2317,8 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    const auto& array_result =
+            assert_cast<const ColumnArray&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(array_result.get_offsets()[0], 2);
     EXPECT_EQ(array_result.get_offsets()[1], 3);
     EXPECT_EQ(array_result.get_offsets()[2], 4);
@@ -1980,7 +2326,8 @@ TEST(TableReaderTest, ProjectedListStructReadsSelectedElementChild) {
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 1);
-    const auto& a_values = assert_cast<const ColumnInt32&>(element_struct.get_column(0));
+    const auto& a_values = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(element_struct.get_column(0)));
     EXPECT_EQ(a_values.get_element(0), 10);
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
@@ -2039,7 +2386,8 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    const auto& array_result =
+            assert_cast<const ColumnArray&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(array_result.get_offsets()[0], 2);
     EXPECT_EQ(array_result.get_offsets()[1], 3);
     EXPECT_EQ(array_result.get_offsets()[2], 4);
@@ -2049,16 +2397,14 @@ TEST(TableReaderTest, ProjectedListStructReordersRenamedAndMissingElementChildre
     ASSERT_EQ(element_struct.get_columns().size(), 3);
     const auto& b_values = assert_cast<const ColumnInt32&>(
             expect_not_null_nullable_nested_column(element_struct.get_column(0)));
-    const auto& missing_values = assert_cast<const ColumnString&>(element_struct.get_column(1));
+    const auto& missing_values = element_struct.get_column(1);
     const auto& a_values = assert_cast<const ColumnInt32&>(
             expect_not_null_nullable_nested_column(element_struct.get_column(2)));
     EXPECT_EQ(b_values.get_element(0), 11);
     EXPECT_EQ(b_values.get_element(1), 21);
     EXPECT_EQ(b_values.get_element(2), 31);
     EXPECT_EQ(b_values.get_element(3), 41);
-    for (size_t row = 0; row < missing_values.size(); ++row) {
-        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "");
-    }
+    expect_nullable_column_all_null(missing_values);
     EXPECT_EQ(a_values.get_element(0), 10);
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
@@ -2112,7 +2458,8 @@ TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildFallsBackToFullE
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& array_result = assert_cast<const ColumnArray&>(*block.get_by_position(0).column);
+    const auto& array_result =
+            assert_cast<const ColumnArray&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(array_result.get_offsets()[0], 2);
     EXPECT_EQ(array_result.get_offsets()[1], 3);
     EXPECT_EQ(array_result.get_offsets()[2], 4);
@@ -2120,10 +2467,7 @@ TEST(TableReaderTest, ProjectedListStructOnlyMissingElementChildFallsBackToFullE
     const auto& element_struct =
             assert_cast<const ColumnStruct&>(nullable_elements.get_nested_column());
     ASSERT_EQ(element_struct.get_columns().size(), 1);
-    const auto& missing_values = assert_cast<const ColumnString&>(element_struct.get_column(0));
-    for (size_t row = 0; row < missing_values.size(); ++row) {
-        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "");
-    }
+    expect_nullable_column_all_null(element_struct.get_column(0));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -2174,7 +2518,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackForProjectedMapValueStructLeaf) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& map_result = assert_cast<const ColumnMap&>(*block.get_by_position(0).column);
+    const auto& map_result = assert_cast<const ColumnMap&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
@@ -2251,7 +2595,7 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 3);
-    const auto& map_result = assert_cast<const ColumnMap&>(*block.get_by_position(0).column);
+    const auto& map_result = assert_cast<const ColumnMap&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(map_result.get_offsets()[0], 2);
     EXPECT_EQ(map_result.get_offsets()[1], 3);
     EXPECT_EQ(map_result.get_offsets()[2], 3);
@@ -2266,15 +2610,13 @@ TEST(TableReaderTest, ProjectedMapValueStructReordersRenamedAndMissingChildren) 
     ASSERT_EQ(value_struct.get_columns().size(), 3);
     const auto& b_values = assert_cast<const ColumnString&>(
             expect_not_null_nullable_nested_column(value_struct.get_column(0)));
-    const auto& missing_values = assert_cast<const ColumnString&>(value_struct.get_column(1));
+    const auto& missing_values = value_struct.get_column(1);
     const auto& a_values = assert_cast<const ColumnInt32&>(
             expect_not_null_nullable_nested_column(value_struct.get_column(2)));
     EXPECT_EQ(b_values.get_data_at(0).to_string(), "ma");
     EXPECT_EQ(b_values.get_data_at(1).to_string(), "mb");
     EXPECT_EQ(b_values.get_data_at(2).to_string(), "mc");
-    for (size_t row = 0; row < missing_values.size(); ++row) {
-        EXPECT_EQ(missing_values.get_data_at(row).to_string(), "");
-    }
+    expect_nullable_column_all_null(missing_values);
     EXPECT_EQ(a_values.get_element(0), 10);
     EXPECT_EQ(a_values.get_element(1), 20);
     EXPECT_EQ(a_values.get_element(2), 30);
@@ -2507,7 +2849,7 @@ TEST(TableReaderTest, PushDownMinMaxOnlyUsesSelectedRowGroupInFileRange) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 1);
 
@@ -2589,7 +2931,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithTableConjunct) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 1);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 3);
 
     ASSERT_TRUE(reader.close().ok());
@@ -2611,7 +2953,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
     TableColumnPredicates column_predicates;
     add_column_predicate(&column_predicates, GlobalIndex(0),
                          create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", std::make_shared<DataTypeInt32>(),
+                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2636,7 +2978,7 @@ TEST(TableReaderTest, PushDownCountFallsBackWithColumnPredicate) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 1);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 3);
 
     ASSERT_TRUE(reader.close().ok());
@@ -2678,7 +3020,7 @@ TEST(TableReaderTest, PushDownMinMaxFallsBackWithoutDirectFileMapping) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 1);
-    EXPECT_EQ(block.get_by_position(0).column->get_int(0), 0);
+    expect_nullable_column_all_null(*block.get_by_position(0).column);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -2724,7 +3066,7 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
     ASSERT_EQ(id_column.size(), 1);
     EXPECT_EQ(id_column.get_element(0), 3);
 
@@ -2774,7 +3116,7 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
     TableColumnPredicates column_predicates;
     add_column_predicate(&column_predicates, GlobalIndex(1),
                          create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", std::make_shared<DataTypeInt32>(),
+                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2799,8 +3141,9 @@ TEST(TableReaderTest, OpenReaderBuildsColumnPredicateFilters) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(0).column);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& value_column =
+            assert_cast<const ColumnString&>(expect_not_null_table_column(block, 0));
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
     ASSERT_EQ(id_column.size(), 1);
     ASSERT_EQ(value_column.size(), 1);
     EXPECT_EQ(id_column.get_element(0), 3);
@@ -2829,7 +3172,7 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
     TableColumnPredicates column_predicates;
     add_column_predicate(&column_predicates, GlobalIndex(0),
                          create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", std::make_shared<DataTypeInt32>(),
+                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2855,7 +3198,8 @@ TEST(TableReaderTest, ColumnPredicateSurvivesReopenSplit) {
         bool eos = false;
         ASSERT_TRUE(reader.get_block(&block, &eos).ok());
         ASSERT_FALSE(eos);
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
         ASSERT_EQ(id_column.size(), 1);
         ids.push_back(id_column.get_element(0));
 
@@ -2886,12 +3230,14 @@ TEST(TableReaderTest, CreateScanRequestDeduplicatesSharedPredicateColumns) {
 
     std::vector<TableFilter> table_filters;
     table_filters.push_back({
-            .conjunct =
-                    VExprContext::create_shared(table_int32_sum_greater_than_expr(0, 0, 1, 1, 1)),
+            // This test only needs the referenced global indices to drive predicate-column
+            // placement. Keep the conjunct empty so the assertion focuses on scan-column
+            // de-duplication rather than expression rewrite/prepare behavior.
+            .conjunct = nullptr,
             .global_indices = {GlobalIndex(0), GlobalIndex(1)},
     });
     table_filters.push_back({
-            .conjunct = VExprContext::create_shared(table_int32_sum_less_than_expr(0, 0, 2, 2, 3)),
+            .conjunct = nullptr,
             .global_indices = {GlobalIndex(0), GlobalIndex(2)},
     });
 
@@ -2995,9 +3341,10 @@ TEST(TableReaderTest, ColumnPredicateFilterUsesColumnNameForByNameMapping) {
     ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
 
     TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(0),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 10, "id", int_type, Field::create_field<TYPE_INT>(2), false));
+    add_column_predicate(
+            &column_predicates, GlobalIndex(0),
+            create_comparison_predicate<PredicateType::GT>(
+                    10, "id", make_nullable(int_type), Field::create_field<TYPE_INT>(2), false));
 
     FileScanRequest file_request;
     ASSERT_TRUE(mapper.create_scan_request({}, column_predicates, projected_columns, &file_request)
@@ -3050,9 +3397,11 @@ TEST(TableReaderTest, OpenReaderPushesMultiColumnConjunctToParquetReader) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(0).column);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
-    const auto& score_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+    const auto& value_column =
+            assert_cast<const ColumnString&>(expect_not_null_table_column(block, 0));
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
+    const auto& score_column =
+            assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 2));
     ASSERT_EQ(id_column.size(), 1);
     ASSERT_EQ(score_column.size(), 1);
     ASSERT_EQ(value_column.size(), 1);
@@ -3260,9 +3609,11 @@ TEST(TableReaderTest, ProjectedColumnsFillMissingParquetColumnWithDefault) {
 
     const auto& result = block.get_by_position(0);
     ASSERT_TRUE(result.check_type_and_column_match().ok());
-    const auto& missing_values = assert_cast<const ColumnString&>(*result.column);
-    ASSERT_EQ(missing_values.size(), 1);
-    EXPECT_EQ(missing_values.get_data_at(0).to_string(), "");
+    // A missing scalar column without an explicit default is materialized as a default-value
+    // column. It may stay constant, so verify through the IColumn interface instead of assuming a
+    // concrete ColumnString instance.
+    ASSERT_EQ(result.column->size(), 1);
+    EXPECT_EQ(result.column->get_data_at(0).to_string(), "");
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -3309,13 +3660,14 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithDefault) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
+    const auto& struct_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
     ASSERT_EQ(struct_result.get_columns().size(), 2);
-    const auto& ids = assert_cast<const ColumnInt32&>(struct_result.get_column(0));
-    const auto& missing_values = assert_cast<const ColumnString&>(struct_result.get_column(1));
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            expect_not_null_nullable_nested_column(struct_result.get_column(0)));
     ASSERT_EQ(struct_result.size(), 1);
     EXPECT_EQ(ids.get_element(0), 7);
-    EXPECT_EQ(missing_values.get_data_at(0).to_string(), "");
+    expect_nullable_column_all_null(struct_result.get_column(1));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
@@ -3365,7 +3717,8 @@ TEST(TableReaderTest, ReusedBlockClearsProjectedStructWithNullableChild) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& struct_result = assert_cast<const ColumnStruct&>(*block.get_by_position(0).column);
+    const auto& struct_result =
+            assert_cast<const ColumnStruct&>(expect_not_null_table_column(block, 0));
     const auto& notes = assert_cast<const ColumnNullable&>(struct_result.get_column(1));
     EXPECT_FALSE(notes.is_null_at(0));
     EXPECT_TRUE(notes.is_null_at(1));
@@ -3419,7 +3772,8 @@ TEST(TableReaderTest, ProjectedPartitionColumnUsesSplitPartitionValue) {
     ASSERT_FALSE(eos);
 
     const auto partition_value = block.get_by_position(0).column->convert_to_full_column_if_const();
-    const auto& partition_value_data = assert_cast<const ColumnString&>(*partition_value);
+    const auto& partition_value_data = assert_cast<const ColumnString&>(
+            expect_not_null_nullable_nested_column(*partition_value));
     ASSERT_EQ(partition_value_data.size(), 1);
     EXPECT_EQ(partition_value_data.get_data_at(0).to_string(), "p1");
 
@@ -3492,7 +3846,7 @@ TEST(TableReaderTest, ConstantPartitionFilterKeepsSplitWhenTrue) {
                                     .projected_columns = projected_columns,
                                     .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
-                                            &state, table_int32_greater_than_expr(2, 2, 1))},
+                                            &state, table_int32_greater_than_expr(0, 0, 1))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -3573,11 +3927,8 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(
-            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(
-            make_table_column(101, "_last_updated_sequence_number",
-                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_iceberg_row_lineage_row_id_column());
+    projected_columns.push_back(make_iceberg_last_updated_sequence_number_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -3604,7 +3955,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 2));
 
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_column.get_element(0), 2);
@@ -3728,11 +4079,8 @@ TEST(TableReaderTest, IcebergMissingRowIdStaysNullWithoutFirstRowId) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(
-            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(
-            make_table_column(101, "_last_updated_sequence_number",
-                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_iceberg_row_lineage_row_id_column());
+    projected_columns.push_back(make_iceberg_last_updated_sequence_number_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -3938,11 +4286,8 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(
-            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(
-            make_table_column(101, "_last_updated_sequence_number",
-                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_iceberg_row_lineage_row_id_column());
+    projected_columns.push_back(make_iceberg_last_updated_sequence_number_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -3969,7 +4314,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFiltering)
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 2));
 
     ASSERT_EQ(block.rows(), 2);
     EXPECT_EQ(id_column.get_element(0), 2);
@@ -3993,17 +4338,14 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(
-            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
-    projected_columns.push_back(
-            make_table_column(101, "_last_updated_sequence_number",
-                              make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_iceberg_row_lineage_row_id_column());
+    projected_columns.push_back(make_iceberg_last_updated_sequence_number_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     TableColumnPredicates column_predicates;
     add_column_predicate(&column_predicates, GlobalIndex(2),
                          create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", std::make_shared<DataTypeInt32>(),
+                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
                                  Field::create_field<TYPE_INT>(2), false));
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -4029,7 +4371,7 @@ TEST(TableReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredicateP
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(2).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 2));
 
     ASSERT_EQ(block.rows(), 1);
     EXPECT_EQ(id_column.get_element(0), 3);
@@ -4173,7 +4515,8 @@ TEST(TableReaderTest, PaimonTableReaderAppliesBitmapDeletionVectorFile) {
         if (block.rows() == 0) {
             continue;
         }
-        const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
         for (size_t row = 0; row < block.rows(); ++row) {
             ids.push_back(id_column.get_element(row));
         }
@@ -4230,7 +4573,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 2);
     EXPECT_EQ(id_column.get_element(1), 3);
 
@@ -4315,7 +4658,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPositionDele
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 3);
 
@@ -4471,7 +4814,7 @@ TEST(TableReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEqualityDele
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 3);
 
@@ -4584,8 +4927,7 @@ TEST(TableReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering) {
     write_position_delete_parquet_file(delete_file_path, {file_path}, {1});
 
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(
-            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_iceberg_row_lineage_row_id_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     RuntimeProfile profile("test_profile");
@@ -4622,7 +4964,7 @@ TEST(TableReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering) {
     ASSERT_FALSE(eos);
     ASSERT_EQ(block.rows(), 2);
     expect_nullable_int64_column_values(*block.get_by_position(0).column, {1000, 1002});
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 1));
     EXPECT_EQ(id_column.get_element(0), 1);
     EXPECT_EQ(id_column.get_element(1), 3);
 
@@ -4730,8 +5072,7 @@ TEST(TableReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDeleteFil
 TEST(TableReaderTest, RowPositionDeletePredicateColumnIsNotRepeatedAsOutputColumn) {
     const auto row_position_column_id = ROW_POSITION_COLUMN_ID;
     std::vector<ColumnDefinition> projected_columns;
-    projected_columns.push_back(
-            make_table_column(100, "_row_id", make_nullable(std::make_shared<DataTypeInt64>())));
+    projected_columns.push_back(make_iceberg_row_lineage_row_id_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
     IcebergTableReaderScanRequestTestHelper reader;
@@ -4789,8 +5130,9 @@ TEST(TableReaderTest, ParquetReaderReadsOnlyRowGroupsInFileRange) {
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
-    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+    const auto& value_column =
+            assert_cast<const ColumnString&>(expect_not_null_table_column(block, 1));
     ASSERT_EQ(block.rows(), 1);
     EXPECT_EQ(id_column.get_element(0), 2);
     EXPECT_EQ(value_column.get_data_at(0).to_string(), "range_group_two");
@@ -4840,7 +5182,7 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionForSameNameDifferentIdP
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     ASSERT_FALSE(eos);
 
-    const auto& id_column = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
     ASSERT_EQ(id_column.size(), 1);
     EXPECT_EQ(id_column.get_element(0), 1);
 
@@ -4888,8 +5230,9 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 
     ASSERT_EQ(block.get_by_position(0).name, "id");
     ASSERT_EQ(block.get_by_position(1).name, "value");
-    const auto& id_column = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
-    const auto& value_column = assert_cast<const ColumnString&>(*block.get_by_position(1).column);
+    const auto& id_column = assert_cast<const ColumnInt64&>(expect_not_null_table_column(block, 0));
+    const auto& value_column =
+            assert_cast<const ColumnString&>(expect_not_null_table_column(block, 1));
     ASSERT_EQ(id_column.size(), 1);
     ASSERT_EQ(value_column.size(), 1);
     EXPECT_EQ(id_column.get_element(0), 7);

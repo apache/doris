@@ -40,6 +40,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/segment/common.h"
+#include "storage/segment/condition_cache.h"
 #include "util/profile_collector.h"
 
 namespace doris {
@@ -50,16 +51,6 @@ namespace doris {
 
 class Block;
 class VSlotRef;
-
-// Context passed from FileScanner to readers for condition cache integration.
-// On MISS: readers populate filter_result per-granule during predicate evaluation.
-// On HIT: readers skip granules where filter_result[granule] == false.
-struct ConditionCacheContext {
-    bool is_hit = false;
-    std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
-    int64_t base_granule = 0; // global granule index of the first granule in filter_result
-    static constexpr int GRANULE_SIZE = 2048;
-};
 
 /// Base context for the unified init_reader(ReaderInitContext*) template method.
 /// Contains fields shared by ALL reader types. Format-specific readers define

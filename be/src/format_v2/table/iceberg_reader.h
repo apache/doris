@@ -40,9 +40,10 @@ struct FileSystemProperties;
 
 namespace doris::format::iceberg {
 
-// Iceberg table-level reader。
-// 该层继承 TableReader，复用多文件编排和动态分区裁剪等通用能力；同时组合
-// FileReader 完成 data file 物理读取，不继承具体文件格式 reader。
+// Iceberg table-level reader.
+// It reuses TableReader for split orchestration, dynamic partition pruning and table-block
+// finalization, while composing a FileReader for physical data-file reads instead of inheriting
+// from a concrete file-format reader.
 class IcebergTableReader : public format::TableReader {
 public:
     ~IcebergTableReader() override = default;

@@ -108,8 +108,9 @@ struct ResultColumnMapping {
     std::map<GlobalIndex, ColumnMapEntry> global_to_local;
 };
 
-// 单个 table column 到 file column 的映射结果。
-// 这是 table 层和 file 层的核心边界对象。
+// Mapping result from one table column to one file column.
+// This is the main boundary object between table-level schema semantics and file-local schema
+// semantics.
 struct ColumnMapping {
     // Position of the top-level projected column in the table/global output block. Table-level
     // filters and column predicates refer to this index after FileScannerV2 translates FE ids at
@@ -142,8 +143,8 @@ struct ColumnMapping {
     // Target table/global type after final materialization.
     DataTypePtr table_type;
 
-    // 最终输出表达式。用于把 file-local value 转成 table/global value，例如 cast、
-    // default、partition、generated column 或复杂列 remap。
+    // Final projection expression used to convert file-local values into table/global values, such
+    // as casts, defaults, partition values, generated columns, or complex-column remaps.
     VExprContextSPtr projection;
 
     // Mapping tree for nested table children. The order follows table output children, while file
@@ -168,34 +169,37 @@ struct TableColumnMapperOptions {
 
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr);
 
-// 通用 table schema 到 file schema 映射层。
-// Iceberg 会使用 BY_FIELD_ID；普通 by-name 场景可以复用该组件，但不应把它命名成
-// Iceberg-only 组件。
+// Generic mapping layer from table schema to file schema.
+// Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this
+// abstraction table-format neutral instead of making it Iceberg-only.
 class TableColumnMapper {
 public:
     explicit TableColumnMapper(TableColumnMapperOptions options = {})
             : _options(std::move(options)) {}
     virtual ~TableColumnMapper() = default;
 
-    // 建立 table schema 到 file schema 的列映射。
-    // 输出的 ColumnMapping 描述 table column 如何从 file column、常量列或表达式得到；
-    // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
+    // Build column mappings from table schema to file schema.
+    // The resulting ColumnMapping describes how each table column is produced from a file column,
+    // a constant, or an expression. Later projection, filter localization, and table-block
+    // finalization should all reuse the same mapping.
     virtual Status create_mapping(const std::vector<ColumnDefinition>& projected_columns,
                                   const std::map<std::string, Field>& partition_values,
                                   const std::vector<ColumnDefinition>& file_schema);
 
-    // 把 table-level scan 请求转换成 file-local scan 请求。table_filters 保留 row-level
-    // 过滤语义并转换成 file-local conjuncts；table_column_predicates 只转换成 file-layer
-    // pruning hints，不参与 batch row filtering。
+    // Convert a table-level scan request into a file-local scan request. table_filters preserve
+    // row-level filtering semantics and are rewritten as file-local conjuncts. table_column_predicates
+    // are converted only into file-layer pruning hints and do not participate in batch row
+    // filtering.
     virtual Status create_scan_request(const std::vector<TableFilter>& table_filters,
                                        const TableColumnPredicates& table_column_predicates,
                                        const std::vector<ColumnDefinition>& projected_columns,
                                        FileScanRequest* file_request,
                                        RuntimeState* runtime_state = nullptr);
 
-    // 将 table-level filter 定位到文件 schema。
-    // trivial mapping 可以直接复制结构化谓词；类型变化时可以尝试安全 cast；无法安全
-    // 下推的表达式应通过 reader_expression_map 或 table-level finalize/filter fallback 处理。
+    // Localize table-level filters to the file schema.
+    // Trivial mappings can copy structured predicates directly. Type changes may be localized with
+    // a safe cast. Expressions that cannot be pushed down safely should be handled through
+    // reader_expression_map or table-level finalize/filter fallback.
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     const TableColumnPredicates& table_column_predicates,
                                     FileScanRequest* file_request,

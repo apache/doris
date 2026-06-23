@@ -32,6 +32,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/parquet/selection_vector.h"
 #include "runtime/runtime_profile.h"
+#include "storage/segment/condition_cache.h"
 
 namespace parquet {
 class FileMetaData;
@@ -145,12 +146,14 @@ public:
     void set_global_rowid_context(std::optional<format::GlobalRowIdContext> context) {
         _global_rowid_context = context;
     }
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx);
     void set_timezone(const cctz::time_zone* timezone) { _timezone = timezone; }
     void set_enable_strict_mode(bool enable_strict_mode) {
         _enable_strict_mode = enable_strict_mode;
     }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
+    int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -175,7 +178,11 @@ private:
 
     // 单 batch 的完整读取：predicate 列 → filter → non-predicate 列（select 模式）。
     Status read_current_row_group_batch(int64_t batch_rows, const format::FileScanRequest& request,
-                                        Block* file_block, size_t* rows);
+                                        int64_t batch_first_file_row, Block* file_block,
+                                        size_t* rows);
+
+    void mark_condition_cache_granules(const SelectionVector& selection, uint16_t selected_rows,
+                                       int64_t batch_first_file_row);
 
     // ======== 计划状态 ========
     std::vector<RowGroupReadPlan> _row_group_plans; // 待扫描的 RG 队列
@@ -201,6 +208,8 @@ private:
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    int64_t _condition_cache_filtered_rows = 0;
 };
 
 } // namespace doris::format::parquet
