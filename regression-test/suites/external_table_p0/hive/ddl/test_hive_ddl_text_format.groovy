@@ -24,12 +24,15 @@ suite("test_hive_ddl_text_format", "p0,external") {
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = getHiveTempName("test_hive_ddl_text_format", "catalog")
+        String database_name = getHiveTempName("test_hive_ddl_text_format", "db")
+        String defaultTableName = getHiveTempName("text_table_default_properties", "tbl")
+        String standardTableName = getHiveTempName("text_table_standard_properties", "tbl")
+        String differentTableName = getHiveTempName("text_table_different_properties", "tbl")
         try{
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_hive_ddl_text_format"
-            String table_name = "table_with_pars";
 
             sql """drop catalog if exists ${catalog_name};"""
 
@@ -44,11 +47,12 @@ suite("test_hive_ddl_text_format", "p0,external") {
             logger.info("catalog " + catalog_name + " created")
             sql """switch ${catalog_name};"""
             logger.info("switched to catalog " + catalog_name)
-            sql """use `default`;"""
+            sql """create database if not exists `${database_name}`;"""
+            sql """use `${database_name}`;"""
 
-            sql """ drop table if exists text_table_default_properties """
+            sql """ drop table if exists ${defaultTableName} """
             sql """
-            create table text_table_default_properties (
+            create table ${defaultTableName} (
                 id int,
                 `name` string,
                 tags array<string>,
@@ -58,19 +62,19 @@ suite("test_hive_ddl_text_format", "p0,external") {
             );
             """
             sql """
-            INSERT INTO text_table_default_properties VALUES
+            INSERT INTO ${defaultTableName} VALUES
                 (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
                 (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
-            order_qt_default_properties """ select * from text_table_default_properties """
+            order_qt_default_properties """ select * from ${defaultTableName} """
 
-            order_qt_hive_docker_default_properties""" select * from text_table_default_properties """
+            order_qt_hive_docker_default_properties""" select * from ${database_name}.${defaultTableName} """
 
-            sql """ drop table if exists text_table_standard_properties """
+            sql """ drop table if exists ${standardTableName} """
             // Escape characters need to be considered in groovy scripts
             sql """
-            create table text_table_standard_properties (
+            create table ${standardTableName} (
                 id int,
                 `name` string,
                 tags array<string>,
@@ -87,17 +91,17 @@ suite("test_hive_ddl_text_format", "p0,external") {
             );
             """
             sql """
-            INSERT INTO text_table_standard_properties VALUES
+            INSERT INTO ${standardTableName} VALUES
                 (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
                 (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
-            order_qt_standard_properties """ select * from text_table_standard_properties """
-            order_qt_hive_docker_standard_properties """ select * from text_table_standard_properties order by id; """
+            order_qt_standard_properties """ select * from ${standardTableName} """
+            order_qt_hive_docker_standard_properties """ select * from ${database_name}.${standardTableName} order by id; """
 
-            sql """ drop table if exists text_table_different_properties """
+            sql """ drop table if exists ${differentTableName} """
             sql """
-            create table text_table_different_properties (
+            create table ${differentTableName} (
                 id int,
                 `name` string,
                 tags array<string>,
@@ -114,13 +118,13 @@ suite("test_hive_ddl_text_format", "p0,external") {
             );
             """
             sql """
-            INSERT INTO text_table_different_properties VALUES
+            INSERT INTO ${differentTableName} VALUES
                 (1, 'Alice', array('tag1', 'tag2'), map('key1', 'value1', 'key2', 'value2')),
                 (2, 'Bob', array('tagA', 'tagB'), map('keyA', 'valueA', 'keyB', 'valueB')),
                 (3, 'Charlie', NULL, map('keyC', 'valueC', 'keyD', 'valueD'));
             """
-            order_qt_different_properties """ select * from text_table_different_properties """
-            order_qt_hive_docker_different_properties """ select * from text_table_different_properties order by id; """
+            order_qt_different_properties """ select * from ${differentTableName} """
+            order_qt_hive_docker_different_properties """ select * from ${database_name}.${differentTableName} order by id; """
 
             String serde = "'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
             String input_format = "'org.apache.hadoop.mapred.TextInputFormat'"
@@ -133,7 +137,7 @@ suite("test_hive_ddl_text_format", "p0,external") {
             String escape_delim = "'escape.delim'"
             String serialization_null_format = "'serialization.null.format'"
 
-            def create_tbl_res = sql """ show create table text_table_standard_properties """
+            def create_tbl_res = sql """ show create table ${standardTableName} """
             String res = create_tbl_res.toString()
             logger.info("${res}")
             assertTrue(res.containsIgnoreCase("${serde}"))
@@ -148,6 +152,7 @@ suite("test_hive_ddl_text_format", "p0,external") {
             assertTrue(res.containsIgnoreCase("${escape_delim}"))
             assertTrue(res.containsIgnoreCase("${serialization_null_format}"))
         } finally {
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }

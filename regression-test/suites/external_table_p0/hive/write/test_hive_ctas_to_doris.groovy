@@ -26,6 +26,8 @@ suite("test_hive_ctas_to_doris", "p0,external") {
         }
 
         setHivePrefix(hivePrefix)
+        String catalog = null
+        String db_name = null
         try {
             String str1 = "0123456789" * 6554   // string.length() = 65540
             String str2 = str1.substring(0, 65533)
@@ -33,9 +35,9 @@ suite("test_hive_ctas_to_doris", "p0,external") {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String catalog = "test_hive_ctas_to_doris"
-            String hive_tb = "tb_test_hive_ctas_to_doris"
-            String db_name = "db_test_hive_ctas_to_doris"
+            catalog = getHiveTempName("test_hive_ctas_to_doris", "catalog")
+            String hive_tb = getHiveTempName("tb_test_hive_ctas_to_doris", "tbl")
+            db_name = getHiveTempName("db_test_hive_ctas_to_doris", "db")
 
             sql "set enable_strict_cast = true;"
 
@@ -47,7 +49,7 @@ suite("test_hive_ctas_to_doris", "p0,external") {
             );"""
             sql """ create database if not exists ${catalog}.${db_name} """
             sql """ drop table if exists ${catalog}.${db_name}.${hive_tb}"""
-            sql """ create table ${catalog}.${db_name}.${hive_tb} 
+            sql """ create table ${catalog}.${db_name}.${hive_tb}
                 (id int, str1 string, str2 string, str3 string) """
             sql """ insert into ${catalog}.${db_name}.${hive_tb} values (1, '${str1}', '${str2}', 'str3') """
 
@@ -97,7 +99,8 @@ suite("test_hive_ctas_to_doris", "p0,external") {
             }
 
         } finally {
+            try_sql """drop catalog if exists ${catalog}"""
+            try_sql """drop database if exists internal.${db_name} force"""
         }
     }
 }
-

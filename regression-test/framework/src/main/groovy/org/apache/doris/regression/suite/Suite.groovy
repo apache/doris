@@ -97,6 +97,7 @@ class Suite implements GroovyInterceptable {
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
+    private String hiveTempSuffix = null
 
     final List<Closure> successCallbacks = new Vector<>()
     final List<Closure> failCallbacks = new Vector<>()
@@ -128,6 +129,73 @@ class Suite implements GroovyInterceptable {
 
     String getSuiteConf(String key, String defaultValue = null) {
         return getConf("suites." + name + "." + key, defaultValue)
+    }
+
+    String getHiveTempSuffix() {
+        if (hiveTempSuffix == null) {
+            hiveTempSuffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12)
+        }
+        return hiveTempSuffix
+    }
+
+    private String sanitizeHiveIdentifier(String value) {
+        if (Strings.isNullOrEmpty(value)) {
+            return ""
+        }
+        return value.toLowerCase()
+                .replaceAll("[^a-z0-9_]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_+", "")
+                .replaceAll("_+\$", "")
+    }
+
+    String getHiveTempName(String baseName, String extra = "") {
+        String sanitizedBase = sanitizeHiveIdentifier(baseName)
+        String sanitizedExtra = sanitizeHiveIdentifier(extra)
+        String suffix = getHiveTempSuffix()
+
+        def nameParts = []
+        if (!Strings.isNullOrEmpty(sanitizedBase)) {
+            nameParts.add(sanitizedBase)
+        }
+        if (!Strings.isNullOrEmpty(sanitizedExtra)) {
+            nameParts.add(sanitizedExtra)
+        }
+        nameParts.add(suffix)
+
+        String generatedName = nameParts.join("_")
+        if (generatedName.length() <= 128) {
+            return generatedName
+        }
+
+        // If too long, truncate base name
+        int maxPrefixLength = 128 - suffix.length() - 1
+        if (!Strings.isNullOrEmpty(sanitizedExtra)) {
+            maxPrefixLength -= (sanitizedExtra.length() + 1)
+        }
+        String trimmedBase = sanitizedBase
+        if (trimmedBase.length() > maxPrefixLength) {
+            trimmedBase = trimmedBase.substring(0, maxPrefixLength)
+        }
+
+        nameParts.clear()
+        if (!Strings.isNullOrEmpty(trimmedBase)) {
+            nameParts.add(trimmedBase)
+        }
+        if (!Strings.isNullOrEmpty(sanitizedExtra)) {
+            nameParts.add(sanitizedExtra)
+        }
+        nameParts.add(suffix)
+        return nameParts.join("_")
+    }
+
+    void cleanupHiveDockerTable(String dbName, String tableName) {
+        try_hive_docker """DROP TABLE IF EXISTS `${dbName}`.`${tableName}`"""
+    }
+
+    void cleanupHiveDockerDatabase(String dbName, boolean cascade = false) {
+        String cascadeClause = cascade ? " CASCADE" : ""
+        try_hive_docker """DROP DATABASE IF EXISTS `${dbName}`${cascadeClause}"""
     }
 
     Properties getConfs(String prefix) {
@@ -646,7 +714,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def sql_return_maparray_impl(String sqlStr, Connection conn = null) {        
+    def sql_return_maparray_impl(String sqlStr, Connection conn = null) {
         logger.info("Execute sql: ${sqlStr}".toString())
         if (conn == null) {
             conn = context.getConnection()
@@ -664,7 +732,7 @@ class Suite implements GroovyInterceptable {
         // which cannot be handled by maps and will result in an error directly.
         Set<String> uniqueSet = new HashSet<>()
         Set<String> duplicates = new HashSet<>()
-    
+
         for (String str : columnNames) {
             if (uniqueSet.contains(str)) {
                 duplicates.add(str)
@@ -673,7 +741,7 @@ class Suite implements GroovyInterceptable {
             }
         }
         if (!duplicates.isEmpty()) {
-            def errorMessage = "${sqlStr} returns duplicates headers: ${duplicates}"   
+            def errorMessage = "${sqlStr} returns duplicates headers: ${duplicates}"
             throw new Exception(errorMessage)
         }
 
@@ -1668,16 +1736,16 @@ class Suite implements GroovyInterceptable {
             throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
         }
         String masterUrl = "spark://${containerName}:7077"
-        
+
         // Escape double quotes in SQL string for shell command
         String escapedSql = sqlStr.replaceAll('"', '\\\\"')
-        
+
         // Build docker exec command
         String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -e "${escapedSql}" """
-        
+
         logger.info("Executing Spark Iceberg SQL: ${sqlStr}".toString())
         logger.info("Container: ${containerName}".toString())
-        
+
         try {
             String result = cmd(command, timeoutSeconds)
             logger.info("Spark Iceberg SQL result: ${result}".toString())
@@ -1692,7 +1760,7 @@ class Suite implements GroovyInterceptable {
      * Execute multiple Spark SQL statements on the spark-iceberg container.
      * Statements are separated by semicolons.
      * All statements are executed in one spark-sql process to reduce startup overhead.
-     * 
+     *
      * Usage:
      *   spark_iceberg_multi '''
      *       CREATE DATABASE IF NOT EXISTS demo.test_db;
@@ -1888,7 +1956,7 @@ class Suite implements GroovyInterceptable {
 
     def executeQueryByTag(String tag, Object arg) {
         Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
-        
+
         if (tag.contains("hive_docker")) {
             tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
         } else if (tag.contains("hive_remote")) {
@@ -2718,7 +2786,7 @@ class Suite implements GroovyInterceptable {
     def create_sync_mv = { db, table_name, mv_name, mv_sql ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON ${table_name};"""
         sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
+        CREATE MATERIALIZED VIEW ${mv_name}
         AS ${mv_sql}
         """
         waitingMVTaskFinishedByMvName(db, table_name, mv_name)
@@ -2729,10 +2797,10 @@ class Suite implements GroovyInterceptable {
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${db}.${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${db}.${mv_name} 
+        CREATE MATERIALIZED VIEW ${db}.${mv_name}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
         AS ${mv_sql}
         """
         def job_name = getJobName(db, mv_name);
@@ -2745,11 +2813,11 @@ class Suite implements GroovyInterceptable {
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${db}.${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${db}.${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL 
-        PARTITION BY ${partition_col} 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
+        CREATE MATERIALIZED VIEW ${db}.${mv_name}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY ${partition_col}
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
         AS ${mv_sql}
         """
         def job_name = getJobName(db, mv_name);
@@ -3018,10 +3086,10 @@ class Suite implements GroovyInterceptable {
         }
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
+        CREATE MATERIALIZED VIEW ${mv_name}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
         AS ${mv_sql}
         """
         def job_name = getJobName(db, mv_name);
@@ -3038,10 +3106,10 @@ class Suite implements GroovyInterceptable {
         }
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
+        CREATE MATERIALIZED VIEW ${mv_name}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
         AS ${mv_sql}
         """
 
@@ -3059,10 +3127,10 @@ class Suite implements GroovyInterceptable {
         }
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
+        CREATE MATERIALIZED VIEW ${mv_name}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
         AS ${mv_sql}
         """
 
@@ -3076,10 +3144,10 @@ class Suite implements GroovyInterceptable {
     def async_create_mv = { db, mv_sql, mv_name ->
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
+        CREATE MATERIALIZED VIEW ${mv_name}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
+        PROPERTIES ('replication_num' = '1')
         AS ${mv_sql}
         """
 
@@ -3694,7 +3762,7 @@ class Suite implements GroovyInterceptable {
         spb.each {
             beIdToHost[it.BackendId] = it.Host
         }
-        beIdToHost 
+        beIdToHost
     }
 
     def getTabletAndBeHostFromBe = { bes ->
@@ -3732,7 +3800,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version, fileSuffix = "dat" -> 
+    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version, fileSuffix = "dat" ->
         def hashValues = []
         def segmentFiles = []
         getSegmentFilesFromMs(msHttpPort, tabletId, version) {

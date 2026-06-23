@@ -29,53 +29,56 @@ suite("test_file_meta_cache", "p0,external") {
     for (String fileFormat : ["PARQUET",  "ORC"] ) {
         for (String hivePrefix : ["hive2", "hive3"]) {
             setHivePrefix(hivePrefix)
+            String catalogName = getHiveTempName("test_file_meta_cache", fileFormat)
+            String tableName = getHiveTempName("test_file_meta_cache", fileFormat)
             try {
                 String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
                 String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
-                sql """ drop catalog if exists test_file_meta_cache """
-                sql """CREATE CATALOG test_file_meta_cache PROPERTIES (
+                sql """ drop catalog if exists ${catalogName} """
+                sql """CREATE CATALOG ${catalogName} PROPERTIES (
                     'type'='hms',
                     'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
                 );"""
 
                 hive_docker """show databases;"""
-                hive_docker """drop table if exists default.test_file_meta_cache;  """
+                hive_docker """drop table if exists default.${tableName};  """
                 hive_docker """
-                                create table default.test_file_meta_cache (col1  int, col2 string) STORED AS ${fileFormat}; 
+                                create table default.${tableName} (col1  int, col2 string) STORED AS ${fileFormat};
                             """
-                hive_docker """insert into default.test_file_meta_cache values (1, "a"),(2, "b"); """
+                hive_docker """insert into default.${tableName} values (1, "a"),(2, "b"); """
 
-                sql """ refresh  catalog test_file_meta_cache """ 
-                qt_1 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
+                sql """ refresh  catalog ${catalogName} """
+                qt_1 """ select * from ${catalogName}.`default`.${tableName} order by col1 ; """
 
-                hive_docker """ TRUNCATE TABLE test_file_meta_cache """ 
-                hive_docker """insert into default.test_file_meta_cache values (3, "c"), (4, "d"); """
-                
-                sql """ refresh  catalog test_file_meta_cache """ 
-                qt_2 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
+                hive_docker """ TRUNCATE TABLE ${tableName} """
+                hive_docker """insert into default.${tableName} values (3, "c"), (4, "d"); """
 
-                
+                sql """ refresh  catalog ${catalogName} """
+                qt_2 """ select * from ${catalogName}.`default`.${tableName} order by col1 ; """
 
-                hive_docker """ drop TABLE test_file_meta_cache """ 
+
+
+                hive_docker """ drop TABLE ${tableName} """
                 hive_docker """
-                                create table default.test_file_meta_cache (col1  int, col2 string) STORED AS PARQUET; 
+                                create table default.${tableName} (col1  int, col2 string) STORED AS PARQUET;
                             """
-                hive_docker """insert into default.test_file_meta_cache values (5, "e"), (6, "f"); """
-                
-                sql """ refresh  catalog test_file_meta_cache """ 
-                qt_3 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
+                hive_docker """insert into default.${tableName} values (5, "e"), (6, "f"); """
 
-                hive_docker """ INSERT OVERWRITE TABLE test_file_meta_cache values (7,'g'), (8, 'h'); """
+                sql """ refresh  catalog ${catalogName} """
+                qt_3 """ select * from ${catalogName}.`default`.${tableName} order by col1 ; """
 
-                sql """ refresh  catalog test_file_meta_cache """ 
-                qt_4 """ select * from test_file_meta_cache.`default`.test_file_meta_cache order by col1 ; """
+                hive_docker """ INSERT OVERWRITE TABLE ${tableName} values (7,'g'), (8, 'h'); """
+
+                sql """ refresh  catalog ${catalogName} """
+                qt_4 """ select * from ${catalogName}.`default`.${tableName} order by col1 ; """
 
 
             } finally {
+                try_sql """drop catalog if exists ${catalogName}"""
+                try_hive_docker """drop table if exists default.${tableName}"""
             }
         }
     }
 
 }
-

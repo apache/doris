@@ -51,7 +51,7 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                 String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
                 String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
                 String use_meta_cache_string = use_meta_cache ? "true" : "false"
-                String catalog = "test_${hivePrefix}_use_meta_cache_${use_meta_cache}"
+                String catalog = getHiveTempName("test_${hivePrefix}_use_meta_cache_${use_meta_cache}", "catalog")
                 String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
                 sql """drop catalog if exists ${catalog}"""
@@ -61,13 +61,14 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                     'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
                     'use_meta_cache' = '${use_meta_cache_string}'
                 );"""
-                
+
                 // create from Doris, the cache will be filled immediately
-                String database= "test_use_meta_cache_db_${use_meta_cache}"
-                String table = "test_use_meta_cache_tbl_${use_meta_cache}"
-                String database_hive = "test_use_meta_cache_db_hive_${use_meta_cache}"
-                String table_hive = "test_use_meta_cache_tbl_hive_${use_meta_cache}"
-                String partitioned_table_hive = "test_use_meta_cache_partitioned_tbl_hive_${use_meta_cache}"
+                String database= getHiveTempName("test_use_meta_cache_db_${use_meta_cache}", "db")
+                String table = getHiveTempName("test_use_meta_cache_tbl_${use_meta_cache}", "tbl")
+                String database_hive = getHiveTempName("test_use_meta_cache_db_hive_${use_meta_cache}", "db")
+                String table_hive = getHiveTempName("test_use_meta_cache_tbl_hive_${use_meta_cache}", "tbl")
+                String partitioned_table_hive = getHiveTempName("test_use_meta_cache_partitioned_tbl_hive_${use_meta_cache}", "tbl")
+                String anotherTableCreationTest = getHiveTempName("another_table_creation_test", "tbl")
 
                 sql "switch ${catalog}"
                 sql "drop database if exists ${database} force"
@@ -83,7 +84,7 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                 order_qt_sql04 "show tables"
                 sql "drop database ${database}"
                 order_qt_sql05 "show databases like '%${database}%'";
-            
+
                 // create from Hive, the cache has different behavior
                 order_qt_sql01 "show databases like '%${database_hive}%'";
                 hive_docker "drop database if exists ${database_hive}"
@@ -128,20 +129,20 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                 // the main point is to select the table first before creation.
                 if (use_meta_cache) {
                     // 0. create env
-                    hive_docker "drop table if exists ${database_hive}.another_table_creation_test"
+                    hive_docker "drop table if exists ${database_hive}.${anotherTableCreationTest}"
                     // 1. select a non exist table
                     test {
-                        sql "select * from another_table_creation_test";
+                        sql "select * from ${anotherTableCreationTest}";
                         exception "does not exist in database"
                     }
                     // 2. use hive to create this table
-                    hive_docker "create table ${database_hive}.another_table_creation_test (k1 int)"
+                    hive_docker "create table ${database_hive}.${anotherTableCreationTest} (k1 int)"
                     // 3. use doris to select, can see
-                    qt_aother_test_sql "select * from another_table_creation_test";
+                    qt_aother_test_sql "select * from ${anotherTableCreationTest}";
                     // 4. drop table
-                    sql "drop table another_table_creation_test";
+                    sql "drop table ${anotherTableCreationTest}";
                 }
-                
+
                 // test Hive Metastore table partition file listing
                 hive_docker "create table ${database_hive}.${partitioned_table_hive} (k1 int) partitioned by (p1 string)"
                 sql "refresh catalog ${catalog}"
@@ -169,6 +170,9 @@ suite("test_hive_use_meta_cache_false", "p0,external") {
                 sql "refresh catalog ${catalog}"
                 // can not see
                 order_qt_sql13 "show databases like '%${database_hive}%'";
+
+                cleanupHiveDockerDatabase(database_hive, true)
+                try_sql """drop catalog if exists ${catalog}"""
             }
             // test_use_meta_cache(false)
         } finally {

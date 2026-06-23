@@ -25,9 +25,10 @@ suite("test_hive_write_type", "p0,external") {
     for (String hivePrefix : ["hive2", "hive3"]) {
         def file_formats = ["parquet", "orc"]
         def test_complex_type_tbl = { String file_format, String catalog_name ->
+            String complexTypeDb = getHiveTempName("test_complex_type", file_format)
             sql """ switch ${catalog_name} """
-            sql """ create database if not exists `test_complex_type` """;
-            sql """ use `${catalog_name}`.`test_complex_type` """
+            sql """ create database if not exists `${complexTypeDb}` """;
+            sql """ use `${catalog_name}`.`${complexTypeDb}` """
 
             sql """ drop table if exists unpart_tbl_${file_format} """
             sql """
@@ -154,21 +155,22 @@ suite("test_hive_write_type", "p0,external") {
             order_qt_complex_type02 """ SELECT * FROM unpart_tbl_${file_format} WHERE col2='b' """
 
             sql """ drop table unpart_tbl_${file_format} """
-            sql """ drop database if exists `test_complex_type` """;
+            sql """ drop database if exists `${complexTypeDb}` """;
         }
 
         def test_insert_exception = { String file_format, String catalog_name ->
+            String hiveExDb = getHiveTempName("test_hive_ex", file_format)
             sql """ switch ${catalog_name} """
 
-            sql """ create database if not exists `test_hive_ex` """;
+            sql """ create database if not exists `${hiveExDb}` """;
             test {
-                sql """ create database `test_hive_ex` """
-                exception "errCode = 2, detailMessage = Can't create database 'test_hive_ex'; database exists"
+                sql """ create database `${hiveExDb}` """
+                exception "errCode = 2, detailMessage = Can't create database '${hiveExDb}'; database exists"
             }
-            sql """use `${catalog_name}`.`test_hive_ex`"""
+            sql """use `${catalog_name}`.`${hiveExDb}`"""
 
             sql """
-                CREATE TABLE IF NOT EXISTS test_hive_ex.ex_tbl_${file_format}(
+                CREATE TABLE IF NOT EXISTS ${hiveExDb}.ex_tbl_${file_format}(
                   `col1` BOOLEAN COMMENT 'col1',
                   `col2` INT COMMENT 'col2',
                   `col3` BIGINT COMMENT 'col3',
@@ -181,7 +183,7 @@ suite("test_hive_write_type", "p0,external") {
                   `pt3` DATE COMMENT 'pt3',
                   `pt1` VARCHAR COMMENT 'pt1',
                   `pt2` STRING COMMENT 'pt2'
-                )  ENGINE=hive 
+                )  ENGINE=hive
                 PARTITION BY LIST (pt1, pt2) ()
                 PROPERTIES (
                   'file_format'='${file_format}'
@@ -190,8 +192,8 @@ suite("test_hive_write_type", "p0,external") {
 
             try {
                 // test  columns
-                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
-                    VALUES 
+                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`)
+                    VALUES
                     (true, 123, 987654321099, 'abcdefghij', 3.1214, 63.28, 123.4567, 'varcharval', 'stringval');
                 """
             } catch (Exception e) {
@@ -202,8 +204,8 @@ suite("test_hive_write_type", "p0,external") {
 
             try {
                 // test type diff columns
-                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`) 
-                    VALUES 
+                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `col6`, `col7`, `col8`, `col9`)
+                    VALUES
                     ('1', 123, 987654319, 'abcdefghij', '3.15', '6.28', 123.4567, 432, 'stringval');
                 """
             } catch (Exception e) {
@@ -213,9 +215,9 @@ suite("test_hive_write_type", "p0,external") {
 
             test {
                 sql """
-                        CREATE TABLE test_hive_ex.ex_tbl_${file_format}(
+                        CREATE TABLE ${hiveExDb}.ex_tbl_${file_format}(
                           `col1` BOOLEAN COMMENT 'col1'
-                        )  ENGINE=hive 
+                        )  ENGINE=hive
                         PROPERTIES (
                           'file_format'='${file_format}'
                         )
@@ -225,8 +227,8 @@ suite("test_hive_write_type", "p0,external") {
 
             test {
                 // test columns
-                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`) 
-                        VALUES 
+                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`)
+                        VALUES
                         (true, 123, 9876543210, 'abcdefghij', 3.14, 6.28, 123.4567, 'varcharval', 'stringval');
                 """
                 exception "errCode = 2, detailMessage = Column count doesn't match value count"
@@ -234,8 +236,8 @@ suite("test_hive_write_type", "p0,external") {
 
             test {
                 // test columns
-                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `pt00`) 
-                    VALUES 
+                sql """ INSERT INTO ex_tbl_${file_format} (`col1`, `col2`, `col3`, `col4`, `col5`, `pt00`)
+                    VALUES
                     (true, 123, 9876543210, 'abcdefghij', 3.14, 'error');
                 """
                 exception "errCode = 2, detailMessage = Unknown column 'pt00' in target table."
@@ -243,21 +245,22 @@ suite("test_hive_write_type", "p0,external") {
 
             // TODO: support partition spec
             test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`) 
-                    VALUES 
+                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`)
+                    VALUES
                     (9876543210, 6.28, 'no_error');
                 """
                 exception "errCode = 2, detailMessage = Not support insert with partition spec in hive catalog"
             }
 
-            sql """ DROP TABLE ${catalog_name}.test_hive_ex.ex_tbl_${file_format} """
-            sql """ DROP DATABASE ${catalog_name}.test_hive_ex """
+            sql """ DROP TABLE ${catalog_name}.${hiveExDb}.ex_tbl_${file_format} """
+            sql """ DROP DATABASE ${catalog_name}.${hiveExDb} """
         }
 
         def test_columns_out_of_order = { String file_format, String catalog_name ->
+            String columnsOutOfOrderDb = getHiveTempName("test_columns_out_of_order", file_format)
             sql """ switch ${catalog_name} """
-            sql """ create database if not exists `test_columns_out_of_order` """;
-            sql """ use `${catalog_name}`.`test_columns_out_of_order` """
+            sql """ create database if not exists `${columnsOutOfOrderDb}` """;
+            sql """ use `${catalog_name}`.`${columnsOutOfOrderDb}` """
 
             sql """ drop table if exists columns_out_of_order_source_tbl_${file_format} """
             sql """
@@ -307,13 +310,14 @@ suite("test_hive_write_type", "p0,external") {
 
             sql """ drop table columns_out_of_order_source_tbl_${file_format} """
             sql """ drop table columns_out_of_order_target_tbl_${file_format} """
-            sql """ drop database if exists `test_columns_out_of_order` """;
+            sql """ drop database if exists `${columnsOutOfOrderDb}` """;
         }
 
+        String catalog_name = null
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_type"
+            catalog_name = getHiveTempName("test_${hivePrefix}_write_type", "catalog")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -334,6 +338,7 @@ suite("test_hive_write_type", "p0,external") {
             }
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }
