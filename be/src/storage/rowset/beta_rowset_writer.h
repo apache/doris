@@ -293,8 +293,9 @@ public:
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
-            KeyBoundsPB& key_bounds);
+            std::unique_ptr<segment_v2::SegmentWriter>*
+                    writer, // NOLINT(readability-non-const-parameter): resets the caller-owned writer after finalizing it.
+            uint64_t index_size, KeyBoundsPB& key_bounds);
     Status create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
 
@@ -307,6 +308,7 @@ private:
     Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
+    Status _finish_flying_segcompaction(bool need_final_segcompaction_retry);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);

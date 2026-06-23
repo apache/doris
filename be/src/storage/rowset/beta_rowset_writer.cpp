@@ -558,6 +558,7 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
  *  3. if the consecutive smalls end up with small, compact the smalls if the
  *     length is beyond (config::segcompaction_batch_size / 2)
  */
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): existing selection logic is kept intact.
 Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         SegCompactionCandidatesSharedPtr& segments) {
     segments = std::make_shared<SegCompactionCandidates>();
@@ -605,7 +606,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         task_bytes += segment->file_reader()->size();
     }
     size_t s = segments->size();
-    if (segid == last_segment && s <= (config::segcompaction_batch_size / 2)) {
+    const size_t min_final_batch_size = cast_set<size_t>(config::segcompaction_batch_size / 2);
+    if (segid == last_segment && s <= min_final_batch_size) {
         // we didn't collect enough segments, better to do it in next
         // round to compact more at once
         segments->clear();
@@ -664,7 +666,7 @@ void BetaRowsetWriter::_clear_statistics_for_deleting_segments_unsafe(uint32_t b
 }
 
 Status BetaRowsetWriter::_rename_compacted_segment_plain(uint32_t seg_id) {
-    if (seg_id == _num_segcompacted) {
+    if (seg_id == cast_set<uint32_t>(_num_segcompacted.load())) {
         ++_num_segcompacted;
         return Status::OK();
     }
@@ -946,6 +948,27 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
     return Status::OK();
 }
 
+Status BetaRowsetWriter::_finish_flying_segcompaction(bool need_final_segcompaction_retry) {
+    if (need_final_segcompaction_retry) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
+                                       "segcompaction failed when build new rowset");
+        RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_if_necessary(),
+                                       "segcompaction failed when build new rowset");
+        RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
+                                       "segcompaction failed when build new rowset");
+        return Status::OK();
+    }
+    if (_segcompaction_worker->cancel()) {
+        std::lock_guard lk(_is_doing_segcompaction_lock);
+        _is_doing_segcompaction = false;
+        _segcompacting_cond.notify_all();
+        return Status::OK();
+    }
+    RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
+                                   "segcompaction failed when build new rowset");
+    return Status::OK();
+}
+
 RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -971,18 +994,22 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
 }
 
 Status BetaRowsetWriter::_close_file_writers() {
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_file_writers());
+    // Flush first to submit delete-bitmap tasks for the last segment, then wait before closing
+    // the shared file writers so build() cannot race with delete-bitmap workers on close().
+    RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.flush(),
+                                   "failed to flush segment creator when build new rowset");
+    const bool need_final_segcompaction_retry =
+            _calc_delete_bitmap_token != nullptr && config::enable_segcompaction &&
+            _context.enable_segcompaction && _context.tablet_schema->num_variant_columns() == 0;
+    if (_calc_delete_bitmap_token != nullptr) {
+        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+    }
+    RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close_file_writers(),
+                                   "failed to close segment creator when build new rowset");
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.
     if (_segment_start_id == 0) {
-        if (_segcompaction_worker->cancel()) {
-            std::lock_guard lk(_is_doing_segcompaction_lock);
-            _is_doing_segcompaction = false;
-            _segcompacting_cond.notify_all();
-        } else {
-            RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
-                                           "segcompaction failed when build new rowset");
-        }
+        RETURN_IF_ERROR(_finish_flying_segcompaction(need_final_segcompaction_retry));
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
                                        "rename last segments failed when build new rowset");
         // segcompaction worker would do file wrier's close function in compact_segments
@@ -1011,9 +1038,6 @@ Status BetaRowsetWriter::_close_file_writers() {
 }
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
-    if (_calc_delete_bitmap_token != nullptr) {
-        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    }
     RETURN_IF_ERROR(_close_file_writers());
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),
@@ -1247,7 +1271,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
 Status BaseBetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
                     { segnum = dp->param("segnum", 1024); });
-    if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
+    if (UNLIKELY(segnum > cast_set<size_t>(config::max_segment_num_per_rowset))) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, "
                 "_num_segment:{}, rowset_num_rows:{}. Please check if the bucket number is too "
@@ -1261,7 +1285,7 @@ Status BaseBetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
 Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
                     { segnum = dp->param("segnum", 1024); });
-    if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
+    if (UNLIKELY(segnum > cast_set<size_t>(config::max_segment_num_per_rowset))) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
                 "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}. Please check if "
@@ -1321,8 +1345,9 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistic
 }
 
 Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
-        KeyBoundsPB& key_bounds) {
+        std::unique_ptr<segment_v2::SegmentWriter>*
+                writer, // NOLINT(readability-non-const-parameter): resets the caller-owned writer after finalizing it.
+        uint64_t index_size, KeyBoundsPB& key_bounds) {
     uint32_t segid = (*writer)->get_segment_id();
     uint32_t row_num = (*writer)->row_count();
     uint64_t segment_size;

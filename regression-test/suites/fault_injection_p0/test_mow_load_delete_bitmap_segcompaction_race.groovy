@@ -68,6 +68,23 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
             "BetaRowsetWriter.add_segment.sleep_before_segcompaction",
             [segment_id: 1, sleep_ms: 200])
 
+    def checkLastRowsetSegmentNum = { expectedSegmentNum ->
+        def tablets = sql_return_maparray """ show tablets from test_mow_load_delete_bitmap_segcompaction_race; """
+        logger.info("tablets: ${tablets}")
+        String compactionUrl = tablets[0]["CompactionStatus"]
+        def (code, out, err) = curl("GET", compactionUrl)
+        logger.info("Show tablets status: code=${code}, out=${out}, err=${err}")
+        assertEquals(0, code)
+        def tabletJson = parseJson(out.trim())
+        assert tabletJson.rowsets instanceof List
+        def rowset = tabletJson.rowsets.get(tabletJson.rowsets.size() - 1)
+        logger.info("last rowset: ${rowset}")
+        int startIndex = rowset.indexOf("]")
+        int endIndex = rowset.indexOf("DATA")
+        def segmentNum = Integer.parseInt(rowset.substring(startIndex + 1, endIndex).trim())
+        assertEquals(expectedSegmentNum, segmentNum)
+    }
+
     String content = ""
     (1..4096).each {
         content += "${it},${it},${it}\n"
@@ -87,9 +104,12 @@ suite("test_mow_load_delete_bitmap_segcompaction_race", "nonConcurrent") {
             logger.info("stream load result: ${result}")
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
+            assertEquals(8192, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
+    checkLastRowsetSegmentNum(2)
     qt_sql "select count() from test_mow_load_delete_bitmap_segcompaction_race;"
     qt_dup_key_count """select count() from (
             select k1, count() as cnt
