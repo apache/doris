@@ -166,10 +166,8 @@ public:
         if (null_map) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(source_col.get());
             block.replace_by_position(
-                    result,
-                    ColumnNullable::create(std::move(col_res),
-                                           nullable_col->get_null_map_column_ptr()->clone_resized(
-                                                   input_rows_count)));
+                    result, ColumnNullable::create(std::move(col_res),
+                                                   nullable_col->get_null_map_column_ptr()));
         } else {
             block.replace_by_position(result, std::move(col_res));
         }
