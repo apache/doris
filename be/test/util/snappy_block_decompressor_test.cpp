@@ -70,10 +70,10 @@ TEST_F(SnappyBlockDecompressorTest, ValidStream) {
     size_t more_input_bytes = 0;
     size_t more_output_bytes = 0;
 
-    Status st = decompressor->decompress(
-            stream.data(), static_cast<uint32_t>(stream.size()), &input_bytes_read, output.data(),
-            static_cast<uint32_t>(output.size()), &decompressed_len, &stream_end, &more_input_bytes,
-            &more_output_bytes);
+    Status st = decompressor->decompress(stream.data(), static_cast<uint32_t>(stream.size()),
+                                         &input_bytes_read, output.data(),
+                                         static_cast<uint32_t>(output.size()), &decompressed_len,
+                                         &stream_end, &more_input_bytes, &more_output_bytes);
 
     ASSERT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(decompressed_len, raw.size());
@@ -99,10 +99,10 @@ TEST_F(SnappyBlockDecompressorTest, SmallBlockExceedsOutputBuffer) {
     size_t more_input_bytes = 0;
     size_t more_output_bytes = 0;
 
-    Status st = decompressor->decompress(
-            stream.data(), static_cast<uint32_t>(stream.size()), &input_bytes_read, output.data(),
-            static_cast<uint32_t>(output.size()), &decompressed_len, &stream_end, &more_input_bytes,
-            &more_output_bytes);
+    Status st = decompressor->decompress(stream.data(), static_cast<uint32_t>(stream.size()),
+                                         &input_bytes_read, output.data(),
+                                         static_cast<uint32_t>(output.size()), &decompressed_len,
+                                         &stream_end, &more_input_bytes, &more_output_bytes);
 
     EXPECT_FALSE(st.ok());
 }
