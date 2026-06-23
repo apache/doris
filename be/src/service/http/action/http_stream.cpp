@@ -17,6 +17,7 @@
 
 #include "service/http/action/http_stream.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <future>
 #include <sstream>
@@ -55,6 +56,7 @@
 #include "storage/storage_engine.h"
 #include "util/byte_buffer.h"
 #include "util/client_cache.h"
+#include "util/load_util.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -62,6 +64,26 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+bool is_compressed_file_scan(const TPipelineFragmentParams& params) {
+    if (!params.__isset.file_scan_params) {
+        return false;
+    }
+    return std::ranges::any_of(params.file_scan_params, [](const auto& file_scan_param) {
+        const auto& file_scan_params = file_scan_param.second;
+        TFileCompressType::type compress_type = file_scan_params.__isset.compress_type
+                                                        ? file_scan_params.compress_type
+                                                        : TFileCompressType::UNKNOWN;
+        TFileFormatType::type format_type = file_scan_params.__isset.format_type
+                                                    ? file_scan_params.format_type
+                                                    : TFileFormatType::FORMAT_UNKNOWN;
+        return LoadUtil::is_compressed_load(compress_type, format_type);
+    });
+}
+
+} // namespace
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_requests_total, MetricUnit::REQUESTS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(http_stream_duration_ms, MetricUnit::MILLISECONDS);
@@ -387,13 +409,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                                                http_req->header(HttpHeaders::CONTENT_LENGTH),
                                                e.what());
             }
-            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+            if (is_compressed_file_scan(ctx->put_result.pipeline_params)) {
                 content_length *= 3;
             }
         }
