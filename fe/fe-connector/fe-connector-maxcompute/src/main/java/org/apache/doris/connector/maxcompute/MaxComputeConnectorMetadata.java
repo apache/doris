@@ -297,8 +297,7 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
      * plugin-driven sink path. The sink is built by
      * {@link MaxComputeWritePlanProvider#planWrite} (P4-T04) and the write is driven by the
      * connector transaction opened in {@link #beginTransaction} and committed via
-     * {@link MaxComputeConnectorTransaction#commit()}. The {@code getWriteConfig} hook carries
-     * no MaxCompute-specific work and intentionally stays the throwing default.
+     * {@link MaxComputeConnectorTransaction#commit()}.
      */
     @Override
     public boolean supportsInsert() {

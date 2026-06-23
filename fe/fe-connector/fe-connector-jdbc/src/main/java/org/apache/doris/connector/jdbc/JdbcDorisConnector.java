@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TJdbcTable;
@@ -123,6 +124,14 @@ public class JdbcDorisConnector implements Connector {
             }
         }
         return scanPlanProvider;
+    }
+
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        // Returning a non-null provider routes jdbc writes through the unified plan-provider sink
+        // path (PhysicalPlanTranslator.visitPhysicalConnectorTableSink). The provider builds the
+        // TJdbcTableSink itself (P6.3-T02 / OQ-1); there is no config-bag path anymore.
+        return new JdbcWritePlanProvider(getOrCreateClient(), properties);
     }
 
     @Override

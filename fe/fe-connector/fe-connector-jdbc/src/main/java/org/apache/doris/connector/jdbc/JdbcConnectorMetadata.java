@@ -28,8 +28,6 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.handle.PassthroughQueryTableHandle;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
-import org.apache.doris.connector.api.write.ConnectorWriteType;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.jdbc.client.JdbcFieldInfo;
 
@@ -38,12 +36,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorMetadata} implementation for JDBC sources.
@@ -283,74 +279,6 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsInsert() {
         return true;
-    }
-
-    @Override
-    public ConnectorWriteConfig getWriteConfig(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
-        String remoteDbName = jdbcHandle.getRemoteDbName();
-        String remoteTableName = jdbcHandle.getRemoteTableName();
-        JdbcDbType dbType = client.getDbType();
-
-        // Build local column name list for INSERT SQL
-        List<String> columnNames = columns.stream()
-                .map(ConnectorColumn::getName)
-                .collect(Collectors.toList());
-
-        // Build local→remote column name mapping via column handles
-        Map<String, ConnectorColumnHandle> colHandles = getColumnHandles(session, handle);
-        Map<String, String> remoteColumnNames = new HashMap<>();
-        for (Map.Entry<String, ConnectorColumnHandle> entry : colHandles.entrySet()) {
-            JdbcColumnHandle ch = (JdbcColumnHandle) entry.getValue();
-            remoteColumnNames.put(ch.getLocalName(), ch.getRemoteName());
-        }
-
-        String insertSql = JdbcIdentifierQuoter.buildInsertSql(
-                dbType, remoteDbName, remoteTableName, remoteColumnNames, columnNames);
-
-        Map<String, String> writeProps = new HashMap<>();
-        writeProps.put("jdbc_url", properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
-        writeProps.put("jdbc_user", properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        writeProps.put("jdbc_password", properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
-        writeProps.put("jdbc_driver_url", properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
-        writeProps.put("jdbc_driver_class", properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
-        writeProps.put("jdbc_driver_checksum",
-                properties.getOrDefault(JdbcConnectorProperties.DRIVER_CHECKSUM, ""));
-        writeProps.put("jdbc_table_name", remoteTableName);
-        writeProps.put("jdbc_resource_name", "");
-        writeProps.put("jdbc_table_type", dbType.name());
-        writeProps.put("jdbc_insert_sql", insertSql);
-        writeProps.put("jdbc_use_transaction",
-                session.getSessionProperties().getOrDefault("enable_odbc_transcation", "false"));
-        writeProps.put("jdbc_catalog_id", String.valueOf(session.getCatalogId()));
-
-        // Connection pool settings
-        writeProps.put("connection_pool_min_size", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                        JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE)));
-        writeProps.put("connection_pool_max_size", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                        JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE)));
-        writeProps.put("connection_pool_max_wait_time", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                        JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME)));
-        writeProps.put("connection_pool_max_life_time", String.valueOf(
-                JdbcConnectorProperties.getInt(properties,
-                        JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                        JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME)));
-        writeProps.put("connection_pool_keep_alive", String.valueOf(
-                Boolean.parseBoolean(properties.getOrDefault(
-                        JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE, "false"))));
-
-        return ConnectorWriteConfig.builder(ConnectorWriteType.JDBC_WRITE)
-                .properties(writeProps)
-                .build();
     }
 
     @Override

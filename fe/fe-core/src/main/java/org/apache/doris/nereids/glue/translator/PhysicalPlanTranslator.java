@@ -50,7 +50,6 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -652,41 +651,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
-        // W5: connectors with a write-plan provider build their own opaque TDataSink (the
-        // general path for maxcompute / iceberg). Dormant until a connector overrides
-        // Connector.getWritePlanProvider(); the config-bag path below is unchanged (jdbc).
+        // Every write-capable connector builds its own opaque TDataSink via its write-plan
+        // provider (jdbc / maxcompute / iceberg). A null provider means the connector does not
+        // support writes.
         ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
-        if (writePlanProvider != null) {
-            ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
-                    targetTable.getRemoteDbName(), targetTable.getRemoteName())
-                    .orElseThrow(() -> new AnalysisException(
-                            "Table not found: " + targetTable.getRemoteDbName()
-                                    + "." + targetTable.getRemoteName()
-                                    + " in catalog " + catalog.getName()));
-            PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
-                    writePlanProvider, connSession, providerTableHandle, connectorColumns);
-            rootFragment.setSink(providerSink);
-            return rootFragment;
-        }
-
-        ConnectorWriteConfig writeConfig;
-        if (metadata.supportsInsert()) {
-            ConnectorTableHandle tableHandle = metadata.getTableHandle(connSession,
-                    targetTable.getRemoteDbName(), targetTable.getRemoteName())
-                    .orElseThrow(() -> new AnalysisException(
-                            "Table not found: " + targetTable.getRemoteDbName()
-                                    + "." + targetTable.getRemoteName()
-                                    + " in catalog " + catalog.getName()));
-            writeConfig = metadata.getWriteConfig(
-                    connSession, tableHandle, connectorColumns);
-        } else {
+        if (writePlanProvider == null) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support INSERT operations");
         }
-
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(targetTable, writeConfig);
-        rootFragment.setSink(sink);
+        ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
+                targetTable.getRemoteDbName(), targetTable.getRemoteName())
+                .orElseThrow(() -> new AnalysisException(
+                        "Table not found: " + targetTable.getRemoteDbName()
+                                + "." + targetTable.getRemoteName()
+                                + " in catalog " + catalog.getName()));
+        PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
+                writePlanProvider, connSession, providerTableHandle, connectorColumns);
+        rootFragment.setSink(providerSink);
         return rootFragment;
     }
 

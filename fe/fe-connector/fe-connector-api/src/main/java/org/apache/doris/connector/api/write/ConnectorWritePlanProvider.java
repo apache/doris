@@ -41,4 +41,26 @@ public interface ConnectorWritePlanProvider {
      * @return a {@link ConnectorSinkPlan} wrapping the Thrift data sink
      */
     ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle);
+
+    /**
+     * Appends connector-specific EXPLAIN detail for the write (e.g. the generated INSERT SQL,
+     * sink dialect, target format). Write-side analogue of the scan provider's
+     * {@code appendExplainInfo}: the engine emits the generic plugin-driven sink line, then calls
+     * this so the connector can surface its own write details without the engine knowing the
+     * sink dialect.
+     *
+     * <p>This runs when the plan's EXPLAIN string is generated, which is <i>before</i> the write
+     * plan is bound (the sink's {@code planWrite} has not run yet for an EXPLAIN). The connector
+     * therefore derives the detail from the {@code handle} and may consult the source for metadata
+     * (e.g. remote column names). Default: no extra EXPLAIN info.</p>
+     *
+     * @param output  the EXPLAIN string being built
+     * @param prefix  the current indentation prefix
+     * @param session the current session (may be consulted for session-scoped write options)
+     * @param handle  the write request (target table handle and write columns)
+     */
+    default void appendExplainInfo(StringBuilder output, String prefix,
+            ConnectorSession session, ConnectorWriteHandle handle) {
+        // Default: no extra EXPLAIN info
+    }
 }

@@ -17,11 +17,7 @@
 
 package org.apache.doris.connector.api;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
-
-import java.util.List;
 
 /**
  * Write (DML) operations that a connector may support.
@@ -63,26 +59,6 @@ public interface ConnectorWriteOps {
     /** Returns {@code true} if this connector supports MERGE (INSERT + DELETE) operations. */
     default boolean supportsMerge() {
         return false;
-    }
-
-    // ──────────────────── Write Configuration ────────────────────
-
-    /**
-     * Returns the write configuration for this table.
-     *
-     * <p>The engine uses the returned {@link ConnectorWriteConfig} to select the
-     * appropriate Thrift data sink type and pass properties to BE.</p>
-     *
-     * @param session current session
-     * @param handle the target table handle
-     * @param columns the columns being written (ordered to match INSERT column list)
-     * @return write configuration describing sink type, format, location, etc.
-     */
-    default ConnectorWriteConfig getWriteConfig(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        throw new DorisConnectorException("Write not supported");
     }
 
     // ──────────────────── TRANSACTION ────────────────────

@@ -24,11 +24,14 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TExplainLevel;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,14 +40,13 @@ import java.util.Optional;
 /**
  * Plan-provider mode tests for {@link PluginDrivenTableSink} (W-phase W5).
  *
- * <p>When the connector supplies a {@link ConnectorWritePlanProvider}, the sink
- * must delegate {@link PluginDrivenTableSink#bindDataSink} to
- * {@link ConnectorWritePlanProvider#planWrite} and adopt the connector-built
+ * <p>The connector supplies a {@link ConnectorWritePlanProvider}; the sink
+ * delegates {@link PluginDrivenTableSink#bindDataSink} to
+ * {@link ConnectorWritePlanProvider#planWrite} and adopts the connector-built
  * opaque {@link TDataSink} verbatim, passing a {@link ConnectorWriteHandle} that
- * carries the bound target table handle and write columns. This is the seam that
- * lets connectors whose sink cannot be expressed as a generic
- * {@code ConnectorWriteConfig} (maxcompute / iceberg) produce their own
- * {@code T*TableSink}; the config-bag path is unaffected.</p>
+ * carries the bound target table handle and write columns. This is the single,
+ * source-agnostic write path: every write-capable connector (jdbc / maxcompute /
+ * iceberg) produces its own {@code T*TableSink} this way.</p>
  */
 public class PluginDrivenTableSinkTest {
 
@@ -89,5 +91,39 @@ public class PluginDrivenTableSinkTest {
         Assert.assertSame(columns, provider.seenHandle.getColumns());
         Assert.assertFalse(provider.seenHandle.isOverwrite());
         Assert.assertTrue(provider.seenHandle.getWriteContext().isEmpty());
+    }
+
+    @Test
+    public void getExplainStringDelegatesConnectorWriteDetail() {
+        PluginDrivenExternalTable targetTable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(targetTable.getName()).thenReturn("t1");
+        ConnectorTableHandle tableHandle = new ConnectorTableHandle() { };
+
+        // A provider that contributes a connector-specific EXPLAIN line via the write hook.
+        ConnectorWritePlanProvider provider = new ConnectorWritePlanProvider() {
+            @Override
+            public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
+                return new ConnectorSinkPlan(new TDataSink(TDataSinkType.JDBC_TABLE_SINK));
+            }
+
+            @Override
+            public void appendExplainInfo(StringBuilder output, String prefix,
+                    ConnectorSession session, ConnectorWriteHandle handle) {
+                output.append(prefix).append("  INSERT SQL: SELECT 1\n");
+            }
+        };
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                targetTable, provider, null, tableHandle, new ArrayList<>());
+
+        String explain = sink.getExplainString("", TExplainLevel.NORMAL);
+        Assert.assertTrue(explain, explain.contains("PLUGIN-DRIVEN TABLE SINK"));
+        Assert.assertTrue(explain, explain.contains("TABLE: t1"));
+        // The source-agnostic sink delegates connector-specific detail through appendExplainInfo.
+        Assert.assertTrue(explain, explain.contains("INSERT SQL: SELECT 1"));
+
+        // BRIEF short-circuits before any connector detail.
+        String brief = sink.getExplainString("", TExplainLevel.BRIEF);
+        Assert.assertFalse(brief, brief.contains("INSERT SQL"));
     }
 }

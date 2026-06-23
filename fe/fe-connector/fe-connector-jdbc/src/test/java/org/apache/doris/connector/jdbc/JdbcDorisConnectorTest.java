@@ -75,6 +75,17 @@ class JdbcDorisConnectorTest {
     }
 
     @Test
+    void testGetWritePlanProviderAfterCloseThrows() throws IOException {
+        // getWritePlanProvider() must be wired (non-null routing premise: a non-null provider
+        // sends jdbc writes through the unified plan-provider sink path). It resolves the client
+        // lazily, so after close it fails loud just like the scan provider.
+        JdbcDorisConnector connector = new JdbcDorisConnector(minimalProps(), testContext());
+        connector.close();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> connector.getWritePlanProvider());
+    }
+
+    @Test
     void testDoubleCloseNoException() throws IOException {
         JdbcDorisConnector connector = new JdbcDorisConnector(minimalProps(), testContext());
         connector.close();

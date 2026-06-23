@@ -6,7 +6,7 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.3 写路径实现：下一 = T02**（**✅ P6.3-T01 = DONE（框架统一·SPI 收口，option B）；P6.2〔T01–T11〕/ P6.1〔T01–T10〕全绿；RFC ✅ 评审通过**）
+# 🎯 下一个 session 的任务 — **P6.3 写路径实现：下一 = T03**（**✅ P6.3-T01 + T02 = DONE（框架统一·SPI 收口 + jdbc planWrite·config-bag 删除·EXPLAIN-保留 hook）；P6.2〔T01–T11〕/ P6.1〔T01–T10〕全绿；RFC ✅ 评审通过**）
 
 > **✅ P6.2 = DONE（本 session 2026-06-23 收口 T11）**：scan + MVCC + cache + vended 全实现。T11（汇总设计 `designs/P6-T11-iceberg-scan-summary-design.md` + validation gate 核对 + UT-不可见 deviation 中央注册 DV-038/039/040 + 本 HANDOFF + PROGRESS/connectors 同步）见下「✅ P6.2-T11 = DONE」。**验收全绿**：fe-connector-iceberg UT **278/0/1**（本 session 重跑实证 BUILD SUCCESS）、validation gate test 7/0、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、T11 **0 产品码改**（纯文档）。
 >
@@ -18,7 +18,7 @@
 >
 > - **3 OQ 已裁定**：OQ-1 = jdbc thrift 移入连接器 `planWrite`（F2 全消，须字节 parity 测）；OQ-2 = 删 config-bag 三件套 `ConnectorWriteType`/`ConnectorWriteConfig`/`getWriteConfig`（实测仅 jdbc 用，移入后死）；OQ-3 = 统一 sink 后 EXPLAIN sink-标签 diff 接受为非回归。
 >
-> **🎯 下一步 = P6.3-T02**（T01 ✅ DONE，见下「✅ P6.3-T01 = DONE」）。剩余 §11 TODO：**T02** jdbc thrift 移入 `planWrite`（OQ-1）+ 删 config-bag 三件套（OQ-2）+ **jdbc 字节 parity 测**（⚠️ **jdbc no-op txn 迁移已在 T01 完成**——option B 把它提到了 T01，故 T02 = thrift-移入 + config-bag 删除 + parity）→ **T03** `IcebergConnectorTransaction` 骨架+`addCommitData`（**此处加 `ConnectorWriteHandle.writeOperation`**，T01 因 0 消费者延后）→ **T04** op 选择+`IcebergWriterHelper` 等价 → **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
+> **🎯 下一步 = P6.3-T03**（T01 ✅ + T02 ✅ DONE，见下「✅ P6.3-T01/T02 = DONE」）。剩余 §11 TODO：~~**T02** jdbc thrift 移入 `planWrite`+删 config-bag 三件套+字节 parity~~ ✅ DONE（含 `appendExplainInfo` EXPLAIN-保留增补，用户增补）→ **T03** `IcebergConnectorTransaction` 骨架+`addCommitData`（**此处加 `ConnectorWriteHandle.writeOperation`**，T01 因 0 消费者延后）→ **T04** op 选择+`IcebergWriterHelper` 等价 → **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`；**iceberg 可复用 T02 `appendExplainInfo` hook 保留 sink-detail EXPLAIN，缩小 OQ-3 diff**）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
 >
 > **每 task 节奏**（AGENT-PLAYBOOK §5.1）：先 code-grounded recon（大文件如 `IcebergTransaction` 981 / `IcebergMergeCommand` 用 subagent 总结）→ TDD RED→GREEN → 对抗 parity workflow（每发现独立 skeptic verify，镜像 P6.2）→ UT/checkstyle/import-gate 绿 + **断 assembled Thrift/校验套件 vs legacy** → 文档同步 → commit + handoff。**起步先读 RFC `06-iceberg-write-path-rfc.md` + recon `research/p6.3-iceberg-write-recon.md`。**
 >
@@ -34,6 +34,19 @@
 >
 > **✅ P6.1 = DONE（本 session 2026-06-22 收口 T10）**：P6.1 task 表 T01–T10 全绿（见 `P6-iceberg-migration.md:143-154`）。T10 经 redefine 吸收了「metastore 模块拆分（Phase A，行为不变）+ iceberg per-flavor 校验（Phase B，§4 逐字）」——validateProperties 接线只是 Phase B 的尾巴。**A-gate + B-gate 全绿；对抗 parity 复核 4 MATCH + 1 nit。**
 > **下一步 = P6.2 实现（从 P6.2-T01 起）——不是 P6.6！** P6.6 翻闸是「全有或全无」（`CatalogFactory:104-113`），**须等 P6.1–P6.5 全部实现完**（scan/write/procedure/sys-table 都还没做）；现在翻闸会让所有 iceberg 查询走只有读元数据+校验的连接器→scan/write 全断。
+
+---
+
+# ✅ P6.3-T02 = DONE（2026-06-23，本 session，未 push）— jdbc thrift 入 planWrite（OQ-1）+ 删 config-bag 三件套（OQ-2）+ EXPLAIN-保留 hook（用户增补）
+
+> 设计文档 = `tasks/designs/P6.3-T02-jdbc-planwrite-configbag-removal-design.md`。TDD（byte-parity 测先 watch-RED→GREEN）→ 对抗 parity workflow `wf_86a9e683-6b5`（4 维 + 每发现独立 skeptic verify）= **0 confirmed real / 6 positive 确认**（deletion-closure 完整、`bindFileWriteSink` 删前确死、无残留死码、**OQ-1 thrift byte-parity 成立**、无遗漏 regression 断言、EXPLAIN anchor 安全）。**全绿**：jdbc 模块 **190/0/0**、connector-api 25、maxcompute 102(1skip)、fe-core `PluginDrivenTableSink*`+`PluginDrivenInsertExecutorTest` 12/0/0、es/trino/hudi/hive/hms test-compile SUCCESS、iceberg 278 + paimon 318 无回归、checkstyle 0、import-gate 0、iceberg 仍**不在** `SPI_READY_TYPES`、**0 BE 改**。
+
+- **OQ-1**：新 `JdbcWritePlanProvider implements ConnectorWritePlanProvider`（镜像 `MaxComputeWritePlanProvider`），`planWrite` 直建 `TJdbcTableSink`（熔合 legacy `getWriteConfig` 属性袋 + `bindJdbcWriteSink`）；`JdbcDorisConnector.getWritePlanProvider()` 接线 → 翻译器据 `getWritePlanProvider()!=null` **自动路由 jdbc 入 plan-provider**；删 `JdbcConnectorMetadata.getWriteConfig`。**byte-parity 关键陷阱**：连接池值须用 `getInt(...,DEFAULT_POOL_*)`（legacy 真值来源；`bindJdbcWriteSink` 的硬编 `"1"/"10"/...` fallback 永不触达，**勿照抄**）；catalogId(long 往返)/resourceName=""/tableType=`valueOf(dbType.name())`/useTransaction(`enable_odbc_transcation` 保拼写)/insertSql 逐字段对齐（设计 §4.1）。
+- **OQ-2**：删 `ConnectorWriteType` enum + `ConnectorWriteConfig` 类 + `ConnectorWriteOps.getWriteConfig` 方法 + `PluginDrivenTableSink` 整 config-bag 半边（`writeConfig` 字段 / config-bag ctor / `bindFileWriteSink`〔FILE_WRITE 死路，workflow 确认删前确死〕/ `bindJdbcWriteSink` / `PROP_*` / explain config-bag 分支）+ `PhysicalPlanTranslator` config-bag 分支（→ `writePlanProvider==null` fail-loud 同款错串 "does not support INSERT operations"）。
+- **🆕 OQ-3 收窄（用户增补，2026-06-23）= `appendExplainInfo` 写侧 EXPLAIN 接缝**：用户裁定「新开 source-agnostic SPI 让连接器返回自定义 EXPLAIN 内容，保留 SQL」。新 `ConnectorWritePlanProvider.appendExplainInfo(output,prefix,session,handle)` **default-no-op**（镜像**已存在**扫描侧 `ConnectorScanPlanProvider.appendExplainInfo`）；jdbc 实现回吐 `TABLE TYPE`/`INSERT SQL`/`USE TRANSACTION`（共享 `buildInsertSql` helper → EXPLAIN SQL 与 BE 收到的字节一致）；`PluginDrivenTableSink.getExplainString` 委派（**在 `bindDataSink` 之前**跑〔`PlanFragment.getExplainString:365`，EXPLAIN 不执行〕，故连接器从 handle 派生、不能靠 planWrite）。⟹ **OQ-3 diff 从「jdbc 丢 INSERT SQL」收窄到「仅 `WRITE TYPE: JDBC_WRITE`→`WRITE: plan-provider` 标签变」**；regression 断言**恢复** `INSERT SQL: ...`（非退化）。**对 T06 有利**：iceberg sink 统一后可用同一 hook 保留其 sink-detail EXPLAIN。
+- **deviation（UT 不可见，P6.6/external-table docker 验，登记设计 §6）**：DV-T02-a jdbc sink thrift 移位（§4.1 逐字段 + `JdbcWritePlanProviderTest` 守）；DV-T02-b EXPLAIN 标签变（appendExplainInfo 收窄）；DV-T02-c appendExplainInfo 在 EXPLAIN 字符串生成时经 `getColumnHandles` 读连接器元数据（**net 改善** vs legacy translation 期每查必读：普通 INSERT 不生成 explain→0 次）。
+- **regression（OQ-3 跟修）**：`test_mysql_jdbc_catalog.groovy` jdbc INSERT EXPLAIN 断言**保持** `INSERT SQL: INSERT INTO \`doris_test\`.\`auto_default_t\`(\`name\`,\`dt\`) VALUES (?, ?)`（appendExplainInfo 回吐）。
+- **下一步 = P6.3-T03**（`IcebergConnectorTransaction` 骨架 + `addCommitData`；此处加 `ConnectorWriteHandle.writeOperation`）。
 
 ---
 
