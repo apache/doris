@@ -698,7 +698,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
             }
         }
 
-        int32_t tso_col_id = _reader->_tablet_schema->binlog_timestamp_col_idx();
+        int32_t tso_col_id = _reader->_tablet_schema->binlog_tso_col_idx();
         if (tso_col_id >= 0) {
             DCHECK(sequence_loc == -1);
             for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {

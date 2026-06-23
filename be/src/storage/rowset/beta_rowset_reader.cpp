@@ -218,7 +218,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
-    int32_t tso_col_id = _read_context->tablet_schema->binlog_timestamp_col_idx();
+    int32_t tso_col_id = _read_context->tablet_schema->binlog_tso_col_idx();
     if (tso_col_id >= 0) {
         for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
             if (_read_context->return_columns->at(i) == static_cast<uint32_t>(tso_col_id)) {

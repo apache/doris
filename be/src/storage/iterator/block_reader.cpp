@@ -84,7 +84,7 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
 Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     if (_binlog_column_pos_inited) {
         if (_binlog_op_pos >= 0 && _binlog_op_pos < src_block.columns() &&
-            src_block.get_by_position(_binlog_op_pos).name == kRowBinlogOpColName) {
+            src_block.get_by_position(_binlog_op_pos).name == BINLOG_OP_COL) {
             return Status::OK();
         }
         _binlog_op_pos = -1;
@@ -97,11 +97,11 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     _before_column_idx.resize(col_num);
     for (uint32_t i = 0; i < col_num; ++i) {
         const auto& name = src_block.get_by_position(i).name;
-        if (name == kRowBinlogOpColName) {
-            _binlog_op_pos = static_cast<int>(i);
-        } else if (name == kRowBinlogLsnColName) {
+        if (name == BINLOG_LSN_COL) {
             _binlog_lsn_pos = static_cast<int>(i);
-        } else if (name == kRowBinlogTsoColName) {
+        } else if (name == BINLOG_OP_COL) {
+            _binlog_op_pos = static_cast<int>(i);
+        } else if (name == BINLOG_TSO_COL) {
             _binlog_timestamp_pos = static_cast<int>(i);
         } else {
             std::string before_name = binlog::build_before_column_name(name);

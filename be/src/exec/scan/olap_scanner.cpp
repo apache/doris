@@ -482,11 +482,10 @@ Status OlapScanner::_init_tablet_reader_params(
             add_return_column_if_absent(cid);
         }
 
-        if (int32_t op_idx = tablet_schema->field_index(std::string(kRowBinlogOpColName));
-            op_idx >= 0) {
+        if (int32_t op_idx = tablet_schema->binlog_op_col_idx(); op_idx >= 0) {
             add_return_column_if_absent(static_cast<uint32_t>(op_idx));
         }
-        if (int32_t tso_idx = tablet_schema->binlog_timestamp_col_idx(); tso_idx >= 0) {
+        if (int32_t tso_idx = tablet_schema->binlog_tso_col_idx(); tso_idx >= 0) {
             add_return_column_if_absent(static_cast<uint32_t>(tso_idx));
         }
 

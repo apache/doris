@@ -871,8 +871,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         Block lsn_block;
         if (row_binlog_rowset != nullptr) {
             auto row_binlog_schema = row_binlog_rowset->tablet_schema();
-            std::vector<uint32_t> lsn_cids = {static_cast<uint32_t>(
-                    row_binlog_schema->field_index(std::string(kRowBinlogLsnColName)))};
+            std::vector<uint32_t> lsn_cids = {
+                    static_cast<uint32_t>(row_binlog_schema->binlog_lsn_col_idx())};
             lsn_block = row_binlog_schema->create_block_by_cids(lsn_cids);
             std::map<RowsetId, RowsetSharedPtr> rsid_to_row_binlog {
                     {row_binlog_rowset->rowset_id(), row_binlog_rowset}};

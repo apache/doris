@@ -444,10 +444,9 @@ Status MemTable::_sort_by_cluster_keys() {
         DCHECK_EQ(_output_row_binlog_lsns.size(), mutable_block.rows());
     }
     for (size_t i = 0; i < mutable_block.rows(); i++) {
-        row_in_blocks.emplace_back(_need_row_binlog_lsn
-                                           ? std::make_shared<RowInBlock>(
-                                                     i, _output_row_binlog_lsns[i])
-                                           : std::make_shared<RowInBlock>(i));
+        row_in_blocks.emplace_back(
+                _need_row_binlog_lsn ? std::make_shared<RowInBlock>(i, _output_row_binlog_lsns[i])
+                                     : std::make_shared<RowInBlock>(i));
     }
     if (_need_row_binlog_lsn) {
         _output_row_binlog_lsns.clear();

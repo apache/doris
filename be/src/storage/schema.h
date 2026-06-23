@@ -31,7 +31,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
-#include "storage/binlog.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -66,10 +65,13 @@ public:
             if (columns[i]->name() == VERSION_COL) {
                 _version_col_idx = i;
             }
-            if (columns[i]->name() == std::string(kRowBinlogLsnColName)) {
+            if (columns[i]->name() == BINLOG_LSN_COL) {
                 _lsn_col_idx = i;
             }
-            if (columns[i]->name() == std::string(kRowBinlogTsoColName)) {
+            if (columns[i]->name() == BINLOG_OP_COL) {
+                _op_col_idx = i;
+            }
+            if (columns[i]->name() == BINLOG_TSO_COL) {
                 _tso_col_idx = i;
             }
             if (columns[i]->name() == COMMIT_TSO_COL) {
@@ -106,6 +108,7 @@ public:
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     int32_t lsn_col_idx() const { return _lsn_col_idx; }
+    int32_t op_col_idx() const { return _op_col_idx; }
     int32_t tso_col_idx() const { return _tso_col_idx; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     // Don't use.
@@ -134,6 +137,7 @@ private:
     int32_t _rowid_col_idx = -1;
     int32_t _version_col_idx = -1;
     int32_t _lsn_col_idx = -1;
+    int32_t _op_col_idx = -1;
     int32_t _tso_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
     int64_t _mem_size = 0;

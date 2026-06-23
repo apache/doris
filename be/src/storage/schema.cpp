@@ -62,6 +62,7 @@ void Schema::_copy_from(const Schema& other) {
     _rowid_col_idx = other._rowid_col_idx;
     _version_col_idx = other._version_col_idx;
     _lsn_col_idx = other._lsn_col_idx;
+    _op_col_idx = other._op_col_idx;
     _tso_col_idx = other._tso_col_idx;
     _commit_tso_col_idx = other._commit_tso_col_idx;
 
