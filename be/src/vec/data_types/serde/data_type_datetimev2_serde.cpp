@@ -307,7 +307,7 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     auto val = assert_cast<const ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
             row_num);
     char buf[64];
-    char* pos = val.to_string(buf);
+    char* pos = val.to_string(buf, _scale);
     bw.write(buf, pos - buf - 1);
 
     if (_nesting_level > 1) {
