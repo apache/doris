@@ -525,8 +525,7 @@ Status ColumnReader::_get_filtered_pages(
         } else {
             segment_v2::ZoneMap zone_map;
             RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            const bool matched = _zone_map_match_condition(zone_map, col_predicates);
-            if (matched) {
+            if (_zone_map_match_condition(zone_map, col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
@@ -2479,8 +2478,6 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
         RowRanges* row_ranges) {
-    VLOG_DEBUG << fmt::format("file column zonemap column={} has_zone_map={} rows={}",
-                              column_name(), _reader->has_zone_map(), _reader->num_rows());
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
                                                             row_ranges, _opts));

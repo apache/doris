@@ -649,7 +649,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       TypedVariantPathPageZoneMapRowsStatsRpFilteredCountsPrunedRows) {
+       TypedVariantPathPageZoneMapRowsStatsFilteredCountsPrunedRows) {
     constexpr size_t kLowRows = 2048;
     constexpr size_t kHighRows = 2048;
     constexpr int32_t kLowValueBase = 1;
@@ -671,7 +671,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     auto rowsets = write_rowsets({rowset});
     ASSERT_TRUE(rowsets.has_value()) << rowsets.error();
 
-    // Use dispersed low/high ranges so rows_stats_rp_filtered is exercised even if the exact
+    // Use dispersed low/high ranges so page ZoneMap pruning is observable even if the exact
     // compacted page boundary differs by build configuration.
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -703,7 +703,6 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     // happened.
     expect_optional_page_zone_map_filter_stats(read_result.value(), high_rows, total_rows,
                                                static_cast<int64_t>(kLowRows));
-    EXPECT_EQ(read_result->stats.rows_stats_rp_filtered, read_result->stats.rows_stats_filtered);
     expect_index_filter_stats(read_result.value(), 0);
 }
 

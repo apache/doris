@@ -37,7 +37,6 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
-#include "storage/index/index_query_context.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/segment/column_reader.h"
 

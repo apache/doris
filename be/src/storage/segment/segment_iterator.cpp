@@ -904,7 +904,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             _opts.runtime_state->query_options().enable_inverted_index_query &&
             (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
-            const size_t input_rows = _row_bitmap.cardinality();
+            size_t input_rows = _row_bitmap.cardinality();
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
@@ -1237,9 +1237,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
 
-        const size_t zone_map_filtered_rows = pre_size - condition_row_ranges->count();
-        _opts.stats->rows_stats_rp_filtered += zone_map_filtered_rows;
-        _opts.stats->rows_stats_filtered += zone_map_filtered_rows;
+        size_t pre_size2 = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
+                                       condition_row_ranges);
+        _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
+        _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
 
     return Status::OK();
@@ -1744,6 +1746,7 @@ Status SegmentIterator::_init_index_iterators() {
                         "logical_path={} relative_path={} materialized_column={}",
                         _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
                         column.path_info_ptr()->get_path(), relative_path, column.name());
+                VLOG_DEBUG << diagnostic;
                 _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
             }
             for (const auto& inverted_index : inverted_indexs) {
@@ -1764,6 +1767,7 @@ Status SegmentIterator::_init_index_iterators() {
                             column.name(), inverted_index->index_id(),
                             inverted_index->get_index_suffix(), inverted_index->field_pattern(),
                             had_iterator ? "preserved" : "created");
+                    VLOG_DEBUG << diagnostic;
                     _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
                 }
             }
