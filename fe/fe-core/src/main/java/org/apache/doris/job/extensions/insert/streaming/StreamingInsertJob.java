@@ -137,6 +137,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("props")
     private Map<String, String> properties;
     private StreamingJobProperties jobProperties;
+    // Soft cap on produced-but-unconsumed splits buffered on FE; checked before each round,
+    // so the actual backlog may overshoot by up to one fetch batch.
+    private static final int MAX_PENDING_SPLITS = 512;
     @Getter
     @SerializedName("tvf")
     private String tvfType;
@@ -763,8 +766,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider.noMoreSplits()) {
             return;
         }
+        // Admit as many splits as possible this tick until the pending backlog hits the soft cap,
+        // then yield before the next tick (deadline) which resumes the rest.
+        long intervalMs = jobProperties.getMaxIntervalSecond() * 1000L;
+        long deadline = System.currentTimeMillis() + intervalMs - Math.min(1000L, intervalMs / 10);
         try {
-            offsetProvider.advanceSplits();
+            while (!offsetProvider.noMoreSplits()
+                    && offsetProvider.pendingSplitCount() < MAX_PENDING_SPLITS
+                    && System.currentTimeMillis() < deadline) {
+                int before = offsetProvider.pendingSplitCount();
+                offsetProvider.advanceSplits();
+                if (offsetProvider.pendingSplitCount() <= before) {
+                    break; // nothing produced this round; avoid spin
+                }
+            }
         } catch (Exception ex) {
             log.warn("advance splits failed, job id: {}", getJobId(), ex);
             if (this.getFailureReason() == null
