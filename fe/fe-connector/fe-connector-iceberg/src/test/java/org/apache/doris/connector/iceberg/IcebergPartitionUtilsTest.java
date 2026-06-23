@@ -222,4 +222,114 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals("[null]",
                 IcebergPartitionUtils.getPartitionDataJson(pd, spec, ZoneOffset.UTC));
     }
+
+    // ---- parsePartitionValueFromString: legacy IcebergUtils.parsePartitionValueFromString matrix (T04) ----
+    // The write-direction inverse of serializePartitionValue: BE sends human-readable partition strings, the
+    // connector converts them to iceberg internal partition objects for PartitionData. Mirrors legacy cell-by-cell.
+
+    @Test
+    public void parseNullValueReturnsNull() {
+        Assertions.assertNull(IcebergPartitionUtils.parsePartitionValueFromString(
+                null, Types.StringType.get(), ZoneOffset.UTC));
+        Assertions.assertNull(IcebergPartitionUtils.parsePartitionValueFromString(
+                null, Types.TimestampType.withZone(), SHANGHAI));
+    }
+
+    @Test
+    public void parsePrimitiveValuesByType() {
+        Assertions.assertEquals("abc", IcebergPartitionUtils.parsePartitionValueFromString(
+                "abc", Types.StringType.get(), ZoneOffset.UTC));
+        // INTEGER -> Integer, LONG -> Long: the typed object distinguishes int32 from int64 partitions.
+        Assertions.assertEquals(Integer.valueOf(42), IcebergPartitionUtils.parsePartitionValueFromString(
+                "42", Types.IntegerType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(Long.valueOf(42L), IcebergPartitionUtils.parsePartitionValueFromString(
+                "42", Types.LongType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(Boolean.TRUE, IcebergPartitionUtils.parsePartitionValueFromString(
+                "true", Types.BooleanType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(new BigDecimal("1.50"), IcebergPartitionUtils.parsePartitionValueFromString(
+                "1.50", Types.DecimalType.of(10, 2), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseFloatAndDoubleAreTyped() {
+        // MUTATION: returning a Double for a FLOAT partition would break the iceberg PartitionData type check.
+        Assertions.assertEquals(Float.valueOf(1.5f), IcebergPartitionUtils.parsePartitionValueFromString(
+                "1.5", Types.FloatType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(Double.valueOf(2.5d), IcebergPartitionUtils.parsePartitionValueFromString(
+                "2.5", Types.DoubleType.get(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseFloatNormalizesNanAndInfinity() {
+        // Legacy normalizes Doris's "nan"/"inf"/"-inf"/"infinity" spellings to Java's NaN/Infinity tokens
+        // before Float/Double.parse. MUTATION: passing the raw token straight to parseFloat -> NumberFormatException.
+        Assertions.assertTrue(Float.isNaN((Float) IcebergPartitionUtils.parsePartitionValueFromString(
+                "nan", Types.FloatType.get(), ZoneOffset.UTC)));
+        Assertions.assertEquals(Float.POSITIVE_INFINITY, IcebergPartitionUtils.parsePartitionValueFromString(
+                "inf", Types.FloatType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(Double.NEGATIVE_INFINITY, IcebergPartitionUtils.parsePartitionValueFromString(
+                "-infinity", Types.DoubleType.get(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseDateReturnsEpochDay() {
+        // DATE stored as days-since-epoch (Integer); 2021-01-01 = 18628. Inverse of serializeDateAndTimeUseIso.
+        Assertions.assertEquals(Integer.valueOf(18628), IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-01-01", Types.DateType.get(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseTimestampWithoutZoneIsInterpretedInUtc() {
+        // No zone-adjust: the wall-clock string is interpreted in UTC -> micros. Round-trips
+        // serializeTimestampWithoutZoneIsUtcWallClock (1609459200_000_000 = 2021-01-01T00:00:00Z).
+        Assertions.assertEquals(1609459200_000_000L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-01-01 00:00:00", Types.TimestampType.withoutZone(), SHANGHAI));
+    }
+
+    @Test
+    public void parseTimestamptzIsInterpretedInSessionZone() {
+        // timestamptz (shouldAdjustToUTC): the wall-clock string is read in the session zone, stored as UTC
+        // micros. 2021-01-01T08:00:00 Asia/Shanghai (+08) = 2021-01-01T00:00:00Z. Inverse of
+        // serializeTimestamptzShiftsToSessionZone. MUTATION: ignoring the zone -> 8h off -> red.
+        Assertions.assertEquals(1609459200_000_000L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-01-01 08:00:00", Types.TimestampType.withZone(), SHANGHAI));
+    }
+
+    @Test
+    public void parseTimestampKeepsMicrosecondFraction() {
+        // BE may send sub-second precision; the micros fraction must survive (not be truncated to seconds).
+        Assertions.assertEquals(1609459200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-01-01 00:00:00.123456", Types.TimestampType.withoutZone(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseUnsupportedTypeThrows() {
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergPartitionUtils.parsePartitionValueFromString(
+                        "x", Types.BinaryType.get(), ZoneOffset.UTC));
+    }
+
+    // ---- parsePartitionValuesFromJson: legacy IcebergUtils.parsePartitionValuesFromJson (T04) ----
+
+    @Test
+    public void parseJsonRoundTripsGetPartitionDataJson() {
+        // Inverse of getPartitionDataJson: ["5","cn"] -> ["5","cn"].
+        Assertions.assertEquals(java.util.Arrays.asList("5", "cn"),
+                IcebergPartitionUtils.parsePartitionValuesFromJson("[\"5\",\"cn\"]"));
+    }
+
+    @Test
+    public void parseJsonKeepsNullElement() {
+        // A genuine null partition value renders as JSON null and must parse back to a null list element.
+        List<String> values = IcebergPartitionUtils.parsePartitionValuesFromJson("[null]");
+        Assertions.assertEquals(1, values.size());
+        Assertions.assertNull(values.get(0));
+    }
+
+    @Test
+    public void parseJsonBlankReturnsEmptyList() {
+        Assertions.assertTrue(IcebergPartitionUtils.parsePartitionValuesFromJson(null).isEmpty());
+        Assertions.assertTrue(IcebergPartitionUtils.parsePartitionValuesFromJson("").isEmpty());
+        Assertions.assertTrue(IcebergPartitionUtils.parsePartitionValuesFromJson("   ").isEmpty());
+    }
 }

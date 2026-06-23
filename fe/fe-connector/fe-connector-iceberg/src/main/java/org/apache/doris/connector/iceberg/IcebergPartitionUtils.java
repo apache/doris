@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Preconditions;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
@@ -30,12 +31,16 @@ import org.apache.iceberg.util.JsonUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -227,6 +232,103 @@ final class IcebergPartitionUtils {
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
+        }
+    }
+
+    // Canonical partition-timestamp format ("yyyy-MM-dd HH:mm:ss" with an optional micro/nano fraction),
+    // the form BE renders human-readable partition values in. Legacy parsed via the nereids multi-format
+    // DateLiteral.parseDateTime (connector-forbidden); the canonical form is the only one BE emits, so this
+    // single formatter is equivalent in practice (DV-T04-c). Mirrors the scan-side IcebergTimeUtils tradeoff.
+    private static final DateTimeFormatter TIMESTAMP_PARTITION_FORMAT = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+            .optionalEnd()
+            .toFormatter();
+
+    /**
+     * Faithful port of legacy {@code IcebergUtils.parsePartitionValueFromString}: the write-direction inverse
+     * of {@link #serializePartitionValue} — BE sends a human-readable partition string, this converts it to
+     * the iceberg internal partition object (DATE -&gt; epoch-day Integer, TIMESTAMP -&gt; epoch-micros Long,
+     * etc.) for {@link PartitionData}. {@code null} passes through as {@code null}.
+     *
+     * <p>Two documented deltas vs legacy (DV-T04-c/-f): the TIMESTAMP case parses the canonical format with an
+     * explicit resolved {@code zone} (legacy used the multi-format nereids parser + a thread-local zone), and
+     * FLOAT/DOUBLE normalize Doris's {@code nan}/{@code inf}/{@code infinity} spellings before parsing.</p>
+     */
+    static Object parsePartitionValueFromString(String valueStr, Type icebergType, ZoneId zone) {
+        if (valueStr == null) {
+            return null;
+        }
+        try {
+            switch (icebergType.typeId()) {
+                case STRING:
+                    return valueStr;
+                case INTEGER:
+                    return Integer.parseInt(valueStr);
+                case LONG:
+                    return Long.parseLong(valueStr);
+                case FLOAT:
+                    return Float.parseFloat(normalizeFloatingPointPartitionValue(valueStr));
+                case DOUBLE:
+                    return Double.parseDouble(normalizeFloatingPointPartitionValue(valueStr));
+                case BOOLEAN:
+                    return Boolean.parseBoolean(valueStr);
+                case DATE:
+                    // Iceberg date is days since epoch (1970-01-01).
+                    return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIMESTAMP:
+                    return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);
+                case DECIMAL:
+                    return new BigDecimal(valueStr);
+                default:
+                    throw new IllegalArgumentException("Unsupported partition value type: " + icebergType);
+            }
+        } catch (Exception e) {
+            throw new IllegalArgumentException(String.format(
+                    "Failed to convert partition value '%s' to type %s", valueStr, icebergType), e);
+        }
+    }
+
+    private static String normalizeFloatingPointPartitionValue(String valueStr) {
+        if ("nan".equalsIgnoreCase(valueStr)) {
+            return "NaN";
+        }
+        if ("inf".equalsIgnoreCase(valueStr) || "+inf".equalsIgnoreCase(valueStr)
+                || "infinity".equalsIgnoreCase(valueStr) || "+infinity".equalsIgnoreCase(valueStr)) {
+            return "Infinity";
+        }
+        if ("-inf".equalsIgnoreCase(valueStr) || "-infinity".equalsIgnoreCase(valueStr)) {
+            return "-Infinity";
+        }
+        return valueStr;
+    }
+
+    private static long parseTimestampToMicros(String valueStr, TimestampType timestampType, ZoneId sessionZone) {
+        LocalDateTime ldt = LocalDateTime.parse(valueStr, TIMESTAMP_PARTITION_FORMAT);
+        // timestamptz (shouldAdjustToUTC): interpret the wall-clock string in the session zone; plain timestamp:
+        // interpret it in UTC. Mirrors legacy parseTimestampToMicros (DateUtils.getTimeZone vs ZoneId.of("UTC")).
+        ZoneId zone = timestampType.shouldAdjustToUTC() ? sessionZone : ZoneOffset.UTC;
+        Instant instant = ldt.atZone(zone).toInstant();
+        return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+    }
+
+    /**
+     * Faithful port of legacy {@code IcebergUtils.parsePartitionValuesFromJson}: parse a
+     * {@code partition_data_json} array (the inverse of {@link #getPartitionDataJson}) back to its list of
+     * serialized partition value strings. Rendered/parsed via iceberg's bundled Jackson rather than fe-core
+     * Gson (DV-T04-d) — the JSON array of strings is byte-identical either way. A blank input or a parse
+     * failure yields an empty list (legacy parity).
+     */
+    static List<String> parsePartitionValuesFromJson(String partitionDataJson) {
+        if (partitionDataJson == null || partitionDataJson.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+        try {
+            return JsonUtil.mapper().readValue(partitionDataJson, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            LOG.warn("Failed to parse partition data JSON: {}", partitionDataJson, e);
+            return new ArrayList<>();
         }
     }
 }
