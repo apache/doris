@@ -796,6 +796,15 @@ class IvmJoinDeltaHandler {
                     if (snapshotSlot != null) {
                         newProjects.add(new Alias(alias.getExprId(), snapshotSlot, alias.getName()));
                     }
+                } else if (childExpr instanceof NullLiteral) {
+                    // Hidden columns (e.g. __DORIS_DELETE_SIGN__) use NULL placeholder
+                    // in stream scan project; try to resolve from snapshot scan.
+                    Slot snapshotSlot = snapshotSlotByName.get(alias.getName());
+                    if (snapshotSlot == null) {
+                        throw new AnalysisException("IVM: snapshot scan missing hidden column "
+                                + alias.getName() + " for table " + snapshotScan.getTable().getName());
+                    }
+                    newProjects.add(new Alias(alias.getExprId(), snapshotSlot, alias.getName()));
                 }
             } else if (expr instanceof Slot) {
                 // Passthrough SlotReference (e.g. stream-only columns added by

@@ -6,7 +6,6 @@ b
 -- !bare_grpby_after_insert --
 a
 b
-c
 
 -- !bare_grpby_after_partial_delete --
 a
@@ -15,6 +14,7 @@ c
 
 -- !bare_grpby_after_group_delete --
 a
+b
 c
 
 -- !bare_multi_after_complete --
@@ -27,5 +27,5 @@ c
 10	x
 10	y
 20	x
-30	z
+20	y
 

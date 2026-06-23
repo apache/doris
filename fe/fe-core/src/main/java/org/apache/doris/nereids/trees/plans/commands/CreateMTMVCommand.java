@@ -25,6 +25,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -103,7 +105,6 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
         String mvName = createMTMVInfo.getTableName();
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(mvDbName);
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException(mvName);
-        long mvId = mtmv.getId();
         Set<TableNameInfo> excluded = mtmv.getExcludedTriggerTables();
         for (BaseTableInfo baseTableInfo : baseTables) {
             // Skip excluded trigger tables — they don't participate in incremental refresh
@@ -115,33 +116,54 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
                 continue;
             }
             TableIf table = MTMVUtil.getTable(baseTableInfo);
-            String streamName = IvmUtil.streamName(mvId, table.getName());
-            TableNameInfo streamTableName = new TableNameInfo(
-                    InternalCatalog.INTERNAL_CATALOG_NAME, mvDbName, streamName);
-            TableNameInfo baseTableName = new TableNameInfo(
-                    InternalCatalog.INTERNAL_CATALOG_NAME,
-                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
-            // Drop old stream if exists, so validation always runs on the fresh stream
-            TableIf oldStream = db.getTableNullable(streamName);
-            if (oldStream != null) {
-                Env.getCurrentInternalCatalog().dropTableWithoutCheck(
-                        db, (Table) oldStream, false, true /* forceDrop */);
-            }
-            Map<String, String> streamProps = new HashMap<>();
-            if (table instanceof OlapTable && ((OlapTable) table).isUniqKeyMergeOnWrite()) {
-                streamProps.put("type", "min_delta");
-            }
-            CreateStreamInfo streamInfo = new CreateStreamInfo(
-                    false /* ifNotExists */, false /* orReplace */,
-                    streamTableName, baseTableName,
-                    streamProps, "" /* comment */);
-            streamInfo.validate(ctx);
-            Env.getCurrentEnv().getInternalCatalog().createTableStream(
-                    new CreateStreamCommand(streamInfo));
-            createdStreamNames.add(streamName);
-            LOG.info("IVM: auto-created stream {} for MTMV {} base table {}",
-                    streamName, mvId, table.getName());
+            createTableStream(ctx, db, mtmv, table, baseTableInfo.getDbName(), createdStreamNames);
         }
+    }
+
+    /**
+     * Creates a stream for a single base table of an IVM MTMV.
+     * Drops any existing stream first, then creates a fresh one.
+     *
+     * @param ctx connection context
+     * @param mvDb database containing the MTMV
+     * @param mtmv the MTMV
+     * @param baseTable the base table to create stream for
+     * @param baseTableDbName the database name of the base table
+     * @param createdStreamNames output list to collect created stream names (for rollback)
+     */
+    static void createTableStream(ConnectContext ctx, Database mvDb, MTMV mtmv, TableIf baseTable,
+            String baseTableDbName, List<String> createdStreamNames) throws Exception {
+        String mvDbName = mvDb.getFullName();
+        long mvId = mtmv.getId();
+        String streamName = IvmUtil.streamName(mvId, baseTable.getName());
+        TableNameInfo streamTableName = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME, mvDbName, streamName);
+        TableNameInfo baseTableName = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME, baseTableDbName, baseTable.getName());
+        // Drop old stream if exists, so validation always runs on the fresh stream
+        TableIf oldStream = mvDb.getTableNullable(streamName);
+        if (oldStream != null) {
+            Env.getCurrentInternalCatalog().dropTableWithoutCheck(
+                    mvDb, (Table) oldStream, false, true /* forceDrop */);
+        }
+        Map<String, String> streamProps = new HashMap<>();
+        streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS, "true");
+        if (baseTable instanceof OlapTable && ((OlapTable) baseTable).isUniqKeyMergeOnWrite()) {
+            streamProps.put(PropertyAnalyzer.PROPERTIES_STREAM_TYPE,
+                    StreamScanType.MIN_DELTA.name().toLowerCase());
+        }
+        CreateStreamInfo streamInfo = new CreateStreamInfo(
+                false /* ifNotExists */, false /* orReplace */,
+                streamTableName, baseTableName,
+                streamProps, "" /* comment */);
+        streamInfo.validate(ctx);
+        Env.getCurrentEnv().getInternalCatalog().createTableStream(
+                new CreateStreamCommand(streamInfo));
+        if (createdStreamNames != null) {
+            createdStreamNames.add(streamName);
+        }
+        LOG.info("IVM: auto-created stream {} for MTMV {} base table {}",
+                streamName, mvId, baseTable.getName());
     }
 
     private void dropStreamsForce(List<String> streamNames) {
