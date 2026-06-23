@@ -263,8 +263,8 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     if (is_versioned_read) {
         CloneChainReader reader(instance_id, txn_kv_.get(), resource_mgr_.get());
         if (is_table_version) {
-            Versionstamp table_version;
-            TxnErrorCode err = reader.get_table_version(table_id, &table_version);
+            TableVersionWithUpdateTime table_version;
+            TxnErrorCode err = reader.get_table_version_with_update_time(table_id, &table_version);
             if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
                 msg = "table version not found";
                 code = MetaServiceCode::VERSION_NOT_FOUND;
@@ -274,7 +274,8 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = fmt::format("failed to get table version, err={} table_id={}", err, table_id);
                 return;
             }
-            response->set_version(table_version.version());
+            response->set_version(table_version.version.version());
+            response->add_table_update_time_ms(table_version.update_time.update_time_ms());
         } else {
             VersionPB partition_version;
             TxnErrorCode err =
@@ -309,6 +310,17 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
 
             response->set_version(partition_version.version());
             response->add_version_update_time_ms(partition_version.update_time_ms());
+            TableVersionWithUpdateTime table_version;
+            err = reader.get_table_version_with_update_time(table_id, &table_version);
+            if (err == TxnErrorCode::TXN_OK) {
+                response->add_table_update_time_ms(table_version.update_time.update_time_ms());
+            } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                response->add_table_update_time_ms(0);
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get table version, err={} table_id={}", err, table_id);
+                return;
+            }
         }
         TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
@@ -343,6 +355,19 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 return;
             }
             response->set_version(version);
+            TableUpdateTimePB update_time;
+            TxnErrorCode update_time_err =
+                    get_table_update_time(txn.get(), instance_id, db_id, table_id, &update_time);
+            if (update_time_err == TxnErrorCode::TXN_OK) {
+                response->add_table_update_time_ms(update_time.update_time_ms());
+            } else if (update_time_err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                response->add_table_update_time_ms(0);
+            } else {
+                code = cast_as<ErrCategory::READ>(update_time_err);
+                msg = fmt::format("failed to get table update time, err={} table_id={}",
+                                  update_time_err, table_id);
+                return;
+            }
         } else {
             VersionPB version_pb;
             if (!version_pb.ParseFromString(ver_val)) {
@@ -375,6 +400,19 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
 
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
+            TableUpdateTimePB update_time;
+            TxnErrorCode update_time_err =
+                    get_table_update_time(txn.get(), instance_id, db_id, table_id, &update_time);
+            if (update_time_err == TxnErrorCode::TXN_OK) {
+                response->add_table_update_time_ms(update_time.update_time_ms());
+            } else if (update_time_err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                response->add_table_update_time_ms(0);
+            } else {
+                code = cast_as<ErrCategory::READ>(update_time_err);
+                msg = fmt::format("failed to get table update time, err={} table_id={}",
+                                  update_time_err, table_id);
+                return;
+            }
         }
         TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
@@ -438,6 +476,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             response->clear_table_ids();
             response->clear_versions();
             response->clear_db_ids();
+            response->clear_table_update_time_ms();
         }
         return;
     }
@@ -503,10 +542,14 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             }
 
             if (is_table_version) {
+                std::vector<std::string> table_update_time_keys;
+                table_update_time_keys.reserve(version_values.size());
+                std::vector<std::optional<std::string>> table_update_time_values;
                 for (auto&& value : version_values) {
                     if (!value.has_value()) {
                         // return -1 if the target version is not exists.
                         response->add_versions(-1);
+                        table_update_time_keys.emplace_back();
                     } else {
                         int64_t version = 0;
                         if (!txn->decode_atomic_int(*value, &version)) {
@@ -515,7 +558,53 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                             break;
                         }
                         response->add_versions(version);
+                        size_t idx = table_update_time_keys.size();
+                        table_update_time_keys.push_back(
+                                table_update_time_key({instance_id, request->db_ids(i + idx),
+                                                       request->table_ids(i + idx)}));
                     }
+                }
+                if (code != MetaServiceCode::OK) {
+                    break;
+                }
+                std::vector<std::string> non_empty_update_time_keys;
+                non_empty_update_time_keys.reserve(table_update_time_keys.size());
+                std::vector<size_t> update_time_key_indexes;
+                update_time_key_indexes.reserve(table_update_time_keys.size());
+                for (size_t idx = 0; idx < table_update_time_keys.size(); ++idx) {
+                    if (!table_update_time_keys[idx].empty()) {
+                        non_empty_update_time_keys.push_back(table_update_time_keys[idx]);
+                        update_time_key_indexes.push_back(idx);
+                    }
+                }
+                std::vector<int64_t> update_times(table_update_time_keys.size(), 0);
+                if (!non_empty_update_time_keys.empty()) {
+                    err = txn->batch_get(&table_update_time_values, non_empty_update_time_keys);
+                    if (err != TxnErrorCode::TXN_OK) {
+                        msg = fmt::format(
+                                "failed to batch get table update times, index={}, err={}", i, err);
+                        code = cast_as<ErrCategory::READ>(err);
+                        break;
+                    }
+                    for (size_t idx = 0; idx < table_update_time_values.size(); ++idx) {
+                        const auto& value = table_update_time_values[idx];
+                        if (!value.has_value()) {
+                            continue;
+                        }
+                        TableUpdateTimePB update_time;
+                        if (!update_time.ParseFromString(*value)) {
+                            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                            msg = "malformed table update time value";
+                            break;
+                        }
+                        update_times[update_time_key_indexes[idx]] = update_time.update_time_ms();
+                    }
+                    if (code != MetaServiceCode::OK) {
+                        break;
+                    }
+                }
+                for (int64_t update_time : update_times) {
+                    response->add_table_update_time_ms(update_time);
                 }
             } else {
                 std::vector<VersionPB> partition_versions;
@@ -552,6 +641,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         response->clear_partition_ids();
         response->clear_table_ids();
         response->clear_versions();
+        response->clear_table_update_time_ms();
     }
 }
 
@@ -586,8 +676,8 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_table_version
             for (size_t j = i; j < limit; j++) {
                 acquired_ids.push_back(request->table_ids(j));
             }
-            std::unordered_map<int64_t, Versionstamp> table_versions;
-            err = reader.get_table_versions(acquired_ids, &table_versions, true);
+            std::unordered_map<int64_t, TableVersionWithUpdateTime> table_versions;
+            err = reader.get_table_versions_with_update_time(acquired_ids, &table_versions, true);
             TEST_SYNC_POINT_CALLBACK("batch_get_version_err", &err);
             if (err == TxnErrorCode::TXN_TOO_OLD) {
                 // txn too old, fallback to non-snapshot versions.
@@ -604,8 +694,10 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_table_version
                 if (it == table_versions.end()) {
                     // return -1 if the target version is not exists.
                     response->add_versions(-1);
+                    response->add_table_update_time_ms(0);
                 } else {
-                    response->add_versions(it->second.version());
+                    response->add_versions(it->second.version.version());
+                    response->add_table_update_time_ms(it->second.update_time.update_time_ms());
                 }
             }
         }

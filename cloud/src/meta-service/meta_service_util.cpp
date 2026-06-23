@@ -74,15 +74,53 @@ using namespace std::chrono;
 namespace doris::cloud {
 
 void MetaServiceImpl::update_table_version(Transaction* txn, std::string_view instance_id,
-                                           int64_t db_id, int64_t table_id) {
-    LOG_INFO("update table version").tag("db_id", db_id).tag("table_id", table_id);
+                                           int64_t db_id, int64_t table_id,
+                                           int64_t update_time_ms) {
+    LOG_INFO("update table version")
+            .tag("db_id", db_id)
+            .tag("table_id", table_id)
+            .tag("update_time_ms", update_time_ms);
+
+    TableUpdateTimePB update_time;
+    update_time.set_update_time_ms(update_time_ms);
+    std::string update_time_value;
+    if (!update_time.SerializeToString(&update_time_value)) {
+        LOG_WARNING("failed to serialize table update time")
+                .tag("db_id", db_id)
+                .tag("table_id", table_id)
+                .tag("update_time_ms", update_time_ms);
+        return;
+    }
 
     std::string ver_key = table_version_key({instance_id, db_id, table_id});
     txn->atomic_add(ver_key, 1);
+
+    std::string update_time_key = table_update_time_key({instance_id, db_id, table_id});
+    txn->put(update_time_key, update_time_value);
+
     if (is_version_write_enabled(instance_id)) {
         std::string table_version_key = versioned::table_version_key({instance_id, table_id});
-        versioned_put(txn, table_version_key, "");
+        versioned_put(txn, table_version_key, update_time_value);
     }
+}
+
+TxnErrorCode MetaServiceImpl::get_table_update_time(Transaction* txn, std::string_view instance_id,
+                                                    int64_t db_id, int64_t table_id,
+                                                    TableUpdateTimePB* update_time) {
+    std::string key = table_update_time_key({instance_id, db_id, table_id});
+    std::string value;
+    TxnErrorCode err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    if (!update_time->ParseFromString(value)) {
+        LOG_WARNING("malformed table update time value")
+                .tag("db_id", db_id)
+                .tag("table_id", table_id)
+                .tag("key", hex(key));
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    return TxnErrorCode::TXN_OK;
 }
 
 bool MetaServiceImpl::is_version_read_enabled(std::string_view instance_id) const {

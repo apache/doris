@@ -547,6 +547,10 @@ message VersionPB {
     repeated int64 pending_txn_ids = 3;
 }
 
+message TableUpdateTimePB {
+    optional int64 update_time_ms = 1;
+}
+
 message RecycleTxnPB {
     optional int64 creation_time = 1;
     optional string label = 2;
@@ -1228,6 +1232,7 @@ message GetVersionResponse {
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
     repeated int64 version_update_time_ms = 7;
+    repeated int64 table_update_time_ms = 8;
 };
 
 message GetObjStoreInfoRequest {
@@ -1413,6 +1418,7 @@ message IndexRequest {
 message IndexResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 table_version = 2;
+    optional int64 table_update_time_ms = 3;
 }
 
 message PartitionRequest {
@@ -1430,6 +1436,7 @@ message PartitionRequest {
 message PartitionResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 table_version = 2;
+    optional int64 table_update_time_ms = 3;
 }
 
 message RestoreJobRequest {

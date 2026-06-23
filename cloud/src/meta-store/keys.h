@@ -37,6 +37,7 @@
 //
 // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
 // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                     -> int64
+// 0x01 "version" ${instance_id} "table_update_time" ${db_id} ${tbl_id}         -> TableUpdateTimePB
 //
 // 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                                   -> RowsetMetaCloudPB
 // 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}                                -> RowsetMetaCloudPB
@@ -237,6 +238,8 @@ using StorageVaultKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, std::
 
 //                                                      0:instance_id 1:db_id 2:table_id
 using TableVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
+//                                                      0:instance_id 1:db_id 2:table_id
+using TableUpdateTimeKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 //                                                      0:instance_id  1:index_id
 using MetaSchemaPBDictionaryInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t>>;
 //                                                        0:instance_id 1:table_id 2:initiator
@@ -362,6 +365,8 @@ void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
 void table_version_key(const TableVersionKeyInfo& in, std::string* out);
 static inline std::string table_version_key(const TableVersionKeyInfo& in) { std::string s; table_version_key(in, &s); return s; }
+void table_update_time_key(const TableUpdateTimeKeyInfo& in, std::string* out);
+static inline std::string table_update_time_key(const TableUpdateTimeKeyInfo& in) { std::string s; table_update_time_key(in, &s); return s; }
 
 std::string meta_key_prefix(std::string_view instance_id);
 void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out);

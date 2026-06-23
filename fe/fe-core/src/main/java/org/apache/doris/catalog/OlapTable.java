@@ -240,6 +240,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // This value is set when get the table version from meta-service, 0 means version is not cached yet
     private volatile long lastTableVersionCachedTimeMs = 0;
     private volatile long cachedTableVersion = -1;
+    private volatile long cachedTableUpdateTimeMs = 0;
 
     private ReadWriteLock versionLock = Config.isCloudMode() ? new ReentrantReadWriteLock(true) : null;
 
@@ -766,6 +767,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long getUpdateTime() {
+        if (Config.isCloudMode() && cachedTableUpdateTimeMs > 0) {
+            return cachedTableUpdateTimeMs;
+        }
+        return getPartitionMaxUpdateTime();
+    }
+
+    private long getPartitionMaxUpdateTime() {
         long updateTime = tempPartitions.getUpdateTime();
         for (Partition p : idToPartition.values()) {
             if (p.getVisibleVersionTime() > updateTime) {
@@ -3531,8 +3539,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void setCachedTableVersion(long version) {
-        if (version >= cachedTableVersion) {
+        long updateTimeMs = version > cachedTableVersion ? 0 : cachedTableUpdateTimeMs;
+        setCachedTableVersionAndUpdateTime(version, updateTimeMs, version <= cachedTableVersion);
+    }
+
+    public void setCachedTableVersionAndUpdateTime(long version, long updateTimeMs) {
+        setCachedTableVersionAndUpdateTime(version, updateTimeMs, true);
+    }
+
+    public void setCachedTableVersionAndUpdateTime(long version, long updateTimeMs, boolean hasUpdateTimeMs) {
+        if (version > cachedTableVersion) {
             cachedTableVersion = version;
+            cachedTableUpdateTimeMs = hasUpdateTimeMs ? updateTimeMs : 0L;
+            lastTableVersionCachedTimeMs = System.currentTimeMillis();
+        } else if (version == cachedTableVersion) {
+            if (hasUpdateTimeMs) {
+                cachedTableUpdateTimeMs = updateTimeMs;
+            }
             lastTableVersionCachedTimeMs = System.currentTimeMillis();
         }
     }
@@ -3576,7 +3599,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 version = 1;
             }
             // update cache
-            setCachedTableVersion(version);
+            boolean hasTableUpdateTimeMs = resp.getTableUpdateTimeMsCount() == 1;
+            long tableUpdateTimeMs = hasTableUpdateTimeMs ? resp.getTableUpdateTimeMs(0) : 0;
+            setCachedTableVersionAndUpdateTime(version, tableUpdateTimeMs, hasTableUpdateTimeMs);
             return version;
         } catch (RpcException e) {
             LOG.warn("get version from meta service failed", e);
@@ -3646,17 +3671,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tableIds.add(table.getId());
         }
 
-        List<Long> versions = getVisibleVersionFromMeta(dbIds, tableIds);
+        TableVersionAndUpdateTime versionAndUpdateTime = getVisibleVersionAndUpdateTimeFromMeta(dbIds, tableIds);
+        List<Long> versions = versionAndUpdateTime.first;
+        List<Long> tableUpdateTimes = versionAndUpdateTime.second;
 
         // update cache
         Preconditions.checkState(tables.size() == versions.size());
         for (int i = 0; i < tables.size(); i++) {
-            tables.get(i).setCachedTableVersion(versions.get(i));
+            tables.get(i).setCachedTableVersionAndUpdateTime(versions.get(i), tableUpdateTimes.get(i),
+                    versionAndUpdateTime.hasTableUpdateTimeMs);
         }
         return versions;
     }
 
     public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+        return getVisibleVersionAndUpdateTimeFromMeta(dbIds, tableIds).first;
+    }
+
+    public static TableVersionAndUpdateTime getVisibleVersionAndUpdateTimeFromMeta(
+            List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3676,9 +3709,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
 
             List<Long> versions = resp.getVersionsList();
+            boolean hasTableUpdateTimeMs = !resp.getTableUpdateTimeMsList().isEmpty();
+            List<Long> tableUpdateTimes = new ArrayList<>(resp.getTableUpdateTimeMsList());
             if (versions.size() != tableIds.size()) {
                 throw new RpcException("get table visible version",
                         "wrong number of versions, required " + tableIds.size() + ", but got " + versions.size());
+            }
+            if (!tableUpdateTimes.isEmpty() && tableUpdateTimes.size() != tableIds.size()) {
+                throw new RpcException("get table visible version",
+                        "wrong number of table update times, required " + tableIds.size()
+                                + ", but got " + tableUpdateTimes.size());
+            }
+            while (tableUpdateTimes.size() < tableIds.size()) {
+                tableUpdateTimes.add(0L);
             }
 
             if (LOG.isDebugEnabled()) {
@@ -3692,9 +3735,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 }
             }
 
-            return versions;
+            return new TableVersionAndUpdateTime(versions, tableUpdateTimes, hasTableUpdateTimeMs);
         } catch (RpcException e) {
             throw new RuntimeException("get table version from meta service failed", e);
+        }
+    }
+
+    public static class TableVersionAndUpdateTime {
+        public final List<Long> first;
+        public final List<Long> second;
+        public final boolean hasTableUpdateTimeMs;
+
+        public TableVersionAndUpdateTime(List<Long> versions, List<Long> tableUpdateTimes,
+                boolean hasTableUpdateTimeMs) {
+            this.first = versions;
+            this.second = tableUpdateTimes;
+            this.hasTableUpdateTimeMs = hasTableUpdateTimeMs;
         }
     }
 

@@ -1872,7 +1872,7 @@ void MetaServiceImpl::commit_txn_immediately(
                 }
                 table_version_map[table_id] = table_version + 1;
             }
-            update_table_version(txn.get(), instance_id, db_id, i.first);
+            update_table_version(txn.get(), instance_id, db_id, i.first, version_update_time_ms);
             commit_txn_log.add_table_ids(i.first);
         }
 
@@ -2575,7 +2575,7 @@ void MetaServiceImpl::commit_txn_eventually(
                 }
                 table_version_map[table_id] = table_version + 1;
             }
-            update_table_version(txn.get(), instance_id, db_id, i.first);
+            update_table_version(txn.get(), instance_id, db_id, i.first, version_update_time_ms);
             commit_txn_log.add_table_ids(i.first);
         }
 
@@ -2994,6 +2994,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             std::string ver_val;
             VersionPB version_pb;
             version_pb.set_version(new_version);
+            version_pb.set_update_time_ms(rowsets_visible_ts_ms);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
@@ -3064,7 +3065,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 }
                 table_version_map[table_id] = table_version + 1;
             }
-            update_table_version(txn.get(), instance_id, db_id, i.first);
+            update_table_version(txn.get(), instance_id, db_id, i.first, rowsets_visible_ts_ms);
             commit_txn_log.add_table_ids(i.first);
         }
 

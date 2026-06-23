@@ -37,6 +37,12 @@ namespace doris::cloud {
 using check_create_table_type = std::function<const std::tuple<
         const ::google::protobuf::RepeatedField<int64_t>, std::string,
         std::function<std::string(std::string, int64_t)>>(const CheckKVRequest* request)>;
+
+static int64_t current_time_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
+}
 // ATTN: xxx_id MUST NOT be reused
 //
 //              UNKNOWN
@@ -362,7 +368,10 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
             response->set_table_version(table_version + 1);
         }
         // init table version, for create and truncate table
-        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+        int64_t table_update_time_ms = current_time_ms();
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id(),
+                             table_update_time_ms);
+        response->set_table_update_time_ms(table_update_time_ms);
         commit_index_log.set_update_table_version(true);
     }
 
@@ -877,7 +886,10 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
         }
         response->set_table_version(table_version + 1);
     }
-    update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+    int64_t table_update_time_ms = current_time_ms();
+    update_table_version(txn.get(), instance_id, request->db_id(), request->table_id(),
+                         table_update_time_ms);
+    response->set_table_update_time_ms(table_update_time_ms);
 
     if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
         std::string operation_log_key = versioned::log_key({instance_id});
@@ -1067,7 +1079,10 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
             }
             response->set_table_version(table_version + 1);
         }
-        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+        int64_t table_update_time_ms = current_time_ms();
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id(),
+                             table_update_time_ms);
+        response->set_table_update_time_ms(table_update_time_ms);
         drop_partition_log.set_update_table_version(true);
     }
 

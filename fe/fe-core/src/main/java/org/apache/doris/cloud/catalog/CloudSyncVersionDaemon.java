@@ -59,14 +59,14 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
             return;
         }
         LOG.info("begin sync cloud table and partition version");
-        Map<OlapTable, Long> tableVersionMap = syncTableVersions();
+        Map<OlapTable, TableVersionInfo> tableVersionMap = syncTableVersions();
         if (!tableVersionMap.isEmpty()) {
             syncPartitionVersion(tableVersionMap);
         }
     }
 
-    private Map<OlapTable, Long> syncTableVersions() {
-        Map<OlapTable, Long> tableVersionMap = new ConcurrentHashMap<>();
+    private Map<OlapTable, TableVersionInfo> syncTableVersions() {
+        Map<OlapTable, TableVersionInfo> tableVersionMap = new ConcurrentHashMap<>();
         List<Future<Void>> futures = new ArrayList<>();
         long start = System.currentTimeMillis();
         List<Long> dbIds = new ArrayList<>();
@@ -117,25 +117,31 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
         return tableVersionMap;
     }
 
-    private Future<Void> submitGetTableVersionTask(Map<OlapTable, Long> tableVersionMap, List<Long> dbIds,
-            List<Long> tableIds, List<OlapTable> tables) {
+    private Future<Void> submitGetTableVersionTask(Map<OlapTable, TableVersionInfo> tableVersionMap,
+            List<Long> dbIds, List<Long> tableIds, List<OlapTable> tables) {
         return GET_VERSION_THREAD_POOL.submit(() -> {
             try {
-                List<Long> versions = OlapTable.getVisibleVersionFromMeta(dbIds, tableIds);
+                OlapTable.TableVersionAndUpdateTime versionAndUpdateTimes =
+                        OlapTable.getVisibleVersionAndUpdateTimeFromMeta(dbIds, tableIds);
+                List<Long> versions = versionAndUpdateTimes.first;
+                List<Long> updateTimes = versionAndUpdateTimes.second;
                 for (int i = 0; i < tables.size(); i++) {
                     OlapTable table = tables.get(i);
                     long version = versions.get(i);
+                    long updateTime = updateTimes.get(i);
                     if (version > table.getCachedTableVersion()) {
                         tableVersionMap.compute(table, (k, v) -> {
-                            if (v == null || version > v) {
-                                return version;
+                            if (v == null || version > v.version) {
+                                return new TableVersionInfo(version, updateTime,
+                                        versionAndUpdateTimes.hasTableUpdateTimeMs);
                             } else {
                                 return v;
                             }
                         });
                     } else {
                         // update lastTableVersionCachedTimeMs
-                        table.setCachedTableVersion(version);
+                        table.setCachedTableVersionAndUpdateTime(version, updateTime,
+                                versionAndUpdateTimes.hasTableUpdateTimeMs);
                     }
                 }
             } catch (Exception e) {
@@ -145,16 +151,17 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
         });
     }
 
-    private void syncPartitionVersion(Map<OlapTable, Long> tableVersionMap) {
+    private void syncPartitionVersion(Map<OlapTable, TableVersionInfo> tableVersionMap) {
         Set<Long> failedTables = ConcurrentHashMap.newKeySet();
         List<Future<Void>> futures = new ArrayList<>();
         long start = System.currentTimeMillis();
         List<CloudPartition> partitions = new ArrayList<>();
         // TODO meta service support range scan partition versions
-        for (Entry<OlapTable, Long> entry : tableVersionMap.entrySet()) {
+        for (Entry<OlapTable, TableVersionInfo> entry : tableVersionMap.entrySet()) {
             OlapTable olapTable = entry.getKey();
             LOG.info("sync partition version for db: {}, table: {}, table cache version: {}, new version: {}",
-                    olapTable.getDatabase().getId(), olapTable, olapTable.getCachedTableVersion(), entry.getValue());
+                    olapTable.getDatabase().getId(), olapTable, olapTable.getCachedTableVersion(),
+                    entry.getValue().version);
             for (Partition partition : olapTable.getAllPartitions()) {
                 partitions.add((CloudPartition) partition);
                 if (partitions.size() >= Config.cloud_get_version_task_batch_size) {
@@ -177,10 +184,12 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
             LOG.error("Error waiting for get partition version tasks to complete", e);
         }
         // set table version for success tables
-        for (Entry<OlapTable, Long> entry : tableVersionMap.entrySet()) {
+        for (Entry<OlapTable, TableVersionInfo> entry : tableVersionMap.entrySet()) {
             if (!failedTables.contains(entry.getKey().getId())) {
                 OlapTable olapTable = entry.getKey();
-                olapTable.setCachedTableVersion(entry.getValue());
+                TableVersionInfo tableVersion = entry.getValue();
+                olapTable.setCachedTableVersionAndUpdateTime(tableVersion.version, tableVersion.updateTimeMs,
+                        tableVersion.hasUpdateTimeMs);
             }
         }
         LOG.info("sync partition version cost {} ms, table size: {}, rpc size: {}, failed tables: {}",
@@ -199,5 +208,17 @@ public class CloudSyncVersionDaemon extends MasterDaemon {
             }
             return null;
         });
+    }
+
+    private static class TableVersionInfo {
+        private final long version;
+        private final long updateTimeMs;
+        private final boolean hasUpdateTimeMs;
+
+        private TableVersionInfo(long version, long updateTimeMs, boolean hasUpdateTimeMs) {
+            this.version = version;
+            this.updateTimeMs = updateTimeMs;
+            this.hasUpdateTimeMs = hasUpdateTimeMs;
+        }
     }
 }

@@ -430,8 +430,11 @@ public class PartitionsProcDir implements ProcDirInterface {
             // sync table version
             // Note: does not update table version cache to avoid that when getting partition version fails,
             // the table version cache is updated but partition version cache is not updated.
-            List<Long> tableVersions = OlapTable.getVisibleVersionFromMeta(Lists.newArrayList(dbId),
-                    Lists.newArrayList(olapTable.getId()));
+            OlapTable.TableVersionAndUpdateTime versionAndUpdateTimes =
+                    OlapTable.getVisibleVersionAndUpdateTimeFromMeta(
+                            Lists.newArrayList(dbId), Lists.newArrayList(olapTable.getId()));
+            List<Long> tableVersions = versionAndUpdateTimes.first;
+            long tableUpdateTimeMs = versionAndUpdateTimes.second.get(0);
             List<Pair<OlapTable, Long>> tableVersionMap = Lists.newArrayList(Pair.of(olapTable, tableVersions.get(0)));
             // sync partition version
             List<CloudPartition> partitions = partitionIds.stream()
@@ -456,7 +459,8 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
             // push to other fes
             ((CloudEnv) (Env.getCurrentEnv())).getCloudFEVersionSynchronizer()
-                    .pushVersionAsync(dbId, tableVersionMap, partitionVersionMap);
+                    .pushVersionWithUpdateTimeAsync(dbId, tableVersionMap, tableUpdateTimeMs,
+                            versionAndUpdateTimes.hasTableUpdateTimeMs, partitionVersionMap);
         } else {
             List<CloudPartition> partitions = partitionIds.stream()
                     .map(id -> (CloudPartition) (olapTable.getPartition(id))).collect(Collectors.toList());

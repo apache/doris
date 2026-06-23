@@ -2738,6 +2738,9 @@ int InstanceRecycler::recycle_versions() {
         auto tbl_version_key = table_version_key({instance_id_, db_id, table_id});
         txn->remove(tbl_version_key);
         LOG(WARNING) << "remove table version kv " << hex(tbl_version_key);
+        auto tbl_update_time_key = table_update_time_key({instance_id_, db_id, table_id});
+        txn->remove(tbl_update_time_key);
+        LOG(WARNING) << "remove table update time kv " << hex(tbl_update_time_key);
         // 3. Remove mow delete bitmap update lock and tablet job lock
         std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
         txn->remove(lock_key);
@@ -2846,6 +2849,10 @@ int InstanceRecycler::recycle_orphan_partitions() {
             std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
             versioned_remove_all(txn.get(), table_version_key);
             LOG(WARNING) << "remove table version kv " << hex(table_version_key);
+            std::string tbl_update_time_key =
+                    doris::cloud::table_update_time_key({instance_id_, db_id, table_id});
+            txn->remove(tbl_update_time_key);
+            LOG(WARNING) << "remove table update time kv " << hex(tbl_update_time_key);
             // 3. Remove mow delete bitmap update lock and tablet job lock
             std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
             txn->remove(lock_key);

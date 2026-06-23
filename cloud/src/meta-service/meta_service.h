@@ -471,7 +471,11 @@ private:
                                              KVStats& stats);
 
     void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
-                              int64_t table_id);
+                              int64_t table_id, int64_t update_time_ms);
+
+    TxnErrorCode get_table_update_time(Transaction* txn, std::string_view instance_id,
+                                       int64_t db_id, int64_t table_id,
+                                       TableUpdateTimePB* update_time);
 
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;

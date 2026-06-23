@@ -52,11 +52,39 @@ TxnErrorCode CloneChainReader::get_table_version(int64_t table_id, Versionstamp*
 
 TxnErrorCode CloneChainReader::get_table_version(Transaction* txn, int64_t table_id,
                                                  Versionstamp* table_version, bool snapshot) {
+    TableVersionWithUpdateTime table_version_with_update_time;
+    TxnErrorCode err = get_table_version_with_update_time(
+            txn, table_id, &table_version_with_update_time, snapshot);
+    if (err == TxnErrorCode::TXN_OK && table_version) {
+        *table_version = table_version_with_update_time.version;
+    }
+    return err;
+}
+
+TxnErrorCode CloneChainReader::get_table_version_with_update_time(
+        int64_t table_id, TableVersionWithUpdateTime* table_version, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_table_version_with_update_time(txn.get(), table_id, table_version, snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_table_version_with_update_time(
+        Transaction* txn, int64_t table_id, TableVersionWithUpdateTime* table_version,
+        bool snapshot) {
     std::string current_instance_id(instance_id_);
     Versionstamp current_snapshot_version = snapshot_version_;
     do {
         MetaReader reader(current_instance_id, current_snapshot_version);
-        TxnErrorCode err = reader.get_table_version(txn, table_id, table_version, snapshot);
+        TxnErrorCode err =
+                reader.get_table_version_with_update_time(txn, table_id, table_version, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
                 min_read_versionstamp_ =
@@ -97,23 +125,54 @@ TxnErrorCode CloneChainReader::get_table_versions(
 TxnErrorCode CloneChainReader::get_table_versions(
         Transaction* txn, const std::vector<int64_t>& table_ids,
         std::unordered_map<int64_t, Versionstamp>* table_versions, bool snapshot) {
+    std::unordered_map<int64_t, TableVersionWithUpdateTime> versions_with_update_time;
+    TxnErrorCode err = get_table_versions_with_update_time(txn, table_ids,
+                                                           &versions_with_update_time, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    for (const auto& [table_id, table_version] : versions_with_update_time) {
+        table_versions->emplace(table_id, table_version.version);
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode CloneChainReader::get_table_versions_with_update_time(
+        const std::vector<int64_t>& table_ids,
+        std::unordered_map<int64_t, TableVersionWithUpdateTime>* table_versions, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_table_versions_with_update_time(txn.get(), table_ids, table_versions, snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_table_versions_with_update_time(
+        Transaction* txn, const std::vector<int64_t>& table_ids,
+        std::unordered_map<int64_t, TableVersionWithUpdateTime>* table_versions, bool snapshot) {
     std::string current_instance_id(instance_id_);
     Versionstamp current_snapshot_version = snapshot_version_;
     std::vector<int64_t> remaining_ids = table_ids;
 
     do {
         MetaReader reader(current_instance_id, current_snapshot_version);
-        std::unordered_map<int64_t, Versionstamp> current_versions;
-        TxnErrorCode err =
-                reader.get_table_versions(txn, remaining_ids, &current_versions, snapshot);
+        std::unordered_map<int64_t, TableVersionWithUpdateTime> current_versions;
+        TxnErrorCode err = reader.get_table_versions_with_update_time(txn, remaining_ids,
+                                                                      &current_versions, snapshot);
         if (err != TxnErrorCode::TXN_OK) {
             return err;
         }
         min_read_versionstamp_ = std::min(reader.min_read_versionstamp(), min_read_versionstamp_);
 
         // Add found results to output
-        for (const auto& [table_id, version] : current_versions) {
-            (*table_versions)[table_id] = version;
+        for (auto& [table_id, version] : current_versions) {
+            (*table_versions)[table_id] = std::move(version);
         }
 
         // Remove found ids from remaining_ids

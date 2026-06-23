@@ -59,13 +59,34 @@ public class CloudFEVersionSynchronizer {
 
     // master FE send sync version rpc to other FEs
     public void pushVersionAsync(long dbId, OlapTable table, long version) {
+        pushVersionWithUpdateTimeAsync(dbId, table, version, 0L, false);
+    }
+
+    public void pushVersionWithUpdateTimeAsync(long dbId, OlapTable table, long version, long updateTimeMs) {
+        pushVersionWithUpdateTimeAsync(dbId, table, version, updateTimeMs, true);
+    }
+
+    public void pushVersionWithUpdateTimeAsync(long dbId, OlapTable table, long version, long updateTimeMs,
+            boolean hasUpdateTimeMs) {
         if (!Config.cloud_enable_version_syncer) {
             return;
         }
-        pushVersionAsync(dbId, Collections.singletonList(Pair.of(table, version)), Collections.emptyMap());
+        pushVersionWithUpdateTimeAsync(dbId, Collections.singletonList(Pair.of(table, version)),
+                updateTimeMs, hasUpdateTimeMs, Collections.emptyMap());
     }
 
     public void pushVersionAsync(long dbId, List<Pair<OlapTable, Long>> tableVersions,
+            Map<CloudPartition, Pair<Long, Long>> partitionVersionMap) {
+        pushVersionWithUpdateTimeAsync(dbId, tableVersions, 0L, false, partitionVersionMap);
+    }
+
+    public void pushVersionWithUpdateTimeAsync(long dbId, List<Pair<OlapTable, Long>> tableVersions,
+            long tableUpdateTimeMs, Map<CloudPartition, Pair<Long, Long>> partitionVersionMap) {
+        pushVersionWithUpdateTimeAsync(dbId, tableVersions, tableUpdateTimeMs, true, partitionVersionMap);
+    }
+
+    public void pushVersionWithUpdateTimeAsync(long dbId, List<Pair<OlapTable, Long>> tableVersions,
+            long tableUpdateTimeMs, boolean hasUpdateTimeMs,
             Map<CloudPartition, Pair<Long, Long>> partitionVersionMap) {
         if (!Config.cloud_enable_version_syncer) {
             return;
@@ -73,10 +94,11 @@ public class CloudFEVersionSynchronizer {
         if (tableVersions.isEmpty() && partitionVersionMap.isEmpty()) {
             return;
         }
-        pushVersion(dbId, tableVersions, partitionVersionMap);
+        pushVersion(dbId, tableVersions, tableUpdateTimeMs, hasUpdateTimeMs, partitionVersionMap);
     }
 
     private void pushVersion(long dbId, List<Pair<OlapTable, Long>> tableVersions,
+            long tableUpdateTimeMs, boolean hasUpdateTimeMs,
             Map<CloudPartition, Pair<Long, Long>> partitionVersionMap) {
         List<Frontend> frontends = getFrontends();
         if (frontends == null || frontends.isEmpty()) {
@@ -88,6 +110,9 @@ public class CloudFEVersionSynchronizer {
             TCloudVersionInfo tableVersion = new TCloudVersionInfo();
             tableVersion.setTableId(pair.first.getId());
             tableVersion.setVersion(pair.second);
+            if (hasUpdateTimeMs) {
+                tableVersion.setVersionUpdateTime(tableUpdateTimeMs);
+            }
             tableVersionInfos.add(tableVersion);
         });
         List<TCloudVersionInfo> partitionVersionInfos = new ArrayList<>(partitionVersionMap.size());
@@ -152,16 +177,20 @@ public class CloudFEVersionSynchronizer {
             return;
         }
         // only update table version
-        if (request.getPartitionVersionInfos().isEmpty()) {
+        if (!request.isSetPartitionVersionInfos() || request.getPartitionVersionInfos().isEmpty()) {
             request.getTableVersionInfos().forEach(tableVersionInfo -> {
                 Table table = db.getTableNullable(tableVersionInfo.getTableId());
                 if (table == null || !table.isManagedTable()) {
                     return;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                olapTable.setCachedTableVersion(tableVersionInfo.getVersion());
+                boolean hasUpdateTimeMs = tableVersionInfo.isSetVersionUpdateTime();
+                long updateTimeMs = hasUpdateTimeMs ? tableVersionInfo.getVersionUpdateTime() : 0L;
+                olapTable.setCachedTableVersionAndUpdateTime(tableVersionInfo.getVersion(), updateTimeMs,
+                        hasUpdateTimeMs);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update tableId: {}, version: {}", olapTable.getId(), tableVersionInfo.getVersion());
+                    LOG.debug("Update tableId: {}, version: {}, updateTime: {}", olapTable.getId(),
+                            tableVersionInfo.getVersion(), updateTimeMs);
                 }
             });
             return;
@@ -173,17 +202,20 @@ public class CloudFEVersionSynchronizer {
     }
 
     private void syncVersion(Database db, TFrontendSyncCloudVersionRequest request) {
-        List<Pair<OlapTable, Long>> tableVersions = new ArrayList<>(request.getTableVersionInfos().size());
+        List<TableVersionInfo> tableVersions =
+                new ArrayList<>(request.getTableVersionInfos().size());
         for (TCloudVersionInfo tableVersionInfo : request.getTableVersionInfos()) {
             Table table = db.getTableNullable(tableVersionInfo.getTableId());
             if (table == null || !table.isManagedTable()) {
                 continue;
             }
-            tableVersions.add(Pair.of((OlapTable) table, tableVersionInfo.getVersion()));
+            boolean hasUpdateTimeMs = tableVersionInfo.isSetVersionUpdateTime();
+            tableVersions.add(new TableVersionInfo((OlapTable) table, tableVersionInfo.getVersion(),
+                    hasUpdateTimeMs ? tableVersionInfo.getVersionUpdateTime() : 0L, hasUpdateTimeMs));
         }
-        Collections.sort(tableVersions, Comparator.comparingLong(o -> o.first.getId()));
-        for (Pair<OlapTable, Long> tableVersion : tableVersions) {
-            tableVersion.first.versionWriteLock();
+        Collections.sort(tableVersions, Comparator.comparingLong(o -> o.table.getId()));
+        for (TableVersionInfo tableVersion : tableVersions) {
+            tableVersion.table.versionWriteLock();
         }
         try {
             for (TCloudVersionInfo partitionVersionInfo : request.getPartitionVersionInfos()) {
@@ -205,16 +237,32 @@ public class CloudFEVersionSynchronizer {
                             partitionVersionInfo.getVersionUpdateTime());
                 }
             }
-            for (Pair<OlapTable, Long> tableVersion : tableVersions) {
-                tableVersion.first.setCachedTableVersion(tableVersion.second);
+            for (TableVersionInfo tableVersion : tableVersions) {
+                tableVersion.table.setCachedTableVersionAndUpdateTime(tableVersion.version,
+                        tableVersion.updateTimeMs, tableVersion.hasUpdateTimeMs);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update tableId: {}, version: {}", tableVersion.first.getId(), tableVersion.second);
+                    LOG.debug("Update tableId: {}, version: {}, updateTime: {}", tableVersion.table.getId(),
+                            tableVersion.version, tableVersion.updateTimeMs);
                 }
             }
         } finally {
             for (int i = tableVersions.size() - 1; i >= 0; i--) {
-                tableVersions.get(i).first.versionWriteUnlock();
+                tableVersions.get(i).table.versionWriteUnlock();
             }
+        }
+    }
+
+    private static class TableVersionInfo {
+        private final OlapTable table;
+        private final long version;
+        private final long updateTimeMs;
+        private final boolean hasUpdateTimeMs;
+
+        private TableVersionInfo(OlapTable table, long version, long updateTimeMs, boolean hasUpdateTimeMs) {
+            this.table = table;
+            this.version = version;
+            this.updateTimeMs = updateTimeMs;
+            this.hasUpdateTimeMs = hasUpdateTimeMs;
         }
     }
 }

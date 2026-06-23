@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.cloud.catalog.CloudFEVersionSynchronizer;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
@@ -27,8 +28,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TCloudVersionInfo;
+import org.apache.doris.thrift.TFrontendSyncCloudVersionRequest;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -486,6 +490,65 @@ public class OlapTableTest {
         }
     }
 
+    @Test
+    public void testCloudTableUpdateTimeCacheWithRpc() throws Exception {
+        final Database db = new Database(1L, "test_db");
+        OlapTable table = new OlapTable() {
+            @Override
+            public Database getDatabase() {
+                return db;
+            }
+        };
+        table.id = 1000L;
+
+        final int[] callCount = {0};
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<VersionHelper> mockedVH =
+                        Mockito.mockStatic(VersionHelper.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedVH.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
+                callCount[0]++;
+                return Cloud.GetVersionResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(Cloud.MetaServiceCode.OK).build())
+                        .setVersion(100L)
+                        .addTableUpdateTimeMs(123456789L)
+                        .build();
+            });
+
+            ConnectContext ctx = new ConnectContext();
+            ctx.setSessionVariable(new SessionVariable());
+            ctx.setThreadLocalInfo();
+
+            try {
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000;
+                Assert.assertEquals(100L, table.getVisibleVersion());
+                Assert.assertEquals(1, callCount[0]);
+                Assert.assertEquals(123456789L, table.getUpdateTime());
+
+                table.setCachedTableVersionAndUpdateTime(101L, 223456789L);
+                Assert.assertEquals(223456789L, table.getUpdateTime());
+
+                table.setCachedTableVersionAndUpdateTime(100L, 323456789L);
+                Assert.assertEquals(223456789L, table.getUpdateTime());
+            } finally {
+                ConnectContext.remove();
+            }
+        }
+    }
+
+    @Test
+    public void testCloudTableUpdateTimeCacheFallsBackWhenMissing() {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+
+            OlapTable table = new OlapTable();
+            table.setCachedTableVersionAndUpdateTime(1L, 0L);
+            Assert.assertEquals(-1L, table.getUpdateTime());
+        }
+    }
+
     private OlapTable createCloudOlapTable(long tableId, Database db) {
         OlapTable table = new OlapTable() {
             private ReadWriteLock versionLock = new ReentrantReadWriteLock();
@@ -523,6 +586,12 @@ public class OlapTableTest {
                 new ArrayList<>(Arrays.asList(22L, 32L)),
                 new ArrayList<>(Arrays.asList(13L, 23L, 33L))
         ));
+        final ArrayList<ArrayList<Long>> batchUpdateTimes = new ArrayList<>(Arrays.asList(
+                new ArrayList<>(Arrays.asList(1000L, 2000L, 3000L)),
+                new ArrayList<>(Arrays.asList(1100L, 2100L, 3100L)),
+                new ArrayList<>(Arrays.asList(2200L, 3200L)),
+                new ArrayList<>(Arrays.asList(1300L, 2300L, 3300L))
+        ));
         final int[] callCount = {0};
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
@@ -535,6 +604,7 @@ public class OlapTableTest {
                 builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                         .setCode(Cloud.MetaServiceCode.OK).build());
                 builder.addAllVersions(batchVersions.get(callCount[0]));
+                builder.addAllTableUpdateTimeMs(batchUpdateTimes.get(callCount[0]));
                 callCount[0]++;
                 return builder.build();
             });
@@ -543,65 +613,158 @@ public class OlapTableTest {
             ctx.setSessionVariable(new SessionVariable());
             ctx.setThreadLocalInfo();
 
-        // CHECKSTYLE OFF
-        try {
-            // Test 1: cache disabled (TTL = -1), all fetched from MS
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = -1;
-            {
-                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(1, callCount[0]);
-                Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
-            }
+            // CHECKSTYLE OFF
+            try {
+                // Test 1: cache disabled (TTL = -1), all fetched from MS
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = -1;
+                {
+                    List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                    Assert.assertEquals(1, callCount[0]);
+                    Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
+                    Assert.assertEquals(1000L, tables.get(0).getUpdateTime());
+                    Assert.assertEquals(2000L, tables.get(1).getUpdateTime());
+                    Assert.assertEquals(3000L, tables.get(2).getUpdateTime());
+                }
 
-            // Test 2: cache enabled with long TTL, all should hit cache
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000;
-            {
-                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(1, callCount[0]);
-                Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
-            }
+                // Test 2: cache enabled with long TTL, all should hit cache
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 100000;
+                {
+                    List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                    Assert.assertEquals(1, callCount[0]);
+                    Assert.assertEquals(Arrays.asList(10L, 20L, 30L), versions);
+                    Assert.assertEquals(1000L, tables.get(0).getUpdateTime());
+                    Assert.assertEquals(2000L, tables.get(1).getUpdateTime());
+                    Assert.assertEquals(3000L, tables.get(2).getUpdateTime());
+                }
 
-            // Test 3: cache disabled (TTL = 0), all fetched from MS again
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
-            {
-                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(2, callCount[0]);
-                Assert.assertEquals(Arrays.asList(11L, 21L, 31L), versions);
-            }
+                // Test 3: cache disabled (TTL = 0), all fetched from MS again
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
+                {
+                    List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                    Assert.assertEquals(2, callCount[0]);
+                    Assert.assertEquals(Arrays.asList(11L, 21L, 31L), versions);
+                    Assert.assertEquals(1100L, tables.get(0).getUpdateTime());
+                    Assert.assertEquals(2100L, tables.get(1).getUpdateTime());
+                    Assert.assertEquals(3100L, tables.get(2).getUpdateTime());
+                }
 
-            // Test 4: short TTL, wait for expiration, then partially refresh
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500;
-            Thread.sleep(550);
+                // Test 4: short TTL, wait for expiration, then partially refresh
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 500;
+                Thread.sleep(550);
 
-            // refresh one table's cache so it stays hot
-            OlapTable hotTable = tables.get(0);
-            hotTable.setCachedTableVersion(hotTable.getCachedTableVersion());
-            Assert.assertFalse(hotTable.isCachedTableVersionExpired());
-            Assert.assertTrue(tables.get(1).isCachedTableVersionExpired());
-            Assert.assertTrue(tables.get(2).isCachedTableVersionExpired());
-            {
-                // batchVersions[2] = [22, 32] for the 2 expired tables
-                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(3, callCount[0]);
-                Assert.assertEquals(3, versions.size());
-                // hot table keeps its cached version
-                Assert.assertEquals(11L, versions.get(0).longValue());
-                // expired tables get new versions from MS
-                Assert.assertEquals(22L, versions.get(1).longValue());
-                Assert.assertEquals(32L, versions.get(2).longValue());
-            }
+                // refresh one table's cache so it stays hot
+                OlapTable hotTable = tables.get(0);
+                hotTable.setCachedTableVersion(hotTable.getCachedTableVersion());
+                Assert.assertFalse(hotTable.isCachedTableVersionExpired());
+                Assert.assertTrue(tables.get(1).isCachedTableVersionExpired());
+                Assert.assertTrue(tables.get(2).isCachedTableVersionExpired());
+                {
+                    // batchVersions[2] = [22, 32] for the 2 expired tables
+                    List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                    Assert.assertEquals(3, callCount[0]);
+                    Assert.assertEquals(3, versions.size());
+                    // hot table keeps its cached version
+                    Assert.assertEquals(11L, versions.get(0).longValue());
+                    // expired tables get new versions from MS
+                    Assert.assertEquals(22L, versions.get(1).longValue());
+                    Assert.assertEquals(32L, versions.get(2).longValue());
+                    Assert.assertEquals(1100L, tables.get(0).getUpdateTime());
+                    Assert.assertEquals(2200L, tables.get(1).getUpdateTime());
+                    Assert.assertEquals(3200L, tables.get(2).getUpdateTime());
+                }
 
-            // Test 5: all expired again, full batch fetch
-            ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
-            {
-                List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
-                Assert.assertEquals(4, callCount[0]);
-                Assert.assertEquals(Arrays.asList(13L, 23L, 33L), versions);
+                // Test 5: all expired again, full batch fetch
+                ctx.getSessionVariable().cloudTableVersionCacheTtlMs = 0;
+                {
+                    List<Long> versions = OlapTable.getVisibleVersionInBatch(tables);
+                    Assert.assertEquals(4, callCount[0]);
+                    Assert.assertEquals(Arrays.asList(13L, 23L, 33L), versions);
+                    Assert.assertEquals(1300L, tables.get(0).getUpdateTime());
+                    Assert.assertEquals(2300L, tables.get(1).getUpdateTime());
+                    Assert.assertEquals(3300L, tables.get(2).getUpdateTime());
+                }
+            } finally {
+                ConnectContext.remove();
             }
-        } finally {
-            ConnectContext.remove();
+            // CHECKSTYLE ON
         }
+    }
+
+    @Test
+    public void testCloudFeVersionSynchronizerAppliesTableUpdateTime() {
+        long dbId = 1L;
+        long tableId = 100L;
+        Database db = new Database(dbId, "test_db");
+        OlapTable table = new OlapTable(tableId, "test_table", Lists.newArrayList(), KeysType.DUP_KEYS, null, null) {
+            private ReadWriteLock versionLock = new ReentrantReadWriteLock();
+
+            @Override
+            public Database getDatabase() {
+                return db;
+            }
+
+            @Override
+            public void versionReadLock() {
+                versionLock.readLock().lock();
+            }
+
+            @Override
+            public void versionReadUnlock() {
+                versionLock.readLock().unlock();
+            }
+        };
+        db.registerTable(table);
+
+        TCloudVersionInfo tableVersionInfo = new TCloudVersionInfo();
+        tableVersionInfo.setTableId(tableId);
+        tableVersionInfo.setVersion(10L);
+        tableVersionInfo.setVersionUpdateTime(123456789L);
+
+        TFrontendSyncCloudVersionRequest request = new TFrontendSyncCloudVersionRequest();
+        request.setDbId(dbId);
+        request.addToTableVersionInfos(tableVersionInfo);
+        request.setPartitionVersionInfos(Lists.newArrayList());
+
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(catalog.getDbNullable(dbId)).thenReturn(db);
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedEnv.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            new CloudFEVersionSynchronizer().syncVersionAsync(request);
+
+            Assert.assertEquals(10L, table.getCachedTableVersion());
+            Assert.assertEquals(123456789L, table.getUpdateTime());
+
+            TCloudVersionInfo oldFeVersionInfo = new TCloudVersionInfo();
+            oldFeVersionInfo.setTableId(tableId);
+            oldFeVersionInfo.setVersion(10L);
+
+            TFrontendSyncCloudVersionRequest oldFeRequest = new TFrontendSyncCloudVersionRequest();
+            oldFeRequest.setDbId(dbId);
+            oldFeRequest.addToTableVersionInfos(oldFeVersionInfo);
+            oldFeRequest.setPartitionVersionInfos(Lists.newArrayList());
+
+            new CloudFEVersionSynchronizer().syncVersionAsync(oldFeRequest);
+
+            Assert.assertEquals(10L, table.getCachedTableVersion());
+            Assert.assertEquals(123456789L, table.getUpdateTime());
+
+            TCloudVersionInfo clearUpdateTimeInfo = new TCloudVersionInfo();
+            clearUpdateTimeInfo.setTableId(tableId);
+            clearUpdateTimeInfo.setVersion(10L);
+            clearUpdateTimeInfo.setVersionUpdateTime(0L);
+
+            TFrontendSyncCloudVersionRequest clearUpdateTimeRequest = new TFrontendSyncCloudVersionRequest();
+            clearUpdateTimeRequest.setDbId(dbId);
+            clearUpdateTimeRequest.addToTableVersionInfos(clearUpdateTimeInfo);
+            clearUpdateTimeRequest.setPartitionVersionInfos(Lists.newArrayList());
+
+            new CloudFEVersionSynchronizer().syncVersionAsync(clearUpdateTimeRequest);
+
+            Assert.assertEquals(10L, table.getCachedTableVersion());
+            Assert.assertEquals(-1L, table.getUpdateTime());
         }
-        // CHECKSTYLE ONca
     }
 }

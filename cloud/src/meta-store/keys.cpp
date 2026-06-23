@@ -45,6 +45,7 @@ static const char* TXN_KEY_INFIX_RUNNING                = "txn_running";
 
 static const char* PARTITION_VERSION_KEY_INFIX          = "partition";
 static const char* TABLE_VERSION_KEY_INFIX              = "table";
+static const char* TABLE_UPDATE_TIME_KEY_INFIX          = "table_update_time";
 
 static const char* META_KEY_INFIX_ROWSET                = "rowset";
 static const char* META_KEY_INFIX_ROWSET_TMP            = "rowset_tmp";
@@ -148,7 +149,7 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
+        StatsTabletKeyInfo, TableVersionKeyInfo, TableUpdateTimeKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, JobSnapshotDataMigratorKeyInfo, JobSnapshotChainCompactorKeyInfo,
         RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
@@ -176,7 +177,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, PackedFileKeyInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
-                      || std::is_same_v<T, TableVersionKeyInfo>) {
+                      || std::is_same_v<T, TableVersionKeyInfo>
+                      || std::is_same_v<T, TableUpdateTimeKeyInfo>) {
         encode_bytes(VERSION_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, RecycleIndexKeyInfo>
                       || std::is_same_v<T, RecyclePartKeyInfo>
@@ -271,6 +273,13 @@ void table_version_key(const TableVersionKeyInfo& in, std::string* out) {
     encode_bytes(TABLE_VERSION_KEY_INFIX, out); // "table"
     encode_int64(std::get<1>(in), out);         // db_id
     encode_int64(std::get<2>(in), out);         // tbl_id
+}
+
+void table_update_time_key(const TableUpdateTimeKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                         // 0x01 "version" ${instance_id}
+    encode_bytes(TABLE_UPDATE_TIME_KEY_INFIX, out); // "table_update_time"
+    encode_int64(std::get<1>(in), out);             // db_id
+    encode_int64(std::get<2>(in), out);             // tbl_id
 }
 
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) {

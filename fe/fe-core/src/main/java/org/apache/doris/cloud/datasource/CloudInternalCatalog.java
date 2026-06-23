@@ -506,18 +506,24 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean isCreateTable, boolean isBatchCommit, OlapTable olapTable)
             throws DdlException {
         if (isBatchCommit) {
-            long tableVersion = commitMaterializedIndex(dbId, tableId, indexIds, partitionIds, isCreateTable);
-            if (olapTable != null && isCreateTable && tableVersion > 0) {
-                olapTable.setCachedTableVersion(tableVersion);
+            TableVersionWithUpdateTime tableVersion =
+                    commitMaterializedIndexWithUpdateTime(dbId, tableId, indexIds, partitionIds, isCreateTable);
+            if (olapTable != null && tableVersion.version > 0) {
+                olapTable.setCachedTableVersionAndUpdateTime(tableVersion.version, tableVersion.updateTimeMs,
+                        tableVersion.hasUpdateTimeMs);
                 ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
-                        .pushVersionAsync(dbId, olapTable, tableVersion);
+                        .pushVersionWithUpdateTimeAsync(dbId, olapTable, tableVersion.version,
+                                tableVersion.updateTimeMs, tableVersion.hasUpdateTimeMs);
             }
         } else {
-            long tableVersion = commitPartition(dbId, tableId, partitionIds, indexIds);
-            if (olapTable != null && tableVersion > 0) {
-                olapTable.setCachedTableVersion(tableVersion);
+            TableVersionWithUpdateTime tableVersion =
+                    commitPartitionWithUpdateTime(dbId, tableId, partitionIds, indexIds);
+            if (olapTable != null && tableVersion.version > 0) {
+                olapTable.setCachedTableVersionAndUpdateTime(tableVersion.version, tableVersion.updateTimeMs,
+                        tableVersion.hasUpdateTimeMs);
                 ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
-                        .pushVersionAsync(dbId, olapTable, tableVersion);
+                        .pushVersionWithUpdateTimeAsync(dbId, olapTable, tableVersion.version,
+                                tableVersion.updateTimeMs, tableVersion.hasUpdateTimeMs);
             }
         }
         if (!Config.check_create_table_recycle_key_remained) {
@@ -583,14 +589,12 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    /**
-     * @return table version if returned by MetaService, otherwise return 0
-     */
-    public long commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+    private TableVersionWithUpdateTime commitPartitionWithUpdateTime(long dbId, long tableId,
+            List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip committing partitions in check compatibility mode");
-            return 0;
+            return TableVersionWithUpdateTime.EMPTY;
         }
 
         Cloud.PartitionRequest.Builder partitionRequestBuilder = Cloud.PartitionRequest.newBuilder()
@@ -626,9 +630,16 @@ public class CloudInternalCatalog extends InternalCatalog {
             throw new DdlException(response.getStatus().getMsg());
         }
         if (response.hasTableVersion()) {
-            return response.getTableVersion();
+            return new TableVersionWithUpdateTime(response.getTableVersion(),
+                    response.hasTableUpdateTimeMs() ? response.getTableUpdateTimeMs() : 0L,
+                    response.hasTableUpdateTimeMs());
         }
-        return 0;
+        return TableVersionWithUpdateTime.EMPTY;
+    }
+
+    public long commitPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
+        return commitPartitionWithUpdateTime(dbId, tableId, partitionIds, indexIds).version;
     }
 
     // if `expiration` = 0, recycler will delete uncommitted indexes in `retention_seconds`
@@ -669,15 +680,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    /**
-     * @return table version if returned by MetaService, otherwise return 0
-     */
-    public long commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds, List<Long> partitionIds,
-            boolean isCreateTable)
+    private TableVersionWithUpdateTime commitMaterializedIndexWithUpdateTime(long dbId, long tableId,
+            List<Long> indexIds,
+            List<Long> partitionIds, boolean isCreateTable)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip committing materialized index in checking compatibility mode");
-            return 0;
+            return TableVersionWithUpdateTime.EMPTY;
         }
 
         Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder()
@@ -715,10 +724,18 @@ public class CloudInternalCatalog extends InternalCatalog {
             LOG.warn("commitIndex response: {} ", response);
             throw new DdlException(response.getStatus().getMsg());
         }
-        if (isCreateTable && response.hasTableVersion()) {
-            return response.getTableVersion();
+        if (response.hasTableVersion()) {
+            return new TableVersionWithUpdateTime(response.getTableVersion(),
+                    response.hasTableUpdateTimeMs() ? response.getTableUpdateTimeMs() : 0L,
+                    response.hasTableUpdateTimeMs());
         }
-        return 0;
+        return TableVersionWithUpdateTime.EMPTY;
+    }
+
+    public long commitMaterializedIndex(long dbId, long tableId, List<Long> indexIds,
+            List<Long> partitionIds, boolean isCreateTable)
+            throws DdlException {
+        return commitMaterializedIndexWithUpdateTime(dbId, tableId, indexIds, partitionIds, isCreateTable).version;
     }
 
     private void checkPartition(long dbId, long tableId, List<Long> partitionIds)
@@ -979,9 +996,12 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (table != null && table instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) table;
                 long tableVersion = response.getTableVersion();
-                olapTable.setCachedTableVersion(tableVersion);
+                boolean hasTableUpdateTimeMs = response.hasTableUpdateTimeMs();
+                long tableUpdateTimeMs = response.hasTableUpdateTimeMs() ? response.getTableUpdateTimeMs() : 0L;
+                olapTable.setCachedTableVersionAndUpdateTime(tableVersion, tableUpdateTimeMs, hasTableUpdateTimeMs);
                 ((CloudEnv) Env.getCurrentEnv()).getCloudFEVersionSynchronizer()
-                        .pushVersionAsync(dbId, olapTable, tableVersion);
+                        .pushVersionWithUpdateTimeAsync(dbId, olapTable, tableVersion, tableUpdateTimeMs,
+                                hasTableUpdateTimeMs);
             }
         }
     }
@@ -1573,6 +1593,20 @@ public class CloudInternalCatalog extends InternalCatalog {
         } catch (RpcException e) {
             LOG.warn("filterCopyFiles response: {} ", response);
             throw new DdlException(e.getMessage());
+        }
+    }
+
+    private static class TableVersionWithUpdateTime {
+        private static final TableVersionWithUpdateTime EMPTY = new TableVersionWithUpdateTime(0L, 0L, false);
+
+        private final long version;
+        private final long updateTimeMs;
+        private final boolean hasUpdateTimeMs;
+
+        private TableVersionWithUpdateTime(long version, long updateTimeMs, boolean hasUpdateTimeMs) {
+            this.version = version;
+            this.updateTimeMs = updateTimeMs;
+            this.hasUpdateTimeMs = hasUpdateTimeMs;
         }
     }
 }

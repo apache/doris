@@ -52,15 +52,47 @@ TxnErrorCode MetaReader::get_table_version(int64_t table_id, Versionstamp* table
 
 TxnErrorCode MetaReader::get_table_version(Transaction* txn, int64_t table_id,
                                            Versionstamp* table_version, bool snapshot) {
+    TableVersionWithUpdateTime table_version_with_update_time;
+    TxnErrorCode err = get_table_version_with_update_time(
+            txn, table_id, &table_version_with_update_time, snapshot);
+    if (err == TxnErrorCode::TXN_OK && table_version) {
+        *table_version = table_version_with_update_time.version;
+    }
+    return err;
+}
+
+TxnErrorCode MetaReader::get_table_version_with_update_time(
+        int64_t table_id, TableVersionWithUpdateTime* table_version, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_table_version_with_update_time(txn.get(), table_id, table_version, snapshot);
+}
+
+TxnErrorCode MetaReader::get_table_version_with_update_time(
+        Transaction* txn, int64_t table_id, TableVersionWithUpdateTime* table_version,
+        bool snapshot) {
+    if (table_version == nullptr) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
     std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
     std::string table_version_value;
     Versionstamp key_version;
     TxnErrorCode err = versioned_get(txn, table_version_key, snapshot_version_, &key_version,
                                      &table_version_value, snapshot);
     if (err == TxnErrorCode::TXN_OK) {
-        if (table_version) {
-            *table_version = key_version;
+        if (!table_version_value.empty() &&
+            !table_version->update_time.ParseFromString(table_version_value)) {
+            return TxnErrorCode::TXN_INVALID_DATA;
         }
+        table_version->version = key_version;
         min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
     }
     return err;
@@ -484,6 +516,39 @@ TxnErrorCode MetaReader::get_table_versions(
 TxnErrorCode MetaReader::get_table_versions(
         Transaction* txn, const std::vector<int64_t>& table_ids,
         std::unordered_map<int64_t, Versionstamp>* table_versions, bool snapshot) {
+    std::unordered_map<int64_t, TableVersionWithUpdateTime> versions_with_update_time;
+    TxnErrorCode err = get_table_versions_with_update_time(txn, table_ids,
+                                                           &versions_with_update_time, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    for (const auto& [table_id, table_version] : versions_with_update_time) {
+        table_versions->emplace(table_id, table_version.version);
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_table_versions_with_update_time(
+        const std::vector<int64_t>& table_ids,
+        std::unordered_map<int64_t, TableVersionWithUpdateTime>* table_versions, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_table_versions_with_update_time(txn.get(), table_ids, table_versions, snapshot);
+}
+
+TxnErrorCode MetaReader::get_table_versions_with_update_time(
+        Transaction* txn, const std::vector<int64_t>& table_ids,
+        std::unordered_map<int64_t, TableVersionWithUpdateTime>* table_versions, bool snapshot) {
+    if (table_versions == nullptr) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
     if (table_ids.empty()) {
         return TxnErrorCode::TXN_OK;
     }
@@ -508,10 +573,14 @@ TxnErrorCode MetaReader::get_table_versions(
             continue; // Key not found, skip
         }
 
-        Versionstamp version = kv->second;
+        TableVersionWithUpdateTime version;
+        if (!kv->first.empty() && !version.update_time.ParseFromString(kv->first)) {
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        version.version = kv->second;
         int64_t table_id = table_ids[i];
         table_versions->emplace(table_id, version);
-        min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, version.version);
     }
 
     return TxnErrorCode::TXN_OK;

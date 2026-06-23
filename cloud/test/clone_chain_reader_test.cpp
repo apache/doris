@@ -790,6 +790,68 @@ TEST_F(CloneChainReaderTest, GetTableVersions) {
     }
 }
 
+TEST_F(CloneChainReaderTest, GetTableVersionsWithUpdateTime) {
+    std::string instance_id = instance_ids_[2]; // C
+    Versionstamp snapshot_version = snapshot_versions_[2];
+    CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
+
+    auto update_time_value = [](int64_t update_time_ms) {
+        TableUpdateTimePB update_time;
+        update_time.set_update_time_ms(update_time_ms);
+        return update_time.SerializeAsString();
+    };
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        versioned_put(txn.get(), versioned::table_version_key({instance_ids_[0], 1}),
+                      Versionstamp(100, 1), update_time_value(1000));
+        versioned_put(txn.get(), versioned::table_version_key({instance_ids_[0], 3}),
+                      Versionstamp(300, 1), update_time_value(3000));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        versioned_put(txn.get(), versioned::table_version_key({instance_ids_[1], 1}),
+                      Versionstamp(150, 1), update_time_value(1500));
+        versioned_put(txn.get(), versioned::table_version_key({instance_ids_[1], 2}),
+                      Versionstamp(200, 1), update_time_value(2000));
+        versioned_put(txn.get(), versioned::table_version_key({instance_ids_[1], 4}),
+                      Versionstamp(250, 1), "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::vector<int64_t> table_ids = {1, 2, 3, 4, 5};
+        std::unordered_map<int64_t, TableVersionWithUpdateTime> table_versions;
+        ASSERT_EQ(reader.get_table_versions_with_update_time(table_ids, &table_versions),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(table_versions.size(), 4);
+
+        ASSERT_EQ(table_versions[1].version, Versionstamp(150, 1));
+        ASSERT_EQ(table_versions[1].update_time.update_time_ms(), 1500);
+        ASSERT_EQ(table_versions[2].version, Versionstamp(200, 1));
+        ASSERT_EQ(table_versions[2].update_time.update_time_ms(), 2000);
+        ASSERT_EQ(table_versions[3].version, Versionstamp(300, 1));
+        ASSERT_EQ(table_versions[3].update_time.update_time_ms(), 3000);
+        ASSERT_EQ(table_versions[4].version, Versionstamp(250, 1));
+        ASSERT_EQ(table_versions[4].update_time.update_time_ms(), 0);
+        ASSERT_EQ(table_versions.count(5), 0);
+    }
+
+    {
+        TableVersionWithUpdateTime table_version;
+        ASSERT_EQ(reader.get_table_version_with_update_time(3, &table_version),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(table_version.version, Versionstamp(300, 1));
+        ASSERT_EQ(table_version.update_time.update_time_ms(), 3000);
+    }
+}
+
 TEST_F(CloneChainReaderTest, IsIndexExists) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];

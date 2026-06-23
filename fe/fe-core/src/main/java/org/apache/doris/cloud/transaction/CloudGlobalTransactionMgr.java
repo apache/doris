@@ -640,9 +640,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         txnId, partition.getTableId(), partition.getId(), versionPair.first, versionPair.second);
             });
             for (Pair<OlapTable, Long> tableVersion : tableVersions) {
-                tableVersion.first.setCachedTableVersion(tableVersion.second);
-                LOG.info("Update Table. transactionId:{}, table_id:{}, version:{}", txnId, tableVersion.first.getId(),
-                        tableVersion.second);
+                tableVersion.first.setCachedTableVersionAndUpdateTime(tableVersion.second,
+                        commitTxnResponse.getVersionUpdateTimeMs());
+                LOG.info("Update Table. transactionId:{}, table_id:{}, version:{}, update time:{}", txnId,
+                        tableVersion.first.getId(), tableVersion.second, commitTxnResponse.getVersionUpdateTimeMs());
             }
         } finally {
             for (int i = tableVersions.size() - 1; i >= 0; i--) {
@@ -650,7 +651,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
         // notify follower and observer FE to update their version cache
-        ((CloudEnv) env).getCloudFEVersionSynchronizer().pushVersionAsync(dbId, tableVersions, partitionVersionMap);
+        ((CloudEnv) env).getCloudFEVersionSynchronizer()
+                .pushVersionWithUpdateTimeAsync(dbId, tableVersions,
+                        commitTxnResponse.getVersionUpdateTimeMs(), partitionVersionMap);
         return tablePartitionMap;
     }
 

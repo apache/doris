@@ -7544,6 +7544,147 @@ TEST(MetaServiceTest, GetVersion) {
     }
 }
 
+TEST(MetaServiceTest, GetTableUpdateTime) {
+    auto service = get_meta_service();
+    constexpr int64_t db_id = 1;
+    constexpr int64_t table_id = 1;
+    constexpr int64_t update_time_ms = 123456789;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(table_version_key({mock_instance, db_id, table_id}), 2);
+
+    TableUpdateTimePB update_time;
+    update_time.set_update_time_ms(update_time_ms);
+    txn->put(table_update_time_key({mock_instance, db_id, table_id}),
+             update_time.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << " status is " << resp.status().DebugString();
+    ASSERT_EQ(resp.version(), 2);
+    ASSERT_EQ(resp.table_update_time_ms_size(), 1);
+    EXPECT_EQ(resp.table_update_time_ms(0), update_time_ms);
+}
+
+TEST(MetaServiceTest, BatchGetTableUpdateTimeWithMissingVersions) {
+    auto service = get_meta_service();
+    constexpr int64_t db_id = 1;
+    constexpr int64_t found_table_id = 1;
+    constexpr int64_t missing_table_id = 2;
+    constexpr int64_t update_time_ms = 123456789;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(table_version_key({mock_instance, db_id, found_table_id}), 3);
+
+    TableUpdateTimePB update_time;
+    update_time.set_update_time_ms(update_time_ms);
+    txn->put(table_update_time_key({mock_instance, db_id, found_table_id}),
+             update_time.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_batch_mode(true);
+    req.set_is_table_version(true);
+    req.add_db_ids(db_id);
+    req.add_table_ids(found_table_id);
+    req.add_db_ids(db_id);
+    req.add_table_ids(missing_table_id);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << " status is " << resp.status().DebugString();
+    ASSERT_EQ(resp.versions_size(), 2);
+    EXPECT_EQ(resp.versions(0), 3);
+    EXPECT_EQ(resp.versions(1), -1);
+    ASSERT_EQ(resp.table_update_time_ms_size(), 2);
+    EXPECT_EQ(resp.table_update_time_ms(0), update_time_ms);
+    EXPECT_EQ(resp.table_update_time_ms(1), 0);
+}
+
+TEST(MetaServiceTest, GetVersionedTableUpdateTime) {
+    auto service = get_meta_service();
+    constexpr int64_t db_id = 1;
+    constexpr int64_t table_id = 1;
+    constexpr int64_t partition_id = 10;
+    constexpr int64_t table_update_time_ms = 123456789;
+    constexpr int64_t partition_update_time_ms = 987654321;
+
+    {
+        InstanceInfoPB instance;
+        instance.set_instance_id(mock_instance);
+        instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+        service->resource_mgr()->refresh_instance(mock_instance, instance);
+        ASSERT_TRUE(service->resource_mgr()->is_version_read_enabled(mock_instance));
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        TableUpdateTimePB table_update_time;
+        table_update_time.set_update_time_ms(table_update_time_ms);
+        versioned_put(txn.get(), versioned::table_version_key({mock_instance, table_id}),
+                      table_update_time.SerializeAsString());
+
+        VersionPB partition_version;
+        partition_version.set_version(2);
+        partition_version.set_update_time_ms(partition_update_time_ms);
+        versioned_put(txn.get(), versioned::partition_version_key({mock_instance, partition_id}),
+                      partition_version.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+
+    GetVersionResponse resp;
+    service->get_version(&ctrl, &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << " status is " << resp.status().DebugString();
+    ASSERT_GT(resp.version(), 0);
+    int64_t table_version = resp.version();
+    ASSERT_EQ(resp.table_update_time_ms_size(), 1);
+    EXPECT_EQ(resp.table_update_time_ms(0), table_update_time_ms);
+
+    brpc::Controller batch_ctrl;
+    GetVersionRequest batch_req;
+    batch_req.set_cloud_unique_id("test_cloud_unique_id");
+    batch_req.set_batch_mode(true);
+    batch_req.set_is_table_version(true);
+    batch_req.add_db_ids(db_id);
+    batch_req.add_table_ids(table_id);
+
+    GetVersionResponse batch_resp;
+    service->get_version(&batch_ctrl, &batch_req, &batch_resp, nullptr);
+
+    ASSERT_EQ(batch_resp.status().code(), MetaServiceCode::OK)
+            << " status is " << batch_resp.status().DebugString();
+    ASSERT_EQ(batch_resp.versions_size(), 1);
+    EXPECT_EQ(batch_resp.versions(0), table_version);
+    ASSERT_EQ(batch_resp.table_update_time_ms_size(), 1);
+    EXPECT_EQ(batch_resp.table_update_time_ms(0), table_update_time_ms);
+}
+
 TEST(MetaServiceTest, BatchGetVersion) {
     struct TestCase {
         std::vector<int64_t> table_ids;

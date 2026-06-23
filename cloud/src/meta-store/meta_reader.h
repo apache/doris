@@ -26,6 +26,11 @@
 
 namespace doris::cloud {
 
+struct TableVersionWithUpdateTime {
+    Versionstamp version;
+    TableUpdateTimePB update_time;
+};
+
 // A versioned meta reader that encapsulates the logic to read versioned metadata.
 //
 // This class is lightweight and does not hold any state. So constructing multiple instances
@@ -56,6 +61,12 @@ public:
                                    bool snapshot = false);
     TxnErrorCode get_table_version(Transaction* txn, int64_t table_id, Versionstamp* table_version,
                                    bool snapshot = false);
+    TxnErrorCode get_table_version_with_update_time(int64_t table_id,
+                                                    TableVersionWithUpdateTime* table_version,
+                                                    bool snapshot = false);
+    TxnErrorCode get_table_version_with_update_time(Transaction* txn, int64_t table_id,
+                                                    TableVersionWithUpdateTime* table_version,
+                                                    bool snapshot = false);
 
     // Get the versions of the table_version_key with the given table_ids.
     //
@@ -68,6 +79,14 @@ public:
     TxnErrorCode get_table_versions(Transaction* txn, const std::vector<int64_t>& table_ids,
                                     std::unordered_map<int64_t, Versionstamp>* table_versions,
                                     bool snapshot = false);
+    TxnErrorCode get_table_versions_with_update_time(
+            const std::vector<int64_t>& table_ids,
+            std::unordered_map<int64_t, TableVersionWithUpdateTime>* table_versions,
+            bool snapshot = false);
+    TxnErrorCode get_table_versions_with_update_time(
+            Transaction* txn, const std::vector<int64_t>& table_ids,
+            std::unordered_map<int64_t, TableVersionWithUpdateTime>* table_versions,
+            bool snapshot = false);
 
     // Get the partition version for the given partition
     //
