@@ -122,6 +122,10 @@ public class MaxComputeJniWriter extends JniWriter {
     private List<String> columnNames;
     private long currentBlockId = -1L;
     private long currentBlockWrittenBytes = 0L;
+    // Per-row Arrow payload size observed from previously written ranges. Used to bound
+    // how many rows are materialized into a single Arrow root, so a large incoming JNI
+    // block is never copied whole before its size is known. Refined as ranges are written.
+    private long observedBytesPerRow = 0L;
     private final List<WriterCommitMessage> commitMessages = new ArrayList<>();
 
     // Statistics
@@ -272,32 +276,72 @@ public class MaxComputeJniWriter extends JniWriter {
     private void writeBatch(VectorTable inputTable, int numRows, int numCols) throws IOException {
         int rowStart = 0;
         while (rowStart < numRows) {
-            int rowEnd = numRows;
-            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd)) {
-                long batchBytes = estimateBatchPayloadBytes(root);
-                if (currentBlockWrittenBytes + batchBytes <= maxBlockBytes) {
-                    writeRoot(root, rowEnd - rowStart, batchBytes);
-                    rowStart = rowEnd;
+            // Bound the rows copied into one Arrow root using the per-row size observed so
+            // far, so an oversized incoming block is never materialized whole before we know
+            // whether it fits the current block.
+            int probeEnd = rowStart + boundedProbeRowCount(observedBytesPerRow, maxBlockBytes, numRows - rowStart);
+            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, probeEnd)) {
+                int probeRows = probeEnd - rowStart;
+                long probeBytes = estimateBatchPayloadBytes(root);
+                observedBytesPerRow = probeBytes / probeRows;
+                if (currentBlockWrittenBytes + probeBytes <= maxBlockBytes) {
+                    writeRoot(root, probeRows, probeBytes);
+                    rowStart = probeEnd;
                     continue;
                 }
-            }
 
-            RowRange rowRange = findPartialRowRange(rowStart, numRows, currentBlockWrittenBytes,
-                    maxBlockBytes, (rangeStart, rangeEnd) -> estimateRowRangePayloadBytes(
-                            inputTable, numCols, rangeStart, rangeEnd));
-            if (rowRange.rotateBeforeWrite) {
-                rotateCurrentBatchWriter();
-                continue;
-            }
+                // The probe overflows the current block. Split it WITHOUT rebuilding: the binary
+                // search measures leading-row sizes from this already-built root via
+                // getBufferSizeFor, then we slice off the prefix that fits. The remaining rows are
+                // rebuilt on the next iteration (after rotating), so no Arrow buffer outlives the
+                // current block writer.
+                RowRange rowRange = findPartialRowRange(rowStart, probeEnd, currentBlockWrittenBytes,
+                        maxBlockBytes, (rangeStart, rangeEnd) -> prefixBufferBytes(root, rangeEnd - rangeStart));
+                if (rowRange.rotateBeforeWrite) {
+                    rotateCurrentBatchWriter();
+                    continue;
+                }
 
-            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowRange.rowEnd)) {
-                writeRoot(root, rowRange.rowEnd - rowStart, rowRange.bytes);
+                int headRows = rowRange.rowEnd - rowStart;
+                try (VectorSchemaRoot head = root.slice(0, headRows)) {
+                    writeRoot(head, headRows, rowRange.bytes);
+                }
+                rowStart = rowRange.rowEnd;
             }
-            rowStart = rowRange.rowEnd;
             if (rowStart < numRows && currentBlockWrittenBytes >= maxBlockBytes) {
                 rotateCurrentBatchWriter();
             }
         }
+    }
+
+    // Off-heap payload bytes of the leading rowCount rows of an already-built Arrow root,
+    // read from the existing column buffers (getBufferSizeFor) without rebuilding any vector.
+    static long prefixBufferBytes(VectorSchemaRoot root, int rowCount) {
+        long total = 0L;
+        for (FieldVector vector : root.getFieldVectors()) {
+            total += vector.getBufferSizeFor(rowCount);
+        }
+        return total;
+    }
+
+    /**
+     * Choose how many rows to materialize into the next Arrow root, bounded so a large
+     * incoming JNI block is never copied whole before its size is known. The bound targets
+     * roughly one MaxCompute block worth of payload using {@code observedBytesPerRow}; before
+     * any range has been measured it probes a single row, then sizes from that row's measured
+     * Arrow payload. The result is at least one row and never exceeds {@code remainingRows}.
+     */
+    static int boundedProbeRowCount(long observedBytesPerRow, long maxBlockBytes, int remainingRows) {
+        long cap;
+        if (observedBytesPerRow <= 0L) {
+            cap = 1L;
+        } else {
+            cap = Math.max(1L, maxBlockBytes / observedBytesPerRow);
+        }
+        if (cap >= remainingRows) {
+            return remainingRows;
+        }
+        return (int) cap;
     }
 
     private void writeRoot(VectorSchemaRoot root, int numRows, long batchBytes) throws IOException {
@@ -307,12 +351,6 @@ public class MaxComputeJniWriter extends JniWriter {
         writtenRows += numRows;
         currentBlockWrittenBytes += batchBytes;
         writtenBytes += batchBytes;
-    }
-
-    private long estimateRowRangePayloadBytes(VectorTable inputTable, int numCols, int rowStart, int rowEnd) {
-        try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd)) {
-            return estimateBatchPayloadBytes(root);
-        }
     }
 
     static RowRange findPartialRowRange(int rowStart, int numRows, long currentBlockWrittenBytes,
