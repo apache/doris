@@ -23,12 +23,17 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -195,8 +200,64 @@ public class NestedLoopJoinNode extends JoinNodeBase {
      * Probe-side must have full data so join is a serial operator.
      */
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return joinOp == JoinOperator.RIGHT_OUTER_JOIN || joinOp == JoinOperator.RIGHT_ANTI_JOIN
                 || joinOp == JoinOperator.RIGHT_SEMI_JOIN || joinOp == JoinOperator.FULL_OUTER_JOIN;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        // Pooling mode: the fragment uses serial source (pooling scan or serial exchange).
+        // NLJ build side needs BROADCAST in pooling mode so all probe tasks see full build data.
+        boolean childUsePoolingScan = fragment.useSerialSource(translatorContext.getConnectContext());
+
+        LocalExchangeTypeRequire probeSideRequire;
+        LocalExchangeTypeRequire buildSideRequire;
+        LocalExchangeType outputType;
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            probeSideRequire = buildSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (isSerialNode()) {
+            // RIGHT_OUTER/RIGHT_SEMI/RIGHT_ANTI/FULL_OUTER: probe side must be serial (1 task).
+            // Build side: noRequire() — inserting BROADCAST would inflate build pipeline's
+            // num_tasks while probe stays at 1, crashing in set_ready_to_read().
+            probeSideRequire = LocalExchangeTypeRequire.noRequire();
+            buildSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (childUsePoolingScan) {
+            probeSideRequire = LocalExchangeTypeRequire.requireAdaptivePassthrough();
+            buildSideRequire = LocalExchangeTypeRequire.requireBroadcast();
+            outputType = LocalExchangeType.ADAPTIVE_PASSTHROUGH;
+        } else {
+            probeSideRequire = LocalExchangeTypeRequire.requireAdaptivePassthrough();
+            buildSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.ADAPTIVE_PASSTHROUGH;
+        }
+
+        // Both sides use enforceRequire — it handles serial flag propagation, satisfy
+        // check (skip LE when child already outputs the required type, e.g., chained NLJs),
+        // serial ancestor skip, and serial child fallback (auto-upgrade noRequire to
+        // requirePassthrough when child is serial but this node is not).
+        PlanNode probeSide = enforceRequire(
+                translatorContext, children.get(0), 0, probeSideRequire).first;
+        PlanNode buildSide = enforceRequire(
+                translatorContext, children.get(1), 1, buildSideRequire).first;
+        this.children = Lists.newArrayList(probeSide, buildSide);
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        // Build side (child 1) is a separate pipeline in BE.  Normally,
+        // the serial-ancestor flag should be reset across pipeline boundaries.
+        // BUT when NLJ itself is serial (RIGHT_OUTER/ANTI/SEMI/FULL_OUTER),
+        // the probe pipeline has num_tasks=1.  If we reset the flag, the
+        // build-side Exchange may insert PASSTHROUGH (restoring num_tasks to
+        // _num_instances), creating more build tasks than probe tasks.  The
+        // extra build tasks have a NLJ shared state with empty source_deps,
+        // crashing in set_ready_to_read().
+        return childIndex == 1 && !isSerialNode();
     }
 }

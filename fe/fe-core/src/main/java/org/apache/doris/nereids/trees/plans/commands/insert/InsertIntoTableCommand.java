@@ -84,8 +84,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
@@ -693,8 +695,18 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return;
         }
         for (PlanFragment fragment : planner.getFragments()) {
-            if (fragment.getPlanRoot() instanceof FileScanNode) {
-                FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+            // The FE local-shuffle planner may wrap the fragment root with one or more
+            // LocalExchangeNodes (e.g. a PASSTHROUGH fan-out above a serial FileScanNode).
+            // Peel those off before checking the actual operator, otherwise streaming /
+            // S3 INSERTs leave LoadStatistic.fileNum and totalFileSizeB at 0 and tests
+            // like job_p0.streaming_job.test_streaming_insert_job that inspect
+            // loadStatistic.fileNumber / fileSize fail.
+            PlanNode root = fragment.getPlanRoot();
+            while (root instanceof LocalExchangeNode && !root.getChildren().isEmpty()) {
+                root = root.getChild(0);
+            }
+            if (root instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) root;
                 // Prefer distinct file count; fall back to split count for batch-mode scans.
                 int fileNum = fileScanNode.getSelectedFileNum() >= 0
                         ? fileScanNode.getSelectedFileNum()
