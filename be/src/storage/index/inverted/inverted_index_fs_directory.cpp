@@ -184,10 +184,12 @@ void DorisFSDirectory::FSIndexInput::setIoContext(const void* io_ctx) {
         _io_ctx.reader_type = ctx->reader_type;
         _io_ctx.query_id = ctx->query_id;
         _io_ctx.file_cache_stats = ctx->file_cache_stats;
+        _io_ctx.runtime_state = ctx->runtime_state;
     } else {
         _io_ctx.reader_type = ReaderType::UNKNOWN;
         _io_ctx.query_id = nullptr;
         _io_ctx.file_cache_stats = nullptr;
+        _io_ctx.runtime_state = nullptr;
     }
 }
 
