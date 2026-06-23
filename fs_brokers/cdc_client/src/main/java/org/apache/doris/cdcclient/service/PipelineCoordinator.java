@@ -681,7 +681,7 @@ public class PipelineCoordinator {
                 scannedRows,
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
-        taskProgressMap.remove(currentTaskId);
+        taskProgressMap.remove(writeRecordRequest.getTaskId());
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
