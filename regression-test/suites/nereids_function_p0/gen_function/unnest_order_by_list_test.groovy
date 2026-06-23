@@ -87,11 +87,11 @@ suite("unnest_order_by_list_test", "unnest") {
         (2, 'Math', [60, 75]);"""
 
     // Test using the unnested value within the ORDER BY clause of a window function.
-    qt_window_function_order_by_unnested_value """
-        SELECT 
-            user_id, 
-            subject, 
-            s.val, 
+    order_qt_window_function_order_by_unnested_value """
+        SELECT
+            user_id,
+            subject,
+            s.val,
             RANK() OVER (PARTITION BY user_id, subject ORDER BY s.val DESC) as score_rank
         FROM ${tb_name2}, UNNEST(history_scores) AS s(val);"""
 

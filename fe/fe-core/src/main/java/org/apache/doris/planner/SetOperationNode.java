@@ -19,6 +19,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.HashJoinNode.DistributionMode;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -35,6 +40,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -194,4 +200,63 @@ public abstract class SetOperationNode extends PlanNode {
         numInstances = Math.max(1, numInstances);
         return numInstances;
     }
+
+    public boolean isBucketShuffle() {
+        return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType;
+        if (this instanceof UnionNode) {
+            // Propagate parent's hash requirement to children ONLY when a downstream operator
+            // requires shuffle for correctness (not just performance optimization). Matches BE's
+            // UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
+            // _followed_by_shuffled_operator=true. The flag is propagated by enforceRequire
+            // from operators with requiresShuffleForCorrectness()=true (finalize agg, hash join,
+            // intersect/except) through hash/noop links.
+            // See PlanNode.requiresShuffleForCorrectness() for a chain-propagation example.
+            boolean canPropagateHash = translatorContext.hasShuffleForCorrectnessAncestor(this);
+            requireChild = canPropagateHash ? parentRequire.autoRequireHash() : LocalExchangeTypeRequire.noRequire();
+            outputType = canPropagateHash
+                    ? AddLocalExchange.resolveExchangeType(requireChild)
+                    : LocalExchangeType.NOOP;
+        } else {
+            // Intersect / Except
+            if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireBucketHash();
+                outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+            } else {
+                // PARTITIONED intersect/except: all children enter via global hash
+                // exchange. Require GLOBAL so any inserted exchange matches the
+                // cross-fragment instance mapping (same fix as HashJoinNode DORIS-26101).
+                // Exception: serial source → fall back to LOCAL (DORIS-26120).
+                boolean serialSource = fragment != null
+                        && fragment.useSerialSource(translatorContext.getConnectContext());
+                requireChild = serialSource
+                        ? LocalExchangeTypeRequire.requireHash()
+                        : LocalExchangeTypeRequire.requireGlobalExecutionHash();
+                outputType = AddLocalExchange.resolveExchangeType(requireChild);
+            }
+        }
+
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        for (int i = 0; i < children.size(); i++) {
+            newChildren.add(enforceRequire(translatorContext, children.get(i), i, requireChild).first);
+        }
+        this.children = newChildren;
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
+    }
+
 }
