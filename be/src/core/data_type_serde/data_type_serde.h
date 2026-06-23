@@ -91,6 +91,17 @@ struct CastParameters;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+class DataTypeArraySerDe;
+class DataTypeMapSerDe;
+class DataTypeNullableSerDe;
+class DataTypeStructSerDe;
+
+class DataTypeSerDeArrowUtils {
+public:
+    static Status read_column_from_arrow(const DataTypeSerDe& serde, IColumn& column,
+                                         const arrow::Array* arrow_array, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz);
+};
 
 /// Info that represents a scalar or array field in a decomposed view.
 /// It allows to recreate field with different number
@@ -481,10 +492,19 @@ public:
     virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                          arrow::ArrayBuilder* array_builder, int64_t start,
                                          int64_t end, const cctz::time_zone& ctz) const = 0;
+
+private:
+    friend class DataTypeSerDeArrowUtils;
+    friend class DataTypeArraySerDe;
+    friend class DataTypeMapSerDe;
+    friend class DataTypeNullableSerDe;
+    friend class DataTypeStructSerDe;
+
     virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
 
+public:
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,

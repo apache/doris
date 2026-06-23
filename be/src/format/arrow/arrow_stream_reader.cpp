@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "exec/common/arrow_column_to_doris_column.h"
 #include "format/arrow/arrow_pip_input_stream.h"
 #include "io/fs/stream_load_pipe.h"
@@ -114,10 +115,9 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
                                                  column_name_in_block, column_name);
                 }
 
-                RETURN_IF_ERROR(
-                        columns_guard.get_datatype_by_position(c)
-                                ->get_serde()
-                                ->read_column_from_arrow(*columns[c], column, 0, num_rows, _ctzz));
+                auto serde = columns_guard.get_datatype_by_position(c)->get_serde();
+                RETURN_IF_ERROR(DataTypeSerDeArrowUtils::read_column_from_arrow(
+                        *serde, *columns[c], column, 0, num_rows, _ctzz));
             } catch (Exception& e) {
                 return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }

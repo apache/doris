@@ -29,6 +29,7 @@
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -41,6 +42,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
@@ -237,6 +239,25 @@ TEST_F(DataTypeStringSerDeTest, ArrowMemNotAligned) {
     cctz::time_zone tz;
     auto st = serde_str->read_column_from_arrow(*column_str32, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
+}
+
+TEST_F(DataTypeStringSerDeTest, ArrowValidateFullBeforeRead) {
+    std::vector<int32_t> offsets = {0, 4, 2};
+    std::string values = "abcd";
+    auto offset_buffer = arrow::Buffer::Wrap(offsets.data(), offsets.size() * sizeof(int32_t));
+    auto value_buffer =
+            arrow::Buffer::Wrap(reinterpret_cast<const uint8_t*>(values.data()), values.size());
+    auto invalid_array = std::make_shared<arrow::StringArray>(2, offset_buffer, value_buffer);
+    ASSERT_FALSE(invalid_array->ValidateFull().ok());
+
+    auto column = ColumnString::create();
+    auto old_enable_arrow_read_validate_full = config::enable_arrow_read_validate_full;
+    config::enable_arrow_read_validate_full = true;
+    auto st = DataTypeSerDeArrowUtils::read_column_from_arrow(
+            *serde_str, *column, invalid_array.get(), 0, invalid_array->length(),
+            cctz::utc_time_zone());
+    config::enable_arrow_read_validate_full = old_enable_arrow_read_validate_full;
+    EXPECT_FALSE(st.ok());
 }
 
 // Run with UBSan enabled to catch misalignment errors.

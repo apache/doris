@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_array_serde.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -272,8 +273,8 @@ Status PythonUDTFFunction::_convert_list_array_to_array_column(
     // Use read_column_from_arrow for optimized conversion
     // This directly converts Arrow ListArray to Doris ColumnArray
     // No struct unwrapping needed - Python server sends the correct format!
-    RETURN_IF_ERROR(array_serde->read_column_from_arrow(*array_col, list_array.get(), 0,
-                                                        num_input_rows, _timezone_obj));
+    RETURN_IF_ERROR(DataTypeSerDeArrowUtils::read_column_from_arrow(
+            *array_serde, *array_col, list_array.get(), 0, num_input_rows, _timezone_obj));
 
     // Handle nullable wrapper: all array elements are non-null
     // (empty arrays [] are non-null, different from NULL)

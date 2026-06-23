@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "util/timezone_utils.h"
@@ -101,9 +102,10 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const cctz::time_zone& ctz) {
     auto mutable_column = IColumn::mutate(std::move(doris_column));
-    auto status = type->get_serde()->read_column_from_arrow(
-            *mutable_column, arrow_column, arrow_batch_cur_idx, arrow_batch_cur_idx + num_elements,
-            ctz);
+    auto serde = type->get_serde();
+    auto status = DataTypeSerDeArrowUtils::read_column_from_arrow(
+            *serde, *mutable_column, arrow_column, arrow_batch_cur_idx,
+            arrow_batch_cur_idx + num_elements, ctz);
     doris_column = std::move(mutable_column);
     return status;
 }

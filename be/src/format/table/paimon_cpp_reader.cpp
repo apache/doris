@@ -28,6 +28,7 @@
 #include "arrow/result.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "format/table/paimon_doris_file_system.h"
 #include "format/table/partition_column_filler.h"
 #include "paimon/defs.h"
@@ -178,11 +179,10 @@ Status PaimonCppReader::_do_get_next_block(Block* block, size_t* read_rows, bool
         }
         const auto block_pos = it->second;
         try {
-            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
-                                    ->get_serde()
-                                    ->read_column_from_arrow(*columns[block_pos],
-                                                             record_batch->column(c).get(), 0,
-                                                             num_rows, _ctzz));
+            auto serde = columns_guard.get_datatype_by_position(block_pos)->get_serde();
+            RETURN_IF_ERROR(DataTypeSerDeArrowUtils::read_column_from_arrow(
+                    *serde, *columns[block_pos], record_batch->column(c).get(), 0, num_rows,
+                    _ctzz));
         } catch (Exception& e) {
             return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
         }

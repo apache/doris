@@ -42,6 +42,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/value/vdatetime_value.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -122,8 +123,9 @@ Status FromRecordBatchToBlockConverter::convert(Block* block) {
         auto doris_column = doris_type->create_column();
         auto arrow_column = _batch->column(idx);
         DCHECK_EQ(arrow_column->length(), num_rows);
-        RETURN_IF_ERROR(doris_type->get_serde()->read_column_from_arrow(
-                *doris_column, &*arrow_column, 0, num_rows, _timezone_obj));
+        auto serde = doris_type->get_serde();
+        RETURN_IF_ERROR(DataTypeSerDeArrowUtils::read_column_from_arrow(
+                *serde, *doris_column, &*arrow_column, 0, num_rows, _timezone_obj));
         _columns.emplace_back(std::move(doris_column), std::move(doris_type), std::to_string(idx));
     }
 

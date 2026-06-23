@@ -779,6 +779,9 @@ DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
 // The timeout for ADBC Client to wait for data using arrow flight reader.
 // If the query is very complex and no result is generated after this time, consider increasing this timeout.
 DEFINE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms, "300000");
+// Enable full Arrow array validation before converting Arrow data to Doris columns.
+// Lightweight Arrow validation is always enabled on the external Arrow read path.
+DEFINE_mBool(enable_arrow_read_validate_full, "false");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");

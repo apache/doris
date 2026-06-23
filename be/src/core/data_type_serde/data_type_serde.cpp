@@ -16,7 +16,11 @@
 // under the License.
 #include "core/data_type_serde/data_type_serde.h"
 
+#include <arrow/array/array_base.h>
+#include <arrow/type.h>
+
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
@@ -33,6 +37,21 @@
 #include "util/jsonb_writer.h"
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
+
+Status DataTypeSerDeArrowUtils::read_column_from_arrow(const DataTypeSerDe& serde, IColumn& column,
+                                                       const arrow::Array* arrow_array,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) {
+    auto validate_status = config::enable_arrow_read_validate_full ? arrow_array->ValidateFull()
+                                                                   : arrow_array->Validate();
+    if (!validate_status.ok()) {
+        return Status::InternalError(
+                "Arrow array validation failed before read_column_from_arrow, arrow type: {}, "
+                "column: {}, error: {}",
+                arrow_array->type()->ToString(), column.get_name(), validate_status.ToString());
+    }
+    return serde.read_column_from_arrow(column, arrow_array, start, end, ctz);
+}
 
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
     DataTypeSerDeSPtrs serdes;

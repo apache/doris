@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "format/arrow/arrow_utils.h"
 #include "runtime/descriptors.h"
@@ -86,10 +87,9 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
 
         try {
             auto block_pos = (*_col_name_to_block_idx)[column_name];
-            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
-                                    ->get_serde()
-                                    ->read_column_from_arrow(*columns[block_pos], column, 0,
-                                                             num_rows, _ctzz));
+            auto serde = columns_guard.get_datatype_by_position(block_pos)->get_serde();
+            RETURN_IF_ERROR(DataTypeSerDeArrowUtils::read_column_from_arrow(
+                    *serde, *columns[block_pos], column, 0, num_rows, _ctzz));
         } catch (Exception& e) {
             return Status::InternalError(
                     "Failed to convert from arrow to block, column_name: {}, e: {}", column_name,

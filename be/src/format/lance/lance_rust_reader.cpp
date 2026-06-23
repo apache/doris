@@ -36,6 +36,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "format/lance/lance_ffi.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -242,11 +243,10 @@ Status LanceRustReader::_do_get_next_block(Block* block, size_t* read_rows, bool
 
         const auto block_pos = it->second;
         try {
-            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
-                                    ->get_serde()
-                                    ->read_column_from_arrow(*columns[block_pos],
-                                                             record_batch->column(c).get(), 0,
-                                                             num_rows, _ctzz));
+            auto serde = columns_guard.get_datatype_by_position(block_pos)->get_serde();
+            RETURN_IF_ERROR(DataTypeSerDeArrowUtils::read_column_from_arrow(
+                    *serde, *columns[block_pos], record_batch->column(c).get(), 0, num_rows,
+                    _ctzz));
         } catch (Exception& e) {
             return Status::InternalError("Failed to convert Lance arrow to block: {}", e.what());
         }
