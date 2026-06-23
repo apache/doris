@@ -73,7 +73,6 @@ template <PrimitiveType PType>
 using ColumnElementView = std::conditional_t<is_string_type(PType), detail::StringElementView,
                                              detail::NumericElementView<PType>>;
 
-
 // ColumnView is used to handle the nullable and const properties of a column.
 // For example, a regular ColumnInt32 may appear in the following 4 cases:
 // 1. ColumnInt32
