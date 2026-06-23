@@ -261,8 +261,8 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         // phase 1.5: for slots with meta paths, expand map-star paths and strip
-        // redundant meta paths. Strip predicate first using the COMPLETE
-        // allAccessPaths as covering, then strip allAccessPaths self-covering.
+        // redundant meta paths. Predicate paths are stripped only by predicate-phase
+        // paths, while allAccessPaths are stripped by self-covering paths.
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
