@@ -78,6 +78,36 @@ TEST(ParquetSchemaTest, PrimitiveStateAndFieldIdArePreserved) {
     EXPECT_TRUE(fields[1]->type->is_nullable());
 }
 
+TEST(ParquetSchemaTest, PrimitiveTypeDescriptorCoversLogicalConvertedAndPhysicalFallback) {
+    const auto fields = build_fields({
+            ::parquet::schema::PrimitiveNode::Make(
+                    "ts", ::parquet::Repetition::OPTIONAL,
+                    ::parquet::LogicalType::Timestamp(false,
+                                                      ::parquet::LogicalType::TimeUnit::MICROS),
+                    ::parquet::Type::INT64),
+            ::parquet::schema::PrimitiveNode::Make("i8", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::INT32,
+                                                   ::parquet::ConvertedType::INT_8),
+            ::parquet::schema::PrimitiveNode::Make("plain", ::parquet::Repetition::REQUIRED,
+                                                   ::parquet::Type::DOUBLE),
+    });
+
+    ASSERT_EQ(fields.size(), 3);
+    EXPECT_EQ(remove_nullable(fields[0]->type)->get_primitive_type(), TYPE_DATETIMEV2);
+    EXPECT_EQ(fields[0]->type_descriptor.time_unit, ParquetTimeUnit::MICROS);
+    EXPECT_EQ(fields[0]->type_descriptor.extra_type_info, ParquetExtraTypeInfo::UNIT_MICROS);
+    EXPECT_TRUE(fields[0]->type_descriptor.is_timestamp);
+    EXPECT_FALSE(fields[0]->type_descriptor.timestamp_is_adjusted_to_utc);
+
+    EXPECT_EQ(remove_nullable(fields[1]->type)->get_primitive_type(), TYPE_TINYINT);
+    EXPECT_EQ(fields[1]->type_descriptor.integer_bit_width, 8);
+    EXPECT_FALSE(fields[1]->type_descriptor.is_unsigned_integer);
+
+    EXPECT_EQ(remove_nullable(fields[2]->type)->get_primitive_type(), TYPE_DOUBLE);
+    EXPECT_EQ(fields[2]->type_descriptor.physical_type, ::parquet::Type::DOUBLE);
+    EXPECT_EQ(fields[2]->type_descriptor.extra_type_info, ParquetExtraTypeInfo::NONE);
+}
+
 TEST(ParquetSchemaTest, StructMakesDataTypeChildrenNullableAndPropagatesLevels) {
     const auto fields = build_fields({::parquet::schema::GroupNode::Make(
             "s", ::parquet::Repetition::OPTIONAL,
@@ -213,6 +243,43 @@ TEST(ParquetSchemaTest, NestedRepeatedInsideListElementIsWrappedOnce) {
     EXPECT_EQ(element.children[0]->name, "items");
     ASSERT_EQ(element.children[0]->children.size(), 1);
     EXPECT_EQ(element.children[0]->children[0]->name, "element");
+}
+
+TEST(ParquetSchemaTest, ListWrapperWithLogicalAnnotationIsPreservedAsElement) {
+    const auto annotated_repeated_group = ::parquet::schema::GroupNode::Make(
+            "xs", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "list", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::PrimitiveNode::Make(
+                            "value", ::parquet::Repetition::OPTIONAL, ::parquet::Type::INT32)},
+                    ::parquet::ConvertedType::LIST)},
+            ::parquet::ConvertedType::LIST);
+
+    EXPECT_FALSE(build_status({annotated_repeated_group}).ok());
+
+    const auto nested_list_wrapper = ::parquet::schema::GroupNode::Make(
+            "xs", ::parquet::Repetition::OPTIONAL,
+            {::parquet::schema::GroupNode::Make(
+                    "list", ::parquet::Repetition::REPEATED,
+                    {::parquet::schema::GroupNode::Make(
+                            "list", ::parquet::Repetition::REPEATED,
+                            {::parquet::schema::PrimitiveNode::Make("value",
+                                                                    ::parquet::Repetition::OPTIONAL,
+                                                                    ::parquet::Type::INT32)})},
+                    ::parquet::ConvertedType::LIST)},
+            ::parquet::ConvertedType::LIST);
+
+    const auto fields = build_fields({nested_list_wrapper});
+    ASSERT_EQ(fields.size(), 1);
+    const auto& xs = *fields[0];
+    EXPECT_EQ(xs.kind, ParquetColumnSchemaKind::LIST);
+    ASSERT_EQ(xs.children.size(), 1);
+    const auto& element = *xs.children[0];
+    EXPECT_EQ(element.kind, ParquetColumnSchemaKind::LIST);
+    EXPECT_EQ(element.name, "element");
+    ASSERT_EQ(element.children.size(), 1);
+    EXPECT_EQ(element.children[0]->name, "element");
+    EXPECT_EQ(remove_nullable(element.children[0]->type)->get_primitive_type(), TYPE_INT);
 }
 
 TEST(ParquetSchemaTest, MapWrapperIsFoldedAndOptionalKeyIsAllowed) {

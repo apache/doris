@@ -18,10 +18,13 @@
 #include "format_v2/parquet/reader/parquet_leaf_reader.h"
 
 #include <arrow/array/builder_binary.h>
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -50,6 +53,70 @@ std::shared_ptr<arrow::Array> fixed_binary_array(const std::vector<std::string>&
 
 ParquetLeafReader make_leaf_reader(ParquetTypeDescriptor descriptor, DataTypePtr type) {
     return ParquetLeafReader(nullptr, descriptor, std::move(type), "leaf", nullptr);
+}
+
+struct CapturedDecodedView {
+    DecodedValueKind value_kind = DecodedValueKind::INT32;
+    DecodedTimeUnit time_unit = DecodedTimeUnit::UNKNOWN;
+    int64_t row_count = 0;
+    int decimal_precision = -1;
+    int decimal_scale = -1;
+    int fixed_length = -1;
+    bool timestamp_is_adjusted_to_utc = false;
+    bool enable_strict_mode = false;
+    const cctz::time_zone* timezone = nullptr;
+    bool null_map_is_null = true;
+    std::vector<uint8_t> null_map;
+    std::vector<uint8_t> fixed_values;
+    std::vector<StringRef> binary_values;
+    std::vector<std::string> owned_binary_values;
+};
+
+ParquetLeafReader make_spy_leaf_reader(ParquetTypeDescriptor descriptor, DataTypePtr type,
+                                       CapturedDecodedView* captured,
+                                       const cctz::time_zone* timezone = nullptr,
+                                       bool enable_strict_mode = false) {
+    auto appender = [captured](MutableColumnPtr&, const DecodedColumnView& view) {
+        captured->value_kind = view.value_kind;
+        captured->time_unit = view.time_unit;
+        captured->row_count = view.row_count;
+        captured->decimal_precision = view.decimal_precision;
+        captured->decimal_scale = view.decimal_scale;
+        captured->fixed_length = view.fixed_length;
+        captured->timestamp_is_adjusted_to_utc = view.timestamp_is_adjusted_to_utc;
+        captured->enable_strict_mode = view.enable_strict_mode;
+        captured->timezone = view.timezone;
+        captured->null_map_is_null = view.null_map == nullptr;
+        captured->null_map.clear();
+        if (view.null_map != nullptr) {
+            captured->null_map.assign(view.null_map, view.null_map + view.row_count);
+        }
+        captured->fixed_values.clear();
+        if (view.values != nullptr && view.value_kind == DecodedValueKind::INT64) {
+            captured->fixed_values.assign(view.values, view.values + view.row_count * 8);
+        } else if (view.values != nullptr && view.value_kind == DecodedValueKind::FLOAT) {
+            captured->fixed_values.assign(view.values, view.values + view.row_count * 4);
+        } else if (view.values != nullptr && view.value_kind == DecodedValueKind::INT32) {
+            captured->fixed_values.assign(view.values, view.values + view.row_count * 4);
+        }
+        captured->binary_values.clear();
+        captured->owned_binary_values.clear();
+        if (view.binary_values != nullptr) {
+            captured->owned_binary_values.reserve(view.binary_values->size());
+            for (const auto& value : *view.binary_values) {
+                captured->owned_binary_values.emplace_back(
+                        value.data == nullptr ? std::string()
+                                              : std::string(value.data, value.size));
+            }
+            captured->binary_values.reserve(captured->owned_binary_values.size());
+            for (const auto& value : captured->owned_binary_values) {
+                captured->binary_values.emplace_back(value.data(), value.size());
+            }
+        }
+        return Status::OK();
+    };
+    return ParquetLeafReader(nullptr, descriptor, std::move(type), "leaf", nullptr, {}, timezone,
+                             enable_strict_mode, std::move(appender));
 }
 
 } // namespace
@@ -195,6 +262,95 @@ TEST(ParquetLeafReaderTest, BinaryDenseNullableRejectsCountMismatch) {
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Invalid dense nullable parquet binary values"),
               std::string::npos);
+}
+
+TEST(ParquetLeafReaderTest, DecodedColumnViewCarriesDescriptorSessionAndNullMapFields) {
+    ParquetTypeDescriptor descriptor;
+    descriptor.physical_type = ::parquet::Type::INT64;
+    descriptor.time_unit = ParquetTimeUnit::NANOS;
+    descriptor.decimal_precision = 18;
+    descriptor.decimal_scale = 4;
+    descriptor.fixed_length = 12;
+    descriptor.timestamp_is_adjusted_to_utc = true;
+    auto type = make_nullable(std::make_shared<DataTypeInt64>());
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+
+    CapturedDecodedView captured;
+    auto reader = make_spy_leaf_reader(descriptor, type, &captured, &shanghai, true);
+    const std::vector<int64_t> values = {100, 200, 300};
+    ParquetLeafBatch batch;
+    batch._value_kind = DecodedValueKind::INT64;
+    batch._fixed_values = reinterpret_cast<const uint8_t*>(values.data());
+    batch._values_written = values.size();
+
+    const NullMap null_map = {0, 1, 0};
+    auto column = type->create_column();
+    ASSERT_TRUE(reader.append_values(batch, 3, &null_map, column).ok());
+    EXPECT_EQ(captured.value_kind, DecodedValueKind::INT64);
+    EXPECT_EQ(captured.time_unit, DecodedTimeUnit::NANOS);
+    EXPECT_EQ(captured.row_count, 3);
+    EXPECT_EQ(captured.decimal_precision, 18);
+    EXPECT_EQ(captured.decimal_scale, 4);
+    EXPECT_EQ(captured.fixed_length, 12);
+    EXPECT_TRUE(captured.timestamp_is_adjusted_to_utc);
+    EXPECT_TRUE(captured.enable_strict_mode);
+    EXPECT_EQ(captured.timezone, &shanghai);
+    EXPECT_FALSE(captured.null_map_is_null);
+    EXPECT_EQ(captured.null_map, std::vector<uint8_t>({0, 1, 0}));
+
+    auto required_column = type->create_column();
+    ASSERT_TRUE(reader.append_values(batch, 3, nullptr, required_column).ok());
+    EXPECT_TRUE(captured.null_map_is_null);
+
+    const NullMap empty_null_map;
+    ASSERT_TRUE(reader.append_values(batch, 3, &empty_null_map, required_column).ok());
+    EXPECT_TRUE(captured.null_map_is_null);
+}
+
+TEST(ParquetLeafReaderTest, DecodedColumnViewCapturesBinaryFixedLengthAndFloat16Override) {
+    ParquetTypeDescriptor binary_descriptor;
+    binary_descriptor.physical_type = ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
+    binary_descriptor.fixed_length = 4;
+    auto type = std::make_shared<DataTypeString>();
+
+    CapturedDecodedView binary_view;
+    auto binary_reader = make_spy_leaf_reader(binary_descriptor, type, &binary_view);
+    ParquetLeafBatch binary_batch;
+    binary_batch._value_kind = DecodedValueKind::FIXED_BINARY;
+    binary_batch._binary_chunks = {fixed_binary_array({"abcd", "wxyz"}, 4)};
+    binary_batch._values_written = 2;
+    auto binary_column = type->create_column();
+    ASSERT_TRUE(binary_reader.append_values(binary_batch, 2, nullptr, binary_column).ok());
+    EXPECT_EQ(binary_view.value_kind, DecodedValueKind::FIXED_BINARY);
+    EXPECT_EQ(binary_view.fixed_length, 4);
+    ASSERT_EQ(binary_view.owned_binary_values.size(), 2);
+    EXPECT_EQ(binary_view.owned_binary_values[0], "abcd");
+    EXPECT_EQ(binary_view.owned_binary_values[1], "wxyz");
+
+    ParquetTypeDescriptor float16_descriptor;
+    float16_descriptor.physical_type = ::parquet::Type::FIXED_LEN_BYTE_ARRAY;
+    float16_descriptor.extra_type_info = ParquetExtraTypeInfo::FLOAT16;
+    float16_descriptor.fixed_length = 2;
+    CapturedDecodedView float16_view;
+    auto float16_reader = make_spy_leaf_reader(float16_descriptor,
+                                               std::make_shared<DataTypeFloat32>(), &float16_view);
+    auto half = [](uint16_t value) {
+        std::string bytes(sizeof(value), '\0');
+        memcpy(bytes.data(), &value, sizeof(value));
+        return bytes;
+    };
+    ParquetLeafBatch float16_batch;
+    float16_batch._value_kind = DecodedValueKind::FIXED_BINARY;
+    float16_batch._binary_chunks = {fixed_binary_array({half(0x3E00), half(0x4000)}, 2)};
+    float16_batch._values_written = 2;
+    auto float16_column = std::make_shared<DataTypeFloat32>()->create_column();
+    ASSERT_TRUE(float16_reader.append_values(float16_batch, 2, nullptr, float16_column).ok());
+    EXPECT_EQ(float16_view.value_kind, DecodedValueKind::FLOAT);
+    ASSERT_EQ(float16_view.fixed_values.size(), sizeof(float) * 2);
+    const auto* floats = reinterpret_cast<const float*>(float16_view.fixed_values.data());
+    EXPECT_FLOAT_EQ(floats[0], 1.5F);
+    EXPECT_FLOAT_EQ(floats[1], 2.0F);
 }
 
 } // namespace doris::format::parquet

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -26,6 +27,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_type.h"
 
@@ -142,7 +144,9 @@ public:
                       ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
                       std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                       ParquetColumnReaderProfile profile = {},
-                      const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false);
+                      const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
+                      std::function<Status(MutableColumnPtr&, const DecodedColumnView&)>
+                              decoded_value_appender = nullptr);
 
     // ①a. 从 Arrow RecordReader 读取 batch_rows 行，将结果捕获到 ParquetLeafBatch 中。
     // 调用方拿到 batch 后可以多次访问 level 和 value 信息。
@@ -200,6 +204,7 @@ private:
     ParquetColumnReaderProfile _profile;        // Profile 计数器
     const cctz::time_zone* _timezone = nullptr; // 时区（timestamp 转换用）
     bool _enable_strict_mode = false;           // 严格模式（类型不匹配时是否报错）
+    std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> _decoded_value_appender;
 };
 
 } // namespace doris::format::parquet

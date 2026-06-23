@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -377,6 +378,34 @@ TEST_F(ParquetScanTest, PlanRowGroupsPreservesFirstFileRowAcrossPrunedRowGroups)
     EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 4);
 }
 
+TEST_F(ParquetScanTest, PlanRowGroupsSelectsAllRowGroupsWithoutFilters) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 3);
+    auto file_schema = build_file_schema(*parquet_file_reader);
+
+    format::FileScanRequest request;
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
+                        .ok());
+
+    ASSERT_EQ(plan.row_groups.size(), 3);
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 3);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 3);
+    for (size_t row_group_idx = 0; row_group_idx < plan.row_groups.size(); ++row_group_idx) {
+        EXPECT_EQ(plan.row_groups[row_group_idx].row_group_id, row_group_idx);
+        EXPECT_EQ(plan.row_groups[row_group_idx].first_file_row,
+                  static_cast<int64_t>(row_group_idx * 2));
+        ASSERT_EQ(plan.row_groups[row_group_idx].selected_ranges.size(), 1);
+        EXPECT_EQ(plan.row_groups[row_group_idx].selected_ranges[0].start, 0);
+        EXPECT_EQ(plan.row_groups[row_group_idx].selected_ranges[0].length, 2);
+        EXPECT_TRUE(plan.row_groups[row_group_idx].page_skip_plans.empty());
+    }
+}
+
 TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
     write_page_index_pair_parquet_file(_file_path);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
@@ -451,6 +480,50 @@ TEST_F(ParquetScanTest, PageIndexCanFullyFilterRowGroupAfterRangeIntersection) {
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 0);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_page_rows, 128);
+}
+
+TEST_F(ParquetScanTest, PageIndexFullRangeWhenDisabledOrUnavailable) {
+    write_page_index_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    auto file_schema = build_file_schema(*parquet_file_reader);
+
+    format::FileScanRequest request;
+    request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::GT, 63));
+
+    const bool old_enable_page_index = config::enable_parquet_page_index;
+    config::enable_parquet_page_index = false;
+    std::vector<format::parquet::RowRange> selected_ranges;
+    std::map<int, format::parquet::ParquetPageSkipPlan> page_skip_plans;
+    format::parquet::ParquetPruningStats pruning_stats;
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_page_index(
+                        parquet_file_reader.get(), file_schema, request, 0, 128, &selected_ranges,
+                        &page_skip_plans, &pruning_stats)
+                        .ok());
+    config::enable_parquet_page_index = old_enable_page_index;
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 128);
+    EXPECT_TRUE(page_skip_plans.empty());
+    EXPECT_EQ(pruning_stats.page_index_read_calls, 0);
+
+    write_int_pair_parquet_file(_file_path, 6);
+    auto no_index_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    auto no_index_schema = build_file_schema(*no_index_reader);
+    format::FileScanRequest no_index_request;
+    no_index_request.column_predicate_filters.push_back(
+            int32_filter(0, "id", no_index_schema[0]->type, PredicateType::GT, 3));
+    selected_ranges.clear();
+    page_skip_plans.clear();
+    pruning_stats = {};
+    ASSERT_TRUE(format::parquet::select_row_group_ranges_by_page_index(
+                        no_index_reader.get(), no_index_schema, no_index_request, 0, 6,
+                        &selected_ranges, &page_skip_plans, &pruning_stats)
+                        .ok());
+    ASSERT_EQ(selected_ranges.size(), 1);
+    EXPECT_EQ(selected_ranges[0].start, 0);
+    EXPECT_EQ(selected_ranges[0].length, 6);
+    EXPECT_TRUE(page_skip_plans.empty());
 }
 
 TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
@@ -635,6 +708,96 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
     EXPECT_EQ(row_ids, std::vector<uint32_t>({2, 3}));
+}
+
+TEST_F(ParquetScanTest, EmptyScanPlanReturnsEofWithoutReadingColumns) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    format::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = format::LocalColumnId(0);
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
+            0, "id", schema[0].type, Field::create_field<TYPE_INT>(100), false));
+    request->column_predicate_filters.push_back(std::move(column_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+    EXPECT_TRUE(eof);
+}
+
+TEST_F(ParquetScanTest, NoRequestedColumnsReturnsRowsOnlyAcrossRowGroups) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_EQ(block.columns(), 0);
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 6);
+}
+
+TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {
+    write_page_index_parquet_file(_file_path);
+    RuntimeProfile profile("profile");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    use_schema_order_positions(request.get(), schema);
+    format::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = format::LocalColumnId(0);
+    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+            0, "id", schema[0].type, Field::create_field<TYPE_INT>(63), false));
+    request->column_predicate_filters.push_back(std::move(column_filter));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+
+    EXPECT_EQ(total_rows, 64);
+    ASSERT_NE(profile.get_counter("RowGroupsTotalNum"), nullptr);
+    ASSERT_NE(profile.get_counter("RowGroupsReadNum"), nullptr);
+    ASSERT_NE(profile.get_counter("FilteredRowsByPage"), nullptr);
+    ASSERT_NE(profile.get_counter("SelectedRowRanges"), nullptr);
+    ASSERT_NE(profile.get_counter("PageIndexReadCalls"), nullptr);
+    ASSERT_NE(profile.get_counter("RawRowsRead"), nullptr);
+    ASSERT_NE(profile.get_counter("RangeGapSkippedRows"), nullptr);
+    EXPECT_EQ(profile.get_counter("RowGroupsTotalNum")->value(), 1);
+    EXPECT_EQ(profile.get_counter("RowGroupsReadNum")->value(), 1);
+    EXPECT_GT(profile.get_counter("FilteredRowsByPage")->value(), 0);
+    EXPECT_GT(profile.get_counter("SelectedRowRanges")->value(), 0);
+    EXPECT_GT(profile.get_counter("PageIndexReadCalls")->value(), 0);
+    EXPECT_EQ(profile.get_counter("RawRowsRead")->value(), 64);
+    EXPECT_GT(profile.get_counter("RangeGapSkippedRows")->value(), 0);
 }
 
 } // namespace
