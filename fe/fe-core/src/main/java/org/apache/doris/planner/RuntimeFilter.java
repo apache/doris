@@ -229,7 +229,7 @@ public final class RuntimeFilter {
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
             hasSerialTargets = hasSerialTargets
-                    || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
+                    || target.node.isSerialOperatorOnBe(ConnectContext.get());
         }
 
         boolean enableSyncFilterSize = ConnectContext.get() != null

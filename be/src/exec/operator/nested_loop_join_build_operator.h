@@ -69,10 +69,10 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return _child->is_serial_operator() ? DataDistribution(ExchangeType::BROADCAST)
-                                            : DataDistribution(ExchangeType::NOOP);
+        return _child->is_serial_operator() ? DataDistribution(TLocalPartitionType::BROADCAST)
+                                            : DataDistribution(TLocalPartitionType::NOOP);
     }
 
 private:
