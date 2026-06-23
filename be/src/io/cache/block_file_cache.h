@@ -246,7 +246,7 @@ public:
      * @returns summary message
      */
     std::string clear_file_cache_async();
-    std::string clear_file_cache_directly();
+    std::string clear_file_cache_sync();
 
     /**
      * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
@@ -310,9 +310,6 @@ public:
     void try_evict_in_advance(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     void update_ttl_atime(const UInt128Wrapper& hash);
-
-    void pause_ttl_manager();
-    void resume_ttl_manager();
 
     std::map<std::string, double> get_stats();
 
@@ -393,6 +390,11 @@ public:
     }
 
 private:
+    // Shared scan used by both clear modes. It keeps the FileBlock holder lifecycle intact:
+    // releasable blocks are removed immediately, while blocks held by readers are only marked
+    // deleting and are later removed by FileBlocksHolder destruction.
+    std::string clear_file_cache_impl(bool sync_remove);
+
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
