@@ -628,7 +628,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       TargetCastTypeMismatchSkipsVariantPathZoneMapPruning) {
+       TargetCastTypeMismatchDoesNotDisableExtractedPathZoneMapPruning) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_unsafe_target_cast_zone_map_reverse_case")
                     .tablet_id(110047)
@@ -660,13 +660,13 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
 
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
-    // The target cast type intentionally differs from the stored typed path. Storage-level
-    // predicate evaluation must be skipped entirely; residual expression filtering happens above
-    // this helper in real query execution.
-    EXPECT_EQ(read_result->rows_read, 4);
-    expect_raw_rows_read(read_result.value(), 4);
-    expect_segment_pruned(read_result.value(), 0);
-    expect_zone_map_filtered(read_result.value(), 0);
+    // The production guard only uses target-cast mismatches to reject storage predicates for
+    // Variant-typed columns. This test reads an already extracted typed path, so the synthetic
+    // target-cast mismatch does not disable segment ZoneMap pruning.
+    EXPECT_EQ(read_result->rows_read, 2);
+    expect_raw_rows_read(read_result.value(), 2);
+    expect_segment_pruned(read_result.value(), 1);
+    expect_zone_map_filtered(read_result.value(), 2);
     expect_inverted_index_not_attempted(read_result.value());
 }
 

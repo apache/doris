@@ -1249,9 +1249,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
                     &column_row_ranges));
-            VLOG_DEBUG << fmt::format(
-                    "segment page zonemap column cid={} input_rows={} column_rows={} ranges={}",
-                    cid, num_rows(), column_row_ranges.count(), column_row_ranges.to_string());
             // intersect different columns's row ranges to get final row ranges by zone map
             RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
                                            &zone_map_row_ranges);
@@ -1264,10 +1261,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         const size_t zone_map_filtered_rows = pre_size - condition_row_ranges->count();
         _opts.stats->rows_stats_rp_filtered += zone_map_filtered_rows;
         _opts.stats->rows_stats_filtered += zone_map_filtered_rows;
-        VLOG_DEBUG << fmt::format(
-                "segment page zonemap stats pre_rows={} post_rows={} filtered_rows={} ranges={}",
-                pre_size, condition_row_ranges->count(), zone_map_filtered_rows,
-                condition_row_ranges->to_string());
     }
 
     return Status::OK();
@@ -1834,7 +1827,6 @@ Status SegmentIterator::_init_index_iterators() {
                         "logical_path={} relative_path={} materialized_column={}",
                         _tablet_id, _segment->rowset_id().to_string(), _segment->id(), cid,
                         column.path_info_ptr()->get_path(), relative_path, column.name());
-                VLOG_DEBUG << diagnostic;
                 _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
             }
             for (const auto& inverted_index : inverted_indexs) {
@@ -1855,7 +1847,6 @@ Status SegmentIterator::_init_index_iterators() {
                             column.name(), inverted_index->index_id(),
                             inverted_index->get_index_suffix(), inverted_index->field_pattern(),
                             had_iterator ? "preserved" : "created");
-                    VLOG_DEBUG << diagnostic;
                     _opts.stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
                 }
             }
@@ -2270,13 +2261,8 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     FieldType field_type = _schema->column(cid)->type();
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // Use variant cast dst type
-        auto target_cast_type =
-                _opts.target_cast_type_for_variants.find(_schema->column(cid)->name());
-        if (target_cast_type == _opts.target_cast_type_for_variants.end() ||
-            target_cast_type->second == nullptr) {
-            return false;
-        }
-        field_type = target_cast_type->second->get_storage_field_type();
+        field_type = _opts.target_cast_type_for_variants[_schema->column(cid)->name()]
+                             ->get_storage_field_type();
     }
     switch (predicate->type()) {
     case PredicateType::EQ:

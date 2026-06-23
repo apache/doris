@@ -190,13 +190,12 @@ public:
         const TabletColumn* col = schema.column(cid);
         DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
         DataTypePtr storage_column_type = get_data_type_of(*col, read_options);
-        auto target_cast_it = target_cast_type_for_variants.find(col->name());
-        if (storage_column_type == nullptr ||
-            target_cast_it == target_cast_type_for_variants.end()) {
-            // Default column iterator, or this column does not have a target cast override.
+        if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
+            !target_cast_type_for_variants.contains(col->name())) {
+            // Default column iterator or not variant column
             return true;
         }
-        if (storage_column_type->equals(*target_cast_it->second)) {
+        if (storage_column_type->equals(*target_cast_type_for_variants.at(col->name()))) {
             return true;
         } else {
             return false;

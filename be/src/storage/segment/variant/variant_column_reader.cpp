@@ -776,9 +776,6 @@ Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid
     plan->type = leaf_column_reader->get_vec_data_type();
     plan->relative_path = relative_path;
     plan->leaf_column_reader = std::move(leaf_column_reader);
-    VLOG_DEBUG << fmt::format(
-            "variant read plan leaf path={} type={} has_zone_map={}", relative_path.get_path(),
-            plan->type ? plan->type->get_name() : "null", plan->leaf_column_reader->has_zone_map());
     return Status::OK();
 }
 
@@ -1005,10 +1002,6 @@ Status VariantColumnReader::_create_iterator_from_plan(
     }
     case ReadKind::LEAF: {
         DCHECK(plan.leaf_column_reader != nullptr);
-        VLOG_DEBUG << fmt::format("variant create leaf iterator path={} type={} has_zone_map={}",
-                                  plan.relative_path.get_path(),
-                                  plan.type ? plan.type->get_name() : "null",
-                                  plan.leaf_column_reader->has_zone_map());
         RETURN_IF_ERROR(plan.leaf_column_reader->new_iterator(iterator, nullptr));
         if (opt && opt->stats) {
             opt->stats->variant_subtree_leaf_iter_count++;
