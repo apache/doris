@@ -284,8 +284,12 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         if (virtualGroupInFe.isNeedRebuildFileCache()) {
             String srcCg = virtualGroupInFe.getActiveComputeGroup();
             String dstCg = virtualGroupInFe.getStandbyComputeGroup();
-            cancelCacheJobs(virtualGroupInFe, jobIdsInMs);
             try {
+                cacheHotspotManager.cancelTableLevelLoadEventWarmUpJobsForVirtualComputeGroup(
+                        virtualGroupInFe.getName(), srcCg, dstCg, virtualGroupInFe.getSubComputeGroups(),
+                        "vcg cancel table-level load-event warm up job before rebuilding file cache jobs");
+                cancelCacheJobs(virtualGroupInFe, jobIdsInMs);
+
                 // all
                 Map<String, String> periodicProperties = new HashMap<>();
                 // "sync_mode" = "periodic", "sync_interval_sec" = "fetch_cluster_cache_hotspot_interval_ms"
@@ -316,7 +320,8 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 LOG.info("virtual compute group {}, generate new jobIds periodic={}, event={}, and old jobIds {}",
                         virtualGroupInFe, jobIdPeriodic, jobIdEvent, jobIdsInMs);
             } catch (AnalysisException e) {
-                LOG.warn("virtual compute err, name: {}, analysis error", virtualGroupInFe.getName(), e);
+                LOG.warn("virtual compute err, name: {}, failed to generate file cache warm up jobs: {}",
+                        virtualGroupInFe.getName(), e.getMessage(), e);
                 return;
             }
             virtualGroupInFe.setNeedRebuildFileCache(false);

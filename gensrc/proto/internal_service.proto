@@ -918,6 +918,8 @@ message PWarmUpRowsetRequest {
     optional int64 unix_ts_us = 2;
     optional int64 sync_wait_timeout_ms = 3;
     optional bool skip_existence_check = 4;
+    optional int64 job_id = 5;
+    optional int64 upstream_trigger_ts_ms = 6;
 }
 
 message PWarmUpRowsetResponse {

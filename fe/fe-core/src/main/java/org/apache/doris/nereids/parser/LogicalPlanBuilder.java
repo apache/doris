@@ -55,6 +55,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -5238,7 +5239,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             switch (ctx.complex.getType()) {
                 case DorisParser.ARRAY:
-                    return ArrayType.of(typedVisit(ctx.dataType(0)), true);
+                    return ArrayType.of(typedVisit(ctx.dataType(0)));
                 case DorisParser.MAP:
                     return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
                 case DorisParser.STRUCT:
@@ -5306,8 +5307,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         if (enableNestedGroup) {
-            throw new NotSupportedException(
-                    "variant_enable_nested_group is not supported now");
+            enableVariantDocMode = false;
+            variantMaxSubcolumnsCount = 0;
+            enableTypedPathsToSparse = false;
+            variantMaxSparseColumnStatisticsSize = 0;
+            variantSparseHashShardCount = 0;
         }
 
         // When doc mode is enabled, disable subcolumn extraction and sparse column features
@@ -9417,7 +9421,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             isForce = true;
         }
         ImmutableMap<String, String> properties = ImmutableMap.copyOf(visitPropertyClause(ctx.properties));
-        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties);
+        List<TableFilterRule> onTablesRules = new ArrayList<>();
+        if (ctx.onTablesClause() != null) {
+            for (DorisParser.OnTablesFilterRuleContext ruleContext
+                    : ctx.onTablesClause().onTablesFilterRule()) {
+                TableFilterRule.RuleType ruleType = ruleContext.INCLUDE() != null
+                        ? TableFilterRule.RuleType.INCLUDE
+                        : TableFilterRule.RuleType.EXCLUDE;
+                onTablesRules.add(new TableFilterRule(
+                        ruleType, stripQuotes(ruleContext.STRING_LITERAL().getText())));
+            }
+        }
+        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce,
+                isWarmUpWithTable, properties, onTablesRules);
     }
 
     void fileCacheAdmissionCheck(DorisParser.WarmUpSelectContext ctx) {

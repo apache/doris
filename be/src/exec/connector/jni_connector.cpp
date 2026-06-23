@@ -94,7 +94,9 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     }
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    _scanner_params.emplace("time_zone", _state->timezone());
+    if (_state) { // maybe nullptr when init_fetch_table_schema_reader
+        _scanner_params.emplace("time_zone", _state->timezone());
+    }
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <glog/logging.h>
 
 #include <cstddef>
@@ -50,7 +51,7 @@ struct AggregateFunctionCollectSetData {
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -119,7 +120,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -343,6 +344,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
         buf.write_binary(size);
 
         DataTypeSerDe::FormatOptions opt;
+        auto timezone = cctz::utc_time_zone();
+        opt.timezone = &timezone;
+        // TODO: Refactor this aggregate state serialization to avoid
+        // round-tripping through a human-readable string format.
         auto tmp_str = ColumnString::create();
         VectorBufferWriter tmp_buf(*tmp_str.get());
 
@@ -368,6 +373,8 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
         StringRef s;
         DataTypeSerDe::FormatOptions opt;
+        auto timezone = cctz::utc_time_zone();
+        opt.timezone = &timezone;
         for (size_t i = 0; i < size; i++) {
             buf.read_binary(s);
             Slice slice(s.data, s.size);

@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteMicrosecondAdd;
@@ -301,9 +302,11 @@ public class DatetimeFunctionBinder {
                 return new MinutesDiff(end, start);
             case SECOND:
                 return new SecondsDiff(end, start);
+            case MICROSECOND:
+                return new MicroSecondsDiff(end, start);
             default:
                 throw new AnalysisException("Unsupported time stamp diff time unit: " + unit
-                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND/MICROSECOND");
         }
     }
 

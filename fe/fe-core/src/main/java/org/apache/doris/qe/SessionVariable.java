@@ -266,6 +266,30 @@ public class SessionVariable implements Serializable, Writable {
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE = "insert_visible_timeout_return_mode";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED = "committed";
+    public static final String INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR = "error";
+
+    // Keep the mode enum for business logic while storing the session value as a string.
+    public enum InsertVisibleTimeoutReturnMode {
+        COMMITTED(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED),
+        ERROR(INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR);
+
+        private final String option;
+
+        InsertVisibleTimeoutReturnMode(String option) {
+            this.option = option;
+        }
+
+        public String getOption() {
+            return option;
+        }
+
+        @Override
+        public String toString() {
+            return option;
+        }
+    }
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
@@ -388,6 +412,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_PRELOAD_EXTERNAL_METADATA = "enable_preload_external_metadata";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
@@ -1058,6 +1083,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
+
+    // Control whether publish timeout keeps the committed response or returns an explicit error.
+    @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_RETURN_MODE, needForward = true,
+            checker = "checkInsertVisibleTimeoutReturnMode", setter = "setInsertVisibleTimeoutReturnMode",
+            description = {"控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+                    "Controls the status returned to the client when a normal internal-table INSERT times out "
+                            + "while waiting for publish visibility."},
+            options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
+    public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
 
     // max memory used on every backend. Default value to 100G.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
@@ -1981,6 +2015,14 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true, varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsPlanner = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PRELOAD_EXTERNAL_METADATA,
+            needForward = true, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+                "是否在获取内表规划期读锁前预加载 Hive/Hudi/Iceberg/Paimon/JDBC 外表元数据",
+                "Whether to preload Hive/Hudi/Iceberg/Paimon/JDBC external table metadata before internal table "
+                        + "plan-time read locks are acquired"
+            })
+    private boolean enablePreloadExternalMetadata = false;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
@@ -3513,6 +3555,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             needForward = true,
+            checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
@@ -4414,6 +4457,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableSqlCache;
     }
 
+    public boolean isEnablePreloadExternalMetadata() {
+        return enablePreloadExternalMetadata;
+    }
+
+    public void setEnablePreloadExternalMetadata(boolean enablePreload) {
+        this.enablePreloadExternalMetadata = enablePreload;
+    }
+
     public void setEnableSqlCache(boolean enableSqlCache) {
         this.enableSqlCache = enableSqlCache;
     }
@@ -4788,6 +4839,23 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.insertVisibleTimeoutMs = insertVisibleTimeoutMs;
         }
+    }
+
+    public String getInsertVisibleTimeoutReturnMode() {
+        return getInsertVisibleTimeoutReturnModeEnum().getOption();
+    }
+
+    public InsertVisibleTimeoutReturnMode getInsertVisibleTimeoutReturnModeEnum() {
+        return parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode);
+    }
+
+    public boolean isInsertVisibleTimeoutReturnError() {
+        return getInsertVisibleTimeoutReturnModeEnum() == InsertVisibleTimeoutReturnMode.ERROR;
+    }
+
+    public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
+        this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode)
+                .getOption();
     }
 
     public boolean getIsSingleSetVar() {
@@ -5176,6 +5244,27 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check query_timeout failed", exception);
             throw exception;
         }
+    }
+
+    public void checkInsertVisibleTimeoutReturnMode(String mode) {
+        // Reuse the parser so validation stays consistent with assignment and enum access.
+        parseInsertVisibleTimeoutReturnMode(mode);
+    }
+
+    // Parse the stored string case-insensitively and expose the enum only to business logic.
+    private InsertVisibleTimeoutReturnMode parseInsertVisibleTimeoutReturnMode(String mode) {
+        if (StringUtils.isEmpty(mode)) {
+            LOG.warn("insertVisibleTimeoutReturnMode value is empty");
+            throw new UnsupportedOperationException("insertVisibleTimeoutReturnMode value is empty");
+        }
+        for (InsertVisibleTimeoutReturnMode value : InsertVisibleTimeoutReturnMode.values()) {
+            if (value.getOption().equalsIgnoreCase(mode)) {
+                return value;
+            }
+        }
+        LOG.warn("insertVisibleTimeoutReturnMode value is invalid, the invalid value is {}", mode);
+        throw new UnsupportedOperationException(
+                "insertVisibleTimeoutReturnMode value is invalid, the invalid value is " + mode);
     }
 
     public void checkMaxExecutionTimeMSValid(String newValue) {
@@ -6364,6 +6453,14 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
+        if (value < 1 || value > 50000) {
+            throw new UnsupportedOperationException("variant max sparse column statistics size is: "
+                    + variantMaxSparseColumnStatisticsSize + " it must between 1 and 50000");
         }
     }
 

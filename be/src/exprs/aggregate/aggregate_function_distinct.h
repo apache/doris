@@ -52,8 +52,8 @@ template <PrimitiveType T, bool stable>
 struct AggregateFunctionDistinctSingleNumericData {
     /// When creating, the hash table must be small.
     using Container = std::conditional_t<
-            stable, phmap::flat_hash_map<typename PrimitiveTypeTraits<T>::CppType, uint32_t>,
-            phmap::flat_hash_set<typename PrimitiveTypeTraits<T>::CppType>>;
+            stable, doris::flat_hash_map<typename PrimitiveTypeTraits<T>::CppType, uint32_t>,
+            doris::flat_hash_set<typename PrimitiveTypeTraits<T>::CppType>>;
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
 
@@ -126,8 +126,8 @@ struct AggregateFunctionDistinctSingleNumericData {
 template <bool stable>
 struct AggregateFunctionDistinctGenericData {
     /// When creating, the hash table must be small.
-    using Container = std::conditional_t<stable, phmap::flat_hash_map<StringRef, uint32_t>,
-                                         phmap::flat_hash_set<StringRef, StringRefHash>>;
+    using Container = std::conditional_t<stable, doris::flat_hash_map<StringRef, uint32_t>,
+                                         doris::flat_hash_set<StringRef, StringRefHash>>;
     using Self = AggregateFunctionDistinctGenericData;
     Container data;
 
