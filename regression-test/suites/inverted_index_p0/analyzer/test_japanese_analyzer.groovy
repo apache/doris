@@ -39,15 +39,24 @@ suite("test_japanese_analyzer", "p0") {
         sql """ INSERT INTO ${tableName} VALUES (3, "Apache Doris は高速です"); """
         sql "sync"
 
-        // P0 stub is CJK-unigram: every CJK codepoint is its own token,
-        // so a single-character MATCH must hit the row containing that character.
-        qt_sql_tokyo """ SELECT id FROM ${tableName} WHERE content MATCH '東' ORDER BY id; """
-        qt_sql_sushi """ SELECT id FROM ${tableName} WHERE content MATCH '寿' ORDER BY id; """
+        // The kuromoji dictionary is not shipped in the p0 package, so the
+        // analyzer falls back to CJK unigram.
+        def tokyo = sql """ SELECT id FROM ${tableName} WHERE content MATCH '東' ORDER BY id; """
+        assertEquals(1, tokyo.size())
+        assertTrue(tokyo[0][0] == 1)
+
+        def sushi = sql """ SELECT id FROM ${tableName} WHERE content MATCH '寿' ORDER BY id; """
+        assertEquals(1, sushi.size())
+        assertTrue(sushi[0][0] == 2)
 
         // Verify the TOKENIZE function dispatches to the kuromoji parser.
         // Quoting follows the literal-string form proven in test_tokenize.groovy:97 —
         // property string uses double-quoted keys/values inside a single-quoted outer string.
-        qt_sql_tokenize """SELECT TOKENIZE('東京都', '"parser"="kuromoji"');"""
+        def tokens = sql """SELECT TOKENIZE('東京都', '"parser"="kuromoji"');"""
+        def tokenStr = tokens[0][0].toString()
+        assertTrue(tokenStr.contains('"token": "東"'))
+        assertTrue(tokenStr.contains('"token": "京"'))
+        assertTrue(tokenStr.contains('"token": "都"'))
     } finally {
         sql "DROP TABLE IF EXISTS ${tableName}"
     }
