@@ -92,7 +92,7 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
     }
     Block output_block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
-                                                                       &output_block, false));
+                                                                       &output_block));
     materialize_block_inplace(output_block);
 
     std::unordered_map<std::shared_ptr<VHivePartitionWriter>, IColumn::Filter> writer_positions;
