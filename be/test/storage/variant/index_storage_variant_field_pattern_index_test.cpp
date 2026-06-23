@@ -332,11 +332,15 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, BigIntDoubleAndBoolFieldPattern
                             kDoublePatternIndexId, "idx_v_double_glob", kVariantUid, "double_*"))
                     .inverted_index(IndexSpec::field_pattern_index(
                             kBoolPatternIndexId, "idx_v_bool_glob", kVariantUid, "bool_*"))
+                    // Use distinct hit counts per path so filter stats validate the selected
+                    // field-pattern index rather than only proving that some index was applied.
                     .rowset(0,
                             IndexDataSourceSpec::inline_variant(
                                     {R"({"big_1": 9000000000, "double_1": 3.5, "bool_1": true})",
                                      R"({"big_1": 7, "double_1": 1.25, "bool_1": false})",
-                                     R"({"big_1": 9000000000, "double_1": 7.5, "bool_1": true})"},
+                                     R"({"big_1": 9000000000, "double_1": 7.5, "bool_1": false})",
+                                     R"({"big_1": 8, "double_1": 8.5, "bool_1": true})",
+                                     R"({"big_1": 9, "double_1": 9.5, "bool_1": true})"},
                                     0))
                     .build();
     ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
@@ -372,12 +376,12 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, BigIntDoubleAndBoolFieldPattern
     };
 
     read_and_verify("big_1", FieldType::OLAP_FIELD_TYPE_BIGINT, std::make_shared<DataTypeInt64>(),
-                    Field::create_field<TYPE_BIGINT>(Int64(9000000000LL)), 2, 1);
+                    Field::create_field<TYPE_BIGINT>(Int64(9000000000LL)), 2, 3);
     read_and_verify("double_1", FieldType::OLAP_FIELD_TYPE_DOUBLE,
                     std::make_shared<DataTypeFloat64>(),
-                    Field::create_field<TYPE_DOUBLE>(Float64(3.5)), 1, 2);
+                    Field::create_field<TYPE_DOUBLE>(Float64(3.5)), 1, 4);
     read_and_verify("bool_1", FieldType::OLAP_FIELD_TYPE_BOOL, std::make_shared<DataTypeBool>(),
-                    Field::create_field<TYPE_BOOLEAN>(UInt8(1)), 2, 1);
+                    Field::create_field<TYPE_BOOLEAN>(UInt8(1)), 3, 2);
 }
 
 // DATEV2/DATETIMEV2 Variant field-pattern indexes should filter rows for matching paths.
@@ -395,7 +399,8 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, DateAndDateTimeFieldPatternInde
                             IndexDataSourceSpec::inline_variant(
                                     {R"({"date_1": "2024-01-02", "datetime_1": "2024-01-02 03:04:05"})",
                                      R"({"date_1": "2024-01-03", "datetime_1": "2024-01-03 03:04:05"})",
-                                     R"({"date_1": "2024-01-02", "datetime_1": "2024-01-02 03:04:05"})"},
+                                     R"({"date_1": "2024-01-02", "datetime_1": "2024-01-04 03:04:05"})",
+                                     R"({"date_1": "2024-01-04", "datetime_1": "2024-01-05 03:04:05"})"},
                                     0))
                     .build();
     ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
@@ -425,9 +430,9 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, DateAndDateTimeFieldPatternInde
         expect_index_filter_stats(read_result.value(), expected_filtered_rows);
     };
 
-    read_and_verify("date_1", std::make_shared<DataTypeDateV2>(), date_v2_field(20240102), 2, 1);
+    read_and_verify("date_1", std::make_shared<DataTypeDateV2>(), date_v2_field(20240102), 2, 2);
     read_and_verify("datetime_1", std::make_shared<DataTypeDateTimeV2>(),
-                    datetime_v2_field(20240102030405), 2, 1);
+                    datetime_v2_field(20240102030405), 1, 3);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapPrunesWholeSegment) {

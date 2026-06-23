@@ -440,21 +440,23 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
                     .inverted_index(std::move(sibling_phrase_index))
                     .inverted_index(sibling_string_index)
                     .inverted_index(array_string_index)
+                    // Keep hit sets asymmetric so a phrase, sibling, or array index cannot satisfy
+                    // the same row/filter-count assertions as the exact string path index.
                     .rowset(0,
                             IndexDataSourceSpec::inline_variant(
-                                    {R"({"string1": "hello", "string2": "hello", "array_string": ["hello"]})",
+                                    {R"({"string1": "hello", "string2": "side", "array_string": ["array-only"]})",
+                                     R"({"string1": "hello world", "string2": "side", "array_string": ["hello"]})",
                                      R"({"string1": "world", "string2": "world", "array_string": ["world"]})",
-                                     R"({"string1": "hello", "string2": "hello", "array_string": ["hello"]})",
-                                     R"({"string1": "world", "string2": "world", "array_string": ["world"]})",
-                                     R"({"string1": "hello", "string2": "hello", "array_string": ["hello"]})"},
+                                     R"({"string1": "other", "string2": "world", "array_string": ["hello"]})",
+                                     R"({"string1": "hello", "string2": "side", "array_string": ["other"]})"},
                                     0))
                     .rowset(1,
                             IndexDataSourceSpec::inline_variant(
-                                    {R"({"string1": "hello", "string2": "hello", "array_string": ["hello"]})",
-                                     R"({"string1": "world", "string2": "world", "array_string": ["world"]})",
-                                     R"({"string1": "hello", "string2": "hello", "array_string": ["hello"]})",
-                                     R"({"string1": "world", "string2": "world", "array_string": ["world"]})",
-                                     R"({"string1": "world", "string2": "world", "array_string": ["world"]})"},
+                                    {R"({"string1": "hello", "string2": "side", "array_string": ["hello"]})",
+                                     R"({"string1": "other", "string2": "world", "array_string": ["array-only"]})",
+                                     R"({"string1": "world", "string2": "side", "array_string": ["hello"]})",
+                                     R"({"string1": "other", "string2": "side", "array_string": ["world"]})",
+                                     R"({"string1": "hello", "string2": "side", "array_string": ["other"]})"},
                                     100))
                     .build();
     ASSERT_TRUE(create_tablet(index_case.tablet_options).ok());
@@ -489,13 +491,13 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
 
     auto before_compaction = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(before_compaction.has_value()) << before_compaction.error();
-    EXPECT_EQ(before_compaction->rows_read, 5);
-    expect_path_index_filtered_rows(before_compaction.value(), 5);
+    EXPECT_EQ(before_compaction->rows_read, 4);
+    expect_path_index_filtered_rows(before_compaction.value(), 6);
 
     auto sibling_before_compaction = read_rowsets(readable_rowsets.value(), sibling_read_options);
     ASSERT_TRUE(sibling_before_compaction.has_value()) << sibling_before_compaction.error();
-    EXPECT_EQ(sibling_before_compaction->rows_read, 5);
-    expect_path_index_filtered_rows(sibling_before_compaction.value(), 5);
+    EXPECT_EQ(sibling_before_compaction->rows_read, 3);
+    expect_path_index_filtered_rows(sibling_before_compaction.value(), 7);
 
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -513,13 +515,13 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
 
     auto after_compaction = read_rowsets(readable_compacted.value(), read_options);
     ASSERT_TRUE(after_compaction.has_value()) << after_compaction.error();
-    EXPECT_EQ(after_compaction->rows_read, 5);
-    expect_path_index_filtered_rows(after_compaction.value(), 5);
+    EXPECT_EQ(after_compaction->rows_read, 4);
+    expect_path_index_filtered_rows(after_compaction.value(), 6);
 
     auto sibling_after_compaction = read_rowsets(readable_compacted.value(), sibling_read_options);
     ASSERT_TRUE(sibling_after_compaction.has_value()) << sibling_after_compaction.error();
-    EXPECT_EQ(sibling_after_compaction->rows_read, 5);
-    expect_path_index_filtered_rows(sibling_after_compaction.value(), 5);
+    EXPECT_EQ(sibling_after_compaction->rows_read, 3);
+    expect_path_index_filtered_rows(sibling_after_compaction.value(), 7);
 }
 
 } // namespace doris::index_storage_test

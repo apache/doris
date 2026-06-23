@@ -167,7 +167,8 @@ TEST_F(IndexStorageLifecycleTest, TextPredicateFiltersRowsAfterNullBitmapCheck) 
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.data_sources.push_back(IndexDataSourceSpec::inline_text({"hello", "other"}, 0));
+    rowset.data_sources.push_back(
+            IndexDataSourceSpec::inline_text({"hello", "hello world", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -176,7 +177,7 @@ TEST_F(IndexStorageLifecycleTest, TextPredicateFiltersRowsAfterNullBitmapCheck) 
     auto read_result = read_rowsets({rowset_result.value()}, read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
-    expect_applied_title_index(read_result.value(), 1);
+    expect_applied_title_index(read_result.value(), 2);
 }
 
 TEST_F(IndexStorageLifecycleTest, V1IndexStorageWritesOneFilePerIndex) {
@@ -191,7 +192,7 @@ TEST_F(IndexStorageLifecycleTest, V1IndexStorageWritesOneFilePerIndex) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "hello world", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -206,7 +207,7 @@ TEST_F(IndexStorageLifecycleTest, V1IndexStorageWritesOneFilePerIndex) {
     auto read_result = read_rowsets({rowset_result.value()}, read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
-    expect_applied_title_index(read_result.value(), 1);
+    expect_applied_title_index(read_result.value(), 2);
 }
 
 TEST_F(IndexStorageLifecycleTest, V2IndexStorageWritesCompoundIndexFile) {
@@ -221,7 +222,7 @@ TEST_F(IndexStorageLifecycleTest, V2IndexStorageWritesCompoundIndexFile) {
 
     IndexRowsetSpec rowset;
     rowset.version = 0;
-    rowset.batches.push_back(IndexBatch::single_text({"hello", "other"}, 0));
+    rowset.batches.push_back(IndexBatch::single_text({"hello", "hello world", "other"}, 0));
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 
@@ -237,7 +238,7 @@ TEST_F(IndexStorageLifecycleTest, V2IndexStorageWritesCompoundIndexFile) {
     auto read_result = read_rowsets({rowset_result.value()}, read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
-    expect_applied_title_index(read_result.value(), 1);
+    expect_applied_title_index(read_result.value(), 2);
 }
 
 TEST_F(IndexStorageLifecycleTest, TextIndexDisabledKeepsFilterStatsAtZero) {
