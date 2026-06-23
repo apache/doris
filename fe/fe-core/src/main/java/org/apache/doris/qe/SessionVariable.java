@@ -3555,6 +3555,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             needForward = true,
+            checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
@@ -6452,6 +6453,14 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
+        if (value < 1 || value > 50000) {
+            throw new UnsupportedOperationException("variant max sparse column statistics size is: "
+                    + variantMaxSparseColumnStatisticsSize + " it must between 1 and 50000");
         }
     }
 
