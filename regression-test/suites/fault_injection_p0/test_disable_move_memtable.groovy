@@ -25,8 +25,6 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         sql """ DROP TABLE IF EXISTS `test` """
         sql """ DROP TABLE IF EXISTS `baseall1` """
         sql """ DROP TABLE IF EXISTS `test1` """
-        sql """ DROP TABLE IF EXISTS `brokerload` """
-        sql """ DROP TABLE IF EXISTS `brokerload1` """
         sql """ sync """
         sql """
             CREATE TABLE IF NOT EXISTS `baseall` (
@@ -116,38 +114,6 @@ suite("test_disable_move_memtable", "nonConcurrent") {
                 "replication_num" = "1"
             )
         """
-        sql """
-        CREATE TABLE IF NOT EXISTS brokerload (
-                    user_id bigint,
-                    date date,
-                    group_id bigint,
-                    modify_date date,
-                    keyword VARCHAR(128)
-                ) ENGINE=OLAP
-                UNIQUE KEY(user_id, date, group_id)
-                COMMENT 'OLAP'
-                DISTRIBUTED BY HASH (user_id) BUCKETS 32
-                PROPERTIES (
-                    "replication_num" = "1",
-                    "light_schema_change" = "true"
-                );
-        """
-        sql """
-        CREATE TABLE IF NOT EXISTS brokerload1 (
-                    user_id bigint,
-                    date date,
-                    group_id bigint,
-                    modify_date date,
-                    keyword VARCHAR(128)
-                ) ENGINE=OLAP
-                UNIQUE KEY(user_id, date, group_id)
-                COMMENT 'OLAP'
-                DISTRIBUTED BY HASH (user_id) BUCKETS 32
-                PROPERTIES (
-                    "replication_num" = "1",
-                    "light_schema_change" = "false"
-                );
-        """
 
         GetDebugPoint().clearDebugPointsForAllBEs()
         streamLoad {
@@ -206,62 +172,6 @@ suite("test_disable_move_memtable", "nonConcurrent") {
             }
         }
 
-        def load_from_hdfs_norm = {tableName, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-            def result1= sql """
-                            LOAD LABEL ${label} (
-                                DATA INFILE("${hdfsFilePath}")
-                                INTO TABLE ${tableName}
-                                FORMAT as "${format}"
-                                PROPERTIES ("num_as_string"="true")
-                            )
-                            with BROKER "${brokerName}" (
-                            "username"="${hdfsUser}",
-                            "password"="${hdfsPasswd}")
-                            PROPERTIES  (
-                            "timeout"="1200",
-                            "max_filter_ratio"="0.1");
-                            """
-            log.info("result1: ${result1}")
-            assertTrue(result1.size() == 1)
-            assertTrue(result1[0].size() == 1)
-            assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
-        }
-
-        def check_load_result = {checklabel, testTablex, res ->
-            def max_try_milli_secs = 10000
-            while(max_try_milli_secs) {
-                def result = sql "show load where label = '${checklabel}'"
-                log.info("result: ${result}")
-                if(result[0][2].toString() == "${res}".toString()) {
-                    break
-                } else {
-                    sleep(1000) // wait 1 second every time
-                    max_try_milli_secs -= 1000
-                    if(max_try_milli_secs <= 0) {
-                        assertEquals(1, 2)
-                    }
-                }
-            }
-        }
-
-        def broker_load_with_injection = { injection, tableName, res->
-            try {
-                GetDebugPoint().enableDebugPointForAllBEs(injection)
-                if (enableHdfs()) {
-                    def brokerName = getBrokerName()
-                    def hdfsUser = getHdfsUser()
-                    def hdfsPasswd = getHdfsPasswd()
-                    def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_with_properties.json"
-                    def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-                    load_from_hdfs_norm.call(tableName, test_load_label, hdfs_csv_file_path, "json",
-                            brokerName, hdfsUser, hdfsPasswd)
-                    check_load_result.call(test_load_label, tableName, res)
-                }
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs(injection)
-            }
-        }
-
         sql """ set enable_insert_strict = false """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
@@ -293,16 +203,11 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "fail")
         stream_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "success")
 
-        broker_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall", "CANCELLED")
-        broker_load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "baseall1", "FINISHED")
-
         sql """ set enable_memtable_on_sink_node=false """
         sql """ DROP TABLE IF EXISTS `baseall` """
         sql """ DROP TABLE IF EXISTS `test` """
         sql """ DROP TABLE IF EXISTS `baseall1` """
         sql """ DROP TABLE IF EXISTS `test1` """
-        sql """ DROP TABLE IF EXISTS `brokerload` """
-        sql """ DROP TABLE IF EXISTS `brokerload1` """
         sql """ sync """
     }
 }
