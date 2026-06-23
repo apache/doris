@@ -75,8 +75,10 @@ public class MetricsTest {
     @Test
     public void testConnectionMaxMetrics() throws Exception {
         int originQeMaxConnection = Config.qe_max_connection;
+        int originArrowFlightMaxConnections = Config.arrow_flight_max_connections;
         try {
             Config.qe_max_connection = 4321;
+            Config.arrow_flight_max_connections = 8765;
             MetricRepo.updateUserConnectionMaxMetric("metric_user", 321L);
 
             MetricVisitor visitor = new PrometheusMetricVisitor();
@@ -84,6 +86,10 @@ public class MetricsTest {
             String metricResult = visitor.finish();
             Assert.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
             Assert.assertTrue(metricResult.contains("doris_fe_connection_max 4321"));
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_total gauge"));
+            Assert.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 0"));
+            Assert.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_max gauge"));
+            Assert.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_max 8765"));
             Assert.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
             Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
 
@@ -97,6 +103,7 @@ public class MetricsTest {
             Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
         } finally {
             Config.qe_max_connection = originQeMaxConnection;
+            Config.arrow_flight_max_connections = originArrowFlightMaxConnections;
             MetricRepo.removeUserConnectionMaxMetric("metric_user");
             MetricRepo.updateUserConnectionMaxMetric(Auth.ROOT_USER, 100L);
         }
