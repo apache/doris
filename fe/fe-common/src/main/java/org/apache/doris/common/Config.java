@@ -2190,7 +2190,7 @@ public class Config extends ConfigBase {
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
             description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
-    public static boolean enable_external_meta_cache_manual_miss_load = false;
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
      * Github workflow test type, for setting some session variables
