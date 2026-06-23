@@ -47,6 +47,35 @@ public class S3FileSystem extends S3CompatibleFileSystem {
         return Optional.ofNullable(properties);
     }
 
+    @Override
+    protected String globListPrefix(String globPattern) {
+        if (isDirectoryBucketEndpoint()) {
+            return slashTerminatedNonGlobPrefix(globPattern);
+        }
+        return super.globListPrefix(globPattern);
+    }
+
+    @Override
+    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
+        if (isDirectoryBucketEndpoint()) {
+            return List.of(listPrefix);
+        }
+        return super.globListPrefixes(globPattern, listPrefix);
+    }
+
+    private boolean isDirectoryBucketEndpoint() {
+        return properties != null && properties.isDirectoryBucketEndpoint();
+    }
+
+    private static String slashTerminatedNonGlobPrefix(String globPattern) {
+        String prefix = longestNonGlobPrefix(globPattern);
+        if (prefix.isEmpty() || prefix.endsWith("/")) {
+            return prefix;
+        }
+        int slash = prefix.lastIndexOf('/');
+        return slash < 0 ? "" : prefix.substring(0, slash + 1);
+    }
+
     protected static boolean isSingleLevelGlob(String pathStr) {
         return S3CompatibleFileSystem.isSingleLevelGlob(pathStr);
     }

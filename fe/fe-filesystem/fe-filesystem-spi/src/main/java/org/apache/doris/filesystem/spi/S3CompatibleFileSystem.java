@@ -28,14 +28,15 @@ import org.apache.doris.filesystem.Location;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /**
@@ -55,6 +56,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
     private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
+    private static final Comparator<String> UTF8_BINARY_ORDER = S3CompatibleFileSystem::compareUtf8Binary;
 
     private final boolean usePathStyle;
 
@@ -864,6 +866,14 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
     }
 
+    protected String globListPrefix(String globPattern) {
+        return longestNonGlobPrefix(globPattern);
+    }
+
+    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
+        return expandedGlobListPrefixes(globPattern);
+    }
+
     private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
         List<String> prefixes = new ArrayList<>();
         prefixes.add("");
@@ -943,6 +953,9 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         if (first == '!' || first == '^') {
             return null;
         }
+        if (containsSurrogate(globPattern, i, closeIndex)) {
+            return null;
+        }
         List<String> values = new ArrayList<>();
         while (i < closeIndex) {
             char current = globPattern.charAt(i);
@@ -984,6 +997,15 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             }
         }
         return -1;
+    }
+
+    private static boolean containsSurrogate(String text, int start, int end) {
+        for (int i = start; i < end; i++) {
+            if (Character.isSurrogate(text.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex) {
@@ -1060,7 +1082,8 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     }
 
     private static List<String> compactPrefixes(List<String> prefixes) {
-        TreeSet<String> sorted = new TreeSet<>(prefixes);
+        List<String> sorted = new ArrayList<>(prefixes);
+        sorted.sort(UTF8_BINARY_ORDER);
         List<String> compact = new ArrayList<>();
         for (String prefix : sorted) {
             if (prefix.isEmpty()) {
@@ -1078,6 +1101,20 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             }
         }
         return compact;
+    }
+
+    private static int compareUtf8Binary(String left, String right) {
+        byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
+        byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
+        int commonLength = Math.min(leftBytes.length, rightBytes.length);
+        for (int i = 0; i < commonLength; i++) {
+            int result = Integer.compare(
+                    Byte.toUnsignedInt(leftBytes[i]), Byte.toUnsignedInt(rightBytes[i]));
+            if (result != 0) {
+                return result;
+            }
+        }
+        return Integer.compare(leftBytes.length, rightBytes.length);
     }
 
     private static class PrefixExpansion {
@@ -1166,8 +1203,8 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        String listPrefix = longestNonGlobPrefix(expandedKeyPattern);
-        List<String> listPrefixes = expandedGlobListPrefixes(expandedKeyPattern);
+        String listPrefix = globListPrefix(expandedKeyPattern);
+        List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
