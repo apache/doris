@@ -44,6 +44,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
@@ -586,6 +587,8 @@ public class Auth implements Writable {
             }
             // other user properties
             propertyMgr.addUserResource(userIdent.getQualifiedUser());
+            MetricRepo.updateUserConnectionMaxMetric(userIdent.getQualifiedUser(),
+                    propertyMgr.getMaxConn(userIdent.getQualifiedUser()));
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
@@ -640,6 +643,7 @@ public class Auth implements Writable {
             userManager.removeUser(userIdent);
             if (CollectionUtils.isEmpty(userManager.getUserByName(userIdent.getQualifiedUser()))) {
                 propertyMgr.dropUser(userIdent);
+                MetricRepo.removeUserConnectionMaxMetric(userIdent.getQualifiedUser());
             }
 
             if (!isReplay) {
@@ -1193,6 +1197,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             propertyMgr.updateUserProperty(user, properties, isReplay);
+            MetricRepo.updateUserConnectionMaxMetric(user, propertyMgr.getMaxConn(user));
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
@@ -1213,6 +1218,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<String, Long> getMaxConnForAllUsers() {
+        readLock();
+        try {
+            return propertyMgr.getMaxConnForAllUsers();
         } finally {
             readUnlock();
         }
