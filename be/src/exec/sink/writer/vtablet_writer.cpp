@@ -101,6 +101,8 @@ bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_through
 bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms(
         "load_back_pressure_version_time_ms");
 
+static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
+
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets,
                           bool incremental) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -308,6 +310,20 @@ static Status cancel_channel_and_check_intolerable_failure(Status status,
     return status;
 }
 
+void IndexChannel::wait_for_close_event(int64_t observed_version, int64_t timeout_ms) {
+    std::unique_lock<bthread::Mutex> lock(_close_wait_mutex);
+    if (observed_version != close_wait_version()) {
+        return;
+    }
+    static_cast<void>(_close_wait_cv.wait_for(lock, timeout_ms * 1000));
+}
+
+void IndexChannel::notify_close_wait() {
+    _close_wait_version.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<bthread::Mutex> lock(_close_wait_mutex);
+    _close_wait_cv.notify_all();
+}
+
 Status IndexChannel::close_wait(
         RuntimeState* state, WriterStats* writer_stats,
         std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
@@ -329,6 +345,7 @@ Status IndexChannel::close_wait(
         }
     }
     while (true) {
+        int64_t close_wait_version = this->close_wait_version();
         RETURN_IF_ERROR(check_each_node_channel_close(
                 &unfinished_node_channel_ids, node_add_batch_counter_map, writer_stats, status));
         bool quorum_success = _quorum_success(unfinished_node_channel_ids, need_finish_tablets);
@@ -339,7 +356,7 @@ Status IndexChannel::close_wait(
                       << ", load_id: " << print_id(_parent->_load_id);
             break;
         }
-        bthread_usleep(1000 * 10);
+        wait_for_close_event(close_wait_version, CLOSE_WAIT_EVENT_FALLBACK_MS);
     }
 
     // 2. wait for all node channel to complete as much as possible
@@ -347,6 +364,7 @@ Status IndexChannel::close_wait(
         int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(unfinished_node_channel_ids);
         while (true) {
+            int64_t close_wait_version = this->close_wait_version();
             RETURN_IF_ERROR(check_each_node_channel_close(&unfinished_node_channel_ids,
                                                           node_add_batch_counter_map, writer_stats,
                                                           status));
@@ -370,7 +388,8 @@ Status IndexChannel::close_wait(
                              << unfinished_node_channel_host_str.str();
                 break;
             }
-            bthread_usleep(1000 * 10);
+            wait_for_close_event(close_wait_version, std::min(CLOSE_WAIT_EVENT_FALLBACK_MS,
+                                                              max_wait_time_ms - elapsed_ms));
         }
     }
     return status;
@@ -868,6 +887,7 @@ void VNodeChannel::_cancel_with_msg(const std::string& msg) {
         }
     }
     _cancelled = true;
+    _index_channel->notify_close_wait();
 }
 
 void VNodeChannel::_refresh_back_pressure_version_wait_time(
@@ -1140,6 +1160,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
                 }
             }
             _add_batches_finished = true;
+            _index_channel->notify_close_wait();
         }
     } else {
         _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
@@ -1190,6 +1211,7 @@ void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& c
         // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
         // will be blocked.
         _add_batches_finished = true;
+        _index_channel->notify_close_wait();
     }
 }
 
