@@ -132,6 +132,8 @@ public final class MetricRepo {
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Integer>> USER_GAUGE_CONNECTIONS;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_CONNECTION_MAX;
+    public static GaugeMetric<Integer> GAUGE_ARROW_FLIGHT_CONNECTIONS;
+    public static GaugeMetric<Integer> GAUGE_ARROW_FLIGHT_CONNECTION_MAX;
     public static GaugeMetric<Integer> GAUGE_CONNECTION_MAX;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
@@ -443,6 +445,14 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(connections);
+        GAUGE_ARROW_FLIGHT_CONNECTIONS = new GaugeMetric<Integer>("arrow_flight_connection_total",
+                MetricUnit.CONNECTIONS, "total arrow flight connections") {
+            @Override
+            public Integer getValue() {
+                return ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr().getConnectionNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTIONS);
         GAUGE_CONNECTION_MAX = new GaugeMetric<Integer>("connection_max",
                 MetricUnit.CONNECTIONS, "max connections") {
             @Override
@@ -451,6 +461,14 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CONNECTION_MAX);
+        GAUGE_ARROW_FLIGHT_CONNECTION_MAX = new GaugeMetric<Integer>("arrow_flight_connection_max",
+                MetricUnit.CONNECTIONS, "max arrow flight connections") {
+            @Override
+            public Integer getValue() {
+                return Config.arrow_flight_max_connections;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTION_MAX);
         syncUserConnectionMaxMetrics();
 
         // journal id
