@@ -128,7 +128,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 metaCache.invalidateAll();
             }
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
+        ExternalMetaCacheMgr externalMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        externalMetaCacheMgr.invalidateDb(extCatalog.getId(), getFullName());
+        externalMetaCacheMgr.invalidateDbRowCountCache(this);
     }
 
     public boolean isInitialized() {

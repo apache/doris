@@ -140,12 +140,27 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
-    public void testInvalidateDbUsesActualDbId() {
+    public void testInvalidateDbRowCountCacheUsesDbId() {
         ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(1L);
         ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
         Mockito.when(db.getId()).thenReturn(11L);
-        Mockito.doReturn(db).when(catalog).getDbNullable("db1");
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.spy(
+                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+        metaCacheMgr.setRowCountCache(rowCountCache);
+
+        metaCacheMgr.invalidateDbRowCountCache(db);
+
+        Mockito.verify(rowCountCache).invalidateDb(1L, 11L);
+    }
+
+    @Test
+    public void testInvalidateDbByNameDoesNotAccessDbForRowCount() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
 
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalRowCountCache rowCountCache = Mockito.spy(
@@ -162,19 +177,14 @@ public class ExternalRowCountCacheTest {
             metaCacheMgr.invalidateDb(1L, "db1");
         }
 
-        Mockito.verify(rowCountCache).invalidateDb(1L, 11L);
+        Mockito.verify(catalog, Mockito.never()).getDbNullable("db1");
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateDb(Mockito.anyLong(), Mockito.anyLong());
     }
 
     @Test
-    public void testInvalidateTableByNameUsesActualIds() {
+    public void testInvalidateTableByNameDoesNotAccessDbForRowCount() {
         ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(1L);
-        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
-        Mockito.when(db.getId()).thenReturn(11L);
-        ExternalTable table = Mockito.mock(ExternalTable.class);
-        Mockito.when(table.getId()).thenReturn(22L);
-        Mockito.doReturn(table).when(db).getTableNullable("tbl1");
-        Mockito.doReturn(db).when(catalog).getDbNullable("db1");
 
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalRowCountCache rowCountCache = Mockito.spy(
@@ -191,7 +201,9 @@ public class ExternalRowCountCacheTest {
             metaCacheMgr.invalidateTable(1L, "db1", "tbl1");
         }
 
-        Mockito.verify(rowCountCache).invalidateTable(1L, 11L, 22L);
+        Mockito.verify(catalog, Mockito.never()).getDbNullable("db1");
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateTable(
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
     }
 
     @Test

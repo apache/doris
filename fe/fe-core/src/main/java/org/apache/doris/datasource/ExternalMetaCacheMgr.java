@@ -17,9 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
@@ -247,29 +245,16 @@ public class ExternalMetaCacheMgr {
     public void invalidateDb(long catalogId, String dbName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
-        CatalogIf<?> catalog = getCatalog(catalogId);
-        if (catalog != null) {
-            DatabaseIf<?> db = catalog.getDbNullable(dbName);
-            if (db != null) {
-                rowCountCache.invalidateDb(catalogId, db.getId());
-            }
-        }
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
-        CatalogIf<?> catalog = getCatalog(catalogId);
-        if (catalog != null) {
-            DatabaseIf<?> db = catalog.getDbNullable(dbName);
-            if (db != null) {
-                TableIf table = db.getTableNullable(tableName);
-                if (table != null) {
-                    rowCountCache.invalidateTable(catalogId, db.getId(), table.getId());
-                }
-            }
-        }
+    }
+
+    public void invalidateDbRowCountCache(ExternalDatabase<?> dorisDb) {
+        rowCountCache.invalidateDb(dorisDb.getCatalog().getId(), dorisDb.getId());
     }
 
     public void invalidateTable(ExternalTable dorisTable) {
