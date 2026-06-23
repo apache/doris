@@ -22,21 +22,25 @@ import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import com.google.common.base.VerifyException;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -294,5 +298,39 @@ final class IcebergWriterHelper {
                     table.name(), PARQUET_NAME, e);
         }
         return PARQUET_NAME;
+    }
+
+    /**
+     * Reads the real table format version (port of legacy {@code IcebergUtils.getFormatVersion}): from a
+     * {@link BaseTable}'s current metadata when available, else from the {@code format-version} table
+     * property, defaulting to 2. Kept here (the shared write-side helper) so the sink dialects share one
+     * implementation; the per-class private copies in {@code IcebergConnectorMetadata}/{@code
+     * IcebergConnectorTransaction} are left untouched (DV-T05-e).
+     */
+    static int getFormatVersion(Table table) {
+        int formatVersion = 2;
+        if (table instanceof BaseTable) {
+            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        } else if (table != null && table.properties() != null) {
+            String version = table.properties().get(TableProperties.FORMAT_VERSION);
+            if (version != null) {
+                try {
+                    formatVersion = Integer.parseInt(version);
+                } catch (NumberFormatException ignored) {
+                    // keep the default
+                }
+            }
+        }
+        return formatVersion;
+    }
+
+    /**
+     * Appends the format-version 3 row-lineage fields ({@code _row_id}, {@code _last_updated_sequence_number})
+     * to the schema (port of legacy {@code IcebergUtils.appendRowLineageFieldsForV3}); pure iceberg SDK. The
+     * merge sink's BE writer expects the row-lineage columns in the schema-json for a v3 table.
+     */
+    static Schema appendRowLineageFieldsForV3(Schema schema) {
+        return TypeUtil.join(schema, new Schema(
+                MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER));
     }
 }

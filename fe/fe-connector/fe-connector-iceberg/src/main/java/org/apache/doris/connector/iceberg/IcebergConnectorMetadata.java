@@ -276,6 +276,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return new IcebergConnectorTransaction(session.allocateTransactionId(), catalogOps, context);
     }
 
+    /**
+     * Iceberg is the first connector to support row-level DELETE / MERGE (merge-on-read position deletes /
+     * deletion vectors). These capabilities route the generic {@code RowLevelDmlCommand} shell to iceberg's
+     * fe-resident plan synthesis (T07c). The {@code format-version >= 2} requirement is enforced fail-loud at
+     * {@code IcebergConnectorTransaction.beginWrite} (the begin-guards), matching legacy command-analysis
+     * rejection. Gate-closed until P6.6: iceberg is not yet a {@code PluginDrivenExternalTable}, so the
+     * capability dispatch is unreachable and the legacy {@code instanceof}-routed commands still run.
+     */
+    @Override
+    public boolean supportsDelete() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsMerge() {
+        return true;
+    }
+
     // ========== E5: MVCC snapshots / time travel ==========
 
     /**

@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.filesystem.FileSystemType;
@@ -31,9 +32,13 @@ import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergTableSink;
+import org.apache.doris.thrift.TSortField;
 import org.apache.doris.thrift.TSortInfo;
 
 import org.apache.iceberg.NullOrder;
@@ -99,6 +104,16 @@ public class IcebergWritePlanProviderTest {
         tableProps.put("write.format.default", "parquet");
         tableProps.put("write.data.path", "oss://bucket/wh/db1/t2/data");
         return catalog.createTable(TableIdentifier.of("db1", "t2"), SCHEMA,
+                PartitionSpec.unpartitioned(), tableProps);
+    }
+
+    /** A format-version 3 table (exercises the merge sink's row-lineage schema append + v3 delete path). */
+    private static Table formatVersionThreeTable(InMemoryCatalog catalog) {
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.data.path", "oss://bucket/wh/db1/tv3/data");
+        tableProps.put("format-version", "3");
+        return catalog.createTable(TableIdentifier.of("db1", "tv3"), SCHEMA,
                 PartitionSpec.unpartitioned(), tableProps);
     }
 
@@ -297,6 +312,161 @@ public class IcebergWritePlanProviderTest {
                 "an iceberg write with no bound connector transaction must fail loud");
     }
 
+    // ───────────────────────────── DELETE sink (TIcebergDeleteSink) ─────────────────────────────
+    //
+    // WHY: T07a moves the legacy planner.IcebergDeleteSink.bindDataSink Thrift assembly into the
+    // connector. The sink goes to BE unchanged (C2), so every field must be byte-identical to the legacy
+    // sink. Note the legacy delete sink uses compress_type (field 6), NOT the table/merge sink's
+    // compression_type — a parity-by-omission silently corrupts v2 position-delete writes at P6.6.
+
+    private static TIcebergDeleteSink planDeleteSink(Table table, RecordingConnectorContext ctx,
+            ConnectorWriteHandle handle) {
+        ConnectorSinkPlan plan = providerFor(table, ctx).planWrite(sessionFor(table, ctx), handle);
+        Assertions.assertEquals(TDataSinkType.ICEBERG_DELETE_SINK, plan.getDataSink().getType(),
+                "a DELETE write operation must dispatch to the TIcebergDeleteSink dialect");
+        return plan.getDataSink().getIcebergDeleteSink();
+    }
+
+    @Test
+    public void planWriteBuildsDeleteSinkWithTableDerivedFields() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergDeleteSink sink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.DELETE));
+
+        Assertions.assertEquals("db1", sink.getDbName());
+        Assertions.assertEquals("t1", sink.getTbName());
+        Assertions.assertEquals(TFileContent.POSITION_DELETES, sink.getDeleteType(),
+                "iceberg delete is always a position delete (the only DeleteFileType)");
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
+        Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressType(),
+                "the delete sink carries compress_type (thrift field 6), NOT compression_type (the merge/table field)");
+        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("fs.s3a.access.key"));
+        Assertions.assertEquals("s3://bucket/wh/db1/t1/data", sink.getOutputPath(),
+                "delete output path is the normalized data location (legacy LocationPath.toStorageLocation)");
+        Assertions.assertEquals("oss://bucket/wh/db1/t1/data", sink.getTableLocation(),
+                "table_location stays the raw data location (legacy IcebergUtils.dataLocation)");
+        Assertions.assertEquals(TFileType.FILE_S3, sink.getFileType());
+        Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecId());
+        Assertions.assertEquals(2, sink.getFormatVersion());
+        Assertions.assertFalse(sink.isSetRewritableDeleteFileSets(),
+                "the bindDataSink port never stamps rewritable delete file sets (post-finalize, fv3, T07c)");
+    }
+
+    @Test
+    public void planWriteDeleteSinkNonPartitionedOmitsSpecId() {
+        InMemoryCatalog catalog = freshCatalog();
+        partitionedSortedTable(catalog);
+        Table table = unpartitionedUnsortedTable(catalog);
+        TIcebergDeleteSink sink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2")).writeOperation(WriteOperation.DELETE));
+
+        Assertions.assertFalse(sink.isSetPartitionSpecId(),
+                "an unpartitioned table must not emit a partition spec id (legacy gates on spec().isPartitioned())");
+    }
+
+    @Test
+    public void planWriteDeleteSinkFormatVersionThree() {
+        Table table = formatVersionThreeTable(freshCatalog());
+        TIcebergDeleteSink sink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.DELETE));
+
+        Assertions.assertEquals(3, sink.getFormatVersion());
+        Assertions.assertFalse(sink.isSetRewritableDeleteFileSets(),
+                "a v3 delete with no live delete files to rewrite must not set rewritable sets (legacy gates on non-empty)");
+    }
+
+    // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
+    //
+    // WHY: UPDATE and MERGE both write the TIcebergMergeSink dialect. Two parity traps vs the table/delete
+    // sinks: (1) merge carries compression_type (field 8), NOT compress_type; (2) merge carries sort_fields
+    // (field 6, a List<TSortField> built directly from the iceberg SortOrder), NOT the INSERT path's
+    // sort_info(16). At fv3 the schema_json must include the row-lineage fields (legacy
+    // appendRowLineageFieldsForV3), else BE v3 merge writes mismatch.
+
+    private static TIcebergMergeSink planMergeSink(Table table, RecordingConnectorContext ctx,
+            ConnectorWriteHandle handle) {
+        ConnectorSinkPlan plan = providerFor(table, ctx).planWrite(sessionFor(table, ctx), handle);
+        Assertions.assertEquals(TDataSinkType.ICEBERG_MERGE_SINK, plan.getDataSink().getType(),
+                "an UPDATE/MERGE write operation must dispatch to the TIcebergMergeSink dialect");
+        return plan.getDataSink().getIcebergMergeSink();
+    }
+
+    @Test
+    public void planWriteBuildsMergeSinkWithTableDerivedFields() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertEquals("db1", sink.getDbName());
+        Assertions.assertEquals("t1", sink.getTbName());
+        Assertions.assertEquals(2, sink.getFormatVersion());
+        Assertions.assertEquals(SchemaParser.toJson(table.schema()), sink.getSchemaJson(),
+                "fv2 merge schema-json equals SchemaParser.toJson(table.schema()) (no row-lineage append below v3)");
+        Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecId());
+        Assertions.assertNotNull(sink.getPartitionSpecsJson());
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
+        Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressionType(),
+                "the merge sink carries compression_type (thrift field 8), NOT compress_type (the delete field)");
+        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("fs.s3a.access.key"));
+        Assertions.assertEquals("s3://bucket/wh/db1/t1/data", sink.getOutputPath());
+        Assertions.assertEquals("oss://bucket/wh/db1/t1/data", sink.getOriginalOutputPath());
+        Assertions.assertEquals("oss://bucket/wh/db1/t1/data", sink.getTableLocation());
+        Assertions.assertEquals(TFileType.FILE_S3, sink.getFileType());
+        // delete side
+        Assertions.assertEquals(TFileContent.POSITION_DELETES, sink.getDeleteType());
+        Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecIdForDelete());
+        Assertions.assertFalse(sink.isSetRewritableDeleteFileSets());
+    }
+
+    @Test
+    public void planWriteMergeSinkSortFieldsFromIdentitySortOrder() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertTrue(sink.isSetSortFields());
+        Assertions.assertEquals(1, sink.getSortFields().size());
+        TSortField sf = sink.getSortFields().get(0);
+        Assertions.assertEquals(table.schema().findField("id").fieldId(), sf.getSourceColumnId(),
+                "merge sort_fields carry the iceberg source field id directly (legacy SortField.sourceId), not a column index");
+        Assertions.assertTrue(sf.isAscending());
+        Assertions.assertTrue(sf.isNullFirst());
+    }
+
+    @Test
+    public void planWriteMergeSinkUnsortedOmitsSortFields() {
+        InMemoryCatalog catalog = freshCatalog();
+        partitionedSortedTable(catalog);
+        Table table = unpartitionedUnsortedTable(catalog);
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t2")).writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertFalse(sink.isSetSortFields(),
+                "an unsorted table must not emit sort_fields (legacy gates on sortOrder().isSorted())");
+    }
+
+    @Test
+    public void planWriteMergeSinkFv3AppendsRowLineageSchema() {
+        Table table = formatVersionThreeTable(freshCatalog());
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.MERGE));
+
+        Assertions.assertEquals(3, sink.getFormatVersion());
+        Assertions.assertTrue(sink.getSchemaJson().contains("_row_id"),
+                "fv3 merge schema-json must include the row-lineage _row_id field (legacy appendRowLineageFieldsForV3)");
+        Assertions.assertTrue(sink.getSchemaJson().contains("_last_updated_sequence_number"),
+                "fv3 merge schema-json must include the row-lineage _last_updated_sequence_number field");
+    }
+
+    @Test
+    public void planWriteMergeOperationAlsoBuildsMergeSink() {
+        Table table = partitionedSortedTable(freshCatalog());
+        // The MERGE write operation shares the merge sink family with UPDATE.
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.MERGE));
+        Assertions.assertEquals("t1", sink.getTbName());
+    }
+
     // ───────────────────────────── test doubles ─────────────────────────────
 
     /** A bound write request; mirrors the engine's PluginDrivenWriteHandle (which is fe-core-private). */
@@ -305,6 +475,7 @@ public class IcebergWritePlanProviderTest {
         private boolean overwrite;
         private Map<String, String> writeContext = Collections.emptyMap();
         private TSortInfo sortInfo;
+        private WriteOperation writeOperation = WriteOperation.INSERT;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -313,6 +484,16 @@ public class IcebergWritePlanProviderTest {
         WriteHandle overwrite(boolean v) {
             this.overwrite = v;
             return this;
+        }
+
+        WriteHandle writeOperation(WriteOperation v) {
+            this.writeOperation = v;
+            return this;
+        }
+
+        @Override
+        public WriteOperation getWriteOperation() {
+            return writeOperation;
         }
 
         WriteHandle writeContext(Map<String, String> v) {

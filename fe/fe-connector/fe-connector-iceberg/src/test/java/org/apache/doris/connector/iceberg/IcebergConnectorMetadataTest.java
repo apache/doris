@@ -73,6 +73,21 @@ public class IcebergConnectorMetadataTest {
     }
 
     // ---------------------------------------------------------------------
+    // write capabilities (row-level DML dispatch)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void declaresDeleteAndMergeCapabilities() {
+        // WHY: iceberg is the first connector to support row-level DELETE/MERGE. The generic
+        // RowLevelDmlCommand shell routes to iceberg's plan synthesis by querying these capabilities (at the
+        // P6.6 cutover). MUTATION: returning the default false (dropping the override) -> the shell would
+        // never dispatch iceberg DELETE/MERGE -> red.
+        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
+        Assertions.assertTrue(metadata.supportsDelete(), "iceberg must declare DELETE support");
+        Assertions.assertTrue(metadata.supportsMerge(), "iceberg must declare MERGE support");
+    }
+
+    // ---------------------------------------------------------------------
     // list / exists delegation
     // ---------------------------------------------------------------------
 

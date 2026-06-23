@@ -31,14 +31,19 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergTableSink;
+import org.apache.doris.thrift.TSortField;
 
 import com.google.common.collect.Maps;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpecParser;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.SortDirection;
 import org.apache.iceberg.SortField;
@@ -50,9 +55,11 @@ import org.apache.iceberg.util.LocationUtil;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Write plan provider for iceberg INSERT / INSERT OVERWRITE.
@@ -64,10 +71,13 @@ import java.util.Optional;
  * fe-core {@code planner.IcebergTableSink.bindDataSink} (C2, zero BE change), so the BE writer is
  * unaffected by the migration.</p>
  *
- * <p><b>Scope (P6.3-T06).</b> INSERT / OVERWRITE only ({@code TIcebergTableSink}); the DELETE / MERGE
- * sink dialects come with the row-level DML command shell (T07). REWRITE (procedures, P6.4) is not
- * built here. The write distribution and the vended-credentials overlay of the hadoop config are
- * registered deviations closed at the P6.6 cutover (see the T06 design doc).</p>
+ * <p><b>Scope.</b> INSERT / OVERWRITE ({@code TIcebergTableSink}, T06), DELETE ({@code TIcebergDeleteSink})
+ * and UPDATE / MERGE ({@code TIcebergMergeSink}, T07a). REWRITE (procedures, P6.4) is not built here. The
+ * write distribution and the vended-credentials overlay of the hadoop config are registered deviations
+ * (DV-T0x-vended / -broker / -materialize) closed at the P6.6 cutover. The DELETE / MERGE sink's
+ * format-version&ge;3 {@code rewritable_delete_file_sets} is a post-finalize injection driven by the
+ * fe-resident rewritable-delete planner and lands with the command shell (T07c); the {@code bindDataSink}
+ * port here never stamps it.</p>
  *
  * <p><b>Gate-closed / dormant.</b> Iceberg is not in {@code SPI_READY_TYPES} until P6.6, so nothing
  * routes iceberg writes through this provider yet; {@link #planWrite} requires the executor-bound
@@ -104,10 +114,31 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
 
-        TIcebergTableSink tSink = buildSink(table, tableHandle, handle);
-        TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
-        dataSink.setIcebergTableSink(tSink);
-        return new ConnectorSinkPlan(dataSink);
+        // Dispatch on the write operation to the matching BE sink dialect (each is a distinct TDataSinkType,
+        // byte-identical to the legacy fe-core planner sink). OVERWRITE shares TIcebergTableSink with INSERT
+        // (the overwrite flag is read from the handle); UPDATE shares TIcebergMergeSink with MERGE.
+        switch (writeContext.getWriteOperation()) {
+            case INSERT:
+            case OVERWRITE: {
+                TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
+                dataSink.setIcebergTableSink(buildSink(table, tableHandle, handle));
+                return new ConnectorSinkPlan(dataSink);
+            }
+            case DELETE: {
+                TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);
+                dataSink.setIcebergDeleteSink(buildDeleteSink(table, tableHandle));
+                return new ConnectorSinkPlan(dataSink);
+            }
+            case UPDATE:
+            case MERGE: {
+                TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
+                dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle));
+                return new ConnectorSinkPlan(dataSink);
+            }
+            default:
+                throw new DorisConnectorException(
+                        "Unsupported iceberg write operation: " + writeContext.getWriteOperation());
+        }
     }
 
     @Override
@@ -198,17 +229,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         // Output location: normalized for the BE writer, raw kept as the original; the BE file type comes
         // from the engine (broker-aware). All vended-aware so a REST catalog's path still resolves.
-        String rawLocation = dataLocation(table);
-        Map<String, String> vendedToken = IcebergScanPlanProvider.extractVendedToken(
-                table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
-        if (context != null) {
-            tSink.setOutputPath(context.normalizeStorageUri(rawLocation, vendedToken));
-            tSink.setFileType(TFileType.valueOf(context.getBackendFileType(rawLocation, vendedToken)));
-        } else {
-            tSink.setOutputPath(rawLocation);
-            tSink.setFileType(TFileType.FILE_S3);
-        }
-        tSink.setOriginalOutputPath(rawLocation);
+        LocationFields location = resolveLocationFields(table);
+        tSink.setOutputPath(location.outputPath);
+        tSink.setFileType(location.fileType);
+        tSink.setOriginalOutputPath(location.rawLocation);
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
         tSink.setOverwrite(handle.isOverwrite());
@@ -216,6 +240,136 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             tSink.setStaticPartitionValues(handle.getWriteContext());
         }
         return tSink;
+    }
+
+    /**
+     * Builds the {@code TIcebergDeleteSink} (port of legacy {@code planner.IcebergDeleteSink.bindDataSink}).
+     * Iceberg delete is always a position delete. ⚠️ The delete sink carries {@code compress_type} (thrift
+     * field 6), NOT the table/merge sink's {@code compression_type}. The format-version&ge;3
+     * {@code rewritable_delete_file_sets} is injected post-finalize (T07c), never here.
+     */
+    private TIcebergDeleteSink buildDeleteSink(Table table, IcebergTableHandle tableHandle) {
+        TIcebergDeleteSink tSink = new TIcebergDeleteSink();
+        tSink.setDbName(tableHandle.getDbName());
+        tSink.setTbName(tableHandle.getTableName());
+        tSink.setDeleteType(TFileContent.POSITION_DELETES);
+        tSink.setFileFormat(toTFileFormatType(IcebergWriterHelper.getFileFormat(table)));
+        tSink.setCompressType(toTFileCompressType(getFileCompress(table)));
+        tSink.setHadoopConfig(buildHadoopConfig());
+
+        LocationFields location = resolveLocationFields(table);
+        tSink.setOutputPath(location.outputPath);
+        tSink.setTableLocation(location.rawLocation);
+        tSink.setFileType(location.fileType);
+
+        if (table.spec().isPartitioned()) {
+            tSink.setPartitionSpecId(table.spec().specId());
+        }
+        tSink.setFormatVersion(IcebergWriterHelper.getFormatVersion(table));
+        return tSink;
+    }
+
+    /**
+     * Builds the {@code TIcebergMergeSink} (port of legacy {@code planner.IcebergMergeSink.bindDataSink}),
+     * the UPDATE / MERGE dialect. Two parity traps vs the table/delete sinks: it carries
+     * {@code compression_type} (field 8, NOT {@code compress_type}) and {@code sort_fields} (field 6, a
+     * {@code List<TSortField>} built directly from the iceberg sort order, NOT the INSERT path's
+     * {@code sort_info}). At format-version&ge;3 the schema-json includes the row-lineage fields. The
+     * {@code rewritable_delete_file_sets} is injected post-finalize (T07c), never here.
+     */
+    private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle) {
+        TIcebergMergeSink tSink = new TIcebergMergeSink();
+        tSink.setDbName(tableHandle.getDbName());
+        tSink.setTbName(tableHandle.getTableName());
+
+        int formatVersion = IcebergWriterHelper.getFormatVersion(table);
+        tSink.setFormatVersion(formatVersion);
+        Schema schema = formatVersion >= 3
+                ? IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema()) : table.schema();
+        tSink.setSchemaJson(SchemaParser.toJson(schema));
+
+        if (table.spec().isPartitioned()) {
+            tSink.setPartitionSpecsJson(Maps.transformValues(table.specs(), PartitionSpecParser::toJson));
+            tSink.setPartitionSpecId(table.spec().specId());
+        }
+
+        // Sort fields: identity sort-order fields whose source id is a base column, carrying the iceberg
+        // source field id directly (BE merge writer field 6) — distinct from the INSERT path's sort_info(16).
+        // A sorted table with no resolving identity column still emits an (empty) sort_fields list (legacy
+        // sets it unconditionally inside the isSorted() branch).
+        SortOrder sortOrder = table.sortOrder();
+        if (sortOrder.isSorted()) {
+            tSink.setSortFields(buildMergeSortFields(table, sortOrder));
+        }
+
+        tSink.setFileFormat(toTFileFormatType(IcebergWriterHelper.getFileFormat(table)));
+        tSink.setCompressionType(toTFileCompressType(getFileCompress(table)));
+        tSink.setHadoopConfig(buildHadoopConfig());
+
+        LocationFields location = resolveLocationFields(table);
+        tSink.setOutputPath(location.outputPath);
+        tSink.setOriginalOutputPath(location.rawLocation);
+        tSink.setTableLocation(location.rawLocation);
+        tSink.setFileType(location.fileType);
+
+        // Delete side (position delete only).
+        tSink.setDeleteType(TFileContent.POSITION_DELETES);
+        if (table.spec().isPartitioned()) {
+            tSink.setPartitionSpecIdForDelete(table.spec().specId());
+        }
+        return tSink;
+    }
+
+    private static List<TSortField> buildMergeSortFields(Table table, SortOrder sortOrder) {
+        Set<Integer> baseColumnFieldIds = new HashSet<>();
+        for (NestedField column : table.schema().columns()) {
+            baseColumnFieldIds.add(column.fieldId());
+        }
+        List<TSortField> sortFields = new ArrayList<>();
+        for (SortField sortField : sortOrder.fields()) {
+            if (!sortField.transform().isIdentity()) {
+                continue;
+            }
+            if (!baseColumnFieldIds.contains(sortField.sourceId())) {
+                continue;
+            }
+            TSortField tSortField = new TSortField();
+            tSortField.setSourceColumnId(sortField.sourceId());
+            tSortField.setAscending(sortField.direction() == SortDirection.ASC);
+            tSortField.setNullFirst(sortField.nullOrder() == NullOrder.NULLS_FIRST);
+            sortFields.add(tSortField);
+        }
+        return sortFields;
+    }
+
+    /**
+     * Resolves the shared sink location fields (port of legacy {@code LocationPath.of(dataLocation(table))}):
+     * the raw data location, the normalized BE write path, and the BE file type — all vended-aware so a REST
+     * catalog's object-store path still resolves. Used by all three sink dialects.
+     */
+    private LocationFields resolveLocationFields(Table table) {
+        String rawLocation = dataLocation(table);
+        Map<String, String> vendedToken = IcebergScanPlanProvider.extractVendedToken(
+                table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
+        if (context != null) {
+            return new LocationFields(rawLocation,
+                    context.normalizeStorageUri(rawLocation, vendedToken),
+                    TFileType.valueOf(context.getBackendFileType(rawLocation, vendedToken)));
+        }
+        return new LocationFields(rawLocation, rawLocation, TFileType.FILE_S3);
+    }
+
+    /** Immutable holder for the three location fields shared by the sink dialects. */
+    private static final class LocationFields {
+        private final String rawLocation;
+        private final String outputPath;
+        private final TFileType fileType;
+
+        LocationFields(String rawLocation, String outputPath, TFileType fileType) {
+            this.rawLocation = rawLocation;
+            this.outputPath = outputPath;
+            this.fileType = fileType;
+        }
     }
 
     private Map<String, String> buildHadoopConfig() {

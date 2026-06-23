@@ -18,9 +18,14 @@
 >
 > - **3 OQ 已裁定**：OQ-1 = jdbc thrift 移入连接器 `planWrite`（F2 全消，须字节 parity 测）；OQ-2 = 删 config-bag 三件套 `ConnectorWriteType`/`ConnectorWriteConfig`/`getWriteConfig`（实测仅 jdbc 用，移入后死）；OQ-3 = 统一 sink 后 EXPLAIN sink-标签 diff 接受为非回归。
 >
-> **🎯 下一步 = P6.3-T07**（T01–T06 ✅ DONE，见下「✅ P6.3-T06 = DONE」）。剩余 §11 TODO：~~**T06** sink 统一（INSERT/OVERWRITE）~~ ✅ DONE → **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core DV-04x；**含从 T05 挪入的 O5-2 fe-core 生产半**：analyzed-plan 抽 target-only → `ConnectorPredicate` + 命令调 `applyWriteConstraint`，[D-061]；**T06 推迟到此的 DELETE/MERGE sink 方言**：`IcebergWritePlanProvider` 加 `TIceberg{Delete,Merge}Sink` 分支 + 三 DML 命令〔`IcebergDelete/Update/MergeCommand`〕壳化路由 generic `LogicalConnectorTableSink` + 删 `LogicalIceberg{Delete,Merge}Sink`/`PhysicalIceberg{Delete,Merge}Sink`/impl-rule/`visitPhysicalIceberg{Delete,Merge}Sink`/planner `Iceberg{Delete,Merge}Sink`）→ **T08** parity 审计+deviation 注册（含 DV-04x + DV-T0x〔T06 的 DV-T06-* 已在设计 §6 列，T08 中央登记〕）→ **T09** 收口 = **P6.3 DONE**。
+> **🎯 T07 拆成 T07a/b/c 三个子提交（用户签字 2026-06-23）。下一步 = P6.3-T07b**（T01–T06 ✅ DONE + **T07a ✅ DONE**，见下「✅ P6.3-T07a = DONE」/「✅ P6.3-T06 = DONE」）。
+> - **T07a ✅ DONE = DELETE/MERGE sink 方言**（连接器本地·dormant·UT 可测）：`IcebergWritePlanProvider.planWrite` switch `writeOperation` → `buildDeleteSink`/`buildMergeSink`（`TIceberg{Delete,Merge}Sink` 字节-parity）+ `supportsDelete`/`supportsMerge`=true + `IcebergWriterHelper.getFormatVersion`/`appendRowLineageFieldsForV3`（纯 SDK port）。对抗 parity workflow **0 REAL / 4 refuted**。
+> - **T07b（下一）= O5-2 生产半**：fe-core 通用 `WriteConstraintExtractor`（target-only 合取，合成列经 **iceberg 变换侧 `Predicate<SlotReference>`** 排除——**非** `getOriginalColumn().isPresent()`〔critic 证伪，$row_id 有 backing column〕）+ nereids→`ConnectorExpression` 转换（Option A/B，T07b recon 定）+ **完整字节 parity 转换对齐**（补 IS NULL/BETWEEN、限 `Not` 为 `Not(IsNull)`、加同列 OR-guard〔用户裁定〕）+ `applyWriteConstraint` 1-hop。legacy 3-hop 保活。
+> - **T07c = 通用 `RowLevelDmlCommand` 壳 + 完整 `RowLevelDmlTransform` 注册表**（用户裁定 RFC 字面）：抽字节相同脚手架 + iceberg 合成搬迁 + 重接 6 处 instanceof 派发站点（保双 resolve 不对称）+ 4 UT 重接。**实现前单独 checkpoint。**
+> - 之后 **T08** parity 审计 + deviation 中央登记（DV-04x/DV-T07-*）→ **T09** 收口 = **P6.3 DONE**。
+> - **物理删除 legacy delete/merge sink 链 = P6.7（非 T07）**；INSERT-path 删除亦 P6.7。
 >
-> **⚠️ T07 起步必读 = T06 实现记录（下方「✅ P6.3-T06 = DONE」+ 设计 §2/§6.1）**：T06 已建 `IcebergWritePlanProvider`（INSERT/OVERWRITE→`TIcebergTableSink`）+ 写排序 SPI + `getBackendFileType` 接缝 + 声明 `SINK_REQUIRE_FULL_SCHEMA_ORDER` capability。**T06 已证 gate 形态**：iceberg 表仍 legacy（非 PluginDriven），连接器写 dormant 直到 P6.6；**legacy sink 链删除属 P6.7 非 T07**。T07 的 DELETE/MERGE = 三 DML 命令（`IcebergDeleteCommand`→`LogicalIcebergDeleteSink`、`IcebergUpdate/MergeCommand`→`LogicalIcebergMergeSink`）壳化 + planWrite 加 delete/merge thrift 方言（`setMaterializedColumnName`/`rewritableDeleteFileSets` 等连接器内构建）。legacy thrift 装配源 = `planner/IcebergDeleteSink`/`IcebergMergeSink` + translator `visitPhysicalIceberg{Delete,Merge}Sink`。
+> **⚠️ 起步必读 = 设计文档 `tasks/designs/P6.3-T07-rowlevel-dml-unification-design.md`（统领 a/b/c）+ recon workflow `wf_d5c3a165-88e`（8 agent；critic 读 BE viceberg_merge_sink.cpp 落定 sort-field、证伪 synthesis 1 BLOCKER）。** 结构现实（同 T06）：`IcebergExternalTable extends ExternalTable`（非 PluginDriven），`visitPhysicalConnectorTableSink` 硬转 PluginDrivenExternalTable → 连接器写 dormant 直到 P6.6；T07 全增量·legacy 保活。
 >
 > **每 task 节奏**（AGENT-PLAYBOOK §5.1）：先 code-grounded recon（大文件如 `IcebergTransaction` 981 / `IcebergMergeCommand` 用 subagent 总结）→ TDD RED→GREEN → 对抗 parity workflow（每发现独立 skeptic verify，镜像 P6.2）→ UT/checkstyle/import-gate 绿 + **断 assembled Thrift/校验套件 vs legacy** → 文档同步 → commit + handoff。**起步先读 RFC `06-iceberg-write-path-rfc.md` + recon `research/p6.3-iceberg-write-recon.md`。**
 >
@@ -36,6 +41,20 @@
 >
 > **✅ P6.1 = DONE（本 session 2026-06-22 收口 T10）**：P6.1 task 表 T01–T10 全绿（见 `P6-iceberg-migration.md:143-154`）。T10 经 redefine 吸收了「metastore 模块拆分（Phase A，行为不变）+ iceberg per-flavor 校验（Phase B，§4 逐字）」——validateProperties 接线只是 Phase B 的尾巴。**A-gate + B-gate 全绿；对抗 parity 复核 4 MATCH + 1 nit。**
 > **下一步 = P6.2 实现（从 P6.2-T01 起）——不是 P6.6！** P6.6 翻闸是「全有或全无」（`CatalogFactory:104-113`），**须等 P6.1–P6.5 全部实现完**（scan/write/procedure/sys-table 都还没做）；现在翻闸会让所有 iceberg 查询走只有读元数据+校验的连接器→scan/write 全断。
+
+---
+
+# ✅ P6.3-T07a = DONE（2026-06-23，本 session，未 push）— DELETE/MERGE sink 方言（连接器本地·dormant·UT 可测）
+
+> 设计文档 = `tasks/designs/P6.3-T07-rowlevel-dml-unification-design.md`（§2）。recon `wf_d5c3a165-88e` → TDD（RED=8 dispatch 失败 `expected ICEBERG_{DELETE,MERGE}_SINK but was ICEBERG_TABLE_SINK`→GREEN）→ 对抗 parity workflow `wf_4e117651-e54`（4 维[delete-sink / merge-sink / dispatch-dormancy-capability / scope-regression-deviation] + 每发现独立 refute-by-default skeptic verify；8 agent / 600k token）= **0 raw confirmed / 0 REAL / 4 refuted**，逐字段 byte-parity MATCH 全列。**全绿**：fe-connector-iceberg **363/0/1**（354→363 = +8 sink + 1 capability；1 skip env-gated live）、checkstyle 0、`check-connector-imports.sh` exit 0、iceberg 仍**不在** `SPI_READY_TYPES`、**0 BE / 0 fe-core 改**（纯连接器模块 + 设计文档 + HANDOFF）。
+
+- **`IcebergWritePlanProvider.planWrite` switch `handle.getWriteOperation()`**：INSERT/OVERWRITE→`buildSink`（T06，`TIcebergTableSink`/`ICEBERG_TABLE_SINK`）、DELETE→`buildDeleteSink`（`TIcebergDeleteSink`/`ICEBERG_DELETE_SINK`）、UPDATE/MERGE→`buildMergeSink`（`TIcebergMergeSink`/`ICEBERG_MERGE_SINK`）。OVERWRITE 经 `buildWriteContext` 由 INSERT+isOverwrite 提升、仍落 table sink。
+- **`buildDeleteSink`（移植 `planner.IcebergDeleteSink.bindDataSink`）**：`delete_type`=`TFileContent.POSITION_DELETES` 常量（`DeleteCommandContext.toTFileContent()` 恒 POSITION_DELETES，连接器不需 fe-core 线程化）；⚠️ **`compress_type`(field 6)** 非 compression_type；`output_path`=normalized(dataLocation)、`table_location`=raw dataLocation（**无** original_output_path）；`partition_spec_id` 仅 partitioned；`format_version`；**rewritableDeleteFileSets 不发**（post-finalize·fv3·fe-resident planner 输入 = T07c）。
+- **`buildMergeSink`（移植 `planner.IcebergMergeSink.bindDataSink`）**：⚠️ **`compression_type`(field 8)** 非 compress_type；**`sort_fields`(field 6)** = identity SortOrder 经 `baseColumnFieldIds` 过滤的 `List<TSortField>`（**非** T06 的 sort_info(16)；BE 已证 merge 内层 writer 无 sort_info 故写侧排序实为 no-op，但字节须照发）；fv≥3 `schema_json` 经 `appendRowLineageFieldsForV3`（`TypeUtil.join` row-lineage 两列，纯 SDK port）；三 location 字段（output normalized / original+table raw）；delete 半 `delete_type`+`partition_spec_id_for_delete`。
+- **`IcebergWriterHelper` 新增**（共享写侧 SDK 助手）：`getFormatVersion`（第 3 份副本，与 metadata/transaction byte-identical，DV-T05-e 接受）+ `appendRowLineageFieldsForV3`（纯 SDK）。**`buildSink` 重构**：location 块抽 `resolveLocationFields`/`LocationFields`（纯提取，INSERT byte-parity，对抗 workflow 确认）。
+- **`IcebergConnectorMetadata.supportsDelete`/`supportsMerge`=true**（首个声明的连接器）。**dormant 实证**（对抗 workflow）：`supportsDelete/Merge` 全 fe **0 production caller**；iceberg 非 PluginDriven 故 SPI 路不可达 + legacy DELETE/MERGE 走 instanceof 非 capability → 零 live 效果。`applyBeginGuards` fv2/fv3 DELETE/UPDATE/MERGE 均过（fmt≥2）。
+- **deviation（设计 §6，T08 登记）**：DV-T07-vended（delete/merge hadoop_config 静态、无 vended overlay，同 DV-T06-vended）/DV-T07-broker（FILE_BROKER 地址漏，同 T06）。**P6.6 cutover 前提（对抗 workflow 提醒）**：iceberg 变 PluginDriven 时须同时 override `supportsInsert`/`supportsInsertOverwrite`（现默认 false，dormant 无害）。
+- **下一步 = P6.3-T07b**（O5-2 生产半；见顶部任务头）。
 
 ---
 
