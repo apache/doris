@@ -445,7 +445,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return plan;
     }
 
-    private LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
         List<NamedExpression> outputExprs;

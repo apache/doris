@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -54,6 +53,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlArgs;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlCommand;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlOp;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlRegistry;
+import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlTransform;
 import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -125,9 +129,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf table = getTargetTableIf(ctx);
-        if (table instanceof IcebergExternalTable) {
-            new IcebergMergeCommand(targetNameParts, targetAlias, cte,
-                    source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.MERGE).run(ctx, executor);
             return;
         }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
@@ -142,9 +148,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         TableIf table = getTargetTableIf(ctx);
-        if (table instanceof IcebergExternalTable) {
-            return new IcebergMergeCommand(targetNameParts, targetAlias, cte,
-                    source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.MERGE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx);
     }

@@ -216,7 +216,8 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         return new LogicalProject<>(projectItems, planWithRowId);
     }
 
-    private LogicalPlan buildMergePlan(ConnectContext ctx, LogicalPlan logicalQuery,
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    LogicalPlan buildMergePlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                        List<EqualTo> assignments, IcebergExternalTable icebergTable) {
         String tableName = tableAlias != null
                 ? tableAlias

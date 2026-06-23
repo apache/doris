@@ -83,6 +83,11 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
     }
 
     @Override
+    public ConnectorTransaction getConnectorTransactionOrNull() {
+        return connectorTx;
+    }
+
+    @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         // Bind the connector transaction onto the SINK's session BEFORE super.finalizeSink ->
         // bindDataSink -> planWrite, which reads it via ConnectorSession.getCurrentTransaction().

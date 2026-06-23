@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -86,6 +87,15 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     @Override
     public void beginTransaction() {
         txnId = transactionManager.begin();
+    }
+
+    /**
+     * Returns the SPI {@link ConnectorTransaction} backing this write, or {@code null} if this executor runs on
+     * the legacy (non-plugin-driven) transaction path. Used by the generic {@code RowLevelDmlCommand} shell to
+     * apply the O5-2 write constraint only when a connector transaction is present. Default: legacy path → null.
+     */
+    public ConnectorTransaction getConnectorTransactionOrNull() {
+        return null;
     }
 
     @Override

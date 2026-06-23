@@ -197,7 +197,8 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
      * Complete the query plan by adding necessary columns for position delete operation.
      * Select $row_id (file_path, row_position, partition info).
      */
-    private LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                          IcebergExternalTable icebergTable) {
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
 
