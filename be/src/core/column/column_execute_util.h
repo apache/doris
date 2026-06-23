@@ -36,8 +36,7 @@ namespace doris {
 
 // Utility tools for convenient column execution
 
-// Per-row read view over a column.  The pointer returned by ptr_at on the
-// string specialization is valid only until the next ptr_at call.
+// Per-row read view over a column.
 namespace detail {
 
 template <PrimitiveType PType>
@@ -52,7 +51,6 @@ struct NumericElementView {
     ElementType get_element(size_t idx) const { return data[idx]; }
     const ElementType* get_data() const { return data.data(); }
     ElementType operator[](size_t idx) const { return data[idx]; }
-    const ElementType* ptr_at(size_t idx) const { return data.data() + idx; }
     size_t size() const { return data.size(); }
 };
 
@@ -60,17 +58,12 @@ struct StringElementView {
     using ColumnType = ColumnString;
     using ElementType = StringRef;
     const ColumnString& string_column;
-    mutable StringRef _cell {}; // staging for ptr_at
 
     StringElementView(const IColumn& column)
             : string_column(assert_cast<const ColumnString&>(column)) {}
 
     StringRef get_element(size_t idx) const { return string_column.get_data_at(idx); }
     StringRef operator[](size_t idx) const { return string_column.get_data_at(idx); }
-    const StringRef* ptr_at(size_t idx) const {
-        _cell = string_column.get_data_at(idx);
-        return &_cell;
-    }
     size_t size() const { return string_column.size(); }
 };
 
@@ -80,12 +73,6 @@ template <PrimitiveType PType>
 using ColumnElementView = std::conditional_t<is_string_type(PType), detail::StringElementView,
                                              detail::NumericElementView<PType>>;
 
-template <typename T>
-concept ColumnElementSubscriptable = requires(const T& v, size_t i) {
-    typename T::ElementType;
-    { v[i] } -> std::convertible_to<typename T::ElementType>;
-    { v.size() } -> std::convertible_to<size_t>;
-};
 
 // ColumnView is used to handle the nullable and const properties of a column.
 // For example, a regular ColumnInt32 may appear in the following 4 cases:

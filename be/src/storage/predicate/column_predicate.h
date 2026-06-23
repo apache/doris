@@ -20,6 +20,7 @@
 #include <memory>
 #include <roaring/roaring.hh>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
@@ -181,20 +182,24 @@ struct PredicateTypeTraits {
     }
 };
 
-#define EVALUATE_BY_SELECTOR(EVALUATE_IMPL_WITH_NULL_MAP, EVALUATE_IMPL_WITHOUT_NULL_MAP) \
-    const bool is_dense_column = pred_col.size() == size;                                 \
-    for (uint16_t i = 0; i < size; i++) {                                                 \
-        uint16_t idx = is_dense_column ? i : sel[i];                                      \
-        if constexpr (is_nullable) {                                                      \
-            if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                       \
-                sel[new_size++] = idx;                                                    \
-            }                                                                             \
-        } else {                                                                          \
-            if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                    \
-                sel[new_size++] = idx;                                                    \
-            }                                                                             \
-        }                                                                                 \
+template <bool is_nullable, typename PredColumn, typename WithNullFunc, typename WithoutNullFunc>
+ALWAYS_INLINE void evaluate_by_selector(const PredColumn& pred_col, uint16_t size, uint16_t* sel,
+                                        uint16_t& new_size, WithNullFunc&& with_null_func,
+                                        WithoutNullFunc&& without_null_func) {
+    const bool is_dense_column = pred_col.size() == size;
+    for (uint16_t i = 0; i < size; i++) {
+        uint16_t idx = is_dense_column ? i : sel[i];
+        if constexpr (is_nullable) {
+            if (with_null_func(idx)) {
+                sel[new_size++] = idx;
+            }
+        } else {
+            if (without_null_func(idx)) {
+                sel[new_size++] = idx;
+            }
+        }
     }
+}
 
 class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
