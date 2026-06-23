@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
@@ -283,23 +284,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         "Failed to get end offset from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
-            String response = result.getResponse();
-            try {
-                ResponseBody<Map<String, String>> responseObj = objectMapper.readValue(
-                        response,
-                        new TypeReference<ResponseBody<Map<String, String>>>() {
-                        }
-                );
-                Map<String, String> newEndOffset = responseObj.getData();
-                // null→value also counts as a change: upstream may have advanced while fetch was blocked.
-                if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
-                    hasMoreData = true;
-                }
-                endBinlogOffset = newEndOffset;
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse end offset response: {}", response);
-                throw new JobException(response);
+            Map<String, String> newEndOffset = parseCdcResponseData(
+                    result.getResponse(), new TypeReference<Map<String, String>>() {});
+            // null→value also counts as a change: upstream may have advanced while fetch was blocked.
+            if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
+                hasMoreData = true;
             }
+            endBinlogOffset = newEndOffset;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/fetchEndOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
@@ -382,18 +373,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         "Failed to compare offset ," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
-            String response = result.getResponse();
-            try {
-                ResponseBody<Integer> responseObj = objectMapper.readValue(
-                        response,
-                        new TypeReference<ResponseBody<Integer>>() {
-                        }
-                );
-                return responseObj.getData() > 0;
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse compare offset response: {}", response);
-                throw new JobException("Failed to parse compare offset response: " + response);
-            }
+            Integer cmp = parseCdcResponseData(
+                    result.getResponse(), new TypeReference<Integer>() {});
+            return cmp != null && cmp > 0;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/compareOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
@@ -643,21 +625,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     // ============ Async split progress (driven by scheduler each tick) ============
 
     /**
-     * One-time setup at CREATE.
-     * - initial/snapshot mode: init split progress; scheduler will drive advanceSplits() each tick.
-     * - latest mode (and other non-splitting modes): open the remote reader (e.g. PG slot) so the
-     *   binlog phase can start immediately; no snapshot splitting will happen.
+     * One-time setup at CREATE. Opens the remote reader for every mode (see initSourceReader) so
+     * source-side problems fail fast, then:
+     * - initial/snapshot mode: also init split progress; scheduler will drive advanceSplits() each tick.
+     * - latest mode (and other non-splitting modes): nothing further; the binlog phase can start
+     *   immediately and no snapshot splitting will happen.
      */
     @Override
     public void initOnCreate(List<String> syncTables) throws JobException {
-        if (!checkNeedSplitChunks(sourceProperties)) {
-            initSourceReader();
-            return;
-        }
-        synchronized (splitsLock) {
-            this.cachedSyncTables = syncTables;
-            this.committedSplitProgress = new SplitProgress();
-            this.cdcSplitProgress = new SplitProgress();
+        // Open the reader for every mode so connectivity / auth / slot / publication problems fail
+        // the CREATE JOB instead of surfacing later as a paused, non-progressing job.
+        initSourceReader();
+        if (checkNeedSplitChunks(sourceProperties)) {
+            synchronized (splitsLock) {
+                this.cachedSyncTables = syncTables;
+                this.committedSplitProgress = new SplitProgress();
+                this.cdcSplitProgress = new SplitProgress();
+            }
         }
     }
 
@@ -872,15 +856,33 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (code != TStatusCode.OK) {
                 throw new JobException("fetchSplits backend error: " + result.getStatus().getErrorMsgs(0));
             }
-            ResponseBody<List<SnapshotSplit>> resp = objectMapper.readValue(
-                    result.getResponse(),
-                    new TypeReference<ResponseBody<List<SnapshotSplit>>>() {});
-            return resp.getData();
+            return parseCdcResponseData(
+                    result.getResponse(), new TypeReference<List<SnapshotSplit>>() {});
         } catch (TimeoutException te) {
             throw new JobException("fetchSplits RPC timeout: jobId=" + getJobId() + " table=" + table);
         } catch (Exception ex) {
             throw new JobException("fetchSplits failed: " + ex.getMessage());
         }
+    }
+
+    /**
+     * Decode a remote response envelope. A failure is returned as {@code {code:1, data:"<message>"}}
+     * over HTTP 200, while success carries the typed payload in {@code data}. Decode the envelope
+     * with a lenient {@link JsonNode} data field first so a failure throws the raw response (which
+     * carries the real error in {@code data}) instead of a misleading type-mismatch from forcing the
+     * success type onto an error string. Package-private for unit testing.
+     */
+    <T> T parseCdcResponseData(String response, TypeReference<T> dataType) throws JobException {
+        ResponseBody<JsonNode> body;
+        try {
+            body = objectMapper.readValue(response, new TypeReference<ResponseBody<JsonNode>>() {});
+        } catch (JsonProcessingException e) {
+            throw new JobException(response);
+        }
+        if (body.getCode() != RestApiStatusCode.OK.code) {
+            throw new JobException(response);
+        }
+        return objectMapper.convertValue(body.getData(), dataType);
     }
 
     protected boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {
@@ -956,7 +958,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * For example, PG slots need to be created first;
      * otherwise, conflicts will occur in multi-backends scenarios.
      */
-    private void initSourceReader() throws JobException {
+    protected void initSourceReader() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
