@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api.handle;
 
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.thrift.TSortInfo;
 
 import java.util.List;
 import java.util.Map;
@@ -58,5 +59,21 @@ public interface ConnectorWriteHandle {
      */
     default WriteOperation getWriteOperation() {
         return WriteOperation.INSERT;
+    }
+
+    /**
+     * The engine-built BE sort instruction for this write, or {@code null} if the target needs no
+     * write-side sort. A connector declares its write-sort columns via
+     * {@link org.apache.doris.connector.api.write.ConnectorWritePlanProvider#getWriteSortColumns}
+     * (e.g. an iceberg table with a {@code WRITE ORDERED BY} sort order); the engine resolves those
+     * column indices against the bound sink output and builds the {@link TSortInfo}, which the
+     * connector then stamps onto its opaque Thrift sink in {@code planWrite}.
+     *
+     * <p>The split is necessary because the bound output expressions live only in the engine
+     * (translation time), not in this source-agnostic handle. Defaults to {@code null} so connectors
+     * that declare no write sort (jdbc / maxcompute) keep their byte-identical unsorted sink output.</p>
+     */
+    default TSortInfo getSortInfo() {
+        return null;
     }
 }

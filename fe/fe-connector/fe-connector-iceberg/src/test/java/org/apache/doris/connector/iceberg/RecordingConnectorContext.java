@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.thrift.TFileType;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,9 +65,20 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** The vended token the connector passed to the most recent 2-arg {@link #normalizeStorageUri} (T09). */
     Map<String, String> lastVendedToken;
 
+    /** BE file type the fake returns from {@link #getBackendFileType} (T06 iceberg write sink). */
+    TFileType backendFileType = TFileType.FILE_S3;
+    /** The vended token the connector passed to the most recent {@link #getBackendFileType}. */
+    Map<String, String> lastFileTypeVendedToken;
+
     @Override
     public String getCatalogName() {
         return "test";
+    }
+
+    @Override
+    public String getBackendFileType(String rawUri, Map<String, String> vendedToken) {
+        lastFileTypeVendedToken = vendedToken;
+        return backendFileType.name();
     }
 
     @Override

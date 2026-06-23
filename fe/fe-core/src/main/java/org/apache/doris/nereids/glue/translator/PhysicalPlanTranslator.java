@@ -51,6 +51,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
@@ -233,6 +234,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -666,10 +668,39 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+
+        // The connector declares its write-sort columns (e.g. an iceberg WRITE ORDERED BY) as positions
+        // into the sink's full-schema output; the engine resolves them to bound slots and builds the
+        // TSortInfo here (the connector's planWrite has no bound exprs). Empty for connectors with no
+        // write sort (jdbc/maxcompute) -> null, byte-identical unsorted sink.
+        TSortInfo writeSortInfo = buildConnectorWriteSortInfo(
+                writePlanProvider.getWriteSortColumns(connSession, providerTableHandle),
+                connectorTableSink, context);
+
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
-                writePlanProvider, connSession, providerTableHandle, connectorColumns);
+                writePlanProvider, connSession, providerTableHandle, connectorColumns, writeSortInfo);
         rootFragment.setSink(providerSink);
         return rootFragment;
+    }
+
+    private TSortInfo buildConnectorWriteSortInfo(List<ConnectorWriteSortColumn> sortColumns,
+            PhysicalConnectorTableSink<? extends Plan> connectorTableSink, PlanTranslatorContext context) {
+        // null == no write sort order -> no TSortInfo (jdbc/maxcompute, unsorted iceberg). A non-null
+        // list (even empty) means the target has a sort order, so emit a TSortInfo (empty ordering for a
+        // sort order with no engine-resolvable column), matching legacy's unconditional setSortInfo.
+        if (sortColumns == null) {
+            return null;
+        }
+        List<Expr> orderingExprs = Lists.newArrayList();
+        List<Boolean> isAscOrder = Lists.newArrayList();
+        List<Boolean> nullsFirst = Lists.newArrayList();
+        for (ConnectorWriteSortColumn sortColumn : sortColumns) {
+            orderingExprs.add(context.findSlotRef(
+                    connectorTableSink.getOutput().get(sortColumn.getColumnIndex()).getExprId()));
+            isAscOrder.add(sortColumn.isAsc());
+            nullsFirst.add(sortColumn.isNullsFirst());
+        }
+        return new SortInfo(orderingExprs, isAscOrder, nullsFirst, null).toThrift();
     }
 
     @Override

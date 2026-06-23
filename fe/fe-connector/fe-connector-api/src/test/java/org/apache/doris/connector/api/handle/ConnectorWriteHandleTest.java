@@ -77,4 +77,14 @@ public class ConnectorWriteHandleTest {
                         WriteOperation.UPDATE, WriteOperation.MERGE},
                 WriteOperation.values());
     }
+
+    @Test
+    public void sortInfoDefaultsToNull() {
+        // WHY: a write handle carries an engine-built TSortInfo only when the connector declares
+        // write-sort columns (T06 getWriteSortColumns, iceberg WRITE ORDERED BY). The default MUST be
+        // null so every existing write handle (jdbc/maxcompute, which never sets it) keeps its
+        // byte-identical unsorted sink output — the engine sets sort_info only for sorted iceberg tables.
+        Assertions.assertNull(new BareWriteHandle().getSortInfo(),
+                "a write handle that declares no write sort must default to a null TSortInfo");
+    }
 }

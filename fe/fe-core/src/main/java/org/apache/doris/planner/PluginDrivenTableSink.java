@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCo
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TSortInfo;
 
 import java.util.Collections;
 import java.util.EnumSet;
@@ -56,6 +57,11 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     private final ConnectorSession connectorSession;
     private final ConnectorTableHandle tableHandle;
     private final List<ConnectorColumn> connectorColumns;
+    // The engine-built BE sort instruction for a connector that declares write-sort columns (iceberg
+    // WRITE ORDERED BY); null when the target needs no write sort. The connector cannot build it (the
+    // bound output exprs live only here), so the translator resolves the connector's declared sort
+    // columns against the sink output and hands the TSortInfo here to thread onto the write handle.
+    private final TSortInfo writeSortInfo;
 
     /**
      * Plan-provider mode (W5): the connector supplies a {@link ConnectorWritePlanProvider}
@@ -65,12 +71,24 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
             ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
             ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns, null);
+    }
+
+    /**
+     * Plan-provider mode with an engine-built write {@link TSortInfo} threaded to the connector's write
+     * handle (for a connector that declares write-sort columns).
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            TSortInfo writeSortInfo) {
         super();
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
         this.connectorSession = connectorSession;
         this.tableHandle = tableHandle;
         this.connectorColumns = connectorColumns;
+        this.writeSortInfo = writeSortInfo;
     }
 
     /**
@@ -102,7 +120,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, false, Collections.emptyMap());
+                tableHandle, connectorColumns, false, Collections.emptyMap(), null);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -126,7 +144,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             writeContext = ctx.getStaticPartitionSpec();
         }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, overwrite, writeContext);
+                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -144,13 +162,20 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final List<ConnectorColumn> columns;
         private final boolean overwrite;
         private final Map<String, String> writeContext;
+        private final TSortInfo sortInfo;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
-                boolean overwrite, Map<String, String> writeContext) {
+                boolean overwrite, Map<String, String> writeContext, TSortInfo sortInfo) {
             this.tableHandle = tableHandle;
             this.columns = columns;
             this.overwrite = overwrite;
             this.writeContext = writeContext;
+            this.sortInfo = sortInfo;
+        }
+
+        @Override
+        public TSortInfo getSortInfo() {
+            return sortInfo;
         }
 
         @Override

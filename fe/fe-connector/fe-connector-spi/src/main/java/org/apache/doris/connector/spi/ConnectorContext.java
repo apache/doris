@@ -186,6 +186,45 @@ public interface ConnectorContext {
     }
 
     /**
+     * Resolves the BE-facing file type (a {@code TFileType} enum name, e.g. {@code "FILE_S3"}) for a raw
+     * storage URI a connector emits (e.g. an iceberg write output path). A write-side analogue of
+     * {@link #normalizeStorageUri(String, Map)}: a connector that hands an output location to a BE table
+     * sink must tell BE which file-system family to open it with, and that decision (object store vs HDFS
+     * vs local vs broker) lives in the engine's {@code LocationPath} together with the catalog's storage
+     * properties — which the connector must not import. The result is the enum <em>name</em> (a plain
+     * String) so this SPI stays Thrift-free, exactly like {@link #normalizeStorageUri}; the connector,
+     * which has the Thrift types, maps it back. The engine resolves it the same way it does for a legacy
+     * external-table sink.
+     *
+     * <p>The default derives the type from the URI scheme alone (object-store schemes → {@code FILE_S3},
+     * {@code hdfs}/{@code viewfs} → {@code FILE_HDFS}, {@code file} or no scheme → {@code FILE_LOCAL}); it
+     * has no storage-property machinery and so cannot detect a broker-backed path — the engine override
+     * does. Mirrors the vended-aware normalization: the same raw per-table vended token is accepted so a
+     * REST catalog (empty static map) still resolves.
+     *
+     * @param rawUri               the raw storage URI
+     * @param rawVendedCredentials the raw per-table vended token map (may be null/empty → static path)
+     * @return the BE file type enum name for the URI
+     */
+    default String getBackendFileType(String rawUri, Map<String, String> rawVendedCredentials) {
+        if (rawUri == null) {
+            return "FILE_LOCAL";
+        }
+        int schemeEnd = rawUri.indexOf("://");
+        if (schemeEnd < 0) {
+            return "FILE_LOCAL";
+        }
+        String scheme = rawUri.substring(0, schemeEnd).toLowerCase();
+        if ("hdfs".equals(scheme) || "viewfs".equals(scheme)) {
+            return "FILE_HDFS";
+        }
+        if ("file".equals(scheme)) {
+            return "FILE_LOCAL";
+        }
+        return "FILE_S3";
+    }
+
+    /**
      * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
      * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
      * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved

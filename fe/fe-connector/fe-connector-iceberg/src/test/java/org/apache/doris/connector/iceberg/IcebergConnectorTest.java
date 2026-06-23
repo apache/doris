@@ -102,4 +102,18 @@ public class IcebergConnectorTest {
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT));
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TIME_TRAVEL));
     }
+
+    @Test
+    public void declaresFullSchemaWriteOrderCapability() {
+        // WHY (T06): legacy bindIcebergTableSink ALWAYS projects the write child to table.getFullSchema()
+        // order (BindSink:797-803), regardless of the INSERT column list. The generic
+        // bindConnectorTableSink reproduces that full-schema projection ONLY when the connector declares
+        // SINK_REQUIRE_FULL_SCHEMA_ORDER (BindSink:892-905); otherwise it keeps user-column order, which
+        // (a) writes values into the wrong remote columns and (b) makes the write-sort columnIndex
+        // (a full-schema position) resolve against a misaligned sink output. MUTATION: omitting the
+        // capability -> `INSERT INTO t (name, id) ...` orders/writes by the wrong column -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                .contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER));
+    }
 }

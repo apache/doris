@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
 import org.apache.doris.connector.metastore.DlfMetaStoreProperties;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
@@ -189,6 +190,15 @@ public class IcebergConnector implements Connector {
                 new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context, manifestCache);
     }
 
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        // Mirrors getScanPlanProvider: a fresh provider per call over the lazily-built live catalog. The
+        // provider builds the TIcebergTableSink and binds the write to the executor-opened
+        // IcebergConnectorTransaction. Inert pre-cutover (iceberg writes do not route here until P6.6).
+        return new IcebergWritePlanProvider(properties,
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
+    }
+
     /**
      * Iceberg exposes point-in-time snapshots, so it declares {@code SUPPORTS_MVCC_SNAPSHOT} (the gate for the
      * generic {@code PluginDrivenMvccExternalTable}, which drives {@code beginQuerySnapshot}/{@code
@@ -198,7 +208,14 @@ public class IcebergConnector implements Connector {
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
-        return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL);
+        // SINK_REQUIRE_FULL_SCHEMA_ORDER: legacy bindIcebergTableSink ALWAYS projects the write child to
+        // table.getFullSchema() order (regardless of the INSERT column list), and the BE iceberg writer
+        // maps data columns positionally against the full schema. The generic bindConnectorTableSink
+        // reproduces that projection only under this capability; without it a reordered/partial column
+        // list (and the write-sort columnIndex, a full-schema position) would resolve against a
+        // user-ordered sink output. Mirrors MaxComputeDorisConnector. Inert pre-cutover (P6.6).
+        return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
+                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
     }
 
     private Catalog getOrCreateCatalog() {

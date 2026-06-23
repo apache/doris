@@ -524,6 +524,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * creds that legacy suppresses. Same flag T05 uses to inject the REST delegation header.
      */
     private boolean restVendedCredentialsEnabled() {
+        return restVendedCredentialsEnabled(properties);
+    }
+
+    /**
+     * Package-static form shared with {@link IcebergWritePlanProvider} (the write sink applies the same
+     * vended-credentials gate to its hadoop config / output path). Pure function of the catalog properties.
+     */
+    static boolean restVendedCredentialsEnabled(Map<String, String> properties) {
         return IcebergConnectorProperties.TYPE_REST.equals(IcebergCatalogFactory.resolveFlavor(properties))
                 && Boolean.parseBoolean(properties.get(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED));
     }

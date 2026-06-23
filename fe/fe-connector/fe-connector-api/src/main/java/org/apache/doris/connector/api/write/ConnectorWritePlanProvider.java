@@ -18,7 +18,10 @@
 package org.apache.doris.connector.api.write;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+
+import java.util.List;
 
 /**
  * Plans the write (sink) for a connector table: produces the opaque
@@ -62,5 +65,31 @@ public interface ConnectorWritePlanProvider {
     default void appendExplainInfo(StringBuilder output, String prefix,
             ConnectorSession session, ConnectorWriteHandle handle) {
         // Default: no extra EXPLAIN info
+    }
+
+    /**
+     * Declares whether the target has a write-side sort order and, if so, its sort columns, in an
+     * engine-neutral form. The engine calls this when translating the table sink: for a non-{@code null}
+     * result it builds the Thrift {@code TSortInfo} from the columns (resolving each
+     * {@link ConnectorWriteSortColumn#getColumnIndex()} against the bound sink output) and threads it
+     * back to {@link #planWrite} via {@link ConnectorWriteHandle#getSortInfo()} so the connector can stamp
+     * it onto its opaque sink.
+     *
+     * <p>The {@code null}-vs-list distinction mirrors a source's {@code isSorted()} gate: {@code null}
+     * means the target has <b>no</b> write sort order (no {@code TSortInfo}); a non-{@code null} list
+     * means it <b>has</b> one — even an empty list, which yields an empty {@code TSortInfo} (a target
+     * sorted only by non-resolvable transforms still requests sorted-write semantics). Depends only on
+     * the target table (not the bound write), so it takes the {@link ConnectorTableHandle}: at
+     * translation time the full write handle is not yet formed. Default: {@code null} — jdbc / maxcompute
+     * keep their byte-identical unsorted sink output.</p>
+     *
+     * @param session     the current session
+     * @param tableHandle the target table handle
+     * @return the ordered write-sort columns (possibly empty) if the target has a sort order, or
+     *         {@code null} if it has none
+     */
+    default List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return null;
     }
 }

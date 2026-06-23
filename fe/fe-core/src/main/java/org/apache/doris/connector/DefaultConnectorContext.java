@@ -256,6 +256,19 @@ public class DefaultConnectorContext implements ConnectorContext {
         return LocationPath.of(rawUri, effective).toStorageLocation().toString();
     }
 
+    @Override
+    public String getBackendFileType(String rawUri, Map<String, String> rawVendedCredentials) {
+        // Same LocationPath build as normalizeStorageUri (vended-aware), then read the BE file type from
+        // it — authoritative over the scheme-only default because it also detects a broker-backed path via
+        // the storage properties. Returns the TFileType enum NAME (the SPI stays Thrift-free). Mirrors
+        // legacy IcebergTableSink.bindDataSink's
+        // LocationPath.of(originalLocation, storagePropertiesMap).getTFileTypeForBE().
+        Map<StorageProperties.Type, StorageProperties> vended = buildVendedStorageMap(rawVendedCredentials);
+        Map<StorageProperties.Type, StorageProperties> effective =
+                vended != null ? vended : storagePropertiesSupplier.get();
+        return LocationPath.of(rawUri, effective).getTFileTypeForBE().name();
+    }
+
     private static Map<String, String> buildEnvironment() {
         Map<String, String> env = new HashMap<>();
         String dorisHome = EnvUtils.getDorisHome();

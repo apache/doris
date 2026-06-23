@@ -28,12 +28,14 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TSortInfo;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -91,6 +93,27 @@ public class PluginDrivenTableSinkTest {
         Assert.assertSame(columns, provider.seenHandle.getColumns());
         Assert.assertFalse(provider.seenHandle.isOverwrite());
         Assert.assertTrue(provider.seenHandle.getWriteContext().isEmpty());
+        // No engine-built write sort by default -> the handle carries no sort info.
+        Assert.assertNull(provider.seenHandle.getSortInfo());
+    }
+
+    @Test
+    public void bindDataSinkThreadsEngineBuiltWriteSortInfoToHandle() throws AnalysisException {
+        // WHY: the connector's planWrite cannot build a TSortInfo (the bound output exprs live only in the
+        // engine). For a connector that declares write-sort columns (iceberg WRITE ORDERED BY), the engine
+        // builds the TSortInfo and hands it to this sink, which must thread it onto the write handle so the
+        // connector can stamp it on its opaque sink. Without this, a sorted iceberg table writes unsorted.
+        TSortInfo engineBuilt = new TSortInfo();
+        engineBuilt.setIsAscOrder(Collections.singletonList(true));
+        engineBuilt.setNullsFirst(Collections.singletonList(true));
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(), engineBuilt);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertSame(engineBuilt, provider.seenHandle.getSortInfo());
     }
 
     @Test
