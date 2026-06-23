@@ -207,8 +207,8 @@ TEST_F(FileCacheActionTest, clear_defaults_to_async) {
     EXPECT_EQ(_cache->_cur_cache_size, 0);
 }
 
-TEST_F(FileCacheActionTest, clear_sync_true_runs_async_and_warns) {
-    cache_file_block("clear_sync_true_runs_async_and_warns.dat");
+TEST_F(FileCacheActionTest, clear_sync_true_returns_sync_summary_json) {
+    cache_file_block("clear_sync_true_returns_sync_summary_json.dat");
     HttpRequest req(_evhttp_req);
     std::string json_metrics;
 
@@ -218,9 +218,9 @@ TEST_F(FileCacheActionTest, clear_sync_true_runs_async_and_warns) {
     Status status = _action->_handle_header(&req, &json_metrics);
 
     EXPECT_TRUE(status.ok());
-    EXPECT_EQ(json_metrics,
-              "{\"status\":\"OK\",\"msg\":\"sync clear_file_cache is no longer supported in "
-              "http api, running async clear instead\"}");
+    EXPECT_NE(json_metrics.find("\"status\":\"OK\""), std::string::npos);
+    EXPECT_NE(json_metrics.find("finish clear_file_cache_sync"), std::string::npos);
+    EXPECT_NE(json_metrics.find("sync_remove=1"), std::string::npos);
     EXPECT_EQ(_cache->_cur_cache_size, 0);
 }
 
