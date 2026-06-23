@@ -889,8 +889,8 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     auto simple_type = std::make_shared<DataTypeJsonb>();
 
     // Insert some test dataset
-    auto nested_array =
-            ColumnArray::create(ColumnIPv4::create(), ColumnArray::ColumnOffsets::create());
+    auto nested_array = ColumnArray::create(make_nullable(ColumnIPv4::create()),
+                                            ColumnArray::ColumnOffsets::create());
     nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
     nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
 
