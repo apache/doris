@@ -528,7 +528,7 @@ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
                                 const std::vector<int64_t>& success_tablet_ids,
-                                const FailedTablets& failed_tablets, bool eos) {
+                                const FailedTablets& failed_tablets, bool eos, bool report_profile) {
     LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablets.size();
     butil::IOBuf buf;
@@ -544,7 +544,7 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
         st.to_protobuf(pb->mutable_status());
     }
 
-    if (_enable_profile && _close_load_cnt == _total_streams) {
+    if (_enable_profile && report_profile) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
         uint8_t* profile_buf = nullptr;
@@ -765,7 +765,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         bool all_closed =
                 close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
-        _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
+        _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true, all_closed);
         std::lock_guard<bthread::Mutex> lock_guard(_lock);
         // if incremental stream, we need to wait for all non-incremental streams to be closed
         // before closing incremental streams. We need a fencing mechanism to avoid use after closing
