@@ -161,6 +161,128 @@ TEST(ParquetTypeTest, ConvertedTimeIsRejectedButConvertedTimestampIsSupported) {
     EXPECT_EQ(converted_timestamp.time_unit, ParquetTimeUnit::MILLIS);
 }
 
+TEST(ParquetTypeTest, ResolveConvertedIntegerMappingsAndDecodedKinds) {
+    struct Case {
+        ::parquet::ConvertedType::type converted_type;
+        ::parquet::Type::type physical_type;
+        PrimitiveType expected_type;
+        int bit_width;
+        bool expected_unsigned;
+        DecodedValueKind expected_value_kind;
+    };
+    const std::vector<Case> cases = {
+            {::parquet::ConvertedType::INT_8, ::parquet::Type::INT32, TYPE_TINYINT, 8, false,
+             DecodedValueKind::INT32},
+            {::parquet::ConvertedType::UINT_8, ::parquet::Type::INT32, TYPE_SMALLINT, 8, true,
+             DecodedValueKind::INT32},
+            {::parquet::ConvertedType::INT_16, ::parquet::Type::INT32, TYPE_SMALLINT, 16, false,
+             DecodedValueKind::INT32},
+            {::parquet::ConvertedType::UINT_16, ::parquet::Type::INT32, TYPE_INT, 16, true,
+             DecodedValueKind::INT32},
+            {::parquet::ConvertedType::INT_32, ::parquet::Type::INT32, TYPE_INT, 32, false,
+             DecodedValueKind::INT32},
+            {::parquet::ConvertedType::UINT_32, ::parquet::Type::INT32, TYPE_BIGINT, 32, true,
+             DecodedValueKind::UINT32},
+            {::parquet::ConvertedType::INT_64, ::parquet::Type::INT64, TYPE_BIGINT, 64, false,
+             DecodedValueKind::INT64},
+            {::parquet::ConvertedType::UINT_64, ::parquet::Type::INT64, TYPE_LARGEINT, 64, true,
+             DecodedValueKind::UINT64},
+    };
+
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.converted_type);
+        const auto type = resolve_node(::parquet::schema::PrimitiveNode::Make(
+                "c", ::parquet::Repetition::REQUIRED, test_case.physical_type,
+                test_case.converted_type));
+        ASSERT_NE(type.doris_type, nullptr);
+        EXPECT_EQ(primitive_type(type.doris_type), test_case.expected_type);
+        EXPECT_EQ(type.integer_bit_width, test_case.bit_width);
+        EXPECT_EQ(type.is_unsigned_integer, test_case.expected_unsigned);
+        EXPECT_EQ(decoded_value_kind(type), test_case.expected_value_kind);
+    }
+}
+
+TEST(ParquetTypeTest, ResolveLogicalStringDateAndDecimalMappings) {
+    const std::vector<std::shared_ptr<const ::parquet::LogicalType>> string_like_logical_types = {
+            ::parquet::LogicalType::String(), ::parquet::LogicalType::Enum(),
+            ::parquet::LogicalType::JSON(), ::parquet::LogicalType::BSON()};
+    for (const auto& logical_type : string_like_logical_types) {
+        const auto type = resolve_node(::parquet::schema::PrimitiveNode::Make(
+                "s", ::parquet::Repetition::OPTIONAL, logical_type, ::parquet::Type::BYTE_ARRAY));
+        ASSERT_NE(type.doris_type, nullptr);
+        EXPECT_TRUE(type.doris_type->is_nullable());
+        EXPECT_EQ(primitive_type(type.doris_type), TYPE_STRING);
+        EXPECT_TRUE(type.is_string_like);
+    }
+
+    const auto uuid = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "uuid", ::parquet::Repetition::OPTIONAL, ::parquet::LogicalType::UUID(),
+            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 16));
+    ASSERT_NE(uuid.doris_type, nullptr);
+    EXPECT_TRUE(uuid.doris_type->is_nullable());
+    EXPECT_EQ(primitive_type(uuid.doris_type), TYPE_STRING);
+    EXPECT_TRUE(uuid.is_string_like);
+
+    const auto date = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "d", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Date(),
+            ::parquet::Type::INT32));
+    ASSERT_NE(date.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(date.doris_type), TYPE_DATEV2);
+
+    const auto decimal64 = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "d64", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Decimal(18, 6),
+            ::parquet::Type::INT64));
+    ASSERT_NE(decimal64.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(decimal64.doris_type), TYPE_DECIMAL64);
+    EXPECT_TRUE(decimal64.is_decimal);
+    EXPECT_EQ(decimal64.decimal_precision, 18);
+    EXPECT_EQ(decimal64.decimal_scale, 6);
+    EXPECT_EQ(decimal64.extra_type_info, ParquetExtraTypeInfo::DECIMAL_INT64);
+
+    const auto decimal128 = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "d128", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Decimal(38, 6),
+            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 16));
+    ASSERT_NE(decimal128.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(decimal128.doris_type), TYPE_DECIMAL128I);
+    EXPECT_TRUE(decimal128.is_decimal);
+    EXPECT_EQ(decimal128.decimal_precision, 38);
+    EXPECT_EQ(decimal128.decimal_scale, 6);
+    EXPECT_EQ(decimal128.extra_type_info, ParquetExtraTypeInfo::DECIMAL_BYTE_ARRAY);
+
+    const auto decimal256 = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "d256", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Decimal(39, 6),
+            ::parquet::Type::FIXED_LEN_BYTE_ARRAY, 20));
+    ASSERT_NE(decimal256.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(decimal256.doris_type), TYPE_DECIMAL256);
+    EXPECT_TRUE(decimal256.is_decimal);
+    EXPECT_EQ(decimal256.decimal_precision, 39);
+    EXPECT_EQ(decimal256.decimal_scale, 6);
+    EXPECT_EQ(decimal256.extra_type_info, ParquetExtraTypeInfo::DECIMAL_BYTE_ARRAY);
+    EXPECT_FALSE(decimal256.is_string_like);
+}
+
+TEST(ParquetTypeTest, LogicalConvertedAndPhysicalFallbackLevelsAreDistinct) {
+    const auto logical_type = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "c", ::parquet::Repetition::REQUIRED, ::parquet::LogicalType::Int(8, true),
+            ::parquet::Type::INT32));
+    ASSERT_NE(logical_type.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(logical_type.doris_type), TYPE_TINYINT);
+    EXPECT_EQ(logical_type.integer_bit_width, 8);
+
+    const auto converted_type = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "c", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32,
+            ::parquet::ConvertedType::INT_8));
+    ASSERT_NE(converted_type.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(converted_type.doris_type), TYPE_TINYINT);
+    EXPECT_EQ(converted_type.integer_bit_width, 8);
+
+    const auto physical_type = resolve_node(::parquet::schema::PrimitiveNode::Make(
+            "c", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32));
+    ASSERT_NE(physical_type.doris_type, nullptr);
+    EXPECT_EQ(primitive_type(physical_type.doris_type), TYPE_INT);
+    EXPECT_EQ(physical_type.integer_bit_width, -1);
+}
+
 TEST(ParquetTypeTest, ResolveDecimalStringLikeFloat16AndPhysicalFallback) {
     const auto decimal256 = resolve_node(::parquet::schema::PrimitiveNode::Make(
             "d", ::parquet::Repetition::REQUIRED, ::parquet::Type::FIXED_LEN_BYTE_ARRAY,

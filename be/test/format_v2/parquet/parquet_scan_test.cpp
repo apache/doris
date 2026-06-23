@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "format_v2/parquet/parquet_scan.h"
+
 #include <arrow/api.h>
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
@@ -39,6 +41,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -184,6 +187,17 @@ void write_page_index_parquet_file(const std::string& file_path) {
     write_table(file_path, table, ids.size(), false, true);
 }
 
+void write_page_index_pair_parquet_file(const std::string& file_path) {
+    std::vector<int32_t> ids(128);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto schema = arrow::schema({
+            arrow::field("id", arrow::int32(), false),
+            arrow::field("score", arrow::int32(), false),
+    });
+    auto table = arrow::Table::Make(schema, {build_int32_array(ids), build_int32_array(ids)});
+    write_table(file_path, table, ids.size(), false, true);
+}
+
 int64_t parquet_column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
     return column_metadata.has_dictionary_page()
                    ? static_cast<int64_t>(column_metadata.dictionary_page_offset())
@@ -229,6 +243,48 @@ void use_schema_order_positions(format::FileScanRequest* request,
     }
 }
 
+std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> build_file_schema(
+        const ::parquet::ParquetFileReader& reader) {
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> file_schema;
+    auto schema_descriptor = reader.metadata()->schema();
+    EXPECT_NE(schema_descriptor, nullptr);
+    EXPECT_TRUE(
+            format::parquet::build_parquet_column_schema(*schema_descriptor, &file_schema).ok());
+    return file_schema;
+}
+
+format::FileColumnPredicateFilter int32_filter(int32_t column_id, std::string column_name,
+                                               const DataTypePtr& type,
+                                               PredicateType predicate_type, int32_t value) {
+    format::FileColumnPredicateFilter column_filter;
+    column_filter.file_column_id = format::LocalColumnId(column_id);
+    switch (predicate_type) {
+    case PredicateType::GE:
+        column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
+                column_id, column_name, type, Field::create_field<TYPE_INT>(value), false));
+        break;
+    case PredicateType::GT:
+        column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+                column_id, column_name, type, Field::create_field<TYPE_INT>(value), false));
+        break;
+    case PredicateType::LT:
+        column_filter.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
+                column_id, column_name, type, Field::create_field<TYPE_INT>(value), false));
+        break;
+    default:
+        DORIS_CHECK(false);
+    }
+    return column_filter;
+}
+
+int64_t count_range_rows(const std::vector<format::parquet::RowRange>& ranges) {
+    int64_t rows = 0;
+    for (const auto& range : ranges) {
+        rows += range.length;
+    }
+    return rows;
+}
+
 class ParquetScanTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -265,6 +321,137 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 3);
+    auto file_schema = build_file_schema(*parquet_file_reader);
+
+    format::FileScanRequest request;
+    request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 5));
+
+    const auto [range_start_offset, range_size] = row_group_mid_range(_file_path, 1);
+    format::parquet::ParquetScanRange scan_range;
+    scan_range.start_offset = range_start_offset;
+    scan_range.size = range_size;
+    scan_range.file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+
+    format::parquet::RowGroupScanPlan plan;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
+                        .ok());
+    EXPECT_TRUE(plan.row_groups.empty());
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 3);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 1);
+    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 2);
+}
+
+TEST_F(ParquetScanTest, PlanRowGroupsPreservesFirstFileRowAcrossPrunedRowGroups) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 3);
+    auto file_schema = build_file_schema(*parquet_file_reader);
+
+    format::FileScanRequest request;
+    request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 5));
+
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
+                        .ok());
+    ASSERT_EQ(plan.row_groups.size(), 1);
+    EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
+    EXPECT_EQ(plan.row_groups[0].first_file_row, 4);
+    EXPECT_EQ(plan.row_groups[0].row_group_rows, 2);
+    ASSERT_EQ(plan.row_groups[0].selected_ranges.size(), 1);
+    EXPECT_EQ(plan.row_groups[0].selected_ranges[0].start, 0);
+    EXPECT_EQ(plan.row_groups[0].selected_ranges[0].length, 2);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 2);
+    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 4);
+}
+
+TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
+    write_page_index_pair_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
+    auto file_schema = build_file_schema(*parquet_file_reader);
+
+    format::FileScanRequest single_filter_request;
+    single_filter_request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 32));
+    format::parquet::RowGroupScanPlan single_filter_plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(
+                        *parquet_file_reader->metadata(), parquet_file_reader.get(), file_schema,
+                        single_filter_request, scan_range, false, &single_filter_plan)
+                        .ok());
+    ASSERT_EQ(single_filter_plan.row_groups.size(), 1);
+    const int64_t single_filter_rows =
+            count_range_rows(single_filter_plan.row_groups[0].selected_ranges);
+
+    format::FileScanRequest intersect_request;
+    intersect_request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 32));
+    intersect_request.column_predicate_filters.push_back(
+            int32_filter(1, "score", file_schema[1]->type, PredicateType::LT, 96));
+    format::parquet::RowGroupScanPlan intersect_plan;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(
+                        *parquet_file_reader->metadata(), parquet_file_reader.get(), file_schema,
+                        intersect_request, scan_range, false, &intersect_plan)
+                        .ok());
+    ASSERT_EQ(intersect_plan.row_groups.size(), 1);
+    ASSERT_FALSE(intersect_plan.row_groups[0].selected_ranges.empty());
+    const int64_t intersect_rows = count_range_rows(intersect_plan.row_groups[0].selected_ranges);
+    EXPECT_GT(single_filter_rows, intersect_rows);
+    EXPECT_GT(intersect_plan.row_groups[0].selected_ranges.front().start, 0);
+    const auto& last_range = intersect_plan.row_groups[0].selected_ranges.back();
+    EXPECT_LT(last_range.start + last_range.length, 128);
+    EXPECT_GT(intersect_plan.pruning_stats.filtered_page_rows, 0);
+    EXPECT_EQ(intersect_plan.pruning_stats.selected_row_ranges,
+              intersect_plan.row_groups[0].selected_ranges.size());
+
+    auto id_skip_plan = intersect_plan.row_groups[0].page_skip_plans.find(0);
+    ASSERT_NE(id_skip_plan, intersect_plan.row_groups[0].page_skip_plans.end());
+    EXPECT_EQ(id_skip_plan->second.leaf_column_id, 0);
+    EXPECT_FALSE(id_skip_plan->second.empty());
+    auto score_skip_plan = intersect_plan.row_groups[0].page_skip_plans.find(1);
+    ASSERT_NE(score_skip_plan, intersect_plan.row_groups[0].page_skip_plans.end());
+    EXPECT_EQ(score_skip_plan->second.leaf_column_id, 1);
+    EXPECT_FALSE(score_skip_plan->second.empty());
+}
+
+TEST_F(ParquetScanTest, PageIndexCanFullyFilterRowGroupAfterRangeIntersection) {
+    write_page_index_parquet_file(_file_path);
+    auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
+    auto file_schema = build_file_schema(*parquet_file_reader);
+
+    format::FileScanRequest request;
+    request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 32));
+    request.column_predicate_filters.push_back(
+            int32_filter(0, "id", file_schema[0]->type, PredicateType::LT, 32));
+
+    format::parquet::RowGroupScanPlan plan;
+    format::parquet::ParquetScanRange scan_range;
+    ASSERT_TRUE(format::parquet::plan_parquet_row_groups(*parquet_file_reader->metadata(),
+                                                         parquet_file_reader.get(), file_schema,
+                                                         request, scan_range, false, &plan)
+                        .ok());
+    EXPECT_TRUE(plan.row_groups.empty());
+    EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 1);
+    EXPECT_EQ(plan.pruning_stats.filtered_page_rows, 128);
+}
 
 TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     write_int_pair_parquet_file(_file_path);
