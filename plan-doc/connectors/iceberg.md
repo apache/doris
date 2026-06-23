@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/` |
 | **共享依赖** | `fe-connector-hms`（iceberg-HMS-flavor 用） |
 | **计划迁移阶段** | **P6**（最大阶段，5 周）|
-| **当前状态** | 🚧 P6.1 进行中：recon + 10-task 拆解 + [D-059]；T01-T03（seam + 测试基建）已实现+验证（27 UT 绿，commit `ae54a2174ff`）；下一 = T08/T04 |
-| **完成度** | 14% |
+| **当前状态** | 🟢 **P6.1 DONE + P6.2 DONE**：P6.1〔T01–T10〕7-flavor 装配 + 读元数据 parity + per-flavor 校验 + metastore 模块拆分；P6.2〔T01–T11〕scan+MVCC+cache+vended 全实现（UT **278/0/1**）。下一 = **P6.3 写路径**（先写 `06-iceberg-write-path-rfc.md` 过 PMC）。**翻闸阻塞 = [DV-038]**（GLOBAL_ROWID + getColumnHandles，P6.6 前必修） |
+| **完成度** | ~55%（P6.1+P6.2 实现完；P6.3 写 / P6.4 procedure / P6.5 sys-table / P6.6 翻闸未做）|
 | **阶段拆分 spec** | [`tasks/P6-iceberg-migration.md`](../tasks/P6-iceberg-migration.md) |
 | **主 owner** | TBD |
 
@@ -83,12 +83,19 @@
 
 - 阶段 task：P6（待启动时建）
 - 决策：D-002, D-005, D-006
-- 偏差：（暂无）
+- 偏差：[DV-038]（🔴 翻闸阻塞：GLOBAL_ROWID + getColumnHandles 共享 fe-core field-id 路径 BE DCHECK）、[DV-039]（parity-忠实 HIGH-MEDIUM）、[DV-040]（perf-cosmetic ~36 项批）
 - 风险：R-003（Procedure SPI 抽象失败）、R-004（classloader）、R-005（nereids 写命令耦合）、R-012（snapshotId 类型）
 
 ---
 
 ## 进度日志
+
+### 2026-06-23（P6.1 DONE + P6.2 DONE；T11 收口）
+- **P6.1 DONE〔T01–T10〕**：5-flavor CatalogUtil 装配（T05）+ s3tables bespoke（T06）+ DLF 子树 port（T07）+ 读路径列/format-version/listing/auth parity（T09）+ metastore 模块拆分〔`fe-connector-metastore-{paimon,iceberg}` per-engine + `-spi` 共享基类〕+ per-flavor CREATE 校验（T10 A+B）。
+- **P6.2 DONE〔T01–T11〕**：scan provider 骨架（T01）+ 谓词下推/split（T02）+ typed range-params/`path_partition_keys`（T03）+ merge-on-read delete（T04）+ COUNT 下推（T05）+ field-id 字典（T06）+ MVCC time-travel（T07）+ 连接器内 cache + manifest 级 planning + vendored `DeleteFileIndex`（T08）+ vended + 静态凭据（T09）+ parity-UT 审计补测（T10）+ **T11 收口**（汇总设计 `designs/P6-T11-iceberg-scan-summary-design.md` + validation gate 核对〔7/0〕+ deviation 中央注册 [DV-038]/[DV-039]/[DV-040]）。**净 0 新 SPI**（唯一例外 = T03 非破坏 `isPartitionBearing()` 默认）。
+- **验收全绿**：fe-connector-iceberg UT **278/0/1**（本 session `mvn -pl :fe-connector-iceberg -am test` cache-off 重跑 BUILD SUCCESS）、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`（零行为变更）。审计 workflow `wf_edde7eac-a5b`（9 reader + completeness-critic）。
+- **🔴 翻闸阻塞（P6.6 前必修）= [DV-038]**：GLOBAL_ROWID（top-N 合成列误归 REGULAR）+ getColumnHandles 无 snapshot 重载（rename+time-travel）= 同一共享 fe-core field-id 路径 BE StructNode DCHECK，跨 paimon，须 holistic 修 + paimon 影响分析。
+- **下一 = P6.3 写路径**（先写 `06-iceberg-write-path-rfc.md` 过 PMC，再实现）。
 
 ### 2026-06-22（T08 commit + T04 pom 依赖闭包）
 - **T08 已 commit `d41fa4faf3e`**（type-mapping read parity：TIMESTAMPTZ 名 + 点分 mapping-flag key + BINARY 无界长度 3 修；36 UT 绿）。
