@@ -51,6 +51,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "util/date_func.h"
 #include "util/unaligned.h"
 
@@ -60,7 +61,8 @@ class HybridSetBase;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
-
+class ZoneMapEvalContext;
+struct ExprDerivedZoneMap;
 namespace segment_v2 {
 class IndexIterator;
 class ColumnIterator;
@@ -179,6 +181,11 @@ public:
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
         return Status::OK();
     }
+
+    virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
+    virtual bool can_evaluate_zonemap_filter() const { return false; }
+    virtual std::shared_ptr<ExprDerivedZoneMap> derive_zonemap(const ZoneMapEvalContext& ctx) const;
+    virtual bool can_derive_zonemap() const { return false; }
 
     // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {

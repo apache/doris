@@ -49,6 +49,9 @@ public:
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
     DataTypePtr execute_type(const Block* block) const override;
+    std::shared_ptr<ExprDerivedZoneMap> derive_zonemap(
+            const ZoneMapEvalContext& ctx) const override;
+    bool can_derive_zonemap() const override { return true; }
 
     const std::string& expr_name() const override;
     std::string expr_label() override;

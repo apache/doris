@@ -30,6 +30,10 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 
+namespace doris::expr_zonemap {
+ZoneMapMonotonicity abs_monotonicity(const ExprDerivedZoneMap& argument_zonemap);
+}
+
 namespace doris {
 
 template <PrimitiveType A, typename Op>
@@ -79,6 +83,21 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionUnaryArithmetic>(); }
 
     String get_name() const override { return name; }
+
+    bool can_derive_zonemap() const override {
+        if constexpr (std::string_view(Name::name) == "abs") {
+            return true;
+        }
+        return IFunctionBase::can_derive_zonemap();
+    }
+
+    ZoneMapMonotonicity get_zonemap_monotonicity(
+            const ExprDerivedZoneMap& argument_zonemap) const override {
+        if constexpr (std::string_view(Name::name) == "abs") {
+            return expr_zonemap::abs_monotonicity(argument_zonemap);
+        }
+        return IFunctionBase::get_zonemap_monotonicity(argument_zonemap);
+    }
 
     size_t get_number_of_arguments() const override { return 1; }
 

@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -46,6 +47,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
+        _column_name = &_column_label;
         _prepare_finished = true;
         return Status::OK();
     }
@@ -107,6 +109,24 @@ DataTypePtr VSlotRef::execute_type(const Block* block) const {
                                *_column_name, _column_id, block->dump_structure());
     }
     return block->get_by_position(_column_id).type;
+}
+
+std::shared_ptr<ExprDerivedZoneMap> VSlotRef::derive_zonemap(const ZoneMapEvalContext& ctx) const {
+    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, _column_id, _data_type);
+    if (slot_type == nullptr) {
+        return nullptr;
+    }
+    const auto* zone_map_ref = ctx.zone_map(_column_id);
+    if (zone_map_ref == nullptr) {
+        return nullptr;
+    }
+    const auto& zone_map = *zone_map_ref;
+    if (zone_map.has_not_null &&
+        !expr_zonemap::range_stats_usable_for_zonemap(zone_map, slot_type)) {
+        return nullptr;
+    }
+    return std::make_shared<ExprDerivedZoneMap>(
+            ExprDerivedZoneMap {.data_type = slot_type, .zone_map = zone_map});
 }
 
 const std::string& VSlotRef::expr_name() const {
