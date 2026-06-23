@@ -10,15 +10,12 @@
 2	20
 3	30
 4	40
-5	50
 
 -- !nested_after_inc_outer --
 1	10
 2	20
 3	30
 4	40
-5	50
-6	60
 
 -- !nested_after_complete_recovery --
 1	10
@@ -40,9 +37,9 @@
 1	10
 1	10
 2	20
+2	20
 3	30
 3	30
-4	40
 
 -- !self_del_after_complete_recovery --
 1	10

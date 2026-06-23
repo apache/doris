@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -49,7 +51,6 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 /**
  * Entry point for IVM delta rewriting.
@@ -314,21 +315,20 @@ public class IvmDeltaRewriter {
             streamSlotByName.put(slot.getName(), slot);
         }
 
-        Set<String> oldSlotNames = oldOutput.stream()
-                .map(Slot::getName).collect(Collectors.toSet());
-
         List<NamedExpression> projects = new ArrayList<>();
         for (Slot oldSlot : oldOutput) {
             Slot streamSlot = streamSlotByName.get(oldSlot.getName());
             if (streamSlot != null) {
                 projects.add(new Alias(oldSlot.getExprId(), streamSlot, oldSlot.getName()));
-            }
-        }
-
-        // Passthrough stream-only columns (not in old OlapScan output)
-        for (Slot streamSlot : streamOutput) {
-            if (!oldSlotNames.contains(streamSlot.getName())) {
-                projects.add(streamSlot);
+            } else if (oldSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+                // Hidden columns (e.g. __DORIS_DELETE_SIGN__, __DORIS_VERSION_COL__)
+                // exist in old OlapScan output but not in stream scan output;
+                // fill with NULL literal to keep output schema consistent.
+                projects.add(new Alias(oldSlot.getExprId(),
+                        new NullLiteral(oldSlot.getDataType()), oldSlot.getName()));
+            } else {
+                throw new AnalysisException("IVM: stream scan missing column "
+                        + oldSlot.getName() + " for table " + oldScan.getTable().getName());
             }
         }
 

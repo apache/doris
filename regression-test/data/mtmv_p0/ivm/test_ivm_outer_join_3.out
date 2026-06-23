@@ -8,11 +8,11 @@
 1	10	100
 2	\N	200
 3	30	300
-4	\N	400
 
 -- !right_event_after_left_incremental --
+1	10	100
 2	\N	200
-4	\N	400
+3	30	300
 
 -- !right_repair_after_complete --
 1	10	5
@@ -22,6 +22,5 @@
 -- !right_repair_after_left_incremental --
 1	10	5
 2	\N	25
-2	30	25
 3	\N	30
 

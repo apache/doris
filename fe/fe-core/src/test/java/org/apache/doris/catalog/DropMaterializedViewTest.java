@@ -18,11 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -164,5 +166,37 @@ public class DropMaterializedViewTest {
                 () -> dropTable(UnitTestUtil.DB_NAME, UnitTestUtil.MV_NAME, false));
         ExceptionChecker.expectThrowsNoException(() -> dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s",
                 UnitTestUtil.DB_NAME, UnitTestUtil.MV_NAME)));
+    }
+
+    @Test
+    public void testDropIvmMtmvRemovesStreams() throws Exception {
+        Config.enable_table_stream = true;
+        String db = UnitTestUtil.DB_NAME;
+        String baseTable = "ivm_drop_test_base";
+
+        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true');", db, baseTable));
+
+        String mvName = "ivm_drop_test_mv";
+        createMvByNereids(String.format("CREATE MATERIALIZED VIEW %s.%s "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL "
+                + "DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT k1, v1 FROM %s.%s;", db, mvName, db, baseTable));
+        Thread.sleep(1000);
+
+        Database database = Env.getCurrentInternalCatalog().getDbOrDdlException(db);
+        MTMV mtmv = (MTMV) database.getTableOrDdlException(mvName);
+        Assertions.assertTrue(mtmv.isIvm());
+        String streamName = IvmUtil.streamName(mtmv.getId(), baseTable);
+        Assertions.assertNotNull(database.getTableNullable(streamName),
+                "Stream should be created for IVM MTMV");
+
+        // Drop MV should also remove associated streams
+        dropMvByNereids(String.format("DROP MATERIALIZED VIEW %s.%s", db, mvName));
+        Assertions.assertNull(database.getTableNullable(streamName),
+                "Stream should be removed after MTMV drop");
     }
 }

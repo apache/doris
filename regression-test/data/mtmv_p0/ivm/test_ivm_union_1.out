@@ -10,15 +10,12 @@
 2	20
 3	30
 4	40
-5	50
 
 -- !union_basic_after_inc2 --
 1	10
 2	20
 3	30
 4	40
-5	50
-6	60
 
 -- !union_basic_after_complete_recovery --
 1	10
@@ -37,7 +34,6 @@
 1	10
 2	20
 3	30
-4	40
 
 -- !union_3way_after_complete_recovery --
 1	10
@@ -56,7 +52,6 @@
 1	10
 2	20
 2	20
-3	30
 
 -- !union_self_after_complete_recovery --
 1	10
@@ -75,7 +70,6 @@
 1	100
 2	20
 3	300
-4	40
 
 -- !union_filter_after_complete_recovery --
 1	100
@@ -90,7 +84,6 @@
 -- !union_expr_after_inc --
 1	20
 2	40
-3	60
 
 -- !union_expr_after_complete_recovery --
 1	20

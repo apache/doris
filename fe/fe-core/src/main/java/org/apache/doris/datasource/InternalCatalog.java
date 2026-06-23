@@ -113,7 +113,9 @@ import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
@@ -1040,6 +1042,22 @@ public class InternalCatalog implements CatalogIf<Database> {
             long recycleTime) throws DdlException {
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
+            // Drop associated IVM streams
+            MTMV mtmv = (MTMV) table;
+            MTMVRelation relation = mtmv.getRelation();
+            if (relation != null && mtmv.isIvm()) {
+                Set<BaseTableInfo> baseTables = relation.getBaseTables();
+                if (baseTables != null) {
+                    for (BaseTableInfo baseTableInfo : baseTables) {
+                        String streamName = IvmUtil.streamName(mtmv.getId(), baseTableInfo.getTableName());
+                        TableIf streamTable = db.getTableNullable(streamName);
+                        if (streamTable != null) {
+                            unprotectDropTable(db, (Table) streamTable, isForceDrop, isReplay, 0L);
+                            LOG.info("dropped stream {} associated with MTMV {}", streamName, mtmv.getName());
+                        }
+                    }
+                }
+            }
         }
         if (table instanceof View) {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
