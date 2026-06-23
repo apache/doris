@@ -629,7 +629,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
             return Optional.empty();
         }
         ConnectorExpression expr = writeConstraint.getExpression();
-        List<Expression> converted = new IcebergPredicateConverter(icebergTable.schema(), zone).convert(expr);
+        // conflictMode=true: build the iceberg expression for write-time conflict detection (O5-2), whose
+        // matrix is a conservative port of legacy convertPredicateToIcebergExpression (IS NULL / BETWEEN /
+        // same-column OR / NOT(IS NULL); drops NE / cross-column OR) — different from scan pushdown.
+        List<Expression> converted =
+                new IcebergPredicateConverter(icebergTable.schema(), zone, true).convert(expr);
         if (converted.isEmpty()) {
             return Optional.empty();
         }

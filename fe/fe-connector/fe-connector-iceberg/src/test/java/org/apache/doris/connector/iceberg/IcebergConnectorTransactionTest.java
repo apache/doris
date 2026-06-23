@@ -21,8 +21,11 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.pushdown.ConnectorAnd;
+import org.apache.doris.connector.api.pushdown.ConnectorBetween;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
+import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.thrift.TFileContent;
@@ -748,6 +751,52 @@ public class IcebergConnectorTransactionTest {
         txn.applyWriteConstraint(new ConnectorPredicate(null));
         Assertions.assertFalse(txn.buildWriteConstraintExpression(table).isPresent(),
                 "a null inner expression -> empty");
+    }
+
+    @Test
+    public void buildWriteConstraintUsesConflictMatrixNotScanMatrix() {
+        // T07b: the O5-2 path must convert in conflict mode, whose matrix differs from scan pushdown.
+        // IS NULL / BETWEEN are *dropped* by scan pushdown but *pushed* for conflict detection; their
+        // presence here proves buildWriteConstraintExpression selects conflict mode.
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(
+                TableIdentifier.of("db1", "t1"), PART_SCHEMA, PartitionSpec.unpartitioned());
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        txn.applyWriteConstraint(new ConnectorPredicate(
+                new ConnectorIsNull(new ConnectorColumnRef("region", ConnectorType.of("UNKNOWN")), false)));
+        Assertions.assertEquals(Expressions.isNull("region").toString(),
+                txn.buildWriteConstraintExpression(table).map(Expression::toString).orElse(null));
+
+        txn.applyWriteConstraint(new ConnectorPredicate(new ConnectorBetween(
+                new ConnectorColumnRef("id", ConnectorType.of("UNKNOWN")),
+                new ConnectorLiteral(ConnectorType.of("INT"), 1L),
+                new ConnectorLiteral(ConnectorType.of("INT"), 9L))));
+        Assertions.assertEquals(
+                Expressions.and(Expressions.greaterThanOrEqual("id", 1), Expressions.lessThanOrEqual("id", 9))
+                        .toString(),
+                txn.buildWriteConstraintExpression(table).map(Expression::toString).orElse(null));
+    }
+
+    @Test
+    public void buildWriteConstraintAndsMultipleConjuncts() {
+        // A top-level ConnectorAnd (as the extractor produces for >1 target conjunct) is flattened and
+        // re-ANDed; each conjunct is converted in conflict mode (the IS NULL arm would be dropped by scan).
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(
+                TableIdentifier.of("db1", "t1"), PART_SCHEMA, PartitionSpec.unpartitioned());
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        ConnectorComparison eq = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("region", ConnectorType.of("UNKNOWN")),
+                new ConnectorLiteral(ConnectorType.of("VARCHAR"), "us"));
+        ConnectorIsNull isNull = new ConnectorIsNull(
+                new ConnectorColumnRef("id", ConnectorType.of("UNKNOWN")), false);
+        txn.applyWriteConstraint(new ConnectorPredicate(new ConnectorAnd(java.util.Arrays.asList(eq, isNull))));
+
+        Expression expected = Expressions.and(Expressions.equal("region", "us"), Expressions.isNull("id"));
+        Assertions.assertEquals(expected.toString(),
+                txn.buildWriteConstraintExpression(table).map(Expression::toString).orElse(null));
     }
 
     /** Builds an old, file-scoped position-delete {@link DeleteFile} (referenced -> ContentFileUtil.isFileScoped). */

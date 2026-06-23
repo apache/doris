@@ -18,10 +18,12 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
+import org.apache.doris.connector.api.pushdown.ConnectorBetween;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorIn;
+import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.ConnectorNot;
 import org.apache.doris.connector.api.pushdown.ConnectorOr;
@@ -46,8 +48,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Converts a {@link ConnectorExpression} tree into iceberg {@link Expression} objects for predicate
@@ -63,6 +67,13 @@ import java.util.Locale;
  * {@code ConnectorFunctionCall} are dropped (legacy has no such case; IS NULL is still pushed via
  * EQ_FOR_NULL + null literal). Anything that cannot be translated yields {@code null} and is left to BE
  * residual filtering — a safe over-approximation (the filter never removes rows that should match).</p>
+ *
+ * <p>A second mode — selected by the {@code conflictMode} constructor flag (P6.3-T07b) — builds the iceberg
+ * expression for write-time optimistic <b>conflict detection</b> (O5-2) instead of scan pushdown. It is a
+ * faithful port of legacy {@code IcebergConflictDetectionFilterUtils.convertPredicateToIcebergExpression},
+ * a strictly different matrix: it additionally pushes {@code ConnectorIsNull} / {@code ConnectorBetween},
+ * restricts {@code ConnectorNot} to {@code NOT(IS NULL)}, guards {@code ConnectorOr} to a single column,
+ * applies structural/UUID guards, and drops NE / bare booleans. Scan mode (the default) is unchanged.</p>
  */
 public class IcebergPredicateConverter {
 
@@ -74,10 +85,22 @@ public class IcebergPredicateConverter {
 
     private final Schema schema;
     private final ZoneId sessionZone;
+    // When true, build the iceberg expression for write-time optimistic conflict detection (O5-2) instead of
+    // scan pushdown. Conflict mode is a port of legacy
+    // {@code IcebergConflictDetectionFilterUtils.convertPredicateToIcebergExpression}: a strictly different
+    // matrix from scan pushdown -- it additionally pushes IS NULL / BETWEEN, restricts NOT to NOT(IS NULL),
+    // guards OR to a single column, drops NE / bare booleans, and applies structural/UUID guards. The shared
+    // leaf helpers (getPushdownField / extractIcebergLiteral / toMicros / checkConversion) are reused.
+    private final boolean conflictMode;
 
     public IcebergPredicateConverter(Schema schema, ZoneId sessionZone) {
+        this(schema, sessionZone, false);
+    }
+
+    public IcebergPredicateConverter(Schema schema, ZoneId sessionZone, boolean conflictMode) {
         this.schema = schema;
         this.sessionZone = sessionZone == null ? ZoneOffset.UTC : sessionZone;
+        this.conflictMode = conflictMode;
     }
 
     /**
@@ -120,6 +143,9 @@ public class IcebergPredicateConverter {
     private Expression build(ConnectorExpression expr) {
         if (expr == null) {
             return null;
+        }
+        if (conflictMode) {
+            return buildConflict(expr);
         }
         if (expr instanceof ConnectorLiteral) {
             return buildBoolLiteral((ConnectorLiteral) expr);
@@ -485,5 +511,238 @@ public class IcebergPredicateConverter {
                     return null;
                 }
         }
+    }
+
+    // ====================================================================================================
+    // Conflict-mode (O5-2 write-time conflict detection). Port of legacy
+    // IcebergConflictDetectionFilterUtils.convertPredicateToIcebergExpression. Reached only when
+    // conflictMode == true; the scan dispatch above is untouched. Recursive children flow back through
+    // convertSingle -> build -> here, so the conflict matrix applies all the way down.
+    // ====================================================================================================
+
+    private Expression buildConflict(ConnectorExpression expr) {
+        if (expr instanceof ConnectorAnd) {
+            // AND keeps the bindable subset (dropping an arm only widens the conflict filter -> safe).
+            return buildAnd((ConnectorAnd) expr);
+        } else if (expr instanceof ConnectorOr) {
+            return buildConflictOr((ConnectorOr) expr);
+        } else if (expr instanceof ConnectorNot) {
+            return buildConflictNot((ConnectorNot) expr);
+        } else if (expr instanceof ConnectorIsNull) {
+            ConnectorIsNull isNull = (ConnectorIsNull) expr;
+            return buildConflictIsNull(isNull.getOperand(), isNull.isNegated());
+        } else if (expr instanceof ConnectorIn) {
+            return buildConflictIn((ConnectorIn) expr);
+        } else if (expr instanceof ConnectorBetween) {
+            return buildConflictBetween((ConnectorBetween) expr);
+        } else if (expr instanceof ConnectorComparison) {
+            return buildConflictComparison((ConnectorComparison) expr);
+        }
+        // bare boolean literal / LIKE / function call: not in the legacy conflict matrix -> dropped.
+        return null;
+    }
+
+    // OR is pushed only when every disjunct binds AND all disjuncts reference the same single column (legacy
+    // isSameColumnPredicate). A cross-column OR is dropped: pushing it would narrow the filter (missed conflict).
+    private Expression buildConflictOr(ConnectorOr or) {
+        Expression result = null;
+        int commonFieldId = 0;
+        boolean haveField = false;
+        for (ConnectorExpression child : or.getDisjuncts()) {
+            Expression c = convertSingle(child);
+            if (c == null) {
+                return null;
+            }
+            Types.NestedField field = resolveConflictField(child);
+            if (field == null) {
+                return null;
+            }
+            if (!haveField) {
+                commonFieldId = field.fieldId();
+                haveField = true;
+            } else if (commonFieldId != field.fieldId()) {
+                return null;
+            }
+            result = (result == null) ? c : Expressions.or(result, c);
+        }
+        return result;
+    }
+
+    // NOT is pushed only for NOT(IS NULL) -> not(isNull); legacy restricts NOT to an IS NULL child.
+    private Expression buildConflictNot(ConnectorNot not) {
+        if (!(not.getOperand() instanceof ConnectorIsNull)) {
+            return null;
+        }
+        ConnectorIsNull inner = (ConnectorIsNull) not.getOperand();
+        return buildConflictIsNull(inner.getOperand(), !inner.isNegated());
+    }
+
+    private Expression buildConflictIsNull(ConnectorExpression operand, boolean negated) {
+        if (!(operand instanceof ConnectorColumnRef)) {
+            return null;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) operand).getColumnName());
+        if (field == null || isStructural(field.type())) {
+            return null;
+        }
+        Expression isNull = Expressions.isNull(field.name());
+        return negated ? Expressions.not(isNull) : isNull;
+    }
+
+    private Expression buildConflictIn(ConnectorIn in) {
+        if (in.isNegated() || !(in.getValue() instanceof ConnectorColumnRef)) {
+            return null;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) in.getValue()).getColumnName());
+        if (field == null) {
+            return null;
+        }
+        Type type = field.type();
+        if (isStructural(type)) {
+            return null;
+        }
+        boolean hasNull = false;
+        List<Object> values = new ArrayList<>();
+        for (ConnectorExpression item : in.getInList()) {
+            if (!(item instanceof ConnectorLiteral)) {
+                return null;
+            }
+            ConnectorLiteral literal = (ConnectorLiteral) item;
+            if (literal.isNull()) {
+                hasNull = true;
+                continue;
+            }
+            Object value = extractIcebergLiteral(type, literal);
+            if (value == null) {
+                // a single unconvertible element drops the whole IN (legacy parity)
+                return null;
+            }
+            values.add(value);
+        }
+        if (isUuid(type) && !values.isEmpty()) {
+            return null;
+        }
+        Expression valuesExpr = values.isEmpty() ? null : Expressions.in(field.name(), values);
+        Expression nullExpr = hasNull ? Expressions.isNull(field.name()) : null;
+        return combineOr(nullExpr, valuesExpr);
+    }
+
+    private Expression buildConflictBetween(ConnectorBetween between) {
+        if (!(between.getValue() instanceof ConnectorColumnRef)) {
+            return null;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) between.getValue()).getColumnName());
+        if (field == null) {
+            return null;
+        }
+        Type type = field.type();
+        if (isStructural(type) || isUuid(type)) {
+            return null;
+        }
+        if (!(between.getLower() instanceof ConnectorLiteral)
+                || !(between.getUpper() instanceof ConnectorLiteral)) {
+            return null;
+        }
+        Object lo = extractIcebergLiteral(type, (ConnectorLiteral) between.getLower());
+        Object hi = extractIcebergLiteral(type, (ConnectorLiteral) between.getUpper());
+        if (lo == null || hi == null) {
+            return null;
+        }
+        String colName = field.name();
+        return Expressions.and(
+                Expressions.greaterThanOrEqual(colName, lo), Expressions.lessThanOrEqual(colName, hi));
+    }
+
+    private Expression buildConflictComparison(ConnectorComparison cmp) {
+        if (!(cmp.getLeft() instanceof ConnectorColumnRef) || !(cmp.getRight() instanceof ConnectorLiteral)) {
+            // column-op-literal only (the neutral converter normalises the column to the left).
+            return null;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) cmp.getLeft()).getColumnName());
+        if (field == null) {
+            return null;
+        }
+        Type type = field.type();
+        if (isStructural(type)) {
+            return null;
+        }
+        String colName = field.name();
+        ConnectorLiteral literal = (ConnectorLiteral) cmp.getRight();
+        if (isUuid(type)) {
+            // UUID is comparable only as `col = NULL` -> IS NULL; every other UUID comparison is dropped.
+            return cmp.getOperator() == ConnectorComparison.Operator.EQ && literal.isNull()
+                    ? Expressions.isNull(colName) : null;
+        }
+        if (literal.isNull()) {
+            // mirror legacy convertNereidsBinaryPredicate: any of EQ/GT/GE/LT/LE against NULL -> IS NULL.
+            switch (cmp.getOperator()) {
+                case EQ:
+                case GT:
+                case GE:
+                case LT:
+                case LE:
+                    return Expressions.isNull(colName);
+                default:
+                    return null;
+            }
+        }
+        Object value = extractIcebergLiteral(type, literal);
+        if (value == null) {
+            return null;
+        }
+        switch (cmp.getOperator()) {
+            case EQ:
+                return Expressions.equal(colName, value);
+            case GT:
+                return Expressions.greaterThan(colName, value);
+            case GE:
+                return Expressions.greaterThanOrEqual(colName, value);
+            case LT:
+                return Expressions.lessThan(colName, value);
+            case LE:
+                return Expressions.lessThanOrEqual(colName, value);
+            default:
+                // NE / EQ_FOR_NULL are not part of the legacy conflict matrix -> dropped.
+                return null;
+        }
+    }
+
+    // Resolve the single iceberg field a sub-expression references (legacy resolveSingleField). Returns null
+    // when the sub-expression references zero or multiple distinct columns, or a non-pushable column.
+    private Types.NestedField resolveConflictField(ConnectorExpression expr) {
+        Set<String> columns = new LinkedHashSet<>();
+        collectColumnNames(expr, columns);
+        if (columns.size() != 1) {
+            return null;
+        }
+        return getPushdownField(columns.iterator().next());
+    }
+
+    private void collectColumnNames(ConnectorExpression expr, Set<String> out) {
+        if (expr instanceof ConnectorColumnRef) {
+            out.add(((ConnectorColumnRef) expr).getColumnName());
+            return;
+        }
+        for (ConnectorExpression child : expr.getChildren()) {
+            collectColumnNames(child, out);
+        }
+    }
+
+    private static Expression combineOr(Expression left, Expression right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return Expressions.or(left, right);
+    }
+
+    private static boolean isStructural(Type type) {
+        return type.isStructType() || type.isListType() || type.isMapType();
+    }
+
+    private static boolean isUuid(Type type) {
+        return type.typeId() == TypeID.UUID;
     }
 }
