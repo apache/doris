@@ -482,8 +482,12 @@ bool prepare_signal_capture(int timeout_ms, std::string* error) {
         *error = "lock-free PHDR cache is unavailable";
         return false;
     }
+#elif !defined(USE_UNWIND) || !USE_UNWIND
+    *error = "BE thread stack trace requires libunwind; this build was compiled with "
+             "USE_UNWIND=OFF";
+    return false;
 #else
-    *error = "signal-context libunwind is unsupported on this build";
+    *error = "signal-context libunwind is unsupported on this architecture";
     return false;
 #endif
 
@@ -908,7 +912,11 @@ void append_thread_result(std::stringstream& out, const ThreadInfo& thread,
 void BeThreadStackAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_TEXT.data());
 
-#ifndef __linux__
+#if !defined(USE_UNWIND) || !USE_UNWIND
+    HttpChannel::send_reply(req, HttpStatus::NOT_IMPLEMENTED,
+                            "BE thread stack trace requires libunwind; this build was compiled "
+                            "with USE_UNWIND=OFF.\n");
+#elif !defined(__linux__)
     HttpChannel::send_reply(req, HttpStatus::NOT_IMPLEMENTED,
                             "BE thread stack trace is only supported on Linux.\n");
 #else
