@@ -108,7 +108,7 @@ import java.util.stream.Collectors;
 /**
  * delete from unique key table.
  */
-public class DeleteFromCommand extends Command implements ForwardWithSync, Explainable {
+public class DeleteFromCommand extends Command implements ForwardWithSync, Explainable, SupportProfile {
     private static final Logger LOG = LogManager.getLogger(DeleteFromCommand.class);
 
     protected final List<String> nameParts;
@@ -506,17 +506,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         return ((OlapTable) table);
     }
 
-    /**
-     * check whether the target table is OLAP table.
-     */
-    public boolean isTargetTableOlap(ConnectContext ctx) {
-        try {
-            List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-            TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-            return table instanceof OlapTable;
-        } catch (Exception e) {
-            return false;
-        }
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return nameParts;
     }
 
     /**
