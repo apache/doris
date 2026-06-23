@@ -43,7 +43,6 @@ constexpr int64_t kDoublePatternIndexId = 210204;
 constexpr int64_t kBoolPatternIndexId = 210205;
 constexpr int64_t kDatePatternIndexId = 210206;
 constexpr int64_t kDateTimePatternIndexId = 210207;
-constexpr std::string_view kIntPath = "int_1";
 constexpr int32_t kPagePruneLowValueBound = 900000;
 
 int32_t page_prune_offset(size_t row) {
@@ -96,10 +95,9 @@ DataTypePtr nullable_int64_target_type() {
     return make_nullable(std::make_shared<DataTypeInt64>());
 }
 
-void disable_bkd_skip_for_index_probe_assertions(IndexReadOptions* read_options) {
-    // These cases assert the field-pattern index binding all the way to an APPLIED
-    // probe. Tiny three-row segments can hit the default 50% BKD skip threshold first
-    // and report a valid INVERTED_INDEX_BYPASS fallback instead of an applied probe.
+void disable_bkd_skip_for_filter_stats_assertions(IndexReadOptions* read_options) {
+    // Tiny three-row segments can hit the default 50% BKD skip threshold before the field-pattern
+    // index contributes rows_inverted_index_filtered.
     read_options->inverted_index_skip_threshold = 100;
 }
 
@@ -217,21 +215,6 @@ std::vector<std::string> interleaved_int_variant_rows(size_t pairs, int32_t low_
     return rows;
 }
 
-void expect_int_index_probe_count(const IndexReadResult& result, int64_t expected_count) {
-    expect_index_probe_count(result,
-                             IndexProbeExpectation {
-                                     .source = IndexProbeSource::COLUMN_PREDICATE,
-                                     .state = IndexProbeState::APPLIED,
-                                     .reason = IndexFallbackReason::NONE,
-                                     .column_uid = kVariantUid,
-                                     .variant_path = std::string(kIntPath),
-                                     .index_id = kIntPatternIndexId,
-                                     .counts_toward_filter_stats = true,
-                                     .filtered_rows = {},
-                             },
-                             expected_count);
-}
-
 } // namespace
 
 class IndexStorageVariantFieldPatternIndexTest : public IndexStorageTestFixture {
@@ -293,9 +276,7 @@ void IndexStorageVariantFieldPatternIndexTest::run_typed_int_field_pattern_index
     auto before_compaction = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(before_compaction.has_value()) << before_compaction.error();
     EXPECT_EQ(before_compaction->rows_read, 2);
-    expect_applied_variant_path_index(before_compaction.value(), kIntPath, kIntPatternIndexId, 2);
-    expect_int_index_probe_count(before_compaction.value(), 2);
-    expect_index_not_applied(before_compaction.value(), kStringPatternIndexId);
+    expect_index_filter_stats(before_compaction.value(), 2);
 
     IndexReadOptions range_read_options;
     range_read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
@@ -306,10 +287,7 @@ void IndexStorageVariantFieldPatternIndexTest::run_typed_int_field_pattern_index
     auto range_before_compaction = read_rowsets(readable_rowsets.value(), range_read_options);
     ASSERT_TRUE(range_before_compaction.has_value()) << range_before_compaction.error();
     EXPECT_EQ(range_before_compaction->rows_read, 2);
-    expect_applied_variant_path_index(range_before_compaction.value(), kIntPath, kIntPatternIndexId,
-                                      2);
-    expect_int_index_probe_count(range_before_compaction.value(), 2);
-    expect_index_not_applied(range_before_compaction.value(), kStringPatternIndexId);
+    expect_index_filter_stats(range_before_compaction.value(), 2);
 
     auto compacted = compact_rowsets(compaction_kind, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -326,17 +304,12 @@ void IndexStorageVariantFieldPatternIndexTest::run_typed_int_field_pattern_index
     auto after_compaction = read_rowsets(readable_compacted.value(), read_options);
     ASSERT_TRUE(after_compaction.has_value()) << after_compaction.error();
     EXPECT_EQ(after_compaction->rows_read, 2);
-    expect_applied_variant_path_index(after_compaction.value(), kIntPath, kIntPatternIndexId, 2);
-    expect_int_index_probe_count(after_compaction.value(), 1);
-    expect_index_not_applied(after_compaction.value(), kStringPatternIndexId);
+    expect_index_filter_stats(after_compaction.value(), 2);
 
     auto range_after_compaction = read_rowsets(readable_compacted.value(), range_read_options);
     ASSERT_TRUE(range_after_compaction.has_value()) << range_after_compaction.error();
     EXPECT_EQ(range_after_compaction->rows_read, 2);
-    expect_applied_variant_path_index(range_after_compaction.value(), kIntPath, kIntPatternIndexId,
-                                      2);
-    expect_int_index_probe_count(range_after_compaction.value(), 1);
-    expect_index_not_applied(range_after_compaction.value(), kStringPatternIndexId);
+    expect_index_filter_stats(range_after_compaction.value(), 2);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedIntIndexAfterCumulativeCompaction) {
@@ -347,10 +320,8 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedIntIndexAfterFullCompactio
     run_typed_int_field_pattern_index_lifecycle(IndexCompactionKind::FULL, 110033);
 }
 
-// Non-INT typed Variant field-pattern indexes should bind to the matching path and report the
-// applied probe metadata for each physical storage type.
-TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       BigIntDoubleAndBoolFieldPatternIndexesUseExpectedPathAndIndexIds) {
+// Non-INT typed Variant field-pattern indexes should filter rows for each physical storage type.
+TEST_F(IndexStorageVariantFieldPatternIndexTest, BigIntDoubleAndBoolFieldPatternIndexesFilterRows) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_multi_typed_field_pattern_index_matrix")
                     .tablet_id(110040)
@@ -376,8 +347,8 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
 
     auto read_and_verify = [&](std::string_view path, FieldType expected_storage_type,
-                               DataTypePtr data_type, Field value, int64_t index_id,
-                               int64_t expected_rows, int64_t expected_filtered_rows) {
+                               DataTypePtr data_type, Field value, int64_t expected_rows,
+                               int64_t expected_filtered_rows) {
         const int32_t path_column_id = column_id_by_path("v." + std::string(path));
         ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
         const auto& path_column = tablet_schema()->column(path_column_id);
@@ -390,47 +361,27 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
         read_options.target_cast_type_for_variants[path_column.name()] =
                 nullable_target_type(data_type);
-        disable_bkd_skip_for_index_probe_assertions(&read_options);
+        disable_bkd_skip_for_filter_stats_assertions(&read_options);
         read_options.predicates.push_back(
                 typed_equals(path_column_id, path_column.name(), data_type, value));
 
         auto read_result = read_rowsets(readable_rowsets.value(), read_options);
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
         EXPECT_EQ(read_result->rows_read, expected_rows);
-        expect_applied_variant_path_index(read_result.value(), path, index_id,
-                                          expected_filtered_rows);
-        expect_index_probe_count(read_result.value(),
-                                 IndexProbeExpectation {
-                                         .source = IndexProbeSource::COLUMN_PREDICATE,
-                                         .state = IndexProbeState::APPLIED,
-                                         .reason = IndexFallbackReason::NONE,
-                                         .column_uid = kVariantUid,
-                                         .variant_path = std::string(path),
-                                         .index_id = index_id,
-                                         .segment_id = 0,
-                                         .counts_toward_filter_stats = true,
-                                         .input_rows = 3,
-                                         .output_rows = expected_rows,
-                                         .filtered_rows = expected_filtered_rows,
-                                 },
-                                 1);
-        expect_index_not_applied(read_result.value(), kStringPatternIndexId);
+        expect_index_filter_stats(read_result.value(), expected_filtered_rows);
     };
 
     read_and_verify("big_1", FieldType::OLAP_FIELD_TYPE_BIGINT, std::make_shared<DataTypeInt64>(),
-                    Field::create_field<TYPE_BIGINT>(Int64(9000000000LL)), kBigIntPatternIndexId, 2,
-                    1);
+                    Field::create_field<TYPE_BIGINT>(Int64(9000000000LL)), 2, 1);
     read_and_verify("double_1", FieldType::OLAP_FIELD_TYPE_DOUBLE,
                     std::make_shared<DataTypeFloat64>(),
-                    Field::create_field<TYPE_DOUBLE>(Float64(3.5)), kDoublePatternIndexId, 1, 2);
+                    Field::create_field<TYPE_DOUBLE>(Float64(3.5)), 1, 2);
     read_and_verify("bool_1", FieldType::OLAP_FIELD_TYPE_BOOL, std::make_shared<DataTypeBool>(),
-                    Field::create_field<TYPE_BOOLEAN>(UInt8(1)), kBoolPatternIndexId, 2, 1);
+                    Field::create_field<TYPE_BOOLEAN>(UInt8(1)), 2, 1);
 }
 
-// DATEV2/DATETIMEV2 Variant field-pattern indexes should bind to the matching path and report the
-// expected applied probe metadata.
-TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DateAndDateTimeFieldPatternIndexesUseExpectedPathAndIndexIds) {
+// DATEV2/DATETIMEV2 Variant field-pattern indexes should filter rows for matching paths.
+TEST_F(IndexStorageVariantFieldPatternIndexTest, DateAndDateTimeFieldPatternIndexesFilterRows) {
     const auto index_case =
             IndexStorageCaseBuilder("variant_date_time_field_pattern_index_matrix")
                     .tablet_id(110044)
@@ -455,8 +406,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
 
     auto read_and_verify = [&](std::string_view path, DataTypePtr data_type, Field value,
-                               int64_t index_id, int64_t expected_rows,
-                               int64_t expected_filtered_rows) {
+                               int64_t expected_rows, int64_t expected_filtered_rows) {
         const int32_t path_column_id = column_id_by_path("v." + std::string(path));
         ASSERT_GE(path_column_id, 0) << dump_schema_paths(*tablet_schema());
         const auto& path_column = tablet_schema()->column(path_column_id);
@@ -465,36 +415,19 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
         read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
         read_options.target_cast_type_for_variants[path_column.name()] =
                 nullable_target_type(data_type);
-        disable_bkd_skip_for_index_probe_assertions(&read_options);
+        disable_bkd_skip_for_filter_stats_assertions(&read_options);
         read_options.predicates.push_back(
                 typed_equals(path_column_id, path_column.name(), data_type, value));
 
         auto read_result = read_rowsets(readable_rowsets.value(), read_options);
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
         EXPECT_EQ(read_result->rows_read, expected_rows);
-        expect_applied_variant_path_index(read_result.value(), path, index_id,
-                                          expected_filtered_rows);
-        expect_index_probe_count(read_result.value(),
-                                 IndexProbeExpectation {
-                                         .source = IndexProbeSource::COLUMN_PREDICATE,
-                                         .state = IndexProbeState::APPLIED,
-                                         .reason = IndexFallbackReason::NONE,
-                                         .column_uid = kVariantUid,
-                                         .variant_path = std::string(path),
-                                         .index_id = index_id,
-                                         .segment_id = 0,
-                                         .counts_toward_filter_stats = true,
-                                         .input_rows = 3,
-                                         .output_rows = expected_rows,
-                                         .filtered_rows = expected_filtered_rows,
-                                 },
-                                 1);
+        expect_index_filter_stats(read_result.value(), expected_filtered_rows);
     };
 
-    read_and_verify("date_1", std::make_shared<DataTypeDateV2>(), date_v2_field(20240102),
-                    kDatePatternIndexId, 2, 1);
+    read_and_verify("date_1", std::make_shared<DataTypeDateV2>(), date_v2_field(20240102), 2, 1);
     read_and_verify("datetime_1", std::make_shared<DataTypeDateTimeV2>(),
-                    datetime_v2_field(20240102030405), kDateTimePatternIndexId, 2, 1);
+                    datetime_v2_field(20240102030405), 2, 1);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapPrunesWholeSegment) {
@@ -529,7 +462,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathSegmentZoneMapP
     EXPECT_EQ(read_result->rows_read, 2);
     expect_raw_rows_read(read_result.value(), 2);
     expect_segment_pruned(read_result.value(), 1);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathPageZoneMapPrunesWithinSegment) {
@@ -587,11 +520,11 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, TypedVariantPathPageZoneMapPrun
     // happened.
     expect_optional_page_zone_map_filter_stats(read_result.value(), high_rows, total_rows,
                                                static_cast<int64_t>(kLowRows));
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
-       DisabledInvertedIndexQueryDoesNotProbeVariantFieldPatternIndex) {
+       DisabledInvertedIndexQueryDoesNotFilterVariantFieldPatternIndex) {
     const auto int_index = IndexSpec::field_pattern_index(kIntPatternIndexId, "idx_v_int_glob",
                                                           kVariantUid, "int_*");
     const auto index_case =
@@ -624,7 +557,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 2);
     expect_index_filter_stats(read_result.value(), 0);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
@@ -667,7 +600,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_raw_rows_read(read_result.value(), 2);
     expect_segment_pruned(read_result.value(), 1);
     expect_zone_map_filtered(read_result.value(), 2);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 // Expected-red: this is separate from the DORIS-26471 BF case fix. Segment-level typed-path ZoneMap
@@ -707,7 +640,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_raw_rows_read(read_result.value(), 2);
     expect_segment_pruned(read_result.value(), 1);
     expect_zone_map_filtered(read_result.value(), 2);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 TEST_F(IndexStorageVariantFieldPatternIndexTest,
@@ -766,7 +699,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     expect_optional_page_zone_map_filter_stats(read_result.value(), high_rows, total_rows,
                                                static_cast<int64_t>(kLowRows));
     EXPECT_EQ(read_result->stats.rows_stats_rp_filtered, read_result->stats.rows_stats_filtered);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 // Variant typed-path BloomFilter is inherited from the parent Variant column and filters equality
@@ -813,7 +746,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest, VariantTypedPathBloomFilterFilt
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 0);
     expect_bloom_filter_filtered(read_result.value(), kLowRows + kHighRows);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 // Expected-red: once a sparse Variant child has sparse statistics but no materialized subcolumn, an
@@ -853,7 +786,7 @@ TEST_F(IndexStorageVariantFieldPatternIndexTest,
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
     EXPECT_GT(read_result->stats.rows_stats_filtered, 0);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
 } // namespace doris::index_storage_test

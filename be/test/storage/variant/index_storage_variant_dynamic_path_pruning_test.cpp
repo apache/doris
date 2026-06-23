@@ -145,7 +145,7 @@ protected:
         auto read_result = read_rowsets(readable_rowsets.value(), read_options);
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
         verify(read_result.value());
-        expect_inverted_index_not_attempted(read_result.value());
+        expect_index_filter_stats(read_result.value(), 0);
     }
 
 private:
@@ -315,7 +315,7 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest,
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
         EXPECT_EQ(read_result->rows_read, 0);
         expect_bloom_filter_filtered(read_result.value(), kLowRows + kHighRows);
-        expect_inverted_index_not_attempted(read_result.value());
+        expect_index_filter_stats(read_result.value(), 0);
     };
 
     verify_bloom_filter(rowsets.value());

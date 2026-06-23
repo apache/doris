@@ -19,8 +19,6 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
-#include <cstdint>
-#include <limits>
 #include <variant>
 
 #include "common/exception.h"
@@ -58,19 +56,11 @@ public:
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;
     virtual Result<bool> has_null() = 0;
 
-    // Legacy no-probe binding path. Use bind_context() when index probe events may be
-    // collected so read probes can be tied back to the owning column.
     void set_context(const IndexQueryContextPtr& context) { _context = context; }
-    void bind_context(const IndexQueryContextPtr& context, ColumnId column_id) {
-        _context = context;
-        _column_id = column_id;
-    }
     IndexQueryContextPtr get_context() const { return _context; }
-    ColumnId column_id() const { return _column_id; }
 
 protected:
     IndexQueryContextPtr _context = nullptr;
-    ColumnId _column_id = std::numeric_limits<ColumnId>::max();
 };
 
 } // namespace doris::segment_v2

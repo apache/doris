@@ -33,26 +33,8 @@ std::shared_ptr<ColumnPredicate> title_equals(std::string value) {
             Field::create_field<TYPE_STRING>(std::move(value)), false);
 }
 
-void expect_applied_title_index(const IndexReadResult& result, int64_t expected_filtered_rows,
-                                int64_t index_id = 20001) {
-    expect_inverted_index_used(result);
+void expect_applied_title_index(const IndexReadResult& result, int64_t expected_filtered_rows) {
     expect_index_filter_stats(result, expected_filtered_rows);
-
-    int64_t filtered_rows = 0;
-    int64_t applied_events = 0;
-    for (const auto& event : result.stats.index_probe_events) {
-        if (event.state != IndexProbeState::APPLIED || event.column_uid != 2 ||
-            event.index_id != index_id) {
-            continue;
-        }
-        if (event.counts_toward_filter_stats) {
-            ++applied_events;
-            filtered_rows += event.filtered_rows;
-        }
-        EXPECT_FALSE(event.variant_path.has_value());
-    }
-    EXPECT_GT(applied_events, 0);
-    EXPECT_EQ(filtered_rows, expected_filtered_rows);
 }
 
 } // namespace
@@ -127,7 +109,7 @@ TEST_F(IndexStorageLifecycleTest, TextIndexHitAfterFullCompaction) {
     expect_applied_title_index(read_result.value(), 2);
 }
 
-TEST_F(IndexStorageLifecycleTest, CountOnIndexPredicateRecordsAppliedEvent) {
+TEST_F(IndexStorageLifecycleTest, CountOnIndexPredicateFiltersRows) {
     IndexTabletOptions options;
     options.tablet_id = 110008;
     options.text_columns = {TextColumnSpec {.unique_id = 2, .name = "title"}};
@@ -174,7 +156,7 @@ TEST_F(IndexStorageLifecycleTest, DISABLED_CountOnIndexSkipsReadingKeyDataWhenIn
     expect_applied_title_index(read_result.value(), 1);
 }
 
-TEST_F(IndexStorageLifecycleTest, TextPredicateRecordsQueryIndexIdAfterNullBitmapCheck) {
+TEST_F(IndexStorageLifecycleTest, TextPredicateFiltersRowsAfterNullBitmapCheck) {
     IndexTabletOptions options;
     options.tablet_id = 110010;
     options.text_columns = {TextColumnSpec {.unique_id = 2, .name = "title"}};
@@ -194,7 +176,7 @@ TEST_F(IndexStorageLifecycleTest, TextPredicateRecordsQueryIndexIdAfterNullBitma
     auto read_result = read_rowsets({rowset_result.value()}, read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
-    expect_applied_title_index(read_result.value(), 1, 20002);
+    expect_applied_title_index(read_result.value(), 1);
 }
 
 TEST_F(IndexStorageLifecycleTest, V1IndexStorageWritesOneFilePerIndex) {
@@ -224,7 +206,7 @@ TEST_F(IndexStorageLifecycleTest, V1IndexStorageWritesOneFilePerIndex) {
     auto read_result = read_rowsets({rowset_result.value()}, read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
-    expect_applied_title_index(read_result.value(), 1, 20002);
+    expect_applied_title_index(read_result.value(), 1);
 }
 
 TEST_F(IndexStorageLifecycleTest, V2IndexStorageWritesCompoundIndexFile) {
@@ -255,10 +237,10 @@ TEST_F(IndexStorageLifecycleTest, V2IndexStorageWritesCompoundIndexFile) {
     auto read_result = read_rowsets({rowset_result.value()}, read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
-    expect_applied_title_index(read_result.value(), 1, 20002);
+    expect_applied_title_index(read_result.value(), 1);
 }
 
-TEST_F(IndexStorageLifecycleTest, TextIndexDisabledRecordsNotAttempted) {
+TEST_F(IndexStorageLifecycleTest, TextIndexDisabledKeepsFilterStatsAtZero) {
     IndexTabletOptions options;
     options.tablet_id = 110013;
     options.text_columns = {TextColumnSpec {.unique_id = 2, .name = "title"}};
@@ -278,10 +260,10 @@ TEST_F(IndexStorageLifecycleTest, TextIndexDisabledRecordsNotAttempted) {
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 2);
     EXPECT_EQ(read_result->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
-TEST_F(IndexStorageLifecycleTest, TextPredicateWithoutIndexRecordsNotAttempted) {
+TEST_F(IndexStorageLifecycleTest, TextPredicateWithoutIndexKeepsFilterStatsAtZero) {
     IndexTabletOptions options;
     options.tablet_id = 110004;
     options.text_columns = {TextColumnSpec {.unique_id = 2, .name = "title"}};
@@ -299,12 +281,12 @@ TEST_F(IndexStorageLifecycleTest, TextPredicateWithoutIndexRecordsNotAttempted) 
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 1);
     EXPECT_EQ(read_result->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(read_result.value());
+    expect_index_filter_stats(read_result.value(), 0);
 }
 
-TEST_F(IndexStorageLifecycleTest, DropTextIndexRecordsNotAttempted) {
+TEST_F(IndexStorageLifecycleTest, DropTextIndexKeepsFilterStatsAtZero) {
     const auto index_case =
-            IndexStorageCaseBuilder("drop_text_index_records_not_attempted")
+            IndexStorageCaseBuilder("drop_text_index_keeps_filter_stats_at_zero")
                     .tablet_id(110005)
                     .text_column(TextColumnSpec {.unique_id = 2, .name = "title"})
                     .inverted_index(IndexSpec::column_index(20001, "idx_title", 2))
@@ -337,7 +319,7 @@ TEST_F(IndexStorageLifecycleTest, DropTextIndexRecordsNotAttempted) {
     ASSERT_TRUE(after_drop.has_value()) << after_drop.error();
     EXPECT_EQ(after_drop->rows_read, 1);
     EXPECT_EQ(after_drop->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(after_drop.value());
+    expect_index_filter_stats(after_drop.value(), 0);
 }
 
 TEST_F(IndexStorageLifecycleTest, BuildTextIndexAfterExistingRowsUsesNewIndex) {
@@ -358,7 +340,7 @@ TEST_F(IndexStorageLifecycleTest, BuildTextIndexAfterExistingRowsUsesNewIndex) {
     ASSERT_TRUE(before_build.has_value()) << before_build.error();
     EXPECT_EQ(before_build->rows_read, 2);
     EXPECT_EQ(before_build->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(before_build.value());
+    expect_index_filter_stats(before_build.value(), 0);
 
     const auto built_index = IndexSpec::column_index(20003, "idx_title_built", 2);
     auto built_rowsets = build_inverted_indexes({built_index});
@@ -377,7 +359,7 @@ TEST_F(IndexStorageLifecycleTest, BuildTextIndexAfterExistingRowsUsesNewIndex) {
     auto after_build = read_rowsets(reloaded_built_rowsets.value(), after_build_options);
     ASSERT_TRUE(after_build.has_value()) << after_build.error();
     EXPECT_EQ(after_build->rows_read, 2);
-    expect_applied_title_index(after_build.value(), 2, 20003);
+    expect_applied_title_index(after_build.value(), 2);
 }
 
 TEST_F(IndexStorageLifecycleTest, PatchedSchemaKeepsExistingTextIndexUsable) {

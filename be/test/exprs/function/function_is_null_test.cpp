@@ -188,7 +188,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         std::unique_ptr<IndexIterator> iter;
         EXPECT_TRUE(reader->new_iterator(&iter).ok());
         EXPECT_TRUE(iter);
-        iter->bind_context(context, column_id);
+        iter->set_context(context);
 
         ColumnsWithTypeAndName arguments;
         std::vector<IndexFieldNameAndTypePair> data_type_with_names;
@@ -367,7 +367,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
         std::unique_ptr<IndexIterator> iter;
         EXPECT_TRUE(bkd_reader->new_iterator(&iter).ok());
         EXPECT_TRUE(iter);
-        iter->bind_context(context, 0);
+        iter->set_context(context);
 
         std::vector<segment_v2::IndexIterator*> iterators;
         iterators.push_back(iter.get());

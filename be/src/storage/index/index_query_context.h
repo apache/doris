@@ -17,23 +17,10 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <memory>
-#include <vector>
-
 #include "storage/compaction/collection_similarity.h"
 #include "storage/compaction/collection_statistics.h"
-#include "storage/olap_common.h"
 
 namespace doris::segment_v2 {
-
-struct IndexReadProbe {
-    ColumnId column_id = std::numeric_limits<ColumnId>::max();
-    int64_t index_id = -1;
-    bool is_null_bitmap = false;
-};
 
 struct IndexQueryContext {
     io::IOContext* io_ctx = nullptr;
@@ -45,7 +32,6 @@ struct IndexQueryContext {
 
     size_t query_limit = 0;
     bool is_asc = false;
-    std::vector<IndexReadProbe> index_read_probes;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

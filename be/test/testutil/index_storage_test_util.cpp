@@ -72,77 +72,13 @@ constexpr uint32_t kMaxPathLen = 1024;
         }                                            \
     } while (false)
 
-const char* index_probe_source_name(IndexProbeSource source) {
-    switch (source) {
-    case IndexProbeSource::COLUMN_PREDICATE:
-        return "COLUMN_PREDICATE";
-    case IndexProbeSource::EXPR_PUSHDOWN:
-        return "EXPR_PUSHDOWN";
-    case IndexProbeSource::SEARCH_FUNCTION:
-        return "SEARCH_FUNCTION";
-    }
-    return "UNKNOWN";
-}
-
-const char* index_probe_state_name(IndexProbeState state) {
-    switch (state) {
-    case IndexProbeState::APPLIED:
-        return "APPLIED";
-    case IndexProbeState::FALLBACK:
-        return "FALLBACK";
-    case IndexProbeState::NOT_ATTEMPTED:
-        return "NOT_ATTEMPTED";
-    }
-    return "UNKNOWN";
-}
-
-const char* index_fallback_reason_name(IndexFallbackReason reason) {
-    switch (reason) {
-    case IndexFallbackReason::NONE:
-        return "NONE";
-    case IndexFallbackReason::MISSING_INDEX:
-        return "MISSING_INDEX";
-    case IndexFallbackReason::BYPASS:
-        return "BYPASS";
-    case IndexFallbackReason::NO_TERMS:
-        return "NO_TERMS";
-    case IndexFallbackReason::CORRUPTED:
-        return "CORRUPTED";
-    case IndexFallbackReason::EVALUATE_SKIPPED:
-        return "EVALUATE_SKIPPED";
-    case IndexFallbackReason::QUERY_DISABLED:
-        return "QUERY_DISABLED";
-    case IndexFallbackReason::NOT_SUPPORTED:
-        return "NOT_SUPPORTED";
-    }
-    return "UNKNOWN";
-}
-
-std::string describe_index_probe_events(const IndexReadResult& result) {
-    std::ostringstream oss;
-    oss << "\nindex_probe_events=" << result.stats.index_probe_events.size();
-    for (size_t i = 0; i < result.stats.index_probe_events.size(); ++i) {
-        const auto& event = result.stats.index_probe_events[i];
-        oss << "\n  [" << i << "]"
-            << " column_uid=" << event.column_uid
-            << " path=" << (event.variant_path.has_value() ? event.variant_path.value() : "<none>")
-            << " index_id=" << event.index_id << " segment_id=" << event.segment_id
-            << " source=" << index_probe_source_name(event.source)
-            << " state=" << index_probe_state_name(event.state)
-            << " reason=" << index_fallback_reason_name(event.reason)
-            << " counts_filter=" << event.counts_toward_filter_stats
-            << " input_rows=" << event.input_rows << " output_rows=" << event.output_rows
-            << " filtered_rows=" << event.filtered_rows;
-    }
-    return oss.str();
-}
-
 std::string describe_filter_stats(const IndexReadResult& result) {
     std::ostringstream oss;
     oss << "\nfilter_stats:"
         << " rows_read=" << result.rows_read << " raw_rows_read=" << result.stats.raw_rows_read
         << " total_segments=" << result.stats.total_segment_number
         << " filtered_segments=" << result.stats.filtered_segment_number
+        << " rows_inverted_index_filtered=" << result.stats.rows_inverted_index_filtered
         << " rows_stats_filtered=" << result.stats.rows_stats_filtered
         << " rows_stats_rp_filtered=" << result.stats.rows_stats_rp_filtered
         << " rows_bf_filtered=" << result.stats.rows_bf_filtered
@@ -878,29 +814,7 @@ bool IndexRowsetProbe::contains_relative_path(const std::string& path) const {
 }
 
 bool IndexReadResult::inverted_index_used() const {
-    return std::any_of(stats.index_probe_events.begin(), stats.index_probe_events.end(),
-                       [](const auto& event) { return event.state == IndexProbeState::APPLIED; });
-}
-
-bool IndexReadResult::inverted_index_attempted() const {
-    return std::any_of(stats.index_probe_events.begin(), stats.index_probe_events.end(),
-                       [](const auto& event) {
-                           return event.state == IndexProbeState::APPLIED ||
-                                  event.state == IndexProbeState::FALLBACK;
-                       });
-}
-
-bool IndexReadResult::inverted_index_downgraded() const {
-    return std::any_of(stats.index_probe_events.begin(), stats.index_probe_events.end(),
-                       [](const auto& event) { return event.state == IndexProbeState::FALLBACK; });
-}
-
-bool IndexReadResult::inverted_index_effective_filter() const {
-    return std::any_of(stats.index_probe_events.begin(), stats.index_probe_events.end(),
-                       [](const auto& event) {
-                           return event.state == IndexProbeState::APPLIED &&
-                                  event.counts_toward_filter_stats && event.filtered_rows > 0;
-                       });
+    return stats.rows_inverted_index_filtered > 0;
 }
 
 TabletSchemaPB build_tablet_schema_pb(const IndexTabletOptions& options) {
@@ -1061,14 +975,8 @@ TabletSchemaSPtr build_schema_with_variant_path_column(const TabletSchema& base_
 }
 
 void expect_index_filter_stats(const IndexReadResult& result, int64_t expected_filtered_rows) {
-    EXPECT_EQ(result.stats.rows_inverted_index_filtered, expected_filtered_rows);
-    int64_t event_filtered_rows = 0;
-    for (const auto& event : result.stats.index_probe_events) {
-        if (event.state == IndexProbeState::APPLIED && event.counts_toward_filter_stats) {
-            event_filtered_rows += event.filtered_rows;
-        }
-    }
-    EXPECT_EQ(event_filtered_rows, expected_filtered_rows);
+    EXPECT_EQ(result.stats.rows_inverted_index_filtered, expected_filtered_rows)
+            << describe_filter_stats(result);
 }
 
 void expect_raw_rows_read(const IndexReadResult& result, int64_t expected_raw_rows_read) {
@@ -1092,144 +1000,8 @@ void expect_bloom_filter_filtered(const IndexReadResult& result, int64_t expecte
 
 void expect_inverted_index_used(const IndexReadResult& result) {
     EXPECT_TRUE(result.inverted_index_used())
-            << "expected inverted index probe, rows_inverted_index_filtered="
-            << result.stats.rows_inverted_index_filtered
-            << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
-            << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
-            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count
-            << describe_index_probe_events(result);
-    EXPECT_EQ(result.stats.inverted_index_downgrade_count, 0)
-            << describe_index_probe_events(result);
-}
-
-void expect_inverted_index_fallback(const IndexReadResult& result) {
-    EXPECT_TRUE(result.inverted_index_attempted())
-            << "expected fallback after an inverted index attempt"
-            << describe_index_probe_events(result);
-    EXPECT_TRUE(result.inverted_index_downgraded())
-            << "expected scalar fallback downgrade, rows_inverted_index_filtered="
-            << result.stats.rows_inverted_index_filtered
-            << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
-            << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
-            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count
-            << describe_index_probe_events(result);
-    EXPECT_FALSE(result.inverted_index_used()) << describe_index_probe_events(result);
-}
-
-void expect_inverted_index_not_attempted(const IndexReadResult& result) {
-    EXPECT_FALSE(result.inverted_index_attempted())
-            << "expected no inverted index attempt, rows_inverted_index_filtered="
-            << result.stats.rows_inverted_index_filtered
-            << ", inverted_index_query_timer=" << result.stats.inverted_index_query_timer
-            << ", inverted_index_lookup_timer=" << result.stats.inverted_index_lookup_timer
-            << ", inverted_index_downgrade_count=" << result.stats.inverted_index_downgrade_count
-            << describe_index_probe_events(result);
-}
-
-bool index_probe_matches(const IndexProbeEvent& event, const IndexProbeExpectation& expectation) {
-    if (expectation.source.has_value() && event.source != expectation.source.value()) {
-        return false;
-    }
-    if (expectation.state.has_value() && event.state != expectation.state.value()) {
-        return false;
-    }
-    if (expectation.reason.has_value() && event.reason != expectation.reason.value()) {
-        return false;
-    }
-    if (expectation.column_uid.has_value() && event.column_uid != expectation.column_uid.value()) {
-        return false;
-    }
-    if (expectation.variant_path.has_value() &&
-        (!event.variant_path.has_value() ||
-         event.variant_path.value() != expectation.variant_path.value())) {
-        return false;
-    }
-    if (expectation.index_id.has_value() && event.index_id != expectation.index_id.value()) {
-        return false;
-    }
-    if (expectation.segment_id.has_value() && event.segment_id != expectation.segment_id.value()) {
-        return false;
-    }
-    if (expectation.counts_toward_filter_stats.has_value() &&
-        event.counts_toward_filter_stats != expectation.counts_toward_filter_stats.value()) {
-        return false;
-    }
-    if (expectation.input_rows.has_value() && event.input_rows != expectation.input_rows.value()) {
-        return false;
-    }
-    if (expectation.output_rows.has_value() &&
-        event.output_rows != expectation.output_rows.value()) {
-        return false;
-    }
-    if (expectation.filtered_rows.has_value() &&
-        event.filtered_rows != expectation.filtered_rows.value()) {
-        return false;
-    }
-    return true;
-}
-
-void expect_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation) {
-    EXPECT_TRUE(std::any_of(
-            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
-            [&](const auto& event) { return index_probe_matches(event, expectation); }))
-            << describe_index_probe_events(result);
-}
-
-void expect_no_index_probe(const IndexReadResult& result,
-                           const IndexProbeExpectation& expectation) {
-    EXPECT_FALSE(std::any_of(
-            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
-            [&](const auto& event) { return index_probe_matches(event, expectation); }))
-            << describe_index_probe_events(result);
-}
-
-int64_t count_index_probes(const IndexReadResult& result,
-                           const IndexProbeExpectation& expectation) {
-    return std::count_if(
-            result.stats.index_probe_events.begin(), result.stats.index_probe_events.end(),
-            [&](const auto& event) { return index_probe_matches(event, expectation); });
-}
-
-void expect_index_probe_count(const IndexReadResult& result,
-                              const IndexProbeExpectation& expectation, int64_t expected_count) {
-    EXPECT_EQ(count_index_probes(result, expectation), expected_count)
-            << describe_index_probe_events(result);
-}
-
-void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
-                                       int64_t index_id, int64_t expected_filtered_rows,
-                                       int32_t column_uid) {
-    expect_inverted_index_used(result);
-    expect_index_filter_stats(result, expected_filtered_rows);
-
-    int64_t filtered_rows = 0;
-    int64_t applied_events = 0;
-    for (const auto& event : result.stats.index_probe_events) {
-        if (event.state != IndexProbeState::APPLIED || event.column_uid != column_uid ||
-            event.index_id != index_id || !event.variant_path.has_value() ||
-            event.variant_path.value() != path || !event.counts_toward_filter_stats) {
-            continue;
-        }
-        ++applied_events;
-        filtered_rows += event.filtered_rows;
-    }
-    EXPECT_GT(applied_events, 0) << describe_index_probe_events(result);
-    EXPECT_EQ(filtered_rows, expected_filtered_rows) << describe_index_probe_events(result);
-}
-
-void expect_index_not_applied(const IndexReadResult& result, int64_t index_id, int32_t column_uid) {
-    for (const auto& event : result.stats.index_probe_events) {
-        EXPECT_FALSE(event.state == IndexProbeState::APPLIED && event.column_uid == column_uid &&
-                     event.index_id == index_id);
-    }
-}
-
-void expect_index_not_filtering(const IndexReadResult& result, int64_t index_id,
-                                int32_t column_uid) {
-    for (const auto& event : result.stats.index_probe_events) {
-        EXPECT_FALSE(event.state == IndexProbeState::APPLIED && event.column_uid == column_uid &&
-                     event.index_id == index_id && event.counts_toward_filter_stats);
-    }
+            << "expected inverted index to filter rows, rows_inverted_index_filtered="
+            << result.stats.rows_inverted_index_filtered << describe_filter_stats(result);
 }
 
 void expect_index_files(const IndexRowsetProbe& probe, bool expected_present) {
@@ -1482,7 +1254,6 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
     }
 
     IndexReadResult result;
-    result.stats.collect_index_probe_events = true;
     std::vector<uint32_t> return_columns = std::move(options.return_columns);
     if (return_columns.empty()) {
         return_columns.resize(_tablet_schema->num_columns());
@@ -1534,27 +1305,6 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
             result.rows_read += block.rows();
         }
     }
-
-    result.profile_snapshots.push_back(IndexProfileSnapshot {
-            .label = std::move(options.index_probe_label),
-            .rows_inverted_index_filtered = result.stats.rows_inverted_index_filtered,
-            .inverted_index_filter_timer = result.stats.inverted_index_filter_timer,
-            .inverted_index_query_timer = result.stats.inverted_index_query_timer,
-            .inverted_index_query_null_bitmap_timer =
-                    result.stats.inverted_index_query_null_bitmap_timer,
-            .inverted_index_query_bitmap_copy_timer =
-                    result.stats.inverted_index_query_bitmap_copy_timer,
-            .inverted_index_searcher_open_timer = result.stats.inverted_index_searcher_open_timer,
-            .inverted_index_searcher_search_timer =
-                    result.stats.inverted_index_searcher_search_timer,
-            .inverted_index_searcher_search_init_timer =
-                    result.stats.inverted_index_searcher_search_init_timer,
-            .inverted_index_searcher_search_exec_timer =
-                    result.stats.inverted_index_searcher_search_exec_timer,
-            .inverted_index_downgrade_count = result.stats.inverted_index_downgrade_count,
-            .inverted_index_analyzer_timer = result.stats.inverted_index_analyzer_timer,
-            .inverted_index_lookup_timer = result.stats.inverted_index_lookup_timer,
-    });
 
     return result;
 }
@@ -1762,11 +1512,11 @@ Result<IndexRowsetProbe> IndexStorageTestFixture::probe_rowset(const RowsetShare
     probe.num_rows = rowset->num_rows();
     probe.num_segments = rowset->num_segments();
 
-    auto index_probe = probe_index_files(rowset);
-    if (!index_probe.has_value()) {
-        return ResultError(index_probe.error());
+    auto index_files = probe_index_files(rowset);
+    if (!index_files.has_value()) {
+        return ResultError(index_files.error());
     }
-    probe.index_files = std::move(index_probe).value();
+    probe.index_files = std::move(index_files).value();
 
     for (int64_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
         auto segment_probe = probe_segment(rowset, segment_id);

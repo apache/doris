@@ -23,11 +23,11 @@ namespace doris::index_storage_test {
 
 class IndexStorageVariantPathIndexLifecycleTest : public IndexStorageTestFixture {
 protected:
-    void run_variant_path_count_on_index_records_applied_event(bool verify_key_column_not_read);
+    void run_variant_path_count_on_index_filters_rows(bool verify_key_column_not_read);
 };
 
-void IndexStorageVariantPathIndexLifecycleTest::
-        run_variant_path_count_on_index_records_applied_event(bool verify_key_column_not_read) {
+void IndexStorageVariantPathIndexLifecycleTest::run_variant_path_count_on_index_filters_rows(
+        bool verify_key_column_not_read) {
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
@@ -70,19 +70,7 @@ void IndexStorageVariantPathIndexLifecycleTest::
         ASSERT_TRUE(read_result.has_value()) << read_result.error();
         EXPECT_EQ(read_result->rows_read, 2);
         EXPECT_EQ(read_result->stats.raw_rows_read, 2);
-        expect_applied_variant_path_index(read_result.value(), "b", 220401, 1);
-        expect_index_probe_count(read_result.value(),
-                                 IndexProbeExpectation {
-                                         .source = IndexProbeSource::COLUMN_PREDICATE,
-                                         .state = IndexProbeState::APPLIED,
-                                         .reason = IndexFallbackReason::NONE,
-                                         .column_uid = 2,
-                                         .variant_path = "b",
-                                         .index_id = 220401,
-                                         .counts_toward_filter_stats = true,
-                                         .filtered_rows = 1,
-                                 },
-                                 1);
+        expect_index_filter_stats(read_result.value(), 1);
     };
 
     auto read_and_verify = [&](const std::vector<RowsetSharedPtr>& readable) {
@@ -156,8 +144,7 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto before_build = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(before_build.has_value()) << before_build.error();
     EXPECT_EQ(before_build->rows_read, 2);
-    EXPECT_EQ(before_build->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(before_build.value());
+    expect_index_filter_stats(before_build.value(), 0);
 
     const auto path_index = IndexSpec::field_pattern_index(20004, "idx_v_b_built", 2, "b");
     auto built_rowsets = build_inverted_indexes({path_index});
@@ -174,7 +161,7 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto after_build = read_rowsets(reloaded_built_rowsets.value(), read_options);
     ASSERT_TRUE(after_build.has_value()) << after_build.error();
     EXPECT_EQ(after_build->rows_read, 2);
-    expect_applied_variant_path_index(after_build.value(), "b", 20004, 2);
+    expect_index_filter_stats(after_build.value(), 2);
 
     auto dropped_rowsets = drop_inverted_indexes({path_index});
     ASSERT_TRUE(dropped_rowsets.has_value()) << dropped_rowsets.error();
@@ -190,8 +177,7 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto after_drop = read_rowsets(reloaded_dropped_rowsets.value(), read_options);
     ASSERT_TRUE(after_drop.has_value()) << after_drop.error();
     EXPECT_EQ(after_drop->rows_read, 2);
-    EXPECT_EQ(after_drop->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(after_drop.value());
+    expect_index_filter_stats(after_drop.value(), 0);
 }
 
 TEST_F(IndexStorageVariantPathIndexLifecycleTest,
@@ -304,11 +290,11 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto b_after_build = read_rowsets(reloaded_built_rowsets.value(), b_read_options);
     ASSERT_TRUE(b_after_build.has_value()) << b_after_build.error();
     EXPECT_EQ(b_after_build->rows_read, 2);
-    expect_applied_variant_path_index(b_after_build.value(), "b", 20006, 2);
+    expect_index_filter_stats(b_after_build.value(), 2);
     auto c_after_build = read_rowsets(reloaded_built_rowsets.value(), c_read_options);
     ASSERT_TRUE(c_after_build.has_value()) << c_after_build.error();
     EXPECT_EQ(c_after_build->rows_read, 2);
-    expect_applied_variant_path_index(c_after_build.value(), "c", 20007, 2);
+    expect_index_filter_stats(c_after_build.value(), 2);
 
     auto dropped_rowsets = drop_inverted_indexes({b_index});
     ASSERT_TRUE(dropped_rowsets.has_value()) << dropped_rowsets.error();
@@ -326,13 +312,12 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto b_after_drop = read_rowsets(reloaded_dropped_rowsets.value(), b_read_options);
     ASSERT_TRUE(b_after_drop.has_value()) << b_after_drop.error();
     EXPECT_EQ(b_after_drop->rows_read, 2);
-    EXPECT_EQ(b_after_drop->stats.rows_inverted_index_filtered, 0);
-    expect_inverted_index_not_attempted(b_after_drop.value());
+    expect_index_filter_stats(b_after_drop.value(), 0);
 
     auto c_after_drop = read_rowsets(reloaded_dropped_rowsets.value(), c_read_options);
     ASSERT_TRUE(c_after_drop.has_value()) << c_after_drop.error();
     EXPECT_EQ(c_after_drop->rows_read, 2);
-    expect_applied_variant_path_index(c_after_drop.value(), "c", 20007, 2);
+    expect_index_filter_stats(c_after_drop.value(), 2);
 }
 
 TEST_F(IndexStorageVariantPathIndexLifecycleTest, VariantPathIndexHitAfterCumulativeCompaction) {
@@ -376,7 +361,7 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest, VariantPathIndexHitAfterCumula
     auto read_result = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
     EXPECT_EQ(read_result->rows_read, 2);
-    expect_applied_variant_path_index(read_result.value(), "b", 20002, 1);
+    expect_index_filter_stats(read_result.value(), 1);
 
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -392,15 +377,15 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest, VariantPathIndexHitAfterCumula
     auto compacted_read = read_rowsets(readable_compacted.value(), read_options);
     ASSERT_TRUE(compacted_read.has_value()) << compacted_read.error();
     EXPECT_EQ(compacted_read->rows_read, 2);
-    expect_applied_variant_path_index(compacted_read.value(), "b", 20002, 2);
+    expect_index_filter_stats(compacted_read.value(), 2);
 }
 
-TEST_F(IndexStorageVariantPathIndexLifecycleTest, VariantPathCountOnIndexRecordsAppliedEvent) {
-    run_variant_path_count_on_index_records_applied_event(false);
+TEST_F(IndexStorageVariantPathIndexLifecycleTest, VariantPathCountOnIndexFiltersRows) {
+    run_variant_path_count_on_index_filters_rows(false);
 }
 
 TEST_F(IndexStorageVariantPathIndexLifecycleTest, VariantPathCountOnIndexSkipsReadingKeyData) {
-    run_variant_path_count_on_index_records_applied_event(true);
+    run_variant_path_count_on_index_filters_rows(true);
 }
 
 TEST_F(IndexStorageVariantPathIndexLifecycleTest,
@@ -485,20 +470,10 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     ASSERT_GE(sibling_path_column_id, 0);
     const auto& sibling_path_column = tablet_schema()->column(sibling_path_column_id);
 
-    auto expect_only_path_string_index_applied =
-            [](const IndexReadResult& result, std::string_view path, int64_t index_id,
-               int64_t expected_filtered_rows, int64_t expected_probe_count) {
-                expect_applied_variant_path_index(result, path, index_id, expected_filtered_rows);
-                expect_index_probe_count(result,
-                                         {.source = IndexProbeSource::COLUMN_PREDICATE,
-                                          .state = IndexProbeState::APPLIED,
-                                          .reason = IndexFallbackReason::NONE,
-                                          .column_uid = 2,
-                                          .variant_path = std::string(path),
-                                          .index_id = index_id,
-                                          .counts_toward_filter_stats = true},
-                                         expected_probe_count);
-            };
+    auto expect_path_index_filtered_rows = [](const IndexReadResult& result,
+                                              int64_t expected_filtered_rows) {
+        expect_index_filter_stats(result, expected_filtered_rows);
+    };
 
     IndexReadOptions read_options;
     read_options.return_columns = {0, static_cast<uint32_t>(path_column_id)};
@@ -515,23 +490,12 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto before_compaction = read_rowsets(readable_rowsets.value(), read_options);
     ASSERT_TRUE(before_compaction.has_value()) << before_compaction.error();
     EXPECT_EQ(before_compaction->rows_read, 5);
-    expect_only_path_string_index_applied(before_compaction.value(), "string1", 210102, 5, 2);
-    expect_index_not_filtering(before_compaction.value(), 210100);
-    expect_index_not_filtering(before_compaction.value(), 210101);
-    expect_index_not_filtering(before_compaction.value(), 210103);
-    expect_index_not_filtering(before_compaction.value(), 210104);
-    expect_index_not_filtering(before_compaction.value(), 210105);
+    expect_path_index_filtered_rows(before_compaction.value(), 5);
 
     auto sibling_before_compaction = read_rowsets(readable_rowsets.value(), sibling_read_options);
     ASSERT_TRUE(sibling_before_compaction.has_value()) << sibling_before_compaction.error();
     EXPECT_EQ(sibling_before_compaction->rows_read, 5);
-    expect_only_path_string_index_applied(sibling_before_compaction.value(), "string2", 210104, 5,
-                                          2);
-    expect_index_not_filtering(sibling_before_compaction.value(), 210100);
-    expect_index_not_filtering(sibling_before_compaction.value(), 210101);
-    expect_index_not_filtering(sibling_before_compaction.value(), 210102);
-    expect_index_not_filtering(sibling_before_compaction.value(), 210103);
-    expect_index_not_filtering(sibling_before_compaction.value(), 210105);
+    expect_path_index_filtered_rows(sibling_before_compaction.value(), 5);
 
     auto compacted = compact_rowsets(IndexCompactionKind::CUMULATIVE, rowsets.value());
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
@@ -550,23 +514,12 @@ TEST_F(IndexStorageVariantPathIndexLifecycleTest,
     auto after_compaction = read_rowsets(readable_compacted.value(), read_options);
     ASSERT_TRUE(after_compaction.has_value()) << after_compaction.error();
     EXPECT_EQ(after_compaction->rows_read, 5);
-    expect_only_path_string_index_applied(after_compaction.value(), "string1", 210102, 5, 1);
-    expect_index_not_filtering(after_compaction.value(), 210100);
-    expect_index_not_filtering(after_compaction.value(), 210101);
-    expect_index_not_filtering(after_compaction.value(), 210103);
-    expect_index_not_filtering(after_compaction.value(), 210104);
-    expect_index_not_filtering(after_compaction.value(), 210105);
+    expect_path_index_filtered_rows(after_compaction.value(), 5);
 
     auto sibling_after_compaction = read_rowsets(readable_compacted.value(), sibling_read_options);
     ASSERT_TRUE(sibling_after_compaction.has_value()) << sibling_after_compaction.error();
     EXPECT_EQ(sibling_after_compaction->rows_read, 5);
-    expect_only_path_string_index_applied(sibling_after_compaction.value(), "string2", 210104, 5,
-                                          1);
-    expect_index_not_filtering(sibling_after_compaction.value(), 210100);
-    expect_index_not_filtering(sibling_after_compaction.value(), 210101);
-    expect_index_not_filtering(sibling_after_compaction.value(), 210102);
-    expect_index_not_filtering(sibling_after_compaction.value(), 210103);
-    expect_index_not_filtering(sibling_after_compaction.value(), 210105);
+    expect_path_index_filtered_rows(sibling_after_compaction.value(), 5);
 }
 
 } // namespace doris::index_storage_test

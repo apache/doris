@@ -73,8 +73,6 @@ public:
 private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
-    void record_read_probe(const InvertedIndexReaderPtr& reader, bool is_null_bitmap);
-
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const Field& query_value,
                                         InvertedIndexQueryType query_type, size_t* count);

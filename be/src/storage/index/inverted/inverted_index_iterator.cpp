@@ -17,11 +17,9 @@
 
 #include "storage/index/inverted/inverted_index_iterator.h"
 
-#include <limits>
 #include <memory>
 
 #include "common/cast_set.h"
-#include "common/check.h"
 #include "common/logging.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_parser.h"
@@ -31,20 +29,6 @@
 namespace doris::segment_v2 {
 
 InvertedIndexIterator::InvertedIndexIterator() = default;
-
-void InvertedIndexIterator::record_read_probe(const InvertedIndexReaderPtr& reader,
-                                              bool is_null_bitmap) {
-    if (_context == nullptr || _context->stats == nullptr ||
-        !_context->stats->collect_index_probe_events || reader == nullptr) {
-        return;
-    }
-    DORIS_CHECK(_column_id != std::numeric_limits<ColumnId>::max());
-    _context->index_read_probes.push_back(IndexReadProbe {
-            .column_id = _column_id,
-            .index_id = static_cast<int64_t>(reader->get_index_id()),
-            .is_null_bitmap = is_null_bitmap,
-    });
-}
 
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
     // Simple normalization: lowercase, empty stays empty.
@@ -95,7 +79,6 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
     }
-    record_read_probe(reader, false);
     auto* runtime_state = _context->runtime_state;
     if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {
         if (runtime_state != nullptr &&
@@ -141,7 +124,6 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
     // For null bitmap, use any available reader (empty = auto-select)
     auto reader = DORIS_TRY(select_best_reader(""));
-    record_read_probe(reader, true);
     return reader->read_null_bitmap(_context, cache_handle, nullptr);
 }
 

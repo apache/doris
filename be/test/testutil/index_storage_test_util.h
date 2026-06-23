@@ -157,7 +157,6 @@ struct IndexRowsetSpec {
 struct IndexReadOptions {
     ReaderType reader_type = ReaderType::READER_QUERY;
     bool need_ordered_result = false;
-    std::string index_probe_label;
     std::vector<uint32_t> return_columns;
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
@@ -175,47 +174,13 @@ struct IndexReadOptions {
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 };
 
-struct IndexProfileSnapshot {
-    std::string label;
-    int64_t rows_inverted_index_filtered = 0;
-    int64_t inverted_index_filter_timer = 0;
-    int64_t inverted_index_query_timer = 0;
-    int64_t inverted_index_query_null_bitmap_timer = 0;
-    int64_t inverted_index_query_bitmap_copy_timer = 0;
-    int64_t inverted_index_searcher_open_timer = 0;
-    int64_t inverted_index_searcher_search_timer = 0;
-    int64_t inverted_index_searcher_search_init_timer = 0;
-    int64_t inverted_index_searcher_search_exec_timer = 0;
-    int64_t inverted_index_downgrade_count = 0;
-    int64_t inverted_index_analyzer_timer = 0;
-    int64_t inverted_index_lookup_timer = 0;
-};
-
-struct IndexProbeExpectation {
-    std::optional<IndexProbeSource> source = std::nullopt;
-    std::optional<IndexProbeState> state = std::nullopt;
-    std::optional<IndexFallbackReason> reason = std::nullopt;
-    std::optional<int32_t> column_uid = std::nullopt;
-    std::optional<std::string> variant_path = std::nullopt;
-    std::optional<int64_t> index_id = std::nullopt;
-    std::optional<int32_t> segment_id = std::nullopt;
-    std::optional<bool> counts_toward_filter_stats = std::nullopt;
-    std::optional<int64_t> input_rows = std::nullopt;
-    std::optional<int64_t> output_rows = std::nullopt;
-    std::optional<int64_t> filtered_rows = std::nullopt;
-};
-
 struct IndexReadResult {
     int64_t rows_read = 0;
     OlapReaderStatistics stats;
-    std::vector<IndexProfileSnapshot> profile_snapshots;
     std::map<int32_t, std::vector<std::optional<std::string>>> string_values_by_uid;
     std::map<int32_t, std::vector<std::optional<std::string>>> variant_values_by_uid;
 
-    bool inverted_index_attempted() const;
-    bool inverted_index_downgraded() const;
     bool inverted_index_used() const;
-    bool inverted_index_effective_filter() const;
 };
 
 struct IndexColumnLayout {
@@ -307,20 +272,6 @@ void expect_segment_pruned(const IndexReadResult& result, int64_t expected_filte
 void expect_zone_map_filtered(const IndexReadResult& result, int64_t expected_filtered_rows);
 void expect_bloom_filter_filtered(const IndexReadResult& result, int64_t expected_filtered_rows);
 void expect_inverted_index_used(const IndexReadResult& result);
-void expect_inverted_index_fallback(const IndexReadResult& result);
-void expect_inverted_index_not_attempted(const IndexReadResult& result);
-void expect_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation);
-void expect_no_index_probe(const IndexReadResult& result, const IndexProbeExpectation& expectation);
-int64_t count_index_probes(const IndexReadResult& result, const IndexProbeExpectation& expectation);
-void expect_index_probe_count(const IndexReadResult& result,
-                              const IndexProbeExpectation& expectation, int64_t expected_count);
-void expect_applied_variant_path_index(const IndexReadResult& result, std::string_view path,
-                                       int64_t index_id, int64_t expected_filtered_rows,
-                                       int32_t column_uid = 2);
-void expect_index_not_applied(const IndexReadResult& result, int64_t index_id,
-                              int32_t column_uid = 2);
-void expect_index_not_filtering(const IndexReadResult& result, int64_t index_id,
-                                int32_t column_uid = 2);
 void expect_index_files(const IndexRowsetProbe& probe, bool expected_present);
 std::string dump_schema_paths(const TabletSchema& schema);
 
