@@ -49,7 +49,8 @@ suite("mow_insert_with_partition_drop") {
                 j++
             } catch (Exception e) {
                 logger.info("exception=" + e.getMessage())
-                assertTrue(e.getMessage().contains("Insert has filtered data in strict mode. url:") ||
+                assertTrue((e.getMessage().contains("Insert has filtered data in strict mode")
+                                && e.getMessage().contains("url:")) ||
                         (e.getMessage().contains("partition") && e.getMessage().contains("does not exist")),
                         "unexpected insert exception message: " + e.getMessage())
             }
