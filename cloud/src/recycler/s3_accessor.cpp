@@ -450,6 +450,11 @@ int S3Accessor::init() {
         if (!_ca_cert_file_path.empty()) {
             aws_config.caFile = _ca_cert_file_path;
         }
+        // Mirror BE PR #49315: default ClientConfiguration leaves requestTimeoutMs=3000,
+        // which the vendored aws-sdk-cpp maps to CURLOPT_LOW_SPEED_TIME=3 and causes
+        // curl error 28 on slow/large S3 DeleteObjects (OVH cold vault).
+        aws_config.requestTimeoutMs = 30000;
+        aws_config.connectTimeoutMs = 5000;
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
