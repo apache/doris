@@ -341,7 +341,7 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
 }
 
-TEST(HiveReaderTest, PositionMappingUsesColumnIdxsForFileSlots) {
+TEST(HiveReaderPositionMappingTest, PositionMappingUsesColumnIdxsForFileSlots) {
     TQueryOptions query_options;
     query_options.hive_parquet_use_column_names = false;
     RuntimeState runtime_state(query_options, TQueryGlobals());
@@ -382,7 +382,7 @@ TEST(HiveReaderTest, PositionMappingUsesColumnIdxsForFileSlots) {
     ASSERT_TRUE(reader.validate_projected_columns(context).ok());
 }
 
-TEST(HiveReaderTest, PositionMappingDoesNotConsumePartitionSlots) {
+TEST(HiveReaderPositionMappingTest, PositionMappingDoesNotConsumePartitionSlots) {
     TQueryOptions query_options;
     query_options.hive_parquet_use_column_names = false;
     RuntimeState runtime_state(query_options, TQueryGlobals());
@@ -424,7 +424,7 @@ TEST(HiveReaderTest, PositionMappingDoesNotConsumePartitionSlots) {
     ASSERT_TRUE(reader.validate_projected_columns(context).ok());
 }
 
-TEST(HiveReaderTest, PositionMappingFailsWhenColumnIdxsMissing) {
+TEST(HiveReaderPositionMappingTest, PositionMappingFailsWhenColumnIdxsMissing) {
     TQueryOptions query_options;
     query_options.hive_parquet_use_column_names = false;
     RuntimeState runtime_state(query_options, TQueryGlobals());
