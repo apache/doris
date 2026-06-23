@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -253,6 +254,26 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    // ========== Write / Transaction (P6.3) ==========
+
+    /**
+     * Opens a connector transaction for an iceberg write statement. The transaction id is the
+     * engine-side id allocated through the session, so it matches the id registered in the engine
+     * transaction registry (by the generic {@code PluginDrivenTransactionManager}, in both the
+     * per-manager map and {@code GlobalExternalTransactionInfoMgr}) and stamped into the data sink —
+     * the BE&rarr;FE report path finds the txn by this id to feed it commit fragments.
+     *
+     * <p>Gate-closed / dormant until the P6.6 cutover: nothing routes plugin-driven iceberg writes
+     * through this path yet. The single SDK {@code org.apache.iceberg.Transaction} that backs commit is
+     * opened lazily by the write plan via {@link IcebergConnectorTransaction#beginWrite}; op selection
+     * (T04), the commit-validation suite (T05), the sink (T06), and the {@code supportsInsert/Delete/
+     * Merge} capability declarations (T06/T07) land in later tasks.</p>
+     */
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        return new IcebergConnectorTransaction(session.allocateTransactionId(), catalogOps, context);
     }
 
     // ========== E5: MVCC snapshots / time travel ==========

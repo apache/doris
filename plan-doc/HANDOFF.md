@@ -6,7 +6,7 @@
 
 ---
 
-# 🎯 下一个 session 的任务 — **P6.3 写路径实现：下一 = T03**（**✅ P6.3-T01 + T02 = DONE（框架统一·SPI 收口 + jdbc planWrite·config-bag 删除·EXPLAIN-保留 hook）；P6.2〔T01–T11〕/ P6.1〔T01–T10〕全绿；RFC ✅ 评审通过**）
+# 🎯 下一个 session 的任务 — **P6.3 写路径实现：下一 = T04**（**✅ P6.3-T01 + T02 + T03 = DONE（框架统一·SPI 收口 + jdbc planWrite·config-bag 删除·EXPLAIN-保留 hook + `IcebergConnectorTransaction` 骨架·`addCommitData`·`getUpdateCnt`·`writeOperation` 枚举）；P6.2〔T01–T11〕/ P6.1〔T01–T10〕全绿；RFC ✅ 评审通过**）
 
 > **✅ P6.2 = DONE（本 session 2026-06-23 收口 T11）**：scan + MVCC + cache + vended 全实现。T11（汇总设计 `designs/P6-T11-iceberg-scan-summary-design.md` + validation gate 核对 + UT-不可见 deviation 中央注册 DV-038/039/040 + 本 HANDOFF + PROGRESS/connectors 同步）见下「✅ P6.2-T11 = DONE」。**验收全绿**：fe-connector-iceberg UT **278/0/1**（本 session 重跑实证 BUILD SUCCESS）、validation gate test 7/0、checkstyle 0、import-gate 净、iceberg 仍**不在** `SPI_READY_TYPES`、T11 **0 产品码改**（纯文档）。
 >
@@ -18,7 +18,9 @@
 >
 > - **3 OQ 已裁定**：OQ-1 = jdbc thrift 移入连接器 `planWrite`（F2 全消，须字节 parity 测）；OQ-2 = 删 config-bag 三件套 `ConnectorWriteType`/`ConnectorWriteConfig`/`getWriteConfig`（实测仅 jdbc 用，移入后死）；OQ-3 = 统一 sink 后 EXPLAIN sink-标签 diff 接受为非回归。
 >
-> **🎯 下一步 = P6.3-T03**（T01 ✅ + T02 ✅ DONE，见下「✅ P6.3-T01/T02 = DONE」）。剩余 §11 TODO：~~**T02** jdbc thrift 移入 `planWrite`+删 config-bag 三件套+字节 parity~~ ✅ DONE（含 `appendExplainInfo` EXPLAIN-保留增补，用户增补）→ **T03** `IcebergConnectorTransaction` 骨架+`addCommitData`（**此处加 `ConnectorWriteHandle.writeOperation`**，T01 因 0 消费者延后）→ **T04** op 选择+`IcebergWriterHelper` 等价 → **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`；**iceberg 可复用 T02 `appendExplainInfo` hook 保留 sink-detail EXPLAIN，缩小 OQ-3 diff**）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
+> **🎯 下一步 = P6.3-T04**（T01 ✅ + T02 ✅ + T03 ✅ DONE，见下「✅ P6.3-T01/T02/T03 = DONE」）。剩余 §11 TODO：~~**T03** `IcebergConnectorTransaction` 骨架+`addCommitData`+`writeOperation` 枚举~~ ✅ DONE → **T04** op 选择+`IcebergWriterHelper` 等价（INSERT/OVERWRITE 4 子 case + DELETE/MERGE RowDelta 的 SDK op + begin* guards〔fmt≥2 delete/merge、insert branch 校验、**baseSnapshotId 捕获**〕 + BE 人类可读分区串→`PartitionData`/`TIcebergColumnStats`→`Metrics`/DV→PUFFIN/equality-delete 拒绝）→ **T05** commit 校验套件+O5-2 `applyWriteConstraint` → **T06** sink 统一（删 3 planner sink，走 `visitPhysicalConnectorTableSink`；**iceberg 可复用 T02 `appendExplainInfo` hook 保留 sink-detail EXPLAIN，缩小 OQ-3 diff**）→ **T07** 通用 `RowLevelDmlCommand`+capability 派发（iceberg plan 合成留 fe-core，DV-04x）→ **T08** parity 审计+deviation 注册 → **T09** 收口 = **P6.3 DONE**。
+>
+> **⚠️ T04 起步必读 = T03 实现记录 + 设计 `designs/P6.3-T03-iceberg-connector-transaction-skeleton-design.md`**：`IcebergConnectorTransaction` 已持单 SDK txn/表（`beginWrite(db,table)` auth-wrap loadTable+`newTransaction()`）+ `addCommitData`/`getUpdateCnt`/commit/rollback 已实；T04 在 `beginWrite` 上加 op-aware begin 变体（guards + baseSnapshotId）+ op 选择（在 commit 前把文件 append 到 `getTransaction()`）。`writeOperation` 枚举（`ConnectorWriteHandle.getWriteOperation`，default INSERT）已加 = T04 首消费者。
 >
 > **每 task 节奏**（AGENT-PLAYBOOK §5.1）：先 code-grounded recon（大文件如 `IcebergTransaction` 981 / `IcebergMergeCommand` 用 subagent 总结）→ TDD RED→GREEN → 对抗 parity workflow（每发现独立 skeptic verify，镜像 P6.2）→ UT/checkstyle/import-gate 绿 + **断 assembled Thrift/校验套件 vs legacy** → 文档同步 → commit + handoff。**起步先读 RFC `06-iceberg-write-path-rfc.md` + recon `research/p6.3-iceberg-write-recon.md`。**
 >
@@ -34,6 +36,20 @@
 >
 > **✅ P6.1 = DONE（本 session 2026-06-22 收口 T10）**：P6.1 task 表 T01–T10 全绿（见 `P6-iceberg-migration.md:143-154`）。T10 经 redefine 吸收了「metastore 模块拆分（Phase A，行为不变）+ iceberg per-flavor 校验（Phase B，§4 逐字）」——validateProperties 接线只是 Phase B 的尾巴。**A-gate + B-gate 全绿；对抗 parity 复核 4 MATCH + 1 nit。**
 > **下一步 = P6.2 实现（从 P6.2-T01 起）——不是 P6.6！** P6.6 翻闸是「全有或全无」（`CatalogFactory:104-113`），**须等 P6.1–P6.5 全部实现完**（scan/write/procedure/sys-table 都还没做）；现在翻闸会让所有 iceberg 查询走只有读元数据+校验的连接器→scan/write 全断。
+
+---
+
+# ✅ P6.3-T03 = DONE（2026-06-23，本 session，未 push）— `IcebergConnectorTransaction` 骨架 + `addCommitData` + `getUpdateCnt` + `writeOperation` 枚举
+
+> 设计文档 = `tasks/designs/P6.3-T03-iceberg-connector-transaction-skeleton-design.md`。TDD（RED=cannot-find-symbol→GREEN）→ 对抗 parity workflow `wf_1598e4b9-87c`（6 维 + 每发现独立 skeptic verify）= **2 findings / 1 confirmed real（已修）/ 1 refuted**。**全绿**：fe-connector-iceberg UT **295/0/1**（278→295=+17）、connector-api **27/0/0**（含新 `ConnectorWriteHandleTest` 2）、jdbc 190 / maxcompute 102(1skip) / paimon 318(1skip) 无回归、checkstyle 0（api+iceberg）、import-gate exit 0、iceberg 仍**不在** `SPI_READY_TYPES`、**0 BE / 0 fe-core / 0 pom 改**。
+
+- **新类 `IcebergConnectorTransaction implements ConnectorTransaction`**（连接器内自包含，仅 import iceberg SDK + `org.apache.thrift.*`/`org.apache.doris.thrift.*` + connector.api/spi；镜像唯一既有 txn adopter `MaxComputeConnectorTransaction` + legacy `IcebergTransaction`）：持单 SDK `org.apache.iceberg.Transaction`/`Table`；`beginWrite(db,table)`= **loadTable + `table.newTransaction()` 两者都在 `context.executeAuthenticated` 内**（见下 confirmed 修）；`addCommitData(byte[])`= `TDeserializer(TBinaryProtocol)` 反序列化 14 字段 `TIcebergCommitData` + `synchronized` 累积；`getUpdateCnt` 忠实移植 legacy:577-596（affectedRows||rowCount、POSITION_DELETES/DELETION_VECTOR→deleteRows、`dataRows>0?dataRows:deleteRows`）；`commit`=`commitTransaction()`（null-guard fail-loud + try/catch→`DorisConnectorException`，镜像 maxcompute）；`rollback`=insert-mode no-op；`profileLabel`="ICEBERG"。
+- **SPI 增补（T01 因 0 消费者延后，本 task 加）**：新枚举 `WriteOperation{INSERT,OVERWRITE,DELETE,UPDATE,MERGE}` + `ConnectorWriteHandle.getWriteOperation()` default INSERT（向后兼容，jdbc/maxcompute/es/trino/paimon 不 override→零行为变；**首消费者 = T04 op 选择 / T06 sink 方言**）。
+- **接线**：`IcebergConnectorMetadata.beginTransaction(session)` = `new IcebergConnectorTransaction(session.allocateTransactionId(), catalogOps, context)`（gate-closed/dormant）。**🔑 txn-id 双注册表 = 既有通用 `PluginDrivenTransactionManager.begin(ConnectorTransaction)` 完成**（per-mgr map + `GlobalExternalTransactionInfoMgr.putTxnById`；连接器 0 注册码，同 maxcompute）——recon §3.2「双注册」描述的是 legacy `IcebergTransactionManager`，新路走通用 manager；T03 **不**触 `PluginDrivenTransactionManager`/`GlobalExternalTransactionInfoMgr`。
+- **🔴 对抗复核 1 confirmed（已修）= auth-wrap `newTransaction()`**：reviewer 初判 nit「behaviorally inert」，**skeptic 用反编译 iceberg-core 1.10.1 字节码证伪**——`BaseTable.newTransaction()`→`Transactions.newTransaction(name,ops,reporter)` **无条件** `TableOperations.refresh()`（非 `current()`）→ `HiveTableOperations.doRefresh()` 远程 HMS Thrift；原实现仅 loadTable 在 auth 内→Kerberized HMS 写丢 UGI 可失败，legacy:162 把两者放同一 auth 块。**修=`newTransaction()` 移进 lambda**（UT-不可见：离线 InMemoryCatalog 无 auth；P6.6 docker/Kerberized HMS 验）。**refuted 1**=commit null-guard（fail-loud + maxcompute 模板，非缺陷）。
+- **deviation（设计 §7，T08 登记 deviations-log）**：DV-T03-a 失败抛 `DorisConnectorException`（连接器禁 import fe-core）；DV-T03-b `writeOperation` 消费者在 T04/T06；DV-T03-c txn-id 双注册走通用 manager；DV-T03-d auth-wrap `newTransaction` UT-不可见。
+- **范围外（后续 task）**：op 选择 + `IcebergWriterHelper`（PartitionData/Metrics/DV/equality）+ begin* guards + baseSnapshotId 捕获 = **T04**；commit 校验套件 + `applyWriteConstraint`(O5-2) = **T05**；`planWrite` 3 sink 方言 + capability = **T06/T07**。
+- **下一步 = P6.3-T04**（见顶部任务头）。
 
 ---
 

@@ -47,4 +47,16 @@ public interface ConnectorWriteHandle {
      * connector-defined keys carried from the bound sink to {@code planWrite}.
      */
     Map<String, String> getWriteContext();
+
+    /**
+     * The kind of DML write (INSERT / OVERWRITE / DELETE / UPDATE / MERGE). A single
+     * {@code planWrite} dispatches on this to pick the connector's Thrift sink dialect, and a
+     * file-transactional connector (iceberg) dispatches on it to pick the SDK operation.
+     *
+     * <p>Defaults to {@link WriteOperation#INSERT} so connectors that only do plain appends
+     * (jdbc / maxcompute) — which never set it — keep append semantics and stay byte-compatible.</p>
+     */
+    default WriteOperation getWriteOperation() {
+        return WriteOperation.INSERT;
+    }
 }

@@ -552,4 +552,79 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t1"),
                 "getColumnHandles must load the table via the seam using the handle coordinates");
     }
+
+    // ---------------------------------------------------------------------
+    // P6.3-T03: write transaction wiring (gate-closed / dormant)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void beginTransactionReturnsIcebergConnectorTransactionWithEngineId() {
+        // beginTransaction opens a connector transaction whose id is the engine-allocated id (so the
+        // generic PluginDrivenTransactionManager registers it in both the per-manager map and
+        // GlobalExternalTransactionInfoMgr — the BE->FE report path finds the txn by this id). Dormant
+        // until the P6.6 cutover; the SDK transaction is opened later by the write plan via beginWrite.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        org.apache.doris.connector.api.handle.ConnectorTransaction txn =
+                metadataWith(ops).beginTransaction(new TxnIdSession(31337L));
+
+        Assertions.assertTrue(txn instanceof IcebergConnectorTransaction);
+        Assertions.assertEquals(31337L, txn.getTransactionId());
+        Assertions.assertEquals("ICEBERG", txn.profileLabel());
+        // No remote call at begin time (the table is loaded lazily in beginWrite).
+        Assertions.assertTrue(ops.log.isEmpty(), "beginTransaction must not touch the catalog seam");
+    }
+
+    /** Minimal {@link org.apache.doris.connector.api.ConnectorSession} that only hands out a txn id. */
+    private static final class TxnIdSession implements org.apache.doris.connector.api.ConnectorSession {
+        private final long txnId;
+
+        TxnIdSession(long txnId) {
+            this.txnId = txnId;
+        }
+
+        @Override
+        public long allocateTransactionId() {
+            return txnId;
+        }
+
+        @Override
+        public String getQueryId() {
+            return "q";
+        }
+
+        @Override
+        public String getUser() {
+            return "u";
+        }
+
+        @Override
+        public String getTimeZone() {
+            return "UTC";
+        }
+
+        @Override
+        public String getLocale() {
+            return "en_US";
+        }
+
+        @Override
+        public long getCatalogId() {
+            return 0L;
+        }
+
+        @Override
+        public String getCatalogName() {
+            return "test";
+        }
+
+        @Override
+        public <T> T getProperty(String name, Class<T> type) {
+            return null;
+        }
+
+        @Override
+        public Map<String, String> getCatalogProperties() {
+            return Collections.emptyMap();
+        }
+    }
 }
