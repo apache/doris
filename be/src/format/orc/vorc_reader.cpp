@@ -1306,6 +1306,7 @@ Status OrcReader::set_fill_columns(
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
         _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        _row_reader_options.setUseProlepticGregorian(true);
         if (!_column_ids.empty()) {
             std::list<uint64_t> column_ids_list(_column_ids.begin(), _column_ids.end());
             _row_reader_options.includeTypes(column_ids_list);
