@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg.action;
 
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
@@ -110,7 +111,7 @@ public class BaseIcebergActionTest {
         }
 
         @Override
-        protected List<String> executeAction(Table table) {
+        protected List<String> executeAction(Table table, ConnectorSession session) {
             return row;
         }
     }
@@ -176,7 +177,7 @@ public class BaseIcebergActionTest {
         FakeAction a = action(ImmutableMap.of("snapshot_id", "1"),
                 Collections.emptyList(), null, ImmutableList.of("10", "20"));
 
-        ConnectorProcedureResult result = a.execute((Table) null);
+        ConnectorProcedureResult result = a.execute((Table) null, null);
 
         Assertions.assertEquals(2, result.getResultSchema().size());
         Assertions.assertEquals("previous_snapshot_id", result.getResultSchema().get(0).getName());
@@ -189,6 +190,6 @@ public class BaseIcebergActionTest {
         // Schema is 2 columns but the body returns 1 value: the single-row contract guard must fire.
         FakeAction a = action(ImmutableMap.of("snapshot_id", "1"),
                 Collections.emptyList(), null, ImmutableList.of("only-one"));
-        Assertions.assertThrows(IllegalStateException.class, () -> a.execute((Table) null));
+        Assertions.assertThrows(IllegalStateException.class, () -> a.execute((Table) null, null));
     }
 }

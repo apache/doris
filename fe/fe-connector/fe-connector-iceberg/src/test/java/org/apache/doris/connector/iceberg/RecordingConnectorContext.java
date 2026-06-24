@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -69,6 +70,19 @@ final class RecordingConnectorContext implements ConnectorContext {
     TFileType backendFileType = TFileType.FILE_S3;
     /** The vended token the connector passed to the most recent {@link #getBackendFileType}. */
     Map<String, String> lastFileTypeVendedToken;
+
+    /** "db.table" keys the connector invalidated via {@link #getMetaInvalidator()} (P6.4 procedure dispatch). */
+    final List<String> invalidatedTables = new ArrayList<>();
+
+    @Override
+    public ConnectorMetaInvalidator getMetaInvalidator() {
+        return new ConnectorMetaInvalidator() {
+            @Override
+            public void invalidateTable(String dbName, String tableName) {
+                invalidatedTables.add(dbName + "." + tableName);
+            }
+        };
+    }
 
     @Override
     public String getCatalogName() {

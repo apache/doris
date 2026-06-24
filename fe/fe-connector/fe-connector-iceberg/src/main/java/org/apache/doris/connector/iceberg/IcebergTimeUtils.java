@@ -48,6 +48,12 @@ public final class IcebergTimeUtils {
     // the formatter TimeUtils.timeStringToLong uses for a non-digital FOR TIME AS OF datetime string.
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    // Byte-parity with legacy TimeUtils.DATETIME_MS_FORMAT (= DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")),
+    // the formatter TimeUtils.msTimeStringToLong uses. The rollback_to_timestamp EXECUTE action parses its
+    // datetime argument with the millisecond-precision format (NOT the second-precision DATETIME_FORMAT above).
+    private static final DateTimeFormatter DATETIME_MS_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
     static {
         Map<String, String> aliases = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         aliases.putAll(ZoneId.SHORT_IDS);
@@ -66,7 +72,7 @@ public final class IcebergTimeUtils {
      * so aliases like {@code CST}/{@code PRC}/{@code EST} match legacy instead of throwing; a
      * {@code null}/blank/genuinely-invalid id falls back to UTC.
      */
-    static ZoneId resolveSessionZone(ConnectorSession session) {
+    public static ZoneId resolveSessionZone(ConnectorSession session) {
         if (session == null) {
             return ZoneOffset.UTC;
         }
@@ -94,5 +100,24 @@ public final class IcebergTimeUtils {
         } catch (DateTimeParseException e) {
             throw new DateTimeException("can't parse time: " + value);
         }
+    }
+
+    /**
+     * Parses a millisecond-precision datetime string ({@code yyyy-MM-dd HH:mm:ss.SSS}) to epoch-millis in
+     * {@code zone}, byte-faithful to legacy {@code TimeUtils.msTimeStringToLong(value, sessionTZ)}: parse as a
+     * local date-time, interpret it in the session zone, and — preserving the legacy sentinel — return
+     * {@code -1} on a parse failure (the caller, {@code rollback_to_timestamp}, turns {@code -1} into the
+     * "Invalid timestamp format" error, mirroring the legacy {@code parseTimestampMillis} contract). Used only
+     * by the {@code rollback_to_timestamp} EXECUTE action, which needs the millisecond format (the second
+     * format of {@link #datetimeToMillis} is for {@code FOR TIME AS OF}).
+     */
+    public static long msTimeStringToLong(String value, ZoneId zone) {
+        LocalDateTime parsed;
+        try {
+            parsed = LocalDateTime.parse(value, DATETIME_MS_FORMAT);
+        } catch (DateTimeParseException e) {
+            return -1;
+        }
+        return parsed.atZone(zone).toInstant().toEpochMilli();
     }
 }

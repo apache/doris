@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg.action;
 
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
@@ -98,9 +99,15 @@ public abstract class BaseIcebergAction {
     /**
      * Runs the procedure body and wraps its single row into a {@link ConnectorProcedureResult}. Enforces the
      * legacy single-row contract: the row width must equal the declared schema width.
+     *
+     * <p>{@code session} carries the connector execution context (most importantly the session time zone for
+     * {@code rollback_to_timestamp}); the seven non-time-zone procedures ignore it. The legacy
+     * {@code BaseExecuteAction} read the time zone from the thread-local {@code ConnectContext}; the connector
+     * cannot, so it threads {@link ConnectorSession} here instead — the SPI ({@code ConnectorProcedureOps})
+     * and factory signatures are unchanged.
      */
-    public final ConnectorProcedureResult execute(Table table) {
-        List<String> resultRow = executeAction(table);
+    public final ConnectorProcedureResult execute(Table table, ConnectorSession session) {
+        List<String> resultRow = executeAction(table, session);
         if (resultSchema == null || resultSchema.isEmpty() || resultRow == null) {
             return new ConnectorProcedureResult(
                     resultSchema == null ? Collections.emptyList() : resultSchema,
@@ -136,9 +143,10 @@ public abstract class BaseIcebergAction {
 
     /**
      * Runs the procedure against the loaded iceberg SDK table and returns its single result row (or
-     * {@code null} when there is no result).
+     * {@code null} when there is no result). {@code session} provides the execution context (e.g. the session
+     * time zone consumed by {@code rollback_to_timestamp}); most procedures do not use it.
      */
-    protected abstract List<String> executeAction(Table table);
+    protected abstract List<String> executeAction(Table table, ConnectorSession session);
 
     public String getActionType() {
         return actionType;

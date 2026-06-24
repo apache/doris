@@ -67,10 +67,24 @@ public class IcebergExecuteActionFactory {
             List<String> partitionNames, ConnectorPredicate whereCondition) {
 
         switch (actionType.toLowerCase()) {
-            // The 9 procedure cases are ported in T04 (pure-SDK) / T05–T06 (rewrite_data_files):
-            //   case ROLLBACK_TO_SNAPSHOT:
-            //       return new IcebergRollbackToSnapshotAction(properties, partitionNames, whereCondition);
-            //   ...
+            case ROLLBACK_TO_SNAPSHOT:
+                return new IcebergRollbackToSnapshotAction(properties, partitionNames, whereCondition);
+            case ROLLBACK_TO_TIMESTAMP:
+                return new IcebergRollbackToTimestampAction(properties, partitionNames, whereCondition);
+            case SET_CURRENT_SNAPSHOT:
+                return new IcebergSetCurrentSnapshotAction(properties, partitionNames, whereCondition);
+            case CHERRYPICK_SNAPSHOT:
+                return new IcebergCherrypickSnapshotAction(properties, partitionNames, whereCondition);
+            case FAST_FORWARD:
+                return new IcebergFastForwardAction(properties, partitionNames, whereCondition);
+            case EXPIRE_SNAPSHOTS:
+                return new IcebergExpireSnapshotsAction(properties, partitionNames, whereCondition);
+            case PUBLISH_CHANGES:
+                return new IcebergPublishChangesAction(properties, partitionNames, whereCondition);
+            case REWRITE_MANIFESTS:
+                return new IcebergRewriteManifestsAction(properties, partitionNames, whereCondition);
+            // REWRITE_DATA_FILES is the distributed INSERT-SELECT procedure; its body is ported in T05/T06 and
+            // until then falls through to the default rejection (the whole procedure path is dormant pre-cutover).
             default:
                 throw new DorisConnectorException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));

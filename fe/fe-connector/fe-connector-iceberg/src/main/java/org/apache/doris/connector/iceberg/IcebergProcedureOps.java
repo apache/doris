@@ -78,7 +78,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         BaseIcebergAction action = IcebergExecuteActionFactory.createAction(
                 procedureName, properties, partitionNames, whereCondition);
         action.validate();
-        return runInAuthScope(handle, action);
+        return runInAuthScope(handle, action, session);
     }
 
     /**
@@ -89,22 +89,32 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      *
      * <p>The body's own {@link DorisConnectorException} (argument / procedure-body failures) surfaces
      * verbatim — the engine command shell re-wraps it with the user-facing "Failed to execute action:"
-     * prefix when {@code ExecuteActionCommand} is rewired to this SPI at the iceberg cutover (T07). T04 adds
-     * post-commit cache invalidation here via {@code context.getMetaInvalidator()} (the legacy
-     * per-action {@code ExtMetaCacheMgr.invalidateTableCache} is fe-core-only and dropped).
+     * prefix when {@code ExecuteActionCommand} is rewired to this SPI at the iceberg cutover (T07).
+     *
+     * <p>On success the table's cached metadata is invalidated through {@code context.getMetaInvalidator()}
+     * (default {@code NOOP}); this replaces the legacy per-action {@code ExtMetaCacheMgr.invalidateTableCache}
+     * (fe-core-only, dropped from the bodies). Invalidation is unconditional on a normal return — including a
+     * no-op short-circuit (e.g. {@code rollback_to_snapshot} already on the target) where legacy skipped it;
+     * the extra invalidation is idempotent on an unchanged table (a pre-flip behavioural nuance logged with
+     * the T08 DV batch). {@code session} carries the time zone the {@code rollback_to_timestamp} body needs.
      */
-    private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action) {
+    private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action,
+            ConnectorSession session) {
+        ConnectorProcedureResult result;
         if (context == null) {
-            return action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+            result = action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName()), session);
+        } else {
+            try {
+                result = context.executeAuthenticated(() ->
+                        action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName()), session));
+            } catch (DorisConnectorException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new DorisConnectorException("Failed to load iceberg table "
+                        + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
+            }
+            context.getMetaInvalidator().invalidateTable(handle.getDbName(), handle.getTableName());
         }
-        try {
-            return context.executeAuthenticated(
-                    () -> action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName())));
-        } catch (DorisConnectorException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new DorisConnectorException("Failed to load iceberg table "
-                    + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
-        }
+        return result;
     }
 }
