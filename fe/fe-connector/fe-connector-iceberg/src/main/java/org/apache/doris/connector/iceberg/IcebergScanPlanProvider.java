@@ -639,9 +639,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Table table = resolveTable(iceHandle);
         Map<String, String> props = new LinkedHashMap<>();
         props.put("file_format_type", "jni");
-        List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
-        if (!partitionKeys.isEmpty()) {
-            props.put("path_partition_keys", String.join(",", partitionKeys));
+        // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
+        // (planSystemTableScan): the metadata-table schema travels INSIDE the serialized FileScanTask, so BE
+        // needs neither the base-table path_partition_keys (a metadata table is not base-spec partitioned ->
+        // emitting them would double-fill/DCHECK) nor the field-id schema-evolution dict. Worse, building the
+        // dict for a sys handle uses the BASE schema keyed off the requested META columns ->
+        // IcebergSchemaUtils throws ("requested column not found"). So skip BOTH for a sys handle, keeping
+        // file_format_type=jni and the location.* credential overlay (BE still needs creds to read the
+        // metadata files). Mirrors paimon, whose getScanNodeProperties skips both for a metadata table
+        // (empty partitionKeys + null schema-dict table). resolveTable still loads the base table here for
+        // the credential overlay below (the metadata table shares the base table's FileIO).
+        boolean systemTable = iceHandle.isSystemTable();
+        if (!systemTable) {
+            List<String> partitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+            if (!partitionKeys.isEmpty()) {
+                props.put("path_partition_keys", String.join(",", partitionKeys));
+            }
         }
         // Static storage credentials (T09, all flavors): the catalog's bound fe-filesystem StorageProperties,
         // normalized to BE-canonical scan keys (AWS_* for object stores, hadoop/dfs for HDFS) and shipped under
@@ -676,15 +689,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // the dict from the FULL pinned schema (a guaranteed superset of the BE slots — iceberg projection is
         // BE-tuple-driven, so `columns` only feeds the dict). See P6-T07 design §6. Without a pin, keep T06's
         // pruned-by-requested-columns dict (CI #969249).
-        String dict;
-        if (iceHandle.hasSnapshotPin()) {
-            dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                    table, pinnedSchema(table, iceHandle), Collections.emptyList());
-        } else {
-            dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                    table, table.schema(), requestedLowerNames(columns));
+        if (!systemTable) {
+            String dict;
+            if (iceHandle.hasSnapshotPin()) {
+                dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                        table, pinnedSchema(table, iceHandle), Collections.emptyList());
+            } else {
+                dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                        table, table.schema(), requestedLowerNames(columns));
+            }
+            props.put(SCHEMA_EVOLUTION_PROP, dict);
         }
-        props.put(SCHEMA_EVOLUTION_PROP, dict);
         return props;
     }
 

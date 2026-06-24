@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -113,9 +114,17 @@ public class ShowCreateTableCommand extends ShowCommand {
             wanted = PrivPredicate.SHOW;
         }
 
-        String authTableName = tableIf instanceof IcebergSysExternalTable
-                ? ((IcebergSysExternalTable) tableIf).getSourceTable().getName()
-                : tableIf.getName();
+        String authTableName;
+        if (tableIf instanceof IcebergSysExternalTable) {
+            authTableName = ((IcebergSysExternalTable) tableIf).getSourceTable().getName();
+        } else if (tableIf instanceof PluginDrivenSysExternalTable) {
+            // P6.5-T06: after the SPI cutover a sys table ($snapshots/...) is a PluginDrivenSysExternalTable;
+            // authorize SHOW CREATE against its source table (mirrors the IcebergSysExternalTable branch above
+            // and UserAuthentication), so a user holding SHOW on db.tbl can SHOW CREATE db.tbl$snapshots.
+            authTableName = ((PluginDrivenSysExternalTable) tableIf).getSourceTable().getName();
+        } else {
+            authTableName = tableIf.getName();
+        }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 tblNameInfo.getCtl(), tblNameInfo.getDb(), authTableName, wanted)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",

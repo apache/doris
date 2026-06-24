@@ -471,6 +471,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.JDBC_EXTERNAL_TABLE.toEngineName();
             case "es":
                 return TableType.ES_EXTERNAL_TABLE.toEngineName();
+            case "iceberg":
+                // P6.5-T06: preserve the legacy IcebergExternalTable engine name "iceberg"
+                // (TableType.ICEBERG_EXTERNAL_TABLE.toEngineName()) for migrated iceberg base/sys tables,
+                // instead of the generic "Plugin" from PLUGIN_EXTERNAL_TABLE.
+                return TableType.ICEBERG_EXTERNAL_TABLE.toEngineName();
             case "trino-connector":
                 // TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName() returns null
                 // (no switch case in TableType.toEngineName), matching legacy behavior.
@@ -497,6 +502,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.JDBC_EXTERNAL_TABLE.name();
             case "es":
                 return TableType.ES_EXTERNAL_TABLE.name();
+            case "iceberg":
+                return TableType.ICEBERG_EXTERNAL_TABLE.name();
             case "trino-connector":
                 return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
             case "max_compute":

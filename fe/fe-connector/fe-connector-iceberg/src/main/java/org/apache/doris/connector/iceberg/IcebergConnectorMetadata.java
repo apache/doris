@@ -28,6 +28,10 @@ import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TIcebergTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
@@ -296,6 +300,42 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    /**
+     * Builds the read-path Thrift descriptor for an iceberg plugin table, forking on the catalog type
+     * exactly as legacy {@code IcebergExternalTable.toThrift} / {@code IcebergSysExternalTable.toThrift}:
+     * an {@code hms}-backed catalog sends {@code TTableType.HIVE_TABLE} carrying a {@link THiveTable}, every
+     * other flavor sends {@code TTableType.ICEBERG_TABLE} carrying a {@link TIcebergTable}. The {@code hms}
+     * predicate mirrors legacy {@code getIcebergCatalogType().equals("hms")} (null-safe: an absent
+     * {@code iceberg.catalog.type} -&gt; the ICEBERG_TABLE branch).
+     *
+     * <p>Without this override the SPI default returns {@code null}, so fe-core
+     * ({@code PluginDrivenExternalTable.toThrift}) falls back to {@code TTableType.SCHEMA_TABLE} and BE's
+     * {@code DescriptorTbl::create} builds a {@code SchemaTableDescriptor} instead of the
+     * {@code Hive/IcebergTableDescriptor} legacy produced. BE never consults the descriptor table type for an
+     * iceberg sys (JNI) scan, so this is FE-side parity (EXPLAIN/profile) + closes the latent base-table
+     * descriptor gap. The SPI signature carries no handle, so this single override covers BOTH base and system
+     * tables (legacy uses an identical fork for both), mirroring paimon's connector-level override.
+     */
+    @Override
+    public TTableDescriptor buildTableDescriptor(
+            ConnectorSession session,
+            long tableId, String tableName, String dbName,
+            String remoteName, int numCols, long catalogId) {
+        if (IcebergConnectorProperties.TYPE_HMS.equals(
+                properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE))) {
+            THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
+            TTableDescriptor desc = new TTableDescriptor(
+                    tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
+            desc.setHiveTable(tHiveTable);
+            return desc;
+        }
+        TIcebergTable tIcebergTable = new TIcebergTable(dbName, tableName, new HashMap<>());
+        TTableDescriptor desc = new TTableDescriptor(
+                tableId, TTableType.ICEBERG_TABLE, numCols, 0, tableName, dbName);
+        desc.setIcebergTable(tIcebergTable);
+        return desc;
     }
 
     // ========== E7: System Tables (P6.5) ==========

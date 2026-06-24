@@ -447,6 +447,59 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("p", props.get("path_partition_keys"));
     }
 
+    // --- T06 [D-065]: getScanNodeProperties sys-handle guard (skip dict + path_partition_keys) ---
+
+    @Test
+    public void getScanNodePropertiesForUnpinnedSysHandleSkipsDictAndPathKeysWithoutThrowing() {
+        // [D-065] A system-table handle ($snapshots/$files/...) must NOT take the base-table props path:
+        // its requested columns are METADATA columns (committed_at/snapshot_id/...) absent from the base
+        // data schema, so building the field-id dict from the base schema throws "requested column not
+        // found" (IcebergSchemaUtils.buildCurrentSchema). The metadata-table schema travels inside the
+        // serialized JNI split (planSystemTableScan), so BE needs neither the dict nor base
+        // path_partition_keys. MUTATION: removing the isSystemTable() guard -> the no-pin else branch
+        // throws here -> red.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        // Requested columns are metadata-table columns, NOT present in the base (id, p) schema.
+        List<ConnectorColumnHandle> metaColumns = Arrays.asList(
+                new IcebergColumnHandle("committed_at", 1),
+                new IcebergColumnHandle("snapshot_id", 2));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "pt", "snapshots", -1L, null, -1L),
+                metaColumns, Optional.empty());
+
+        Assertions.assertFalse(props.containsKey("iceberg.schema_evolution"),
+                "a sys handle must not emit the field-id schema-evolution dict (BE sys JNI reader ignores it; "
+                        + "building it from the base schema + meta columns throws)");
+        Assertions.assertFalse(props.containsKey("path_partition_keys"),
+                "a sys (metadata) table is not base-spec partitioned -> no path_partition_keys");
+        Assertions.assertEquals("jni", props.get("file_format_type"),
+                "sys scan still flows through the JNI path");
+    }
+
+    @Test
+    public void getScanNodePropertiesForPinnedSysHandleSkipsDict() {
+        // A sys handle RETAINS its time-travel pin (forSystemTable), so without the guard the dict branch
+        // takes the hasSnapshotPin() path and silently builds a BASE-schema dict (no throw, but wrong/
+        // meaningless for a metadata scan). The guard must suppress it for the pinned case too.
+        // MUTATION: guarding only the unpinned branch -> the pinned base-schema dict leaks here -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", s1, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(props.containsKey("iceberg.schema_evolution"),
+                "a pinned sys handle must also skip the schema-evolution dict (a base-schema dict is wrong "
+                        + "for a metadata scan)");
+        Assertions.assertEquals("jni", props.get("file_format_type"));
+    }
+
     // --- T07: MVCC / time-travel scan-time pin + Option-A field-id dict ---
 
     @Test
