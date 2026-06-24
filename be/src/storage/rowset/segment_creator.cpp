@@ -86,14 +86,10 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     return Status::OK();
 }
 
-Status SegmentFlusher::close_file_writers() {
+Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
     RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
-}
-
-Status SegmentFlusher::close() {
-    return close_file_writers();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -426,13 +422,9 @@ Status SegmentCreator::flush_single_block(const Block* block, int32_t segment_id
     return Status::OK();
 }
 
-Status SegmentCreator::close_file_writers() {
-    return _segment_flusher.close_file_writers();
-}
-
 Status SegmentCreator::close() {
     RETURN_IF_ERROR(flush());
-    RETURN_IF_ERROR(close_file_writers());
+    RETURN_IF_ERROR(_segment_flusher.close());
     return Status::OK();
 }
 

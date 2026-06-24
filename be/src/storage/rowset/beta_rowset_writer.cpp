@@ -1016,7 +1016,7 @@ Status BetaRowsetWriter::_close_file_writers() {
     if (_calc_delete_bitmap_token != nullptr) {
         RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
     }
-    RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close_file_writers(),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.

@@ -110,7 +110,6 @@ public:
     int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
-    Status close_file_writers();
     Status close();
 
     class Writer {
@@ -202,7 +201,6 @@ public:
         return flush_single_block(block, allocate_segment_id());
     }
 
-    Status close_file_writers();
     Status close();
 
 private:
