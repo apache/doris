@@ -82,6 +82,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -102,6 +103,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final String READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE = "Kafka routine load consumed 0 rows "
             + "while lag is still positive under isolation.level=read_committed. If the upstream producer uses "
             + "Kafka transactions, some records may be in uncommitted transactions and are not visible yet.";
+    private static final String SENSITIVE_PROPERTY_MASK = "******";
 
     @SerializedName("bl")
     private String brokerList;
@@ -723,7 +725,24 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(customProperties);
+        return gson.toJson(getMaskedCustomProperties(""));
+    }
+
+    private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
+        Map<String, String> maskedProperties = new HashMap<>();
+        customProperties.forEach((key, value) -> {
+            String lowerKey = key.toLowerCase(Locale.ROOT);
+            boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
+                    || lowerKey.endsWith(".password")
+                    || lowerKey.endsWith(".secret_key")
+                    || lowerKey.endsWith(".secret.key")
+                    || lowerKey.endsWith(".session_key")
+                    || lowerKey.endsWith(".session.token")
+                    || "ssl.keystore.key".equals(lowerKey)
+                    || "ssl.key.pem".equals(lowerKey);
+            maskedProperties.put(keyPrefix + key, sensitive ? SENSITIVE_PROPERTY_MASK : value);
+        });
+        return maskedProperties;
     }
 
     @Override
@@ -736,9 +755,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public Map<String, String> getCustomProperties() {
-        Map<String, String> ret = new HashMap<>();
-        customProperties.forEach((k, v) -> ret.put("property." + k, v));
-        return ret;
+        return getMaskedCustomProperties("property.");
     }
 
     @Override

@@ -262,6 +262,38 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testDisplayCustomPropertiesMasksKafkaSecrets() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.username", "doris");
+        customProperties.put("sasl.password", "plain_secret");
+        customProperties.put("sasl.jaas.config", "username=\"doris\" password=\"jaas_secret\"");
+        customProperties.put("ssl.keystore.password", "keystore_secret");
+        customProperties.put("aws.secret_key", "aws_secret");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
+        Map<String, String> showCreateCustomProperties = routineLoadJob.getCustomProperties();
+
+        Assert.assertFalse(customPropertiesJson.contains("plain_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("jaas_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.jaas.config\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.jaas.config"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
+        Assert.assertEquals("doris", showCreateCustomProperties.get("property.sasl.username"));
+        Assert.assertEquals("plain_secret", customProperties.get("sasl.password"));
+    }
+
+    @Test
     public void testReadCommittedZeroRowsWithLagDelaysNextTask() throws UserException {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);
