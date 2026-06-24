@@ -106,7 +106,33 @@ public class IcebergPublishChangesActionTest {
     @Test
     public void resultSchemaIsTwoStrings() {
         List<ConnectorColumn> schema = action("x").getResultSchema();
+        Assertions.assertEquals(2, schema.size());
+        Assertions.assertEquals("previous_snapshot_id", schema.get(0).getName());
         Assertions.assertEquals("STRING", schema.get(0).getType().getTypeName());
+        Assertions.assertFalse(schema.get(0).isNullable());
+        Assertions.assertEquals("current_snapshot_id", schema.get(1).getName());
         Assertions.assertEquals("STRING", schema.get(1).getType().getTypeName());
+        Assertions.assertFalse(schema.get(1).isNullable());
+    }
+
+    @Test
+    public void wrapsCherrypickFailureWithLegacyMessage() {
+        // A committed (non-staged) append carrying wap.id becomes the current snapshot, so cherry-picking it
+        // throws iceberg's "already an ancestor" ValidationException -> the body's catch wraps it with the
+        // exact legacy prefix.
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        catalog.loadTable(id).newAppend()
+                .appendFile(ActionTestTables.dataFile("f1.parquet", 1L))
+                .set("wap.id", "wap-boom").commit();
+
+        IcebergPublishChangesAction action = action("wap-boom");
+        action.validate();
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> action.execute(catalog.loadTable(id), ActionTestTables.session("UTC")));
+        Assertions.assertTrue(e.getMessage().startsWith("Failed to publish changes for wap.id wap-boom: "),
+                e.getMessage());
+        Assertions.assertNotNull(e.getCause());
     }
 }

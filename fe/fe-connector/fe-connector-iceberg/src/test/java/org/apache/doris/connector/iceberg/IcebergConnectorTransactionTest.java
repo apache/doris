@@ -997,6 +997,45 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void rewriteDeleteOnlyStillCommitsReplace() {
+        // The both-empty skip is the AND (filesToDelete.isEmpty() && filesToAdd.isEmpty(), port :391 /
+        // legacy updateManifestAfterRewrite:248). A delete-only rewrite (files to delete, no new files added)
+        // has filesToDelete non-empty AND filesToAdd empty, so the skip MUST NOT fire — an &&->|| mutation
+        // would short-circuit on the empty filesToAdd and silently drop the deletes, leaving the snapshot
+        // unchanged. The assertNotEquals below goes RED under that mutation.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L))
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/old2.parquet", 7L))
+                .commit();
+        Table reloaded = catalog.loadTable(id);
+        List<DataFile> oldFiles = currentDataFiles(reloaded);
+        Assertions.assertEquals(2, oldFiles.size());
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.updateRewriteFiles(oldFiles);                       // files-to-delete; NO commit data -> filesToAdd empty
+        long beforeSnapshotId = reloadCurrentSnapshot(catalog, id).snapshotId();
+
+        txn.commit();
+
+        long afterSnapshotId = reloadCurrentSnapshot(catalog, id).snapshotId();
+        Assertions.assertNotEquals(beforeSnapshotId, afterSnapshotId,
+                "a delete-only rewrite must still produce a new snapshot (&& skip, not ||)");
+
+        Snapshot snap = reloadCurrentSnapshot(catalog, id);
+        Assertions.assertNotNull(snap);
+        // RewriteFiles always reports "replace", even when only deleting.
+        Assertions.assertEquals("replace", snap.operation());
+        Assertions.assertEquals("2", snap.summary().get("deleted-data-files"));
+        Assertions.assertNull(snap.summary().get("added-data-files"),
+                "no new files were added -> the summary carries no added-data-files key");
+    }
+
+    @Test
     public void rewriteFailsLoudWhenRewrittenFileRemovedConcurrently() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -1095,6 +1134,13 @@ public class IcebergConnectorTransactionTest {
         Assertions.assertEquals(2048L, txn.getFilesToDeleteSize());
 
         txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/compacted.parquet", 12L, 4096L)));
+        // filesToAdd is populated DURING commit (convertCommitDataToFilesToAdd), NOT at addCommitData: the
+        // fragment is buffered on commitDataList and only materialized into filesToAdd inside commitRewriteTxn.
+        // An early-materialization mutation (folding convertCommitDataToFilesToAdd into addCommitData) would
+        // make these pre-commit reads non-zero, turning these assertions RED.
+        Assertions.assertEquals(0, txn.getFilesToAddCount(),
+                "filesToAdd materialized DURING commit, not at addCommitData");
+        Assertions.assertEquals(0L, txn.getFilesToAddSize());
         // filesToAdd is populated DURING commit (convertCommitDataToFilesToAdd) — the legacy executor reads
         // getFilesToAddCount only AFTER finishRewrite, so these reads must be post-commit.
         txn.commit();

@@ -121,6 +121,39 @@ public class ConnectorExecuteActionTest {
                 rs.getMetaData().getColumns().get(1).getName());
         Assertions.assertEquals(Arrays.asList("previous_snapshot_id", "current_snapshot_id"), colNames);
         Assertions.assertEquals(Collections.singletonList(Arrays.asList("100", "200")), rs.getResultRows());
+
+        // The converted Doris column metadata (type + nullability) is client-visible, so pin it too: twoColumnResult
+        // builds BIGINT non-null columns, mirroring IcebergRollbackToSnapshotAction.getResultSchema's
+        // (Type.BIGINT, false) columns — a ConnectorColumnConverter mutation that drops the type/nullability is caught.
+        Assertions.assertEquals(org.apache.doris.catalog.Type.BIGINT, rs.getMetaData().getColumns().get(0).getType());
+        Assertions.assertEquals(org.apache.doris.catalog.Type.BIGINT, rs.getMetaData().getColumns().get(1).getType());
+        Assertions.assertFalse(rs.getMetaData().getColumns().get(0).isAllowNull());
+        Assertions.assertFalse(rs.getMetaData().getColumns().get(1).isAllowNull());
+    }
+
+    @Test
+    public void wrapResultRoundTripsColumnNullabilityBothPolarities() throws Exception {
+        // A fast_forward-SHAPED schema mixes a non-nullable column with a nullable one. The converter must
+        // round-trip BOTH polarities through ConnectorColumn.isNullable() -> Column(isAllowNull), so a converter
+        // mutation that drops (or forces) nullability is caught — not just the all-non-null twoColumnResult case.
+        Fixture f = new Fixture();
+        List<ConnectorColumn> schema = Arrays.asList(
+                new ConnectorColumn("branch_updated", ConnectorType.of("STRING"), "c", false, null),
+                new ConnectorColumn("previous_ref", ConnectorType.of("BIGINT"), "c", true, null),
+                new ConnectorColumn("updated_ref", ConnectorType.of("BIGINT"), "c", false, null));
+        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(new ConnectorProcedureResult(schema,
+                        Collections.singletonList(Arrays.asList("main", "100", "200"))));
+        ConnectorExecuteAction action = new ConnectorExecuteAction("fast_forward",
+                f.props, Optional.empty(), Optional.empty(), f.table);
+        ResultSet rs = action.execute(f.table);
+        Assertions.assertFalse(rs.getMetaData().getColumns().get(0).isAllowNull());
+        Assertions.assertTrue(rs.getMetaData().getColumns().get(1).isAllowNull(),
+                "the nullable column must round-trip nullable through ConnectorColumnConverter");
+        Assertions.assertFalse(rs.getMetaData().getColumns().get(2).isAllowNull());
+        Assertions.assertEquals(org.apache.doris.catalog.Type.BIGINT,
+                rs.getMetaData().getColumns().get(1).getType());
     }
 
     @Test

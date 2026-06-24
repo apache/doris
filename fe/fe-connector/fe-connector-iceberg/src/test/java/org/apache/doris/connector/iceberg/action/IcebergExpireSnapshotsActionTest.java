@@ -17,9 +17,14 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -88,16 +93,53 @@ public class IcebergExpireSnapshotsActionTest {
         for (String count : row) {
             Assertions.assertDoesNotThrow(() -> Long.parseLong(count), "every counter is a number: " + count);
         }
+        // Pin the deleteWith path-classification deterministically. Expiring 2 of 3 append-only snapshots
+        // (retain_last=1) reclaims the 2 expired snapshots' manifest-LIST files (snap-*.avro, index 4 == 2)
+        // but NOT the data manifests (still referenced by the retained snapshot, index 3 == 0) nor the data
+        // files themselves (index 0 == 0); there are no delete/statistics files. A mutation swapping the
+        // manifest vs manifest-list branch in the deleteWith callback would flip indices 3/4 and go RED.
+        Assertions.assertEquals(ImmutableList.of("0", "0", "0", "0", "2", "0"), row,
+                "deleteWith classification: 2 manifest-lists reclaimed, everything else 0");
         Assertions.assertEquals(1, Iterables.size(catalog.loadTable(id).snapshots()),
                 "retain_last=1 must leave exactly one snapshot");
     }
 
     @Test
     public void resultSchemaIsSixBigintCounters() {
-        Assertions.assertEquals(6, action(ImmutableMap.of("retain_last", "1")).getResultSchema().size());
-        Assertions.assertEquals("deleted_data_files_count",
-                action(ImmutableMap.of("retain_last", "1")).getResultSchema().get(0).getName());
-        Assertions.assertEquals("BIGINT",
-                action(ImmutableMap.of("retain_last", "1")).getResultSchema().get(0).getType().getTypeName());
+        List<ConnectorColumn> schema = action(ImmutableMap.of("retain_last", "1")).getResultSchema();
+        String[] names = {"deleted_data_files_count", "deleted_position_delete_files_count",
+                "deleted_equality_delete_files_count", "deleted_manifest_files_count",
+                "deleted_manifest_lists_count", "deleted_statistics_files_count"};
+        Assertions.assertEquals(6, schema.size());
+        for (int i = 0; i < 6; i++) {
+            Assertions.assertEquals(names[i], schema.get(i).getName(), "column " + i + " name");
+            Assertions.assertEquals("BIGINT", schema.get(i).getType().getTypeName(), "column " + i + " type");
+        }
+    }
+
+    @Test
+    public void rejectsNegativeOlderThanTimestamp() {
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> action(ImmutableMap.of("older_than", "-1")).validate());
+        Assertions.assertEquals("older_than timestamp must be non-negative", e.getMessage());
+    }
+
+    @Test
+    public void rejectsPartitionSpecification() {
+        IcebergExpireSnapshotsAction a = new IcebergExpireSnapshotsAction(
+                ImmutableMap.of("retain_last", "1"), Collections.singletonList("p1"), null);
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, a::validate);
+        Assertions.assertEquals("Action 'expire_snapshots' does not support partition specification",
+                e.getMessage());
+    }
+
+    @Test
+    public void rejectsWhereCondition() {
+        ConnectorPredicate where =
+                new ConnectorPredicate(new ConnectorLiteral(ConnectorType.of("BOOLEAN"), Boolean.TRUE));
+        IcebergExpireSnapshotsAction a = new IcebergExpireSnapshotsAction(
+                ImmutableMap.of("retain_last", "1"), Collections.emptyList(), where);
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, a::validate);
+        Assertions.assertEquals("Action 'expire_snapshots' does not support WHERE condition", e.getMessage());
     }
 }

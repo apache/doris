@@ -94,6 +94,7 @@ public class IcebergFastForwardActionTest {
         Assertions.assertEquals("BIGINT", schema.get(1).getType().getTypeName());
         Assertions.assertTrue(schema.get(1).isNullable(), "previous_ref is the one nullable result column");
         Assertions.assertEquals("updated_ref", schema.get(2).getName());
+        Assertions.assertEquals("BIGINT", schema.get(2).getType().getTypeName());
         Assertions.assertFalse(schema.get(2).isNullable());
     }
 

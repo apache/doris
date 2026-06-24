@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg.rewrite;
 
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorBetween;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
@@ -355,6 +356,30 @@ public class RewriteDataFilePlannerTest {
                 new ConnectorLiteral(ConnectorType.of("INT"), 1L));
 
         List<RewriteDataGroup> groups = plan(t, rewriteAll(1_000_000L, where(between)));
+
+        Assertions.assertEquals(1, totalFiles(groups));
+        Assertions.assertEquals(new HashSet<>(Collections.singletonList(1)), partitionIds(groups));
+    }
+
+    @Test
+    public void whereTopLevelAndAppliesEveryConjunct() {
+        // A top-level multi-conjunct ConnectorAnd (id>=1 AND id<=1) is flattened by the planner's
+        // per-conjunct scan.filter loop: IcebergPredicateConverter.convert returns both convertible arms and
+        // each is applied as a separate iceberg filter (iceberg ANDs them). Only the intersecting partition
+        // id=1 survives. If the AND-flatten loop broke or dropped the lower-bound arm, the scan would widen to
+        // both partitions (totalFiles == 2) -> red. Distinct from whereBetweenPrunesViaConflictMode, which
+        // exercises a single ConnectorBetween node rather than the multi-filter flatten loop.
+        Table t = createPartitioned("t18");
+        append(t, partFile("a", 100, 1), partFile("b", 100, 2));
+
+        ConnectorColumnRef idRef = new ConnectorColumnRef("id", ConnectorType.of("INT"));
+        ConnectorExpression and = new ConnectorAnd(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.GE, idRef,
+                        new ConnectorLiteral(ConnectorType.of("INT"), 1L)),
+                new ConnectorComparison(ConnectorComparison.Operator.LE, idRef,
+                        new ConnectorLiteral(ConnectorType.of("INT"), 1L))));
+
+        List<RewriteDataGroup> groups = plan(t, rewriteAll(1_000_000L, where(and)));
 
         Assertions.assertEquals(1, totalFiles(groups));
         Assertions.assertEquals(new HashSet<>(Collections.singletonList(1)), partitionIds(groups));

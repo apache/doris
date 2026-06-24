@@ -63,4 +63,22 @@ public class IcebergExecuteActionFactoryTest {
                         + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests",
                 e.getMessage());
     }
+
+    /**
+     * CANARY for the dormant {@code rewrite_data_files} gap: it is advertised in {@link
+     * IcebergExecuteActionFactory#getSupportedActions()} (9 names) but has NO {@code createAction} switch
+     * case yet (8 cases), so it falls through to the faithful unknown-procedure rejection. This pins that
+     * dormant state and goes RED exactly when the T05/T06 body is wired in.
+     */
+    @Test
+    public void rewriteDataFilesIsAdvertisedButNotYetExecutable() {
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergExecuteActionFactory.createAction(
+                        "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null));
+        Assertions.assertTrue(
+                e.getMessage().startsWith("Unsupported Iceberg procedure: rewrite_data_files"),
+                e.getMessage());
+        Assertions.assertTrue(java.util.Arrays.asList(IcebergExecuteActionFactory.getSupportedActions())
+                .contains("rewrite_data_files"));
+    }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Pins {@code cherrypick_snapshot}: cherry-picking a staged (WAP-style) snapshot into the current state.
@@ -97,7 +99,13 @@ public class IcebergCherrypickSnapshotActionTest {
 
     @Test
     public void resultSchemaIsTwoBigints() {
-        Assertions.assertEquals("source_snapshot_id", action("1").getResultSchema().get(0).getName());
-        Assertions.assertEquals("BIGINT", action("1").getResultSchema().get(0).getType().getTypeName());
+        List<ConnectorColumn> schema = action("1").getResultSchema();
+        Assertions.assertEquals(2, schema.size());
+        Assertions.assertEquals("source_snapshot_id", schema.get(0).getName());
+        Assertions.assertEquals("BIGINT", schema.get(0).getType().getTypeName());
+        Assertions.assertFalse(schema.get(0).isNullable());
+        Assertions.assertEquals("current_snapshot_id", schema.get(1).getName());
+        Assertions.assertEquals("BIGINT", schema.get(1).getType().getTypeName());
+        Assertions.assertFalse(schema.get(1).isNullable());
     }
 }

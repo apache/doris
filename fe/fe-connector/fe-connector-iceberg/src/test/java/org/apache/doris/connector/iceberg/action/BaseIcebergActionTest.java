@@ -190,6 +190,8 @@ public class BaseIcebergActionTest {
         // Schema is 2 columns but the body returns 1 value: the single-row contract guard must fire.
         FakeAction a = action(ImmutableMap.of("snapshot_id", "1"),
                 Collections.emptyList(), null, ImmutableList.of("only-one"));
-        Assertions.assertThrows(IllegalStateException.class, () -> a.execute((Table) null, null));
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> a.execute((Table) null, null));
+        Assertions.assertEquals("Result row size does not match metadata column count", e.getMessage());
     }
 }

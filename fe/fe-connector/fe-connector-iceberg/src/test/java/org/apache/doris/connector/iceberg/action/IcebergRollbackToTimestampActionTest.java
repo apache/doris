@@ -17,8 +17,12 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.IcebergTimeUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -31,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Pins {@code rollback_to_timestamp}, including the connector-specific time-zone handling.
@@ -125,5 +130,39 @@ public class IcebergRollbackToTimestampActionTest {
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap1)),
                 result.getRows().get(0));
         Assertions.assertEquals(snap1, catalog.loadTable(id).currentSnapshot().snapshotId());
+    }
+
+    // ─────────────────── result schema + partition/WHERE rejection (T08 byte-parity) ───────────────────
+
+    @Test
+    public void resultSchemaIsTwoNotNullBigints() {
+        List<ConnectorColumn> schema = action("1700000000000").getResultSchema();
+        Assertions.assertEquals(2, schema.size());
+        Assertions.assertEquals("previous_snapshot_id", schema.get(0).getName());
+        Assertions.assertEquals("BIGINT", schema.get(0).getType().getTypeName());
+        Assertions.assertFalse(schema.get(0).isNullable());
+        Assertions.assertEquals("current_snapshot_id", schema.get(1).getName());
+        Assertions.assertEquals("BIGINT", schema.get(1).getType().getTypeName());
+        Assertions.assertFalse(schema.get(1).isNullable());
+    }
+
+    @Test
+    public void rejectsPartitionSpec() {
+        IcebergRollbackToTimestampAction a = new IcebergRollbackToTimestampAction(
+                ImmutableMap.of("timestamp", "1700000000000"), ImmutableList.of("p1"), null);
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, a::validate);
+        Assertions.assertEquals("Action 'rollback_to_timestamp' does not support partition specification",
+                e.getMessage());
+    }
+
+    @Test
+    public void rejectsWhereCondition() {
+        ConnectorPredicate where =
+                new ConnectorPredicate(new ConnectorLiteral(ConnectorType.of("BOOLEAN"), Boolean.TRUE));
+        IcebergRollbackToTimestampAction a = new IcebergRollbackToTimestampAction(
+                ImmutableMap.of("timestamp", "1700000000000"), Collections.emptyList(), where);
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class, a::validate);
+        Assertions.assertEquals("Action 'rollback_to_timestamp' does not support WHERE condition",
+                e.getMessage());
     }
 }

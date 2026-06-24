@@ -119,6 +119,7 @@ public class IcebergRollbackToSnapshotActionTest {
         Assertions.assertEquals("BIGINT", schema.get(0).getType().getTypeName());
         Assertions.assertFalse(schema.get(0).isNullable());
         Assertions.assertEquals("current_snapshot_id", schema.get(1).getName());
+        Assertions.assertEquals("BIGINT", schema.get(1).getType().getTypeName());
         Assertions.assertFalse(schema.get(1).isNullable());
     }
 }

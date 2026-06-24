@@ -52,6 +52,9 @@ import java.util.Map;
  */
 public class IcebergProcedureOps implements ConnectorProcedureOps {
 
+    // Catalog-level properties seam, retained for structural symmetry with IcebergWritePlanProvider. The
+    // per-procedure arguments arrive through execute()'s own {@code properties} parameter (the EXECUTE
+    // properties), so this field is not read here.
     private final Map<String, String> properties;
     private final IcebergCatalogOps catalogOps;
     private final ConnectorContext context;

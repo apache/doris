@@ -185,6 +185,72 @@ public class IcebergProcedureOpsTest {
         Assertions.assertTrue(ops.log.isEmpty(), "no catalog call before validation passes");
     }
 
+    @Test
+    public void wrapsLoadTableFailure() {
+        // loadTable runs INSIDE executeAuthenticated and throws a plain RuntimeException; runInAuthScope's
+        // generic catch wraps it with the "Failed to load iceberg table" prefix (the DorisConnectorException
+        // re-throw branch is for body failures, not load failures). The wrap happens before the dispatch-level
+        // invalidation, so a load failure must not invalidate the cache.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.throwOnLoadTable = true;
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> procOps.execute(SESSION, new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
+                        ImmutableMap.of("snapshot_id", "1"), null, Collections.emptyList()));
+        Assertions.assertEquals(
+                "Failed to load iceberg table db1.t: simulated loadTable failure for db1.t", e.getMessage());
+        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(), "a load failure must not invalidate");
+    }
+
+    @Test
+    public void rollbackToCurrentSnapshotStillInvalidates() {
+        // Rolling back to the snapshot that is ALREADY current short-circuits in the body (no commit), yet the
+        // dispatch-level invalidation is unconditional on a normal return — the cache-to-dispatch nuance where
+        // legacy skipped invalidation on the no-op short-circuit.
+        InMemoryCatalog catalog = catalogWithTwoSnapshots();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        long snap2 = catalog.loadTable(id).currentSnapshot().snapshotId();
+        long historyBefore = catalog.loadTable(id).history().size();
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(id);
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        ConnectorProcedureResult result = procOps.execute(SESSION, new IcebergTableHandle("db1", "t"),
+                "rollback_to_snapshot", ImmutableMap.of("snapshot_id", String.valueOf(snap2)),
+                null, Collections.emptyList());
+
+        Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap2)),
+                result.getRows().get(0));
+        Assertions.assertEquals(historyBefore, catalog.loadTable(id).history().size(), "short-circuit: no commit");
+        Assertions.assertEquals(ImmutableList.of("db1.t"), ctx.invalidatedTables,
+                "unconditional dispatch invalidation fires even on the no-op short-circuit");
+    }
+
+    @Test
+    public void bodyFailureAfterSuccessfulLoadDoesNotInvalidate() {
+        // The load succeeds (under auth), then the body throws because the snapshot id does not exist. This is
+        // distinct from failedAuth (where the body never runs): authCount is 1, and the dispatch-level
+        // invalidation still must not fire because the body's DorisConnectorException is re-thrown before it.
+        InMemoryCatalog catalog = catalogWithTwoSnapshots();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(id);
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> procOps.execute(SESSION, new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
+                        ImmutableMap.of("snapshot_id", "999999999"), null, Collections.emptyList()));
+        Assertions.assertEquals("Snapshot 999999999 not found in table " + ops.table.name(), e.getMessage());
+        Assertions.assertEquals(1, ctx.authCount, "the load ran under auth (body executed, then threw)");
+        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
+                "a body failure after a successful load must not invalidate");
+    }
+
     private static InMemoryCatalog catalogWithTwoSnapshots() {
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());

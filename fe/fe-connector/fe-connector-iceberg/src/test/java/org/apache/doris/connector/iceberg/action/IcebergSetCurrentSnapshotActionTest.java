@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg.action;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -130,5 +132,60 @@ public class IcebergSetCurrentSnapshotActionTest {
         Assertions.assertTrue(e.getMessage().startsWith("Failed to set current snapshot to reference 'nope': "),
                 e.getMessage());
         Assertions.assertTrue(e.getMessage().contains("Reference 'nope' not found in table "), e.getMessage());
+    }
+
+    @Test
+    public void shortCircuitsWhenAlreadyOnTargetSnapshotIdWithoutCommitting() {
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        long snap2 = ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
+        long historyBefore = catalog.loadTable(id).history().size();
+
+        // Target is the already-current snapshot -> the snapshot_id branch returns without setCurrentSnapshot().commit().
+        IcebergSetCurrentSnapshotAction action = action(ImmutableMap.of("snapshot_id", String.valueOf(snap2)));
+        action.validate();
+        ConnectorProcedureResult result = action.execute(catalog.loadTable(id), ActionTestTables.session("UTC"));
+
+        Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap2)),
+                result.getRows().get(0));
+        Assertions.assertEquals(historyBefore, catalog.loadTable(id).history().size(),
+                "setting to the current snapshot must not append history (short-circuit, no commit)");
+    }
+
+    @Test
+    public void shortCircuitsWhenRefResolvesToCurrentSnapshotWithoutCommitting() {
+        InMemoryCatalog catalog = ActionTestTables.freshCatalog();
+        TableIdentifier id = ActionTestTables.id("t");
+        ActionTestTables.createTable(catalog, "t");
+        ActionTestTables.appendSnapshot(catalog, "t", "f1.parquet", 1L);
+        long snap2 = ActionTestTables.appendSnapshot(catalog, "t", "f2.parquet", 2L);
+        // The tag points at the current snapshot; capture history AFTER the tag commit.
+        catalog.loadTable(id).manageSnapshots().createTag("v2", snap2).commit();
+        long historyBefore = catalog.loadTable(id).history().size();
+
+        // The ref resolves to the already-current snapshot -> the ref branch returns without setCurrentSnapshot().commit().
+        IcebergSetCurrentSnapshotAction action = action(ImmutableMap.of("ref", "v2"));
+        action.validate();
+        ConnectorProcedureResult result = action.execute(catalog.loadTable(id), ActionTestTables.session("UTC"));
+
+        Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap2)),
+                result.getRows().get(0),
+                "ref resolves to the current snapshot -> (previous=snap2, target=snap2)");
+        Assertions.assertEquals(historyBefore, catalog.loadTable(id).history().size(),
+                "resolving a ref to the current snapshot must not append history (short-circuit, no commit)");
+    }
+
+    @Test
+    public void resultSchemaIsTwoNotNullBigints() {
+        List<ConnectorColumn> schema = action(ImmutableMap.of("snapshot_id", "1")).getResultSchema();
+        Assertions.assertEquals(2, schema.size());
+        Assertions.assertEquals("previous_snapshot_id", schema.get(0).getName());
+        Assertions.assertEquals("BIGINT", schema.get(0).getType().getTypeName());
+        Assertions.assertFalse(schema.get(0).isNullable());
+        Assertions.assertEquals("current_snapshot_id", schema.get(1).getName());
+        Assertions.assertEquals("BIGINT", schema.get(1).getType().getTypeName());
+        Assertions.assertFalse(schema.get(1).isNullable());
     }
 }
