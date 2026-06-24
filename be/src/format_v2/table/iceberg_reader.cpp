@@ -233,9 +233,9 @@ std::string IcebergTableReader::debug_string() const {
 }
 
 Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
-    for (size_t column_idx = 0; column_idx < _data_reader.column_mapper.mappings().size();
+    for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
          ++column_idx) {
-        const auto& mapping = _data_reader.column_mapper.mappings()[column_idx];
+        const auto& mapping = _data_reader.column_mapper->mappings()[column_idx];
         switch (mapping.virtual_column_type) {
         case format::TableVirtualColumnType::ROW_ID:
             RETURN_IF_ERROR(_materialize_row_lineage_row_id(table_block, column_idx));
@@ -755,7 +755,7 @@ Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number
 }
 
 bool IcebergTableReader::_need_row_lineage_row_id() const {
-    for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+    for (const auto& mapping : _data_reader.column_mapper->mappings()) {
         if (mapping.virtual_column_type == format::TableVirtualColumnType::ROW_ID) {
             return true;
         }
@@ -764,7 +764,7 @@ bool IcebergTableReader::_need_row_lineage_row_id() const {
 }
 
 bool IcebergTableReader::_need_iceberg_rowid() const {
-    for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+    for (const auto& mapping : _data_reader.column_mapper->mappings()) {
         if (mapping.virtual_column_type == format::TableVirtualColumnType::ICEBERG_ROWID) {
             return true;
         }

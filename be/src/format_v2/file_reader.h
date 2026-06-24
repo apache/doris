@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -110,6 +111,7 @@ enum class FileFormat {
     PARQUET,
     ORC,
     CSV,
+    TEXT,
     JNI,
 };
 
@@ -137,6 +139,106 @@ struct FileScanRequest {
     // Single-column predicates used only for file-layer pruning, such as statistics, page index,
     // dictionary and bloom filter. They must not be used for batch row-level filtering.
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
+};
+
+// Helper for constructing the scan-column layout in FileScanRequest.
+//
+// FileScanRequest keeps predicate and non-predicate columns separate because columnar readers such
+// as Parquet can read predicate columns first, filter rows, and then lazily read the remaining
+// projected columns. The two lists still share one file-local output block, whose positions are
+// stored in local_positions. This builder centralizes the mechanical rules for that shared layout:
+// - each root file column gets one stable block position;
+// - predicate columns dominate non-predicate columns because they are already returned in the file
+//   block and can be reused for final materialization;
+// - repeated nested projections for the same root are merged instead of duplicated.
+//
+// TableColumnMapper should still own table-to-file semantic resolution. This helper only owns the
+// FileScanRequest layout contract after a file-local projection has been produced.
+class FileScanRequestBuilder {
+public:
+    explicit FileScanRequestBuilder(FileScanRequest* request) : _request(request) {
+        DORIS_CHECK(_request != nullptr);
+    }
+
+    Status add_predicate_column(LocalColumnIndex projection) {
+        return _add_column(std::move(projection), &_request->predicate_columns,
+                           /*is_predicate_column=*/true);
+    }
+
+    Status add_non_predicate_column(LocalColumnIndex projection) {
+        return _add_column(std::move(projection), &_request->non_predicate_columns,
+                           /*is_predicate_column=*/false);
+    }
+
+    Status add_predicate_column(LocalColumnId column_id) {
+        return add_predicate_column(LocalColumnIndex::top_level(column_id));
+    }
+
+    Status add_non_predicate_column(LocalColumnId column_id) {
+        return add_non_predicate_column(LocalColumnIndex::top_level(column_id));
+    }
+
+private:
+    static LocalIndex _next_block_position(const FileScanRequest& request) {
+        size_t next_position = 0;
+        for (const auto& [_, block_position] : request.local_positions) {
+            next_position = std::max(next_position, block_position.value() + 1);
+        }
+        return LocalIndex(next_position);
+    }
+
+    static void _sort_projection_children_by_file_id(LocalColumnIndex* projection) {
+        DORIS_CHECK(projection != nullptr);
+        if (projection->project_all_children) {
+            return;
+        }
+        for (auto& child : projection->children) {
+            _sort_projection_children_by_file_id(&child);
+        }
+        std::ranges::sort(projection->children,
+                          [](const LocalColumnIndex& lhs, const LocalColumnIndex& rhs) {
+                              return lhs.local_id() < rhs.local_id();
+                          });
+    }
+
+    Status _add_column(LocalColumnIndex projection, std::vector<LocalColumnIndex>* scan_columns,
+                       bool is_predicate_column) {
+        DORIS_CHECK(scan_columns != nullptr);
+        const auto file_column_id = projection.column_id();
+        DORIS_CHECK(file_column_id != LocalColumnId::invalid());
+        if (!is_predicate_column &&
+            std::ranges::find_if(_request->predicate_columns, [&](const LocalColumnIndex& p) {
+                return p.column_id() == file_column_id;
+            }) != _request->predicate_columns.end()) {
+            return Status::OK();
+        }
+        if (!_request->local_positions.contains(file_column_id)) {
+            _request->local_positions.emplace(file_column_id, _next_block_position(*_request));
+        }
+
+        _sort_projection_children_by_file_id(&projection);
+        auto existing_projection_it = std::ranges::find_if(
+                *scan_columns,
+                [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
+        if (existing_projection_it == scan_columns->end()) {
+            scan_columns->push_back(std::move(projection));
+        } else {
+            RETURN_IF_ERROR(merge_local_column_index(&*existing_projection_it, projection));
+            _sort_projection_children_by_file_id(&*existing_projection_it);
+        }
+
+        if (is_predicate_column) {
+            auto it = std::ranges::find_if(
+                    _request->non_predicate_columns,
+                    [&](const LocalColumnIndex& p) { return p.column_id() == file_column_id; });
+            if (it != _request->non_predicate_columns.end()) {
+                _request->non_predicate_columns.erase(it);
+            }
+        }
+        return Status::OK();
+    }
+
+    FileScanRequest* _request = nullptr;
 };
 
 struct FileAggregateRequest {

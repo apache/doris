@@ -217,7 +217,15 @@ public:
     const ConstantMap& constant_map() const { return _constant_map; }
     std::string debug_string() const;
 
-private:
+protected:
+    // Columnar readers such as Parquet can read predicate columns first, evaluate row filters, and
+    // lazily read the rest. Row-oriented readers such as CSV/Text materialize one row at a time and
+    // should keep all required columns in one scan list.
+    virtual bool enable_lazy_materialization() const { return true; }
+    // File-layer column predicate filters are reader-specific pruning hints. Parquet consumes them
+    // for row-group/page-index/statistics pruning; simple delimited readers do not.
+    virtual bool enable_column_predicate_filters() const { return true; }
+
     const ColumnDefinition* _find_file_field(
             const ColumnDefinition& table_column,
             const std::vector<ColumnDefinition>& file_schema) const;
@@ -255,6 +263,25 @@ private:
     // hidden mappings for top-level filter slots that are absent from projected_columns.
     std::vector<ColumnDefinition> _file_schema;
     std::map<std::string, Field> _partition_values;
+};
+
+// Parquet consumes the full FileScanRequest shape: predicate columns for lazy materialization and
+// column_predicate_filters for statistics/page-index pruning.
+class ParquetColumnMapper final : public TableColumnMapper {
+public:
+    using TableColumnMapper::TableColumnMapper;
+};
+
+// Mapper for readers that always materialize every required file column before filtering. The
+// table-to-file schema mapping is still generic, but the FileScanRequest layout is simpler:
+// predicate_columns and column_predicate_filters are not populated.
+class MaterializedColumnMapper final : public TableColumnMapper {
+public:
+    using TableColumnMapper::TableColumnMapper;
+
+protected:
+    bool enable_lazy_materialization() const override { return false; }
+    bool enable_column_predicate_filters() const override { return false; }
 };
 
 } // namespace doris::format

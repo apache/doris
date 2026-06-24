@@ -989,6 +989,41 @@ TEST(ColumnMapperCollectNestedStructPathsTest, ProjectionMergeKeepsFilterOnlyPat
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 2);
 }
 
+TEST(ColumnMapperScanRequestTest, MaterializedMapperUsesSingleScanColumnList) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    auto table_a = name_col("a", int_type, 0);
+    auto table_b = name_col("b", int_type, 1);
+    auto full_table_struct = struct_name_col("s", {table_a, table_b});
+    auto table_output = struct_name_col("s", {table_a});
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", int_type, 1);
+    auto file_struct = struct_name_col("s", {file_a, file_b, name_col("c", string_type, 2)}, 5);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_output}, {}, {file_struct}).ok());
+
+    const auto path_b =
+            struct_element(table_slot(0, 0, full_table_struct.type, "s"), int_type, "b");
+    auto filter_expr = binary_predicate(TExprOpcode::GT, path_b,
+                                        literal(int_type, Field::create_field<TYPE_INT>(1)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_output}, &request).ok());
+
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
+    ASSERT_FALSE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_EQ(projection_ids(request.non_predicate_columns[0].children),
+              std::vector<int32_t>({0, 1}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_EQ(request.conjuncts.size(), 1);
+}
+
 // ----------------------------------------------------------------------
 // L1 create_mapping root matching tests.
 // These cases cover the three supported root matching modes and the

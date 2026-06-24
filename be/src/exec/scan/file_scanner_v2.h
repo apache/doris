@@ -58,6 +58,8 @@ public:
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
                                        const std::string& column_name);
+    static bool TEST_is_data_file_slot(const TFileScanSlotInfo& slot_info,
+                                       const std::string& column_name);
     static Status TEST_rewrite_slot_refs_to_global_index(
             VExprSPtr* expr,
             const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index);
@@ -117,6 +119,10 @@ private:
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;
+    // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
+    // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
+    // readers that cannot derive their schema from file metadata.
+    std::vector<SlotDescriptor*> _file_slot_descs;
     bool _need_global_rowid_column = false;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<int32_t, format::GlobalIndex> _slot_id_to_global_index;
