@@ -466,7 +466,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SortJsonbObjectKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitPart;
@@ -1055,7 +1054,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SortJsonbObjectKeys.class, "sort_jsonb_object_keys"),
             scalar(Soundex.class, "soundex"),
             scalar(Space.class, "space"),
-            scalar(SplitByChar.class, "split_by_char"),
             scalar(SplitByRegexp.class, "split_by_regexp", "regexp_split_to_array"),
             scalar(SplitByString.class, "split_by_string", "split"),
             scalar(SplitPart.class, "split_part"),
