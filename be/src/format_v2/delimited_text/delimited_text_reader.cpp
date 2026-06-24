@@ -26,10 +26,14 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr_context.h"
 #include "format/line_reader.h"
+#include "format_v2/column_mapper.h"
 #include "io/file_factory.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
@@ -45,6 +49,52 @@ DataTypePtr nullable_type(DataTypePtr type) {
                                                   : make_nullable(std::move(type));
 }
 
+ColumnDefinition synthetic_file_child(const std::string& name, DataTypePtr type, int32_t local_id);
+
+std::vector<ColumnDefinition> synthesize_file_children_from_type(const DataTypePtr& type) {
+    std::vector<ColumnDefinition> children;
+    if (type == nullptr) {
+        return children;
+    }
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto* array_type = assert_cast<const DataTypeArray*>(nested_type.get());
+        children.push_back(synthetic_file_child("element", array_type->get_nested_type(), 0));
+        break;
+    }
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(nested_type.get());
+        children.push_back(synthetic_file_child("key", map_type->get_key_type(), 0));
+        children.push_back(synthetic_file_child("value", map_type->get_value_type(), 1));
+        break;
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(nested_type.get());
+        children.reserve(struct_type->get_elements().size());
+        for (size_t idx = 0; idx < struct_type->get_elements().size(); ++idx) {
+            children.push_back(synthetic_file_child(struct_type->get_element_name(idx),
+                                                    struct_type->get_element(idx),
+                                                    cast_set<int32_t>(idx)));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return children;
+}
+
+ColumnDefinition synthetic_file_child(const std::string& name, DataTypePtr type, int32_t local_id) {
+    ColumnDefinition child;
+    child.identifier = Field::create_field<TYPE_STRING>(name);
+    child.local_id = local_id;
+    child.name = name;
+    child.type = std::move(type);
+    child.children = synthesize_file_children_from_type(child.type);
+    return child;
+}
+
 } // namespace
 
 DelimitedTextReader::DelimitedTextReader(
@@ -53,11 +103,13 @@ DelimitedTextReader::DelimitedTextReader(
         std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
         const TFileScanRangeParams* scan_params,
         const std::vector<SlotDescriptor*>& file_slot_descs,
-        TFileCompressType::type range_compress_type, std::string reader_name)
+        TFileCompressType::type range_compress_type, std::optional<TUniqueId> stream_load_id,
+        std::string reader_name)
         : FileReader(system_properties, file_description, std::move(io_ctx), profile),
           _scan_params(scan_params),
           _source_file_slot_descs(file_slot_descs),
           _range_compress_type(range_compress_type),
+          _stream_load_id(std::move(stream_load_id)),
           _reader_name(std::move(reader_name)) {}
 
 DelimitedTextReader::~DelimitedTextReader() {
@@ -114,6 +166,11 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         field.local_id = _source_column_idxs[i];
         field.name = slot->col_name();
         field.type = nullable_type(slot->get_data_type_ptr());
+        // Delimited text stores a complex value in one top-level text field, but TableColumnMapper
+        // still needs semantic children to localize nested projections and predicates. Expose
+        // ARRAY element, MAP key/value, and STRUCT fields as file-schema children while keeping the
+        // top-level local id as the physical text field ordinal from column_idxs.
+        field.children = synthesize_file_children_from_type(field.type);
         _file_schema.push_back(std::move(field));
     }
     _eof = false;
@@ -126,6 +183,11 @@ Status DelimitedTextReader::get_schema(std::vector<ColumnDefinition>* file_schem
     }
     *file_schema = _file_schema;
     return Status::OK();
+}
+
+std::unique_ptr<TableColumnMapper> DelimitedTextReader::create_column_mapper(
+        TableColumnMapperOptions options) const {
+    return std::make_unique<MaterializedColumnMapper>(std::move(options));
 }
 
 Status DelimitedTextReader::open(std::shared_ptr<FileScanRequest> request) {
@@ -328,15 +390,27 @@ Status DelimitedTextReader::_open_file() {
         _skip_lines = 1;
     }
 
-    auto reader_options =
-            FileFactory::get_reader_options(_runtime_state->query_options(), *_file_description);
-    auto file_reader = DORIS_TRY(FileFactory::create_file_reader(
-            *_system_properties, *_file_description, reader_options, _profile));
-    _file_reader = _io_ctx && _io_ctx->file_reader_stats
-                           ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
-                                                                     _io_ctx->file_reader_stats)
-                           : file_reader;
-    if (_file_reader->size() == 0 && _scan_params->file_type != TFileType::FILE_BROKER) {
+    if (_scan_params->file_type == TFileType::FILE_STREAM) {
+        if (!_stream_load_id.has_value()) {
+            return Status::InvalidArgument("{} v2 stream reader requires load id", _reader_name);
+        }
+        // Stream load/http_stream data lives in NewLoadStreamMgr rather than a filesystem. The
+        // generic FileFactory path only supports real file systems, so FILE_STREAM must use the
+        // same pipe-reader lookup as the old CSV reader.
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(*_stream_load_id, &_file_reader,
+                                                        _runtime_state, /*need_schema=*/false));
+    } else {
+        auto reader_options = FileFactory::get_reader_options(_runtime_state->query_options(),
+                                                              *_file_description);
+        auto file_reader = DORIS_TRY(FileFactory::create_file_reader(
+                *_system_properties, *_file_description, reader_options, _profile));
+        _file_reader = _io_ctx && _io_ctx->file_reader_stats
+                               ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+                                                                         _io_ctx->file_reader_stats)
+                               : file_reader;
+    }
+    if (_file_reader->size() == 0 && _scan_params->file_type != TFileType::FILE_STREAM &&
+        _scan_params->file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("init reader failed, empty {} file: {}", _reader_name,
                                  _file_description->path);
     }

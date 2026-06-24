@@ -71,6 +71,9 @@ public:
 
     Status get_schema(std::vector<format::ColumnDefinition>* file_schema) const override;
 
+    std::unique_ptr<format::TableColumnMapper> create_column_mapper(
+            format::TableColumnMapperOptions options) const override;
+
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
 
     // 读取下一批 Parquet file-local block。

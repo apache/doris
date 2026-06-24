@@ -271,19 +271,6 @@ protected:
         return Status::OK();
     }
 
-    virtual std::unique_ptr<TableColumnMapper> create_column_mapper(
-            TableColumnMapperOptions options) const {
-        switch (_format) {
-        case FileFormat::PARQUET:
-            return std::make_unique<ParquetColumnMapper>(std::move(options));
-        case FileFormat::CSV:
-        case FileFormat::TEXT:
-            return std::make_unique<MaterializedColumnMapper>(std::move(options));
-        default:
-            return std::make_unique<TableColumnMapper>(std::move(options));
-        }
-    }
-
     // Open the concrete reader for the current split/task and build the file-local scan request.
     virtual Status open_reader() {
         SCOPED_TIMER(_profile.open_reader_timer);
@@ -296,7 +283,7 @@ protected:
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = mapping_mode();
 
-        _data_reader.column_mapper = create_column_mapper(_mapper_options);
+        _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
         DORIS_CHECK(_data_reader.column_mapper != nullptr);
         RETURN_IF_ERROR(_data_reader.column_mapper->create_mapping(_projected_columns,
                                                                    _partition_values, file_schema));
@@ -1431,6 +1418,7 @@ protected:
     // the logical format as CSV/TEXT while carrying the concrete compression such as GZ or LZO on
     // each TFileRangeDesc, matching the old FileScanner reader contract.
     TFileCompressType::type _current_range_compress_type = TFileCompressType::UNKNOWN;
+    std::optional<TUniqueId> _current_range_load_id;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;

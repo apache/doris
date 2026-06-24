@@ -709,7 +709,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         // from `_file_slot_descs` and are materialized during finalize_chunk().
         *reader = std::make_unique<format::csv::CsvReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _scan_params, *_file_slot_descs, _current_range_compress_type);
+                _scan_params, *_file_slot_descs, _current_range_compress_type,
+                _current_range_load_id);
         return Status::OK();
     }
     if (_format == FileFormat::TEXT) {
@@ -720,7 +721,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         // and only passes physical file slots to the v2 TextReader.
         *reader = std::make_unique<format::text::TextReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _scan_params, *_file_slot_descs, _current_range_compress_type);
+                _scan_params, *_file_slot_descs, _current_range_compress_type,
+                _current_range_load_id);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",
@@ -752,6 +754,9 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_range_compress_type = options.current_range.__isset.compress_type
                                            ? options.current_range.compress_type
                                            : TFileCompressType::UNKNOWN;
+    _current_range_load_id = options.current_range.__isset.load_id
+                                     ? std::make_optional(options.current_range.load_id)
+                                     : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
     _aggregate_pushdown_tried = false;

@@ -50,6 +50,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
@@ -814,6 +815,17 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_EQ(schema[1].name, "value");
     ASSERT_TRUE(schema[1].type->is_nullable());
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_STRING);
+}
+
+// Scenario: Parquet is columnar and supports predicate/non-predicate split, nested projection and
+// file-layer pruning hints. The reader declares those scan-request capabilities by choosing
+// ParquetColumnMapper itself.
+TEST_F(NewParquetReaderTest, CreatesParquetColumnMapper) {
+    auto reader = create_reader();
+    auto mapper =
+            reader->create_column_mapper({.mode = format::TableColumnMappingMode::BY_FIELD_ID});
+
+    ASSERT_NE(dynamic_cast<format::ParquetColumnMapper*>(mapper.get()), nullptr);
 }
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {

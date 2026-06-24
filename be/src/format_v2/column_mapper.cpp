@@ -1149,6 +1149,38 @@ static void complete_required_complex_children_from_type(const DataTypePtr& type
     }
 }
 
+static Status validate_file_schema_children(const ColumnDefinition& file_field) {
+    if (file_field.type == nullptr) {
+        return Status::InternalError("File column '{}' has null type", file_field.name);
+    }
+    const auto nested_type = remove_nullable(file_field.type);
+    size_t expected_children = 0;
+    bool complex_with_fixed_children = true;
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_ARRAY:
+        expected_children = 1;
+        break;
+    case TYPE_MAP:
+        expected_children = 2;
+        break;
+    case TYPE_STRUCT:
+        expected_children =
+                assert_cast<const DataTypeStruct*>(nested_type.get())->get_elements().size();
+        break;
+    default:
+        complex_with_fixed_children = false;
+        break;
+    }
+    if (!complex_with_fixed_children || file_field.children.size() == expected_children) {
+        return Status::OK();
+    }
+    return Status::InternalError(
+            "Malformed complex file schema for column '{}': type={}, expected_children={}, "
+            "actual_children={}",
+            file_field.name, file_field.type->get_name(), expected_children,
+            file_field.children.size());
+}
+
 static bool has_projected_file_children(const ColumnMapping& mapping) {
     if (mapping.original_file_children.empty() || mapping.projected_file_children.empty()) {
         return false;
@@ -1936,6 +1968,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                     table_column.name, file_field.name, mapping->table_type->get_name(),
                     mapping->file_type->get_name());
         }
+        RETURN_IF_ERROR(validate_file_schema_children(file_field));
         std::vector<int32_t> synthesized_used_file_child_ids;
         for (size_t table_child_idx = 0; table_child_idx < table_children.size();
              ++table_child_idx) {

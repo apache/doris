@@ -19,6 +19,7 @@
 
 #include <sstream>
 
+#include "format_v2/column_mapper.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_state.h"
@@ -198,6 +199,11 @@ Status FileReader::init(RuntimeState* state) {
                                    : _file_reader;
     _eof = false;
     return Status::OK();
+}
+
+std::unique_ptr<TableColumnMapper> FileReader::create_column_mapper(
+        TableColumnMapperOptions options) const {
+    return std::make_unique<TableColumnMapper>(std::move(options));
 }
 
 } // namespace doris::format

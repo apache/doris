@@ -1025,6 +1025,27 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperUsesSingleScanColumnList) {
     EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
+// Scenario: a FileReader must expose semantic children for complex file columns. If it returns a
+// complex DataType but leaves ColumnDefinition::children empty, mapper should return a diagnostic
+// error instead of aborting inside ARRAY/MAP/STRUCT child lookup.
+TEST(ColumnMapperScanRequestTest, MalformedComplexFileSchemaReturnsError) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    auto table_a = name_col("a", int_type, 0);
+    auto table_b = name_col("b", string_type, 1);
+    auto table_struct = struct_name_col("s", {table_a, table_b});
+    auto file_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    auto malformed_file_struct = name_col("s", file_struct_type, 5);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    const auto status = mapper.create_mapping({table_struct}, {}, {malformed_file_struct});
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Malformed complex file schema"), std::string::npos)
+            << status;
+}
+
 // Scenario: when the projected table schema contains the child referenced by the filter, the
 // materialized mapper can still rewrite the table-level struct child predicate into a file-local
 // conjunct. It remains a single full-root scan column; only the expression is localized.

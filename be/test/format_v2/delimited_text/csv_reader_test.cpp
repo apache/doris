@@ -32,12 +32,15 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format_v2/column_mapper.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
@@ -116,6 +119,19 @@ std::vector<SlotDescriptor*> build_struct_slots(ObjectPool* pool) {
     return {make_test_slot(pool, 0, 0, make_nullable(std::make_shared<DataTypeInt32>()), "id"),
             make_test_slot(pool, 1, 1, struct_type, "s"),
             make_test_slot(pool, 2, 2, make_nullable(std::make_shared<DataTypeInt32>()), "score")};
+}
+
+std::vector<SlotDescriptor*> build_nested_complex_slots(ObjectPool* pool) {
+    const auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int, nullable_string}, Strings {"a", "b"}));
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(struct_type));
+    const auto map_type =
+            make_nullable(std::make_shared<DataTypeMap>(nullable_string, struct_type));
+    return {make_test_slot(pool, 0, 0, make_nullable(std::make_shared<DataTypeInt32>()), "id"),
+            make_test_slot(pool, 1, 1, array_type, "xs"),
+            make_test_slot(pool, 2, 2, map_type, "kv")};
 }
 
 std::unique_ptr<CsvReader> create_reader(
@@ -287,6 +303,50 @@ TEST_F(CsvV2ReaderTest, SchemaUsesSlotTypesAndColumnIdxs) {
     EXPECT_TRUE(schema[1].type->is_nullable());
 }
 
+// Scenario: CSV is row-oriented and cannot lazy-read predicate columns separately. The reader
+// declares that capability by choosing MaterializedColumnMapper itself.
+TEST_F(CsvV2ReaderTest, CreatesMaterializedColumnMapper) {
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    auto mapper = reader->create_column_mapper({.mode = TableColumnMappingMode::BY_NAME});
+
+    ASSERT_NE(dynamic_cast<MaterializedColumnMapper*>(mapper.get()), nullptr);
+}
+
+// Scenario: CSV has no embedded nested schema, but TableColumnMapper still needs semantic children
+// for complex table columns. The reader synthesizes ARRAY/MAP/STRUCT children from the slot type
+// while keeping the top-level local id as the CSV field ordinal from column_idxs.
+TEST_F(CsvV2ReaderTest, SchemaSynthesizesComplexChildrenForColumnMapper) {
+    _params.__set_column_idxs({4, 7, 9});
+    auto slots = build_nested_complex_slots(&_pool);
+    auto reader = create_reader(_file_path, &_params, slots, &_state, &_profile);
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 3);
+
+    EXPECT_EQ(schema[1].name, "xs");
+    EXPECT_EQ(schema[1].local_id, 7);
+    ASSERT_EQ(schema[1].children.size(), 1);
+    EXPECT_EQ(schema[1].children[0].name, "element");
+    EXPECT_EQ(schema[1].children[0].local_id, 0);
+    ASSERT_EQ(schema[1].children[0].children.size(), 2);
+    EXPECT_EQ(schema[1].children[0].children[0].name, "a");
+    EXPECT_EQ(schema[1].children[0].children[0].local_id, 0);
+    EXPECT_EQ(schema[1].children[0].children[1].name, "b");
+    EXPECT_EQ(schema[1].children[0].children[1].local_id, 1);
+
+    EXPECT_EQ(schema[2].name, "kv");
+    EXPECT_EQ(schema[2].local_id, 9);
+    ASSERT_EQ(schema[2].children.size(), 2);
+    EXPECT_EQ(schema[2].children[0].name, "key");
+    EXPECT_EQ(schema[2].children[0].local_id, 0);
+    EXPECT_EQ(schema[2].children[1].name, "value");
+    EXPECT_EQ(schema[2].children[1].local_id, 1);
+    ASSERT_EQ(schema[2].children[1].children.size(), 2);
+    EXPECT_EQ(schema[2].children[1].children[0].name, "a");
+    EXPECT_EQ(schema[2].children[1].children[1].name, "b");
+}
+
 // Scenario: CSV v2 honors FileScanRequest local positions, so TableReader can request a subset of
 // CSV fields in an order different from the physical CSV field order.
 TEST_F(CsvV2ReaderTest, ReadsRequestedColumnsInFileLocalBlockOrder) {
@@ -446,7 +506,8 @@ TEST_F(CsvV2ReaderTest, ColumnIdxsMapSlotsToCsvOrdinals) {
 
 // Scenario: CSV stores one complex column as one text field, so v2 must read the whole struct
 // field before evaluating a file-local predicate on one child. This covers `SELECT s.a WHERE
-// s.b > 10` style scans after MaterializedColumnMapper has requested the full top-level `s`.
+// s.b > 10` style scans after CsvReader's MaterializedColumnMapper has requested the full
+// top-level `s`.
 TEST_F(CsvV2ReaderTest, FullStructColumnSupportsChildConjunctFiltering) {
     const auto complex_path = (_test_dir / "complex.csv").string();
     std::ofstream output(complex_path, std::ios::binary);
@@ -515,6 +576,25 @@ TEST_F(CsvV2ReaderTest, UnknownFirstSplitSizeReadsUntilEof) {
     ASSERT_EQ(rows, 2);
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
     EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 1), "bob");
+}
+
+// Scenario: stream load/http_stream CSV input is not backed by a filesystem. If TableReader fails
+// to preserve the stream load id, the v2 reader should report that directly instead of calling the
+// generic FileFactory path and returning "unsupported file reader type: 2".
+TEST_F(CsvV2ReaderTest, StreamInputRequiresLoadIdBeforeOpeningPipe) {
+    _params.__set_file_type(TFileType::FILE_STREAM);
+    auto reader = create_unknown_size_reader(_file_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    const auto status = reader->open(request);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("stream reader requires load id"), std::string::npos)
+            << status;
 }
 
 // Scenario: CSV has no footer row count, so v2 COUNT pushdown scans the split and returns the

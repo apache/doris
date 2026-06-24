@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "format_v2/delimited_text/delimited_text_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -42,7 +43,8 @@ public:
                std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                const TFileScanRangeParams* scan_params,
                const std::vector<SlotDescriptor*>& file_slot_descs,
-               TFileCompressType::type range_compress_type = TFileCompressType::UNKNOWN);
+               TFileCompressType::type range_compress_type = TFileCompressType::UNKNOWN,
+               std::optional<TUniqueId> stream_load_id = std::nullopt);
     ~TextReader() override;
 
 private:

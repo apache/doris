@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,8 @@ public:
 
     Status init(RuntimeState* state) override;
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
+    std::unique_ptr<TableColumnMapper> create_column_mapper(
+            TableColumnMapperOptions options) const override;
     Status open(std::shared_ptr<FileScanRequest> request) override;
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status get_aggregate_result(const FileAggregateRequest& request,
@@ -67,7 +70,8 @@ protected:
                         std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                         const TFileScanRangeParams* scan_params,
                         const std::vector<SlotDescriptor*>& file_slot_descs,
-                        TFileCompressType::type range_compress_type, std::string reader_name);
+                        TFileCompressType::type range_compress_type,
+                        std::optional<TUniqueId> stream_load_id, std::string reader_name);
 
     // Initialize format-specific options after the common init path has validated scan params and
     // runtime state. Implementations must fill `_value_separator`, `_line_delimiter`,
@@ -118,6 +122,7 @@ protected:
     std::string _line_delimiter;
     TFileCompressType::type _file_compress_type = TFileCompressType::UNKNOWN;
     TFileCompressType::type _range_compress_type = TFileCompressType::UNKNOWN;
+    std::optional<TUniqueId> _stream_load_id;
     int64_t _start_offset = 0;
     int64_t _size = -1;
     int _skip_lines = 0;

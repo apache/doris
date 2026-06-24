@@ -47,6 +47,9 @@ struct IOContext;
 
 namespace doris::format {
 
+class TableColumnMapper;
+struct TableColumnMapperOptions;
+
 // Struct-only nested predicate target used by file-layer pruning.
 //
 // This intentionally models only a STRUCT field chain. LIST/MAP/repeated predicates need explicit
@@ -332,6 +335,13 @@ public:
     // This method can only be called after init() successfully, but does not require open() to be
     // called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
+
+    // Create the mapper that matches this reader's scan-request capabilities. TableReader still
+    // owns table-format semantics such as BY_NAME/BY_FIELD_ID/BY_INDEX, partition values and
+    // default expressions; the FileReader only chooses whether file-local requests support columnar
+    // lazy materialization/pruning or must materialize one flat list of required columns.
+    virtual std::unique_ptr<TableColumnMapper> create_column_mapper(
+            TableColumnMapperOptions options) const;
 
     // Open the file reader with file-local scan request. The file reader should initialize its internal state according to the request, but does not need to interpret table/global schema semantics. For example, all schema change, filter localization, default/generated/partition columns should be handled in table reader layer. This method can only be called after init() successfully.
     virtual Status open(std::shared_ptr<FileScanRequest> request) {

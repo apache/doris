@@ -63,9 +63,11 @@ CsvReader::CsvReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      const TFileScanRangeParams* scan_params,
                      const std::vector<SlotDescriptor*>& file_slot_descs,
-                     TFileCompressType::type range_compress_type)
+                     TFileCompressType::type range_compress_type,
+                     std::optional<TUniqueId> stream_load_id)
         : DelimitedTextReader(system_properties, file_description, std::move(io_ctx), profile,
-                              scan_params, file_slot_descs, range_compress_type, "CSV") {}
+                              scan_params, file_slot_descs, range_compress_type,
+                              std::move(stream_load_id), "CSV") {}
 
 CsvReader::~CsvReader() = default;
 

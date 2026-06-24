@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_scan.h"
@@ -227,6 +228,11 @@ Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_sch
         file_schema->push_back(format::global_rowid_column_definition());
     }
     return Status::OK();
+}
+
+std::unique_ptr<format::TableColumnMapper> ParquetReader::create_column_mapper(
+        format::TableColumnMapperOptions options) const {
+    return std::make_unique<format::ParquetColumnMapper>(std::move(options));
 }
 
 Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
