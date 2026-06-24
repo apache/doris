@@ -224,13 +224,14 @@ std::unique_ptr<ParquetColumnReader> ParquetColumnReaderFactory::create_global_r
 
 Status ParquetColumnReaderFactory::make_scalar_column_reader(
         const ParquetColumnSchema& column_schema,
-        std::shared_ptr<::parquet::internal::RecordReader> record_reader,
+        std::shared_ptr<::parquet::internal::RecordReader> record_reader, bool use_page_skip_plan,
         std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
     const auto* page_skip_plan =
-            find_page_skip_plan(_page_skip_plans, column_schema.leaf_column_id);
+            use_page_skip_plan ? find_page_skip_plan(_page_skip_plans, column_schema.leaf_column_id)
+                               : nullptr;
     *reader = std::make_unique<ScalarColumnReader>(column_schema, std::move(record_reader),
                                                    page_skip_plan, _timezone, _enable_strict_mode,
                                                    _column_reader_profile);
@@ -277,9 +278,12 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
                                     column_schema.name);
     }
     std::shared_ptr<::parquet::internal::RecordReader> record_reader;
+    // Nested readers implement skip() by materializing rows into a scratch column. If Arrow
+    // page filtering is also installed, those scratch reads can consume the next selected row
+    // after a page-index range gap. Keep page filtering on flat scalar readers only.
     RETURN_IF_ERROR(get_record_reader(column_schema.leaf_column_id, column_schema.descriptor,
-                                      column_schema.name, &record_reader));
-    return make_scalar_column_reader(column_schema, std::move(record_reader), reader);
+                                      column_schema.name, !is_nested, &record_reader));
+    return make_scalar_column_reader(column_schema, std::move(record_reader), !is_nested, reader);
 }
 
 // 惰性创建并缓存 Arrow RecordReader（按 leaf_column_id 索引）。
@@ -295,6 +299,7 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
 //   4. SetPageReader() — 绑定 PageReader
 Status ParquetColumnReaderFactory::get_record_reader(
         int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor, const std::string& name,
+        bool install_page_filter,
         std::shared_ptr<::parquet::internal::RecordReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
@@ -314,8 +319,10 @@ Status ParquetColumnReaderFactory::get_record_reader(
     if (_record_readers[leaf_column_id] == nullptr) {
         try {
             auto page_reader = _row_group->GetColumnPageReader(leaf_column_id);
-            install_data_page_filter(page_reader, _page_skip_plans, leaf_column_id,
-                                     _page_skip_profile);
+            if (install_page_filter) {
+                install_data_page_filter(page_reader, _page_skip_plans, leaf_column_id,
+                                         _page_skip_profile);
+            }
             const auto level_info = ::parquet::internal::LevelInfo::ComputeLevelInfo(descriptor);
             _record_readers[leaf_column_id] = ::parquet::internal::RecordReader::Make(
                     descriptor, level_info, ::arrow::default_memory_pool(),

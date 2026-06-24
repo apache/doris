@@ -244,14 +244,14 @@ private:
     // 多个 Doris reader 可能通过不同嵌套路径共享同一个物理列的数据流，
     // 因此 RecordReader 的生命周期绑定到 RowGroup 工厂。
     Status get_record_reader(int leaf_column_id, const ::parquet::ColumnDescriptor* descriptor,
-                             const std::string& name,
+                             const std::string& name, bool install_page_filter,
                              std::shared_ptr<::parquet::internal::RecordReader>* reader) const;
 
     // 在 schema 校验和 RecordReader 查找完成后，最终构造 ScalarColumnReader。
     Status make_scalar_column_reader(
             const ParquetColumnSchema& column_schema,
             std::shared_ptr<::parquet::internal::RecordReader> record_reader,
-            std::unique_ptr<ParquetColumnReader>* reader) const;
+            bool use_page_skip_plan, std::unique_ptr<ParquetColumnReader>* reader) const;
 
     std::shared_ptr<::parquet::RowGroupReader> _row_group; // Arrow RowGroup 读取器
     mutable std::vector<std::shared_ptr<::parquet::internal::RecordReader>>
