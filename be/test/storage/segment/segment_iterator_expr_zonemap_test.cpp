@@ -26,10 +26,12 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "exprs/vslot_ref.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/row_ranges.h"
@@ -43,18 +45,10 @@ namespace {
 
 constexpr auto kTestDir = "./ut_dir/segment_iterator_expr_zonemap_test";
 constexpr int kNumRows = 8192;
-const RowsetId kRowsetId {1};
+const RowsetId kRowsetId {.version = 1};
 
 Field int_field(int32_t value) {
     return Field::create_field<TYPE_INT>(value);
-}
-
-VExprSPtr make_int_slot(int column_id) {
-    auto slot = std::make_shared<VSlotRef>();
-    slot->set_node_type(TExprNodeType::SLOT_REF);
-    slot->set_column_id(column_id);
-    slot->data_type() = std::make_shared<DataTypeInt32>();
-    return slot;
 }
 
 class IntMaxAtLeastExpr final : public VExpr {
@@ -62,7 +56,6 @@ public:
     IntMaxAtLeastExpr(int column_id, int32_t threshold)
             : _column_id(column_id), _threshold(threshold) {
         _data_type = std::make_shared<DataTypeUInt8>();
-        add_child(make_int_slot(column_id));
     }
 
     const std::string& expr_name() const override { return _expr_name; }
@@ -73,6 +66,12 @@ public:
     }
 
     bool can_evaluate_zonemap_filter() const override { return true; }
+
+    bool is_constant() const override { return false; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
         auto zone_map = ctx.zone_map(_column_id);
@@ -162,9 +161,64 @@ protected:
         ASSERT_EQ(kNumRows, (*segment)->num_rows());
     }
 
+    void prepare_expr_context(const VExprContextSPtr& expr_ctx) {
+        RowDescriptor row_desc;
+        auto st = expr_ctx->prepare(&_runtime_state, row_desc);
+        ASSERT_TRUE(st.ok()) << st;
+        st = expr_ctx->open(&_runtime_state);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
     TabletSchemaSPtr _tablet_schema;
     OlapReaderStatistics _stats;
+    RuntimeState _runtime_state;
 };
+
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonemap) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 2000));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.common_expr_ctxs_push_down = {expr_ctx};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_TRUE(iter->empty());
+    EXPECT_EQ(1, _stats.total_segment_number);
+    EXPECT_EQ(1, _stats.filtered_segment_number);
+    EXPECT_EQ(1, _stats.expr_zonemap_filtered_segments);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMayMatch) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.common_expr_ctxs_push_down = {expr_ctx};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_FALSE(iter->empty());
+    EXPECT_EQ(1, _stats.total_segment_number);
+    EXPECT_EQ(0, _stats.filtered_segment_number);
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
+}
 
 TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     std::shared_ptr<Segment> segment;

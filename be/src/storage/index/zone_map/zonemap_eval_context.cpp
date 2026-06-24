@@ -18,9 +18,6 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 
 #include <algorithm>
-#include <string>
-
-#include "runtime/runtime_profile.h"
 
 namespace doris {
 
@@ -47,25 +44,6 @@ void ZoneMapEvalStats::merge_page_eval_stats(const ZoneMapEvalStats& src) {
             std::max(unusable_zonemap_eval_count, src.unusable_zonemap_eval_count);
     in_zonemap_point_check_count += src.in_zonemap_point_check_count;
     in_zonemap_range_only_count += src.in_zonemap_range_only_count;
-}
-
-void ZoneMapEvalStats::accumulate_into_profile(RuntimeProfile* profile) const {
-    if (profile == nullptr) {
-        return;
-    }
-    auto update_counter = [profile](const std::string& name, int64_t value) {
-        if (value == 0) {
-            return;
-        }
-        profile->add_counter(name, TUnit::UNIT)->update(value);
-    };
-    update_counter("ExprZoneMapUnusableEvals", unusable_zonemap_eval_count);
-    update_counter("InZoneMapPointCheckCount", in_zonemap_point_check_count);
-    update_counter("InZoneMapRangeOnlyCount", in_zonemap_range_only_count);
-}
-
-void ZoneMapEvalContext::accumulate_into_profile(RuntimeProfile* profile) const {
-    stats.accumulate_into_profile(profile);
 }
 
 } // namespace doris

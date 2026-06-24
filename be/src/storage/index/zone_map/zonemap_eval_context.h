@@ -27,12 +27,9 @@
 
 namespace doris {
 
-class RuntimeProfile;
-
 class ZoneMapEvalStats {
 public:
     void merge_page_eval_stats(const ZoneMapEvalStats& src);
-    void accumulate_into_profile(RuntimeProfile* profile) const;
 
     template <typename ReaderStatistics>
     void accumulate_to(ReaderStatistics* stats) const {
@@ -59,7 +56,6 @@ public:
 
     std::shared_ptr<const segment_v2::ZoneMap> zone_map(int slot_index) const;
     DataTypePtr data_type(int slot_index) const;
-    void accumulate_into_profile(RuntimeProfile* profile) const;
 
     phmap::flat_hash_map<int, SlotZoneMap> slots;
 
