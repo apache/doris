@@ -313,7 +313,10 @@ Status S3FileWriter::_close_impl() {
     if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
         auto st = _submit_upload_buffer(_pending_buf);
         _pending_buf = nullptr;
-        RETURN_IF_ERROR(st);
+        if (!st.ok()) {
+            _wait_until_finish("pending buffer submit failed");
+            return st;
+        }
     }
 
     RETURN_IF_ERROR(_complete());
