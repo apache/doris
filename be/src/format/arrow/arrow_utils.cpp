@@ -38,7 +38,17 @@ arrow::Status to_arrow_status(const Status& status) {
         // The length of exception msg returned to the ADBC Client cannot larger than 8192,
         // otherwise ADBC Client will receive:
         // `INTERNAL: http2 exception Header size exceeded max allowed size (8192)`.
-        return arrow::Status::Invalid(status.to_string_no_stack());
+        // The message is carried in the gRPC trailer (an HTTP2 header) and may be
+        // percent-encoded (which can expand its size), so an oversized message can break the
+        // response or even crash the flight transport status conversion. Truncate it well below
+        // 8192 to leave headroom; the full message is already logged above.
+        constexpr size_t kMaxArrowStatusMsgLen = 4096;
+        std::string msg = status.to_string_no_stack();
+        if (msg.size() > kMaxArrowStatusMsgLen) {
+            msg.resize(kMaxArrowStatusMsgLen);
+            msg += "... (truncated)";
+        }
+        return arrow::Status::Invalid(msg);
     }
 }
 
