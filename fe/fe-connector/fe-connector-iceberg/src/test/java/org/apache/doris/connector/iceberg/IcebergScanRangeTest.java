@@ -372,4 +372,49 @@ public class IcebergScanRangeTest {
         Assertions.assertEquals(4242L,
                 populate(range, new TFileRangeDesc()).getTableFormatParams().getTableLevelRowCount());
     }
+
+    // ---- T05: system-table serialized-split carrier (serialized_split + FORMAT_JNI, minimal shape) ----
+
+    @Test
+    public void serializedSplitDefaultsToNullAndIsNotEmittedOnNormalRanges() {
+        // A normal data-file range carries no serialized_split: the carrier defaults to null and
+        // populateRangeParams must NOT set the thrift field, so every T02/T03/T04 range is byte-unchanged.
+        // MUTATION: emitting serialized_split unconditionally -> a stray sys field on every native range -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2).build();
+        Assertions.assertNull(range.getSerializedSplit());
+        TIcebergFileDesc fd = populate(range, new TFileRangeDesc()).getTableFormatParams().getIcebergParams();
+        Assertions.assertFalse(fd.isSetSerializedSplit());
+    }
+
+    @Test
+    public void populateRangeParamsSystemTableEmitsSerializedSplitAndJniFormatOnly() {
+        // A system-table (JNI) range mirrors legacy IcebergScanNode.setIcebergParams isSystemTable branch:
+        // emit ONLY serialized_split + FORMAT_JNI + table_level_row_count=-1, and NONE of the file-level
+        // carriers (format_version, original_file_path, content, delete_files, partition). The BE
+        // IcebergSysTableJniScanner reads serialized_split and ignores every other field, so emitting them
+        // would be a parity divergence. MUTATION: falling through to the normal data-file shape (setting
+        // format_version / original_file_path) -> red; not setting FORMAT_JNI -> red; not setting
+        // serialized_split -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("/dummyPath").serializedSplit("BASE64-FILESCANTASK").build();
+        Assertions.assertEquals("BASE64-FILESCANTASK", range.getSerializedSplit());
+
+        TFileRangeDesc rangeDesc = populate(range, new TFileRangeDesc());
+        TIcebergFileDesc fd = rangeDesc.getTableFormatParams().getIcebergParams();
+
+        Assertions.assertTrue(rangeDesc.getTableFormatParams().isSetIcebergParams());
+        Assertions.assertEquals("BASE64-FILESCANTASK", fd.getSerializedSplit());
+        // FORMAT_JNI per-range (legacy setIcebergParams:290), and the -1 table-level row count (legacy :291).
+        Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType());
+        Assertions.assertEquals(-1L, rangeDesc.getTableFormatParams().getTableLevelRowCount());
+        // Minimal shape: NONE of the normal data-file carriers are set (legacy returns early before them).
+        Assertions.assertFalse(fd.isSetFormatVersion());
+        Assertions.assertFalse(fd.isSetOriginalFilePath());
+        Assertions.assertFalse(fd.isSetContent());
+        Assertions.assertFalse(fd.isSetDeleteFiles());
+        Assertions.assertFalse(fd.isSetPartitionSpecId());
+        // No columns-from-path on a sys split (the metadata table is not path-partitioned).
+        Assertions.assertFalse(rangeDesc.isSetColumnsFromPath());
+    }
 }

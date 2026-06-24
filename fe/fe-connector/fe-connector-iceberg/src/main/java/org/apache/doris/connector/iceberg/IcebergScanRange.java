@@ -76,6 +76,13 @@ public class IcebergScanRange implements ConnectorScanRange {
     // node's EXPLAIN "pushdown agg=COUNT (n)" line (getPushDownRowCount) and the BE thrift
     // table_level_row_count (populateRangeParams).
     private final long pushDownRowCount;
+    // System-table (P6.5-T05) serialized FileScanTask: base64 of SerializationUtil.serializeToBase64(task).
+    // Null for every normal data-file range (those stay byte-unchanged). When set, this range is a JNI
+    // system-table split: populateRangeParams emits the legacy sys shape — ONLY serialized_split + FORMAT_JNI
+    // + table_level_row_count=-1 — because the BE IcebergSysTableJniScanner reads serialized_split (and feeds
+    // it back to SerializationUtil.deserializeFromBase64(...).asDataTask().rows()), ignoring every file-level
+    // field. Mirrors legacy IcebergSplit.serializedSplit / IcebergScanNode.setIcebergParams isSystemTable.
+    private final String serializedSplit;
 
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
@@ -98,6 +105,7 @@ public class IcebergScanRange implements ConnectorScanRange {
                 ? Collections.unmodifiableList(builder.deleteFiles)
                 : Collections.emptyList();
         this.pushDownRowCount = builder.pushDownRowCount;
+        this.serializedSplit = builder.serializedSplit;
     }
 
     @Override
@@ -176,6 +184,16 @@ public class IcebergScanRange implements ConnectorScanRange {
         return pushDownRowCount;
     }
 
+    /**
+     * The base64-serialized iceberg {@code FileScanTask} for a system-table (JNI) split, or {@code null} for a
+     * normal data-file range. When non-null this range carries no real file (its path is a dummy) — BE's
+     * {@code IcebergSysTableJniScanner} deserializes this and materializes the metadata rows. Mirrors legacy
+     * {@code IcebergSplit.getSerializedSplit}.
+     */
+    public String getSerializedSplit() {
+        return serializedSplit;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         // Iceberg carries its per-range payload as typed fields (see populateRangeParams), not as string
@@ -193,6 +211,19 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
+        if (serializedSplit != null) {
+            // System-table (JNI) split: mirror legacy IcebergScanNode.setIcebergParams isSystemTable branch —
+            // emit ONLY the serialized FileScanTask + FORMAT_JNI + table_level_row_count=-1, and NONE of the
+            // file-level carriers (format_version / original_file_path / content / delete_files / partition).
+            // BE's IcebergSysTableJniScanner reads serialized_split (deserializeFromBase64 -> asDataTask().rows())
+            // and ignores every other field, so emitting them would be a parity divergence. Returns early, like
+            // legacy (setFormatType(FORMAT_JNI):290, setTableLevelRowCount(-1):291, setSerializedSplit:292).
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
+            formatDesc.setTableLevelRowCount(-1);
+            fileDesc.setSerializedSplit(serializedSplit);
+            formatDesc.setIcebergParams(fileDesc);
+            return;
+        }
         fileDesc.setFormatVersion(formatVersion);
         // original_file_path = the RAW (un-normalized) data-file path; BE matches position-delete entries
         // against it (legacy setOriginalFilePath:304 uses the raw originalPath, not the normalized location).
@@ -281,6 +312,7 @@ public class IcebergScanRange implements ConnectorScanRange {
         private Map<String, String> partitionValues;
         private List<DeleteFile> deleteFiles;
         private long pushDownRowCount = -1;
+        private String serializedSplit;
 
         public Builder path(String path) {
             this.path = path;
@@ -351,6 +383,12 @@ public class IcebergScanRange implements ConnectorScanRange {
         /** The precomputed COUNT(*)-pushdown row count for the collapsed count range; default -1 (no count). */
         public Builder pushDownRowCount(long pushDownRowCount) {
             this.pushDownRowCount = pushDownRowCount;
+            return this;
+        }
+
+        /** The base64 serialized iceberg {@code FileScanTask} for a system-table (JNI) split; default null. */
+        public Builder serializedSplit(String serializedSplit) {
+            this.serializedSplit = serializedSplit;
             return this;
         }
 

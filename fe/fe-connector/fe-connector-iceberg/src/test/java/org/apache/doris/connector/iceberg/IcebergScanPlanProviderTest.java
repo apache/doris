@@ -43,15 +43,18 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -59,6 +62,7 @@ import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -69,6 +73,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1638,6 +1643,135 @@ public class IcebergScanPlanProviderTest {
                 return Collections.emptyMap();
             }
         };
+    }
+
+    // --- T05: system-table (JNI) serialized-split scan path (planScan on an iceberg $sys handle) ---
+
+    @Test
+    public void planScanForSystemTableSerializesEachFileScanTaskAsJniSplit() {
+        // A $snapshots handle plans through the metadata table (MetadataTableUtils.createMetadataTableInstance):
+        // each metadata FileScanTask is serialized (SerializationUtil.serializeToBase64) and emitted as a JNI
+        // split carrying ONLY serialized_split + FORMAT_JNI + table_level_row_count=-1, mirroring legacy
+        // IcebergScanNode.doGetSystemTableSplits + setIcebergParams. MUTATION: routing the sys handle through
+        // the normal data-file path (resolveTable + buildRange) -> the range carries the f1.parquet path and no
+        // serialized_split -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(ranges.isEmpty(), "the $snapshots metadata table must plan at least one split");
+        for (ConnectorScanRange range : ranges) {
+            String serialized = ((IcebergScanRange) range).getSerializedSplit();
+            Assertions.assertNotNull(serialized, "every sys split must carry a serialized FileScanTask");
+            Assertions.assertFalse(serialized.isEmpty());
+            TFileRangeDesc rangeDesc = populate(range);
+            Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType());
+            Assertions.assertEquals(serialized,
+                    rangeDesc.getTableFormatParams().getIcebergParams().getSerializedSplit());
+            Assertions.assertEquals(-1L, rangeDesc.getTableFormatParams().getTableLevelRowCount());
+        }
+    }
+
+    @Test
+    public void planScanForSystemTableSplitDeserializesThroughTheBeJniReaderPath() throws Exception {
+        // The strongest FE-reachable byte-shape parity check: the serialized_split must be consumable EXACTLY
+        // as BE's IcebergSysTableJniScanner consumes it —
+        // SerializationUtil.deserializeFromBase64(...).asDataTask().rows() — and must carry the METADATA-table
+        // schema ($snapshots), not the base table's. (Cross-version / classloader interop is P6.8 docker e2e.)
+        // MUTATION: serializing anything other than the FileScanTask (e.g. the DataFile) -> deserialize /
+        // asDataTask() fails or yields the wrong schema -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        long snapshotRows = 0;
+        for (ConnectorScanRange range : ranges) {
+            FileScanTask task =
+                    SerializationUtil.deserializeFromBase64(((IcebergScanRange) range).getSerializedSplit());
+            // the deserialized task exposes the $snapshots metadata schema, not the base table's columns.
+            Assertions.assertNotNull(task.schema().findField("snapshot_id"),
+                    "the serialized split must carry the metadata-table ($snapshots) schema");
+            Assertions.assertNull(task.schema().findField("name"),
+                    "the serialized split must NOT carry the base table's columns");
+            try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {
+                Iterator<StructLike> it = rows.iterator();
+                while (it.hasNext()) {
+                    it.next();
+                    snapshotRows++;
+                }
+            }
+        }
+        Assertions.assertEquals(1L, snapshotRows, "one commit -> the $snapshots table has one row");
+    }
+
+    @Test
+    public void planScanForSystemTableHonorsTheSnapshotPin() throws Exception {
+        // Iceberg system tables are legal time-travel targets (deviation (1)): the connector must apply the
+        // snapshot pin to the metadata-table scan (legacy createTableScan -> scan.useSnapshot). $files is the
+        // time-travel-observable table: it lists the data files LIVE in the pinned snapshot. S1 has one file;
+        // after S2 the latest $files lists two. Pinned to S1 the connector must read only S1's view (one file
+        // row), proving the pin flows into buildScan. MUTATION: bypassing buildScan / dropping the pin (reading
+        // latest) -> two rows -> red. (NB: $snapshots ignores useSnapshot — it always lists all snapshots from
+        // current metadata — so it is NOT observable here; legacy has the identical no-op, both apply the pin.)
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        long latestRows = countSerializedSplitRows(provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty()));
+        long pinnedRows = countSerializedSplitRows(provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", s1, null, -1L),
+                Collections.emptyList(), Optional.empty()));
+
+        Assertions.assertEquals(2L, latestRows, "latest $files should list both data files");
+        Assertions.assertEquals(1L, pinnedRows, "pinned-to-S1 $files should list only S1's file");
+    }
+
+    @Test
+    public void planScanForSystemTableLoadsMetadataInsideTheAuthScope() {
+        // The base-table load + metadata-table build run inside ONE context.executeAuthenticated, so the
+        // FE-injected Kerberos UGI covers the remote base load (mirrors IcebergConnectorMetadata.loadSysTable /
+        // legacy IcebergSysExternalTable.getSysIcebergTable). The base table is loaded by its BARE name, never a
+        // "$snapshots" suffix. MUTATION: resolving the metadata table OUTSIDE the auth wrap -> authCount 0 -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        RecordingIcebergCatalogOps ops = opsReturning(table);
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), ops, context);
+
+        provider.planScan(null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(1, context.authCount);
+        Assertions.assertEquals("db1", ops.lastLoadDb);
+        Assertions.assertEquals("t1", ops.lastLoadTable);
+    }
+
+    private static long countSerializedSplitRows(List<ConnectorScanRange> ranges) throws Exception {
+        long rows = 0;
+        for (ConnectorScanRange range : ranges) {
+            FileScanTask task =
+                    SerializationUtil.deserializeFromBase64(((IcebergScanRange) range).getSerializedSplit());
+            try (CloseableIterable<StructLike> closeable = task.asDataTask().rows()) {
+                Iterator<StructLike> it = closeable.iterator();
+                while (it.hasNext()) {
+                    it.next();
+                    rows++;
+                }
+            }
+        }
+        return rows;
     }
 
     /** A fake FileIO carrying only its own properties (no server-vended StorageCredentials). */

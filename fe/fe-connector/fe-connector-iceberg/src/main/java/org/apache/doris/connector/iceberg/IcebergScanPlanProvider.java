@@ -42,6 +42,8 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
@@ -62,6 +64,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.util.SerializationUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -117,6 +120,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
     // Session var: when a table has only (dangling) position deletes, ignore them and still push count down.
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
+
+    // System-table (P6.5-T05) JNI split: a placeholder path matching legacy IcebergSplit.DUMMY_PATH. A sys split
+    // carries no real file (BE reads the serialized FileScanTask), so the path is never opened — it only keeps
+    // the generic split framework's non-null-path contract.
+    private static final String SYS_TABLE_DUMMY_PATH = "/dummyPath";
 
     // FIX-SCHEMA-EVOLUTION (T06): scan-level prop carrying the base64 TBinaryProtocol-serialized schema
     // dictionary (current_schema_id + the single history_schema_info entry). getScanNodeProperties builds it
@@ -210,6 +218,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable()) {
+            // System tables ($snapshots/$history/...) take the JNI serialized-split path, never the data-file
+            // path below (no count pushdown, no data-file ranges) — mirrors legacy IcebergScanNode branching on
+            // isSystemTable. Dormant until P6.6 (the table is still IcebergExternalTable pre-flip).
+            return planSystemTableScan(iceHandle, filter, session);
+        }
         Table table = resolveTable(iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
 
@@ -256,6 +270,40 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     + e.getMessage(), e);
         }
         LOG.debug("Iceberg planScan produced {} ranges for table {}", ranges.size(), table.name());
+        return ranges;
+    }
+
+    /**
+     * Plan the system-table (JNI) scan for a {@code $sys} handle, mirroring legacy
+     * {@code IcebergScanNode.doGetSystemTableSplits} + {@code createIcebergSysSplit} + {@code setIcebergParams}:
+     * resolve the metadata table ({@link #resolveSysTable}), apply the time-travel pin + predicate through the
+     * shared {@link #buildScan} (legacy {@code createTableScan} honors {@code useSnapshot}/{@code useRef} on the
+     * metadata-table scan too — iceberg system tables are legal time-travel targets), then serialize each
+     * metadata {@code FileScanTask} ({@code SerializationUtil.serializeToBase64}) into a JNI split carrying ONLY
+     * {@code serialized_split} + {@code FORMAT_JNI} (see {@link IcebergScanRange#populateRangeParams}). COUNT(*)
+     * pushdown does not apply (a metadata table has no snapshot-summary count). The serialized {@code
+     * FileScanTask} bytes are consumed verbatim by BE's {@code IcebergSysTableJniScanner}
+     * ({@code deserializeFromBase64(...).asDataTask().rows()}); FE unit tests cannot reach the BE classloader, so
+     * the cross-version byte compatibility is covered by the P6.8 docker e2e. Dormant until P6.6.
+     */
+    private List<ConnectorScanRange> planSystemTableScan(IcebergTableHandle handle,
+            Optional<ConnectorExpression> filter, ConnectorSession session) {
+        Table metadataTable = resolveSysTable(handle);
+        TableScan scan = buildScan(metadataTable, handle, filter, session);
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            for (FileScanTask task : tasks) {
+                ranges.add(new IcebergScanRange.Builder()
+                        .path(SYS_TABLE_DUMMY_PATH)
+                        .serializedSplit(SerializationUtil.serializeToBase64(task))
+                        .build());
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to enumerate iceberg system-table scan tasks, error message is:"
+                    + e.getMessage(), e);
+        }
+        LOG.debug("Iceberg planScan produced {} system-table splits for {}.{}${}", ranges.size(),
+                handle.getDbName(), handle.getTableName(), handle.getSysTableName());
         return ranges;
     }
 
@@ -1038,6 +1086,30 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Resolve the metadata table for a system-table handle, mirroring
+     * {@code IcebergConnectorMetadata.loadSysTable} (and legacy {@code IcebergSysExternalTable.getSysIcebergTable}):
+     * load the BASE table and build the metadata-table instance ({@code MetadataTableUtils}) inside ONE auth
+     * scope, so the FE-injected Kerberos UGI covers the remote base load. {@code getSysTableName()} is the
+     * already-validated lowercase name, so {@code MetadataTableType.from} never returns null. A {@code null}
+     * context (offline unit tests / simple-auth) resolves directly.
+     */
+    private Table resolveSysTable(IcebergTableHandle handle) {
+        if (context == null) {
+            return MetadataTableUtils.createMetadataTableInstance(
+                    catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                    MetadataTableType.from(handle.getSysTableName()));
+        }
+        try {
+            return context.executeAuthenticated(() -> MetadataTableUtils.createMetadataTableInstance(
+                    catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                    MetadataTableType.from(handle.getSysTableName())));
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to load iceberg system table for scan, error message is:" + e.getMessage(), e);
         }
     }
 }
