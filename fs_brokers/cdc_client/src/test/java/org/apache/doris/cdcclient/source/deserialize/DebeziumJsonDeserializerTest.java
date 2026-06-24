@@ -131,6 +131,54 @@ class DebeziumJsonDeserializerTest {
         }
     }
 
+    // ─── formatTimeText (fraction padding / trailing-zero stripping) ───────────
+    // convertToTime above only routes through formatTimeText with whole-second or
+    // full-6-digit fractions, so the sub-second padding and trailing-zero stripping
+    // branches are exercised directly here.
+
+    @Test
+    void formatTimeText_trailingZerosStrippedToSingleDigit() {
+        assertEquals("00:00:00.5", invokeFormatTimeText(500_000L));
+    }
+
+    @Test
+    void formatTimeText_trailingZerosStrippedToTwoDigits() {
+        assertEquals("00:00:00.12", invokeFormatTimeText(120_000L));
+    }
+
+    @Test
+    void formatTimeText_millisecondFraction() {
+        assertEquals("00:00:00.123", invokeFormatTimeText(123_000L));
+    }
+
+    @Test
+    void formatTimeText_subMicroFractionLeftPadded() {
+        // 5 micros -> ".000005": padded to six digits, no trailing zero to strip.
+        assertEquals("00:00:00.000005", invokeFormatTimeText(5L));
+    }
+
+    @Test
+    void formatTimeText_negativeWholeSecondPadsHourAndMinute() {
+        // -30 minutes: hour/minute keep two digits, no fractional part.
+        assertEquals("-00:30:00", invokeFormatTimeText(-1_800_000_000L));
+    }
+
+    @Test
+    void formatTimeText_negativeKeepsSignBeforeFraction() {
+        assertEquals("-00:00:00.5", invokeFormatTimeText(-500_000L));
+    }
+
+    private String invokeFormatTimeText(long microsTotal) {
+        try {
+            Method m =
+                    DebeziumJsonDeserializer.class.getDeclaredMethod("formatTimeText", long.class);
+            m.setAccessible(true);
+            return (String) m.invoke(null, microsTotal);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     // ─── convertZoneTime ──────────────────────────────────────────────────────
     // timetz arrives as a UTC-normalized ISO string (Debezium ZonedTime). cdc keeps it
     // verbatim with the offset preserved, independent of serverTimeZone, since a
