@@ -111,8 +111,8 @@ IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t s
 // 执行批次级的 conjuncts + delete_conjuncts 过滤。
 // 对 predicate 列的全量 batch 执行表达式，生成 SelectionVector 标记命中行。
 Status execute_batch_filters(const format::FileScanRequest& request, int64_t batch_rows,
-                             Block* file_block, SelectionVector* selection,
-                             uint16_t* selected_rows, int64_t* conjunct_filtered_rows = nullptr);
+                             Block* file_block, SelectionVector* selection, uint16_t* selected_rows,
+                             int64_t* conjunct_filtered_rows = nullptr);
 
 // ============================================================================
 // Parquet 扫描调度器

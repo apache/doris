@@ -227,8 +227,8 @@ IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t s
 }
 
 Status execute_batch_filters(const format::FileScanRequest& request, int64_t batch_rows,
-                             Block* file_block, SelectionVector* selection,
-                             uint16_t* selected_rows, int64_t* conjunct_filtered_rows) {
+                             Block* file_block, SelectionVector* selection, uint16_t* selected_rows,
+                             int64_t* conjunct_filtered_rows) {
     if (request.conjuncts.empty() && request.delete_conjuncts.empty()) {
         return Status::OK();
     }
