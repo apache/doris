@@ -322,3 +322,26 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 - **文档同步五步**：task 表（P6.3 行 ❌→✅ + T09 行 ⬜→✅ + 本记录）/ PROGRESS（§header/§phase-table/§connector-row/§progress-log）/ connectors/iceberg.md（当前状态 + 完成度 + 进度日志）/ decisions-log（**无新 D**）/ deviations-log（**无新 DV**，DV-041..044 T08 已登记）。
 - **gate 核对**：iceberg 仍**不在** `SPI_READY_TYPES`，behind-gate 零行为变更；P6.3 累计 **0 BE / 0 pom 改**（git diff `84a00c56dea..HEAD` 仅 fe/、plan-doc/、regression-test/，无 .cpp/.h）。
 - **下一步 = P6.4 procedures**（`ConnectorProcedureOps` E2，10 action，含 legacy `RewriteFiles`/`updateRewriteFiles` 写半；P6.1 recon 标记的 3 缺失 SPI 之一须在 P6.4 新建）。仍 behind gate。
+
+---
+
+## P6.4 逐 task 拆解（P6.4-Tnn）—— 2026-06-24 code-grounded recon 产出
+
+> recon = [`research/p6.4-iceberg-procedures-recon.md`](../research/p6.4-iceberg-procedures-recon.md)（10 reader+critic `wf_cb757c7c-708`）；设计 + 用户三签字 = [`designs/P6.4-T01-procedure-spi-design.md`](./designs/P6.4-T01-procedure-spi-design.md) + [D-062]。
+> **关键认知**：①Doris `ALTER TABLE EXECUTE` 唯对应 Trino `TableProcedureMetadata`（表级），**非** CALL/`Procedure`/`MethodHandle` → 保 Doris 扁平 `ExecuteAction` 模型。②9 action 二分：**8 pure-SDK**（机械可移）+ **1 `rewrite_data_files`**（长杆=分布式 INSERT-SELECT 写，执行半留 fe-core）。③**dormant-pre-flip**（镜像 P6.3 写）：pre-flip iceberg 表是 `IcebergExternalTable` 非 PluginDriven → 连接器 procedure 路 dormant，live 仍走 legacy 直到 P6.6；T07 = **加** PluginDriven→`getProcedureOps()` 分支（dormant）**保** legacy 分支（P6.7 才删），**非**删 instanceof。④`rewrite_data_files` 事务半 = `WriteOperation.REWRITE` 变体（**净 0 新事务 verb**，commit 通道 P6.3 已统一）。
+> **签字（[D-062]）**：Q1=R-A 分相位（P6.4a 8 pure-SDK / P6.4b rewrite_data_files）、Q2=S-1 扁平 `execute()`、§4=4-A 连接器自包含 arg 校验（import-gate 禁 `org.apache.doris.common.NamedArguments`，逐字 port error 串 + T08 byte-parity 门）。
+> **新建连接器类**（mirror P6.2/P6.3 provider）：`connector.iceberg.procedure.{IcebergProcedureOps}` + port `connector.iceberg.action.{BaseIcebergAction, IcebergExecuteActionFactory, 8 pure-SDK actions, RewriteManifestExecutor}` + `connector.iceberg.rewrite.{RewriteDataFilePlanner(core), RewriteDataGroup, RewriteResult}`（P6.4b）；SPI `connector.api.procedure.{ConnectorProcedureOps, ConnectorProcedureResult}` + `Connector.getProcedureOps()` default-null。legacy fe-core `action/`+`rewrite/` **STILL-CONSUMED 留至 P6.7**。
+
+| ID | 标题 | 依赖 | 相位 | 状态 |
+|---|---|---|---|---|
+| **P6.4-T01** | SPI 设计 + recon + 用户三签字（0 产品码）| — | — | ✅ 2026-06-24（[D-062]，recon + design doc）|
+| **P6.4-T02** | SPI 骨架：`ConnectorProcedureOps`+`ConnectorProcedureResult`（+ executionMode 增量预留）；`Connector.getProcedureOps()=null`；`IcebergConnector` 惰性 override。验 jdbc/es/mc/paimon/trino 0 影响 | T01 | a | ⬜ |
+| **P6.4-T03** | port `BaseIcebergAction`+`IcebergExecuteActionFactory`（去死 `table` 参）→ `connector.iceberg.action`；接 `IcebergProcedureOps` 内部派发 + `getSupportedProcedures()`；arg 校验 4-A 连接器自包含 | T02 | a | ⬜ |
+| **P6.4-T04** | port 8 pure-SDK procedure（逐字保 TZ alias-map/`publish_changes` STRING+`"null"`/`fast_forward`(branch,to)序+无guard读/短路不对称/全 error 串）；SDK 调裹 `executeAuthenticated`；cache 失效 | T03 | a | ⬜ |
+| **P6.4-T05** | `rewrite_data_files` 规划半 → 连接器（`RewriteDataFilePlanner` core/`RewriteDataGroup`/`RewriteResult`）；WHERE 走 P6.3 nereids→`ConnectorExpression` | T04 | b | ⬜ |
+| **P6.4-T06** | `rewrite_data_files` 写路径耦合（长杆）：`WriteOperation.REWRITE` 变体（净0新verb）+ scan 从 pinned snapshot 重规划 + bind 改 `UnboundConnectorTableSink`；执行半留 fe-core。**超预算→R-B 回退 + DV** | T05 | b | ⬜ |
+| **P6.4-T07** | dispatch rewire：`ExecuteActionFactory` **加** PluginDriven→`getProcedureOps()`（dormant）**保** legacy 分支；`getSupportedActions` 通用 overload 先 reroute（pathfinder，无 live caller）；引擎保 priv+`CommonResultSet`+`logRefreshTable` | T04（纳 rewrite 则 T06）| a/b | ⬜ |
+| **P6.4-T08** | parity-UT 审计 + gap-fill + DV 中央登记（rewrite 落点、auth 补、bug-for-bug 保留）| T07 | — | ⬜ |
+| **P6.4-T09** | 收口/汇总设计 + gate 核（iceberg 仍不在 `SPI_READY_TYPES`）+ HANDOFF 覆盖式 | T08 | — | ⬜ |
+
+**通用验收门（每 task）**：连接器 UT 绿（无 Mockito，fail-loud fake + InMemoryCatalog）+ checkstyle 0 + `tools/check-connector-imports.sh` 净 + 断 SDK 调用链 / result schema 列数==行 size / error 串 vs legacy + grep 确认 iceberg **不在** `SPI_READY_TYPES`。
