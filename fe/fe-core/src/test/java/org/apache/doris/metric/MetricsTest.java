@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.common.Config;
@@ -85,7 +86,7 @@ public class MetricsTest {
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             String metricResult = visitor.finish();
             Assert.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
-            Assert.assertTrue(metricResult.contains("doris_fe_connection_max 4321"));
+            Assert.assertTrue(metricResult.contains("doris_fe_connection_max 13086"));
             Assert.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_total gauge"));
             Assert.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 0"));
             Assert.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_max gauge"));
@@ -93,19 +94,29 @@ public class MetricsTest {
             Assert.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
             Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
 
-            Auth auth = new Auth();
-            auth.updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
+            Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
                     Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "456")), true);
 
             visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             metricResult = visitor.finish();
             Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
+
+            Auth auth = new Auth();
+            auth.updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
+                    Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "789")), true);
+
+            visitor = new PrometheusMetricVisitor();
+            MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+            metricResult = visitor.finish();
+            Assert.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
+            Assert.assertFalse(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 789"));
         } finally {
             Config.qe_max_connection = originQeMaxConnection;
             Config.arrow_flight_max_connections = originArrowFlightMaxConnections;
             MetricRepo.removeUserConnectionMaxMetric("metric_user");
-            MetricRepo.updateUserConnectionMaxMetric(Auth.ROOT_USER, 100L);
+            Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
+                    Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "100")), true);
         }
     }
 

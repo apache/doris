@@ -48,6 +48,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -441,7 +442,7 @@ public final class MetricRepo {
                 MetricUnit.CONNECTIONS, "max connections") {
             @Override
             public Integer getValue() {
-                return Config.qe_max_connection;
+                return Config.qe_max_connection + Config.arrow_flight_max_connections;
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CONNECTION_MAX);
@@ -1508,8 +1509,15 @@ public final class MetricRepo {
         if (USER_GAUGE_CONNECTION_MAX == null) {
             return;
         }
-        Env.getCurrentEnv().getAuth().getMaxConnForAllUsers()
+        Env.getServingEnv().getAuth().getMaxConnForAllUsers()
                 .forEach(MetricRepo::updateUserConnectionMaxMetric);
+    }
+
+    public static void updateUserConnectionMaxMetric(Auth auth, String user, long maxConn) {
+        if (USER_GAUGE_CONNECTION_MAX == null || Env.getServingEnv().getAuth() != auth) {
+            return;
+        }
+        updateUserConnectionMaxMetric(user, maxConn);
     }
 
     public static void updateUserConnectionMaxMetric(String user, long maxConn) {
@@ -1517,6 +1525,13 @@ public final class MetricRepo {
             return;
         }
         USER_GAUGE_CONNECTION_MAX.getOrAdd(user).setValue(maxConn);
+    }
+
+    public static void removeUserConnectionMaxMetric(Auth auth, String user) {
+        if (USER_GAUGE_CONNECTION_MAX == null || Env.getServingEnv().getAuth() != auth) {
+            return;
+        }
+        removeUserConnectionMaxMetric(user);
     }
 
     public static void removeUserConnectionMaxMetric(String user) {

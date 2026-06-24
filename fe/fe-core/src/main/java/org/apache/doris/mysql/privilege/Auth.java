@@ -536,7 +536,7 @@ public class Auth implements Writable {
             }
             // other user properties
             propertyMgr.addUserResource(userIdent.getQualifiedUser());
-            MetricRepo.updateUserConnectionMaxMetric(userIdent.getQualifiedUser(),
+            MetricRepo.updateUserConnectionMaxMetric(this, userIdent.getQualifiedUser(),
                     propertyMgr.getMaxConn(userIdent.getQualifiedUser()));
 
             // 5. update password policy
@@ -592,7 +592,7 @@ public class Auth implements Writable {
             userManager.removeUser(userIdent);
             if (CollectionUtils.isEmpty(userManager.getUserByName(userIdent.getQualifiedUser()))) {
                 propertyMgr.dropUser(userIdent);
-                MetricRepo.removeUserConnectionMaxMetric(userIdent.getQualifiedUser());
+                MetricRepo.removeUserConnectionMaxMetric(this, userIdent.getQualifiedUser());
             }
 
             if (!isReplay) {
@@ -1146,7 +1146,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             propertyMgr.updateUserProperty(user, properties, isReplay);
-            MetricRepo.updateUserConnectionMaxMetric(user, propertyMgr.getMaxConn(user));
+            MetricRepo.updateUserConnectionMaxMetric(this, user, propertyMgr.getMaxConn(user));
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
