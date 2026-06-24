@@ -37,6 +37,8 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VarAttrDef.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -353,6 +355,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
+
+    public static final String ENABLE_LOCAL_SHUFFLE_PLANNER = "enable_local_shuffle_planner";
 
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
@@ -1621,6 +1625,12 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableLocalShuffle = true;
 
     @VarAttrDef.VarAttr(
+            name = ENABLE_LOCAL_SHUFFLE_PLANNER, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否在FE规划Local Shuffle",
+                    "Whether to plan local shuffle in frontend"}, needForward = true)
+    private boolean enableLocalShufflePlanner = true;
+
+    @VarAttrDef.VarAttr(
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
                 description = {"是否在 pipelineX 引擎上强制开启 local shuffle 优化",
                         "Whether to force to local shuffle on pipelineX engine."})
@@ -2336,6 +2346,29 @@ public class SessionVariable implements Serializable, Writable {
     )
     private int eagerAggregationMode = 0;
 
+    @VarAttrDef.VarAttr(name = "force_eager_agg_hint", needForward = true, setter = "setForceEagerAggHint",
+            description = {
+                    "用于测试/调试 eager aggregation 下推的匹配 hint。"
+                            + "格式：`<func>:<qualifier.column | *>=<push|nopush>`，"
+                            + "多个条目以分号分隔。例如："
+                            + "`sum:t1.a=push; sum:t2.a=nopush; count:*=push`。"
+                            + "注意：hint 按聚合函数匹配，但生效粒度是当前候选下推分支/子树，而不是单个聚合函数独立生效；"
+                            + "同一分支中只要有任一匹配项为 `nopush`，该分支本次不下推；"
+                            + "否则只要有任一匹配项为 `push`，该分支本次可被强制下推，"
+                            + "同分支内其他聚合函数会跟随这一决定。",
+                    "Test/debug hint for eager aggregation push-down. "
+                            + "Format: `<func>:<qualifier.column | *>=<push|nopush>`, "
+                            + "with multiple entries separated by `;`. "
+                            + "Example: `sum:t1.a=push; sum:t2.a=nopush; count:*=push`. "
+                            + "Note: entries are matched per aggregate-function key, but the effect "
+                            + "is applied at the current candidate push-down branch/subtree rather "
+                            + "than to one function independently. If any matched entry in the branch "
+                            + "is `nopush`, push-down is disabled for that branch; otherwise, if any "
+                            + "matched entry is `push`, push-down may be forced for that branch, and "
+                            + "the other aggregates in the same branch follow that branch-level decision."})
+    public String forceEagerAggHint = "";
+    private Map<String, Action> forceEagerAggHintMap = ImmutableMap.of();
+
     public static int getEagerAggregationMode() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().eagerAggregationMode;
@@ -2346,6 +2379,19 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEagerAggregationMode(int mode) {
         this.eagerAggregationMode = mode;
+    }
+
+    public void setForceEagerAggHint(String forceEagerAggHint) throws DdlException {
+        try {
+            this.forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
+            this.forceEagerAggHint = forceEagerAggHint;
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public Map<String, Action> getForceEagerAggHintMap() {
+        return forceEagerAggHintMap;
     }
 
     @VarAttrDef.VarAttr(name = "eager_aggregation_on_join", needForward = true)
@@ -3597,6 +3643,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
             needForward = true,
+            checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
@@ -4690,6 +4737,18 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalShuffle = enableLocalShuffle;
     }
 
+    public boolean isEnableLocalShuffle() {
+        return enableLocalShuffle;
+    }
+
+    public boolean isEnableLocalShufflePlanner() {
+        return enableLocalShufflePlanner;
+    }
+
+    public void setEnableLocalShufflePlanner(boolean enableLocalShufflePlanner) {
+        this.enableLocalShufflePlanner = enableLocalShufflePlanner;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -5617,6 +5676,8 @@ public class SessionVariable implements Serializable, Writable {
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
 
+        tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
+
         return tResult;
     }
 
@@ -5706,6 +5767,7 @@ public class SessionVariable implements Serializable, Writable {
                         throw new IOException("invalid type: " + field.getType().getSimpleName());
                 }
             }
+            refreshDerivedSessionVariables();
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
         }
@@ -5760,6 +5822,7 @@ public class SessionVariable implements Serializable, Writable {
                 }
 
             }
+            refreshDerivedSessionVariables();
         } catch (Exception ex) {
             throw new IOException("invalid session variable, " + ex.getMessage());
         }
@@ -5819,9 +5882,14 @@ public class SessionVariable implements Serializable, Writable {
                 // set config field
                 VariableMgr.setValue(this, val, f, varAttr.name());
             }
+            refreshDerivedSessionVariables();
         } catch (Throwable e) {
             LOG.error("failed to set forward variables", e);
         }
+    }
+
+    private void refreshDerivedSessionVariables() {
+        forceEagerAggHintMap = EagerAggHints.parse(forceEagerAggHint);
     }
 
     /**
@@ -6443,6 +6511,14 @@ public class SessionVariable implements Serializable, Writable {
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
                     "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
+        if (value < 1 || value > 50000) {
+            throw new UnsupportedOperationException("variant max sparse column statistics size is: "
+                    + variantMaxSparseColumnStatisticsSize + " it must between 1 and 50000");
         }
     }
 

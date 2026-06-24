@@ -274,6 +274,13 @@ public:
             const std::vector<RowsetSharedPtr>& input_rowsets,
             TabletReader::ReaderParams* reader_params, Block* block);
 
+    // Remove the delete-condition columns from `all_access_paths` so they fall back to a full
+    // read (a meta-only read would make the storage delete predicate match nothing and leak
+    // deleted rows).
+    static void remove_delete_columns_from_access_paths(
+            const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+            std::map<int32_t, TColumnAccessPaths>& all_access_paths);
+
 protected:
     friend class VCollectIterator;
     friend class DeleteHandler;

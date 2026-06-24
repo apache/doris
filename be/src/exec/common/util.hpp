@@ -243,29 +243,36 @@ inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
 }
 
 // change null element to true element
-inline void change_null_to_true(MutableColumnPtr column, ColumnPtr argument = nullptr) {
+inline ColumnPtr change_null_to_true(ColumnPtr&& column, const ColumnPtr& argument = nullptr) {
     size_t rows = column->size();
     if (is_column_const(*column)) {
-        change_null_to_true(
-                assert_cast<ColumnConst*>(column.get())->get_data_column_ptr()->assert_mutable());
-    } else if (column->has_null()) {
-        auto* nullable = assert_cast<ColumnNullable*>(column.get());
+        auto nested_column = assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr();
+        auto nested = change_null_to_true(std::move(nested_column));
+        return ColumnConst::create(std::move(nested), rows);
+    }
+
+    auto mutable_column = IColumn::mutate(std::move(column));
+    if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
-        const NullMap& null_map = nullable->get_null_map_data();
+        NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
         nullable->fill_false_to_nullmap(rows);
-    } else if (argument && argument->has_null()) {
+        return mutable_column;
+    }
+
+    if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
-        auto* __restrict data = assert_cast<ColumnUInt8*>(column.get())->get_data().data();
+        auto* __restrict data = assert_cast<ColumnUInt8*>(mutable_column.get())->get_data().data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
     }
+    return mutable_column;
 }
 
 inline size_t calculate_false_number(ColumnPtr column) {

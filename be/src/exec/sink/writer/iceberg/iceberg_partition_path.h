@@ -14,27 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/NestedUtils.h
-// and modified by Doris
 
 #pragma once
 
 #include <string>
-#include <utility>
-
-#include "core/block/block.h"
 
 namespace doris {
 
-namespace Nested {
-std::string concatenate_name(const std::string& nested_table_name,
-                             const std::string& nested_field_name);
+class IcebergPartitionPath {
+public:
+    // Match Iceberg Java PartitionSpec.partitionToPath, which uses URLEncoder with UTF-8.
+    static std::string escape(const std::string& path);
 
-std::pair<std::string, std::string> splitName(const std::string& name);
-
-/// Replace Array(Tuple(...)) columns to a multiple of Array columns in a form of `column_name.element_name`.
-Block flatten(const Block& block);
-} // namespace Nested
+private:
+    IcebergPartitionPath() = default;
+};
 
 } // namespace doris

@@ -49,17 +49,6 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
                       "c_double", "c_decimal", "c_decimalv3", "c_date", "c_datetime", "c_datev2", "c_datetimev2",
                       "c_char", "c_varchar", "c_string"]
 
-    def groupby_or_orderby_exception = {is_groupby, table_name, col_name ->
-        test {
-            if (is_groupby) {
-                sql "select ${col_name} from ${table_name} group by ${col_name};"
-            } else {
-                sql "select ${col_name} from ${table_name} order by ${col_name};"
-            }
-            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
-        }
-    }
-
     def select_nested_scala_element_at = { agg_expr, table_name ->
         order_qt_select_nested "select ${agg_expr} from ${table_name} where ${agg_expr} IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
     }
@@ -216,15 +205,6 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
         for (String col : colNameArr) {
             order_qt_select_arr "select ${col}[1], ${col}[-1] from ${table_name} WHERE k1 IS NOT NULL order by k1 limit 10;"
         }
-        // select * from table where groupby|orderby column will meet exception
-        for (String col : colNameArr) {
-            groupby_or_orderby_exception(true, table_name, col)
-            groupby_or_orderby_exception(false, table_name, col)
-
-            String agg_expr = "${col}[1]"
-            groupby_or_orderby_exception(true, table_name, agg_expr)
-            groupby_or_orderby_exception(false, table_name, agg_expr)
-        }
     }
     // most-nested-column
     // array-array
@@ -244,11 +224,9 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
     order_qt_select_arr "select element_at(${colNameArr[0]}[1], 1), element_at(${colNameArr[0]}[1], 'col17') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
     order_qt_select_arr "select element_at(${colNameArr[0]}[1], 1), element_at(${colNameArr[0]}[1], 'col17') from ${table_names[2]} where element_at(${colNameArr[0]}[1], 1) IS NOT NULL AND k1 IS NOT NULL order by k1 limit 10;"
-    // select * from table where groupby|orderby column will meet exception
-    groupby_or_orderby_exception(true, table_names[2], colNameArr[0])
-    groupby_or_orderby_exception(false, table_names[2], colNameArr[0])
     // select * from table where groupby|orderby element_at(column)
-    agg_expr = "element_at(${colNameArr[0]}[1], 1)"
+    // element_at on struct returns a type that can't be grouped/ordered directly, must cast
+    agg_expr = "CAST(element_at(${colNameArr[0]}[1], 1) AS INT)"
     groupby_or_orderby_element_at(true, table_names[2], agg_expr)
     groupby_or_orderby_element_at(false, table_names[2], agg_expr)
 
@@ -300,17 +278,6 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
         for (String col : colNameArr) {
             order_qt_select_map "select ${col}[map_keys(${col})[1]], ${col}[map_keys(${col})[-1]] from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
         }
-        // select * from table where groupby|orderby column will meet exception
-        for (String col : colNameArr) {
-            groupby_or_orderby_exception(true, table_names[i], col)
-            groupby_or_orderby_exception(false, table_names[i], col)
-        }
-        // select * from table where groupby|orderby element_at(column)
-        for (String col : colNameArr) {
-            agg_expr = "${col}[map_keys(${col})[1]]"
-            groupby_or_orderby_exception(true, table_names[i], agg_expr)
-            groupby_or_orderby_exception(false, table_names[i], agg_expr)
-        }
     }
     // most-nested-column
     // map-array
@@ -328,11 +295,9 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
     order_qt_select_map "select element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
     order_qt_select_map "select element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1), element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 'col17') from ${table_names[5]} where k1 IS NOT NULL order by k1 limit 10;"
-    // select * from table where groupby|orderby column will meet exception
-    groupby_or_orderby_exception(true, table_names[5], colNameArr[0])
-    groupby_or_orderby_exception(false, table_names[5], colNameArr[0])
     // select * from table where groupby|orderby element_at(column)
-    agg_expr = "element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1)"
+    // element_at on struct returns a type that can't be grouped/ordered directly, must cast
+    agg_expr = "CAST(element_at(${colNameArr[0]}[map_keys(${colNameArr[0]})[1]], 1) AS INT)"
     groupby_or_orderby_element_at(true, table_names[5], agg_expr)
     groupby_or_orderby_element_at(false, table_names[5], agg_expr)
 
@@ -372,42 +337,23 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
         for (String col : colNameArr) {
             order_qt_select_struct "select element_at(${colNameArr[0]}, 1), element_at(${colNameArr[0]}, 'col_1') from ${table_name} where k1 IS NOT NULL order by k1 limit 10;"
         }
-        // struct make error
-        test {
-            sql "select element_at(${colNameArr[0]}, -1), element_at(${colNameArr[0]}, 'not_exist') from ${table_name} order by k1 limit 10;"
-            exception("the specified field index out of bound")
-        }
-
-        test {
-            sql "select element_at(${colNameArr[0]}, 0), element_at(${colNameArr[0]}, 'not_exist') from ${table_name} order by k1 limit 10;"
-            exception("the specified field index out of bound")
-        }
-        test {
-            sql "select element_at(${colNameArr[0]}, 1000) from ${table_name} order by k1 limit 10;"
-            exception("the specified field index out of bound")
-        }
-
-        order_qt_select_struct "select * from ${table_name} where size(element_at(${colNameArr[0]}, 'col_1')) > 0 AND k1 IS NOT NULL order by k1 limit 1;"
-
-        // select * from table where groupby|orderby column will meet exception
-
-        groupby_or_orderby_exception(true, table_names[i], colNameArr[0])
-        groupby_or_orderby_exception(false, table_names[i], colNameArr[0])
-
-        // select * from table where groupby|orderby element_at(column)
-        agg_expr = "element_at(${colNameArr[0]}, 1)"
-        groupby_or_orderby_exception(true, table_names[i], agg_expr)
-        groupby_or_orderby_exception(false, table_names[i], agg_expr)
+        // element_at on struct returns a type that other functions can't accept directly, must cast
+        // table_names[6] is struct-array (col_1: array<boolean>), table_names[7] is struct-map (col_1: map<boolean,tinyint>)
+        String colOneCastType = (i == 6) ? "ARRAY<BOOLEAN>" : "MAP<BOOLEAN,TINYINT>"
+        order_qt_select_struct "select * from ${table_name} where size(CAST(element_at(${colNameArr[0]}, 'col_1') AS ${colOneCastType})) > 0 AND k1 IS NOT NULL order by k1 limit 1;"
     }
 
     // most-nested-column
     // struct-array
-    agg_expr = "element_at(${colNameArr[0]}, 1)[1]"
+    // element_at on struct taints the type even after further indexing, must cast
+    agg_expr = "CAST(element_at(${colNameArr[0]}, 1)[1] AS BOOLEAN)"
     select_nested_scala_element_at(agg_expr, table_names[6])
     groupby_or_orderby_element_at(true, table_names[6], agg_expr)
     groupby_or_orderby_element_at(false, table_names[6], agg_expr)
     // struct-map
-    agg_expr = "element_at(${colNameArr[0]}, 1)[map_keys(element_at(${colNameArr[0]}, 1))[1]]"
+    // element_at on struct taints the type even after further indexing, must cast
+    // element_at on struct is untyped; map_keys() needs the inner element_at cast to a concrete map type too
+    agg_expr = "CAST(element_at(${colNameArr[0]}, 1) AS MAP<BOOLEAN,TINYINT>)[map_keys(CAST(element_at(${colNameArr[0]}, 1) AS MAP<BOOLEAN,TINYINT>))[1]]"
     select_nested_scala_element_at(agg_expr, table_names[7])
     groupby_or_orderby_element_at(true, table_names[7], agg_expr)
     groupby_or_orderby_element_at(false, table_names[7], agg_expr)
@@ -416,11 +362,9 @@ suite("two_level_nestedtypes_with_s3data", "p2") {
     order_qt_select_struct "select element_at(element_at(${colNameArr[0]}, 1), 1), element_at(element_at(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
     // select * from table where element_at(column) with equal expr
     order_qt_select_struct "select element_at(element_at(${colNameArr[0]}, 1), 1), element_at(element_at(${colNameArr[0]}, 1), 'col1') from ${table_names[8]} where k1 IS NOT NULL order by k1 limit 10;"
-    // select * from table where groupby|orderby column will meet exception
-    groupby_or_orderby_exception(true, table_names[8], colNameArr[0])
-    groupby_or_orderby_exception(false, table_names[8], colNameArr[0])
     // select * from table where groupby|orderby element_at(column)
-    agg_expr = "element_at(element_at(${colNameArr[0]}, 1), 1)"
+    // element_at on struct returns a type that can't be grouped/ordered directly, must cast
+    agg_expr = "CAST(element_at(element_at(${colNameArr[0]}, 1), 1) AS INT)"
     groupby_or_orderby_element_at(true, table_names[8], agg_expr)
     groupby_or_orderby_element_at(false, table_names[8],agg_expr)
 

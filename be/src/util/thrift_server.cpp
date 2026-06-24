@@ -31,13 +31,16 @@
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransport.h>
+#include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string_view>
 #include <thread>
+#include <utility>
 
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
@@ -59,6 +62,84 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_current_connections, MetricUnit::CONNE
                                    "Number of currently active connections");
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(thrift_connections_total, MetricUnit::CONNECTIONS,
                                      "Total connections made over the lifetime of this server");
+
+bool is_unknown_eintr(const apache::thrift::transport::TTransportException& e) {
+    return e.getType() == apache::thrift::transport::TTransportException::UNKNOWN &&
+           std::string_view(e.what()).find("Interrupted system call") != std::string_view::npos;
+}
+
+// Full-process stack collection sends a diagnostic signal to many BE threads. Even with
+// SA_RESTART, Linux can still return EINTR from poll/select/epoll-style waits, and Thrift wraps
+// that as an UNKNOWN TTransportException with "Interrupted system call". If this exception escapes
+// the blocking thrift server loop, heartbeat/backend thrift services can exit while the BE process
+// is still partly alive, making FE report the BE as Alive=false. This wrapper keeps the normal
+// TServerSocket behavior but retries only that narrow EINTR case on accept/read/peek; all other
+// transport errors are still propagated.
+class ImprovedServerSocket final : public apache::thrift::transport::TServerSocket {
+    using TConfiguration = apache::thrift::TConfiguration;
+    using TServerSocket = apache::thrift::transport::TServerSocket;
+    using TSocket = apache::thrift::transport::TSocket;
+    using TTransport = apache::thrift::transport::TTransport;
+    using TTransportException = apache::thrift::transport::TTransportException;
+
+    class RetryingSocket final : public TSocket {
+    public:
+        RetryingSocket(THRIFT_SOCKET socket, std::shared_ptr<THRIFT_SOCKET> interrupt_listener,
+                       std::shared_ptr<TConfiguration> config)
+                : TSocket(socket, std::move(interrupt_listener), std::move(config)) {}
+
+        uint32_t read(uint8_t* buf, uint32_t len) override {
+            while (true) {
+                try {
+                    return TSocket::read(buf, len);
+                } catch (const TTransportException& e) {
+                    if (!is_unknown_eintr(e)) {
+                        throw;
+                    }
+                }
+            }
+        }
+
+        bool peek() override {
+            while (true) {
+                try {
+                    return TSocket::peek();
+                } catch (const TTransportException& e) {
+                    if (!is_unknown_eintr(e)) {
+                        throw;
+                    }
+                }
+            }
+        }
+    };
+
+public:
+    ImprovedServerSocket(const std::string& address, int port)
+            : TServerSocket(address, port),
+              _config(std::make_shared<TConfiguration>(config::thrift_max_message_size)) {}
+    ~ImprovedServerSocket() override = default;
+
+protected:
+    std::shared_ptr<TTransport> acceptImpl() override {
+        while (true) {
+            try {
+                return TServerSocket::acceptImpl();
+            } catch (const TTransportException& e) {
+                if (!is_unknown_eintr(e)) {
+                    throw;
+                }
+            }
+        }
+    }
+
+    std::shared_ptr<TSocket> createSocket(THRIFT_SOCKET client) override {
+        return std::make_shared<RetryingSocket>(
+                client, interruptableChildren_ ? pChildInterruptSockReader_ : nullptr, _config);
+    }
+
+private:
+    std::shared_ptr<TConfiguration> _config;
+};
 
 // Nonblocking Server socket implementation of TNonblockingServerTransport. Wrapper around a unix
 // socket listen and accept calls.
@@ -381,7 +462,7 @@ Status ThriftServer::start() {
         break;
 
     case THREAD_POOL:
-        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(
+        fe_server_transport.reset(new ImprovedServerSocket(
                 BackendOptions::get_service_bind_address_without_bracket(), _port));
 
         if (transport_factory == nullptr) {
@@ -393,7 +474,7 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        server_socket = new apache::thrift::transport::TServerSocket(
+        server_socket = new ImprovedServerSocket(
                 BackendOptions::get_service_bind_address_without_bracket(), _port);
         fe_server_transport.reset(server_socket);
         server_socket->setKeepAlive(true);
