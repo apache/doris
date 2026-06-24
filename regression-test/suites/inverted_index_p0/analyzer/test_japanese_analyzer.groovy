@@ -18,7 +18,19 @@
 suite("test_japanese_analyzer", "p0") {
     def tableName = "test_japanese_analyzer"
 
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+    def set_be_config = { key, value ->
+        for (String backend_id : backendId_to_backendIP.keySet()) {
+            update_be_config(backendId_to_backendIP.get(backend_id),
+                             backendId_to_backendHttpPort.get(backend_id), key, value)
+        }
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName}"
+    // kuromoji is disabled by default; enable it for this test.
+    set_be_config("enable_kuromoji_analyzer", "true")
     try {
         sql """
           CREATE TABLE ${tableName} (
@@ -59,5 +71,6 @@ suite("test_japanese_analyzer", "p0") {
         assertTrue(tokenStr.contains('"token": "都"'))
     } finally {
         sql "DROP TABLE IF EXISTS ${tableName}"
+        set_be_config("enable_kuromoji_analyzer", "false")
     }
 }
