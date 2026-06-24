@@ -19,7 +19,7 @@
 
 #include <string_view>
 
-#include "core/value/jsonb_value.h"
+#include "runtime/jsonb_value.h"
 #include "util/jsonb_document.h"
 
 namespace doris {
