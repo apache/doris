@@ -51,7 +51,7 @@ public class ClientController {
     @RequestMapping(path = "/api/initReader", method = RequestMethod.POST)
     public Object initSourceReader(@RequestBody JobBaseConfig jobConfig) {
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig, true);
             return RestResponse.success("Source reader initialized successfully");
         } catch (Exception ex) {
             LOG.error("Failed to create reader, jobId={}", jobConfig.getJobId(), ex);

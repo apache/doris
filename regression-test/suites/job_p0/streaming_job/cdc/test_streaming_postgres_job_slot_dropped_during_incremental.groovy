@@ -170,5 +170,131 @@ suite("test_streaming_postgres_job_slot_dropped_during_incremental",
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
         }
         sql """drop table if exists ${currentDb}.${table1} force"""
+
+        // ===== Second scenario: same drop, but a Doris-owned slot (no slot_name given) =====
+        // This is the case the fix actually guards: before it, the reader rebuilt after the drop
+        // would silently recreate the Doris-owned slot at the latest LSN and resume RUNNING (data
+        // loss). Now slot/publication are provisioned only at CREATE, so the rebuild finds the slot
+        // gone and fails non-resumably.
+        def dorisJob = "test_streaming_pg_slot_dropped_doris_owned_job"
+        def dorisTable = "slot_dropped_doris_pg_tbl"
+        sql """DROP JOB IF EXISTS where jobname = '${dorisJob}'"""
+        sql """drop table if exists ${currentDb}.${dorisTable} force"""
+
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${dorisTable}"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${dorisTable} (
+                  "id" int PRIMARY KEY,
+                  "name" varchar(200)
+                )"""
+        }
+
+        // No slot_name/publication_name: Doris owns and auto-creates them at CREATE (initReader).
+        sql """CREATE JOB ${dorisJob}
+                PROPERTIES ("max_interval" = "3")
+                ON STREAMING
+                FROM POSTGRES (
+                    "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user" = "${pgUser}",
+                    "password" = "${pgPassword}",
+                    "database" = "${pgDB}",
+                    "schema" = "${pgSchema}",
+                    "include_tables" = "${dorisTable}",
+                    "offset" = "latest"
+                )
+                TO DATABASE ${currentDb} (
+                  "table.create.properties.replication_num" = "1"
+                )
+            """
+
+        Awaitility.await().atMost(120, SECONDS).pollInterval(1, SECONDS).until({
+            def st = sql """select status from jobs("type"="insert") where Name='${dorisJob}'"""
+            st.size() == 1 && st.get(0).get(0) == "RUNNING"
+        })
+
+        // Phase 1: confirm steady-state incremental sync
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            for (int i = 1; i <= 10; i++) {
+                sql """INSERT INTO ${pgDB}.${pgSchema}.${dorisTable} VALUES (${i}, 'name_${i}')"""
+            }
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+            def cnt = sql """SELECT count(*) FROM ${currentDb}.${dorisTable}"""
+            cnt.size() == 1 && cnt.get(0).get(0) >= 10
+        })
+
+        // Discover the Doris-owned slot name (doris_cdc_<jobId>) created at CREATE.
+        def dorisSlot = null
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            def slots = sql """SELECT slot_name FROM pg_replication_slots WHERE slot_name LIKE 'doris_cdc_%'"""
+            assert slots.size() >= 1 : "expected a Doris-owned slot to exist, got ${slots}"
+            dorisSlot = slots.get(0).get(0)
+        }
+        log.info("Doris-owned slot to drop: ${dorisSlot}")
+
+        // Phase 2: drop the Doris-owned slot out from under the running job. Terminate whatever
+        // holds it, then drop; retry until gone (an auto-resume task may briefly re-acquire it).
+        Awaitility.await().atMost(60, SECONDS).pollInterval(2, SECONDS).until({
+            boolean dropped = false
+            connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                sql """SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots
+                       WHERE slot_name = '${dorisSlot}' AND active_pid IS NOT NULL"""
+                def cnt = sql """SELECT COUNT(1) FROM pg_replication_slots WHERE slot_name = '${dorisSlot}'"""
+                if (cnt[0][0] == 0) {
+                    dropped = true
+                } else {
+                    try {
+                        sql """SELECT pg_drop_replication_slot('${dorisSlot}')"""
+                        dropped = true
+                    } catch (Exception e) {
+                        log.info("slot still active, retry drop: " + e.getMessage())
+                    }
+                }
+            }
+            dropped
+        })
+
+        // Generate WAL so the rebuilt reader is forced to locate the now-missing slot.
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            for (int i = 100; i < 110; i++) {
+                sql """INSERT INTO ${pgDB}.${pgSchema}.${dorisTable} VALUES (${i}, 'after_drop_${i}')"""
+            }
+        }
+
+        // Phase 3: job settles in PAUSED with the slot-invalidated marker
+        Awaitility.await().atMost(240, SECONDS).pollInterval(3, SECONDS).until({
+            def r = sql """select status, ErrorMsg from jobs("type"="insert") where Name='${dorisJob}'"""
+            if (r.size() != 1) {
+                return false
+            }
+            def status = r.get(0).get(0)
+            def errMsg = r.get(0).get(1)
+            log.info("waiting slot-invalidated PAUSED: status=${status} errMsg=${errMsg}")
+            status == "PAUSED" && errMsg != null && errMsg.toString().contains("Replication slot invalidated")
+        })
+
+        // Phase 4: must NOT auto-resume, and the dropped slot must NOT be silently recreated
+        for (int i = 0; i < 8; i++) {
+            sleep(5000)
+            def r = sql """select status from jobs("type"="insert") where Name='${dorisJob}'"""
+            assert r.size() == 1 && r.get(0).get(0) == "PAUSED" :
+                    "job must stay PAUSED after slot invalidation, got ${r}"
+        }
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            def recreated = sql """SELECT COUNT(1) FROM pg_replication_slots WHERE slot_name = '${dorisSlot}'"""
+            assert recreated[0][0] == 0 : "dropped Doris-owned slot must not be silently recreated"
+        }
+
+        sql """DROP JOB IF EXISTS where jobname = '${dorisJob}'"""
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            def slotLeft = sql """SELECT COUNT(1) FROM pg_replication_slots WHERE slot_name = '${dorisSlot}'"""
+            if (slotLeft[0][0] != 0) {
+                sql """SELECT pg_drop_replication_slot('${dorisSlot}')"""
+            }
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${dorisTable}"""
+        }
+        sql """drop table if exists ${currentDb}.${dorisTable} force"""
     }
 }
