@@ -738,7 +738,9 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         for (const TabletColumn* col : key_columns) {
             cols.emplace_back(std::make_shared<TabletColumn>(*col));
         }
-        _seek_schema = std::make_unique<Schema>(cols, cols.size());
+        std::vector<uint32_t> column_ids(cols.size());
+        std::iota(column_ids.begin(), column_ids.end(), 0);
+        _seek_schema = std::make_unique<Schema>(cols, column_ids);
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.size() == 0) {

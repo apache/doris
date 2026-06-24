@@ -343,11 +343,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 scan_key_size, _tablet_schema->num_columns());
     }
 
-    std::vector<uint32_t> columns(scan_key_size);
-    std::iota(columns.begin(), columns.end(), 0);
-
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet_schema->columns(), columns);
-
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
@@ -355,8 +350,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res =
-                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
+        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -373,7 +367,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
