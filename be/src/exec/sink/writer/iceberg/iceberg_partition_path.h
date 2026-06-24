@@ -15,24 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc.request;
+#pragma once
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+#include <string>
 
-import java.util.Map;
+namespace doris {
 
-@Data
-@EqualsAndHashCode(callSuper = true)
-public class WriteRecordRequest extends JobBaseRecordRequest {
-    private long maxInterval;
-    private long taskTimeoutMs;
-    private String targetDb;
-    private String token;
-    private String taskId;
-    private Map<String, String> streamLoadProps;
-    // previous task ended abnormally, rebuild reader instead of reusing
-    private boolean rebuildReader;
-    // off by default: an old FE omits it, so a new cdc_client falls back to per-round reader close
-    private boolean reuseReader;
-}
+class IcebergPartitionPath {
+public:
+    // Match Iceberg Java PartitionSpec.partitionToPath, which uses URLEncoder with UTF-8.
+    static std::string escape(const std::string& path);
+
+private:
+    IcebergPartitionPath() = default;
+};
+
+} // namespace doris

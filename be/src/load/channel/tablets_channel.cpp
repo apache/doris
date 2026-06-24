@@ -629,16 +629,17 @@ Status BaseTabletsChannel::_write_block_data(
 
         // add_batch may concurrency with inc_open but not under _lock.
         // so need to protect it with _tablet_writers_lock.
-        decltype(_tablet_writers.find(tablet_id)) tablet_writer_it;
+        BaseDeltaWriter* tablet_writer = nullptr;
         {
             std::lock_guard<std::mutex> l(_tablet_writers_lock);
-            tablet_writer_it = _tablet_writers.find(tablet_id);
+            auto tablet_writer_it = _tablet_writers.find(tablet_id);
             if (tablet_writer_it == _tablet_writers.end()) {
                 return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
             }
+            tablet_writer = tablet_writer_it->second.get();
         }
 
-        Status st = write_func(tablet_writer_it->second.get());
+        Status st = write_func(tablet_writer);
         if (!st.ok()) {
             auto err_msg =
                     fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
@@ -647,7 +648,7 @@ Status BaseTabletsChannel::_write_block_data(
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_id);
             error->set_msg(err_msg);
-            static_cast<void>(tablet_writer_it->second->cancel_with_status(st));
+            static_cast<void>(tablet_writer->cancel_with_status(st));
             _add_broken_tablet(tablet_id);
             // continue write to other tablet.
             // the error will return back to sender.
@@ -662,9 +663,16 @@ Status BaseTabletsChannel::_write_block_data(
             return writer->write(&send_data, tablet_to_rowidxs_it.second);
         }));
 
-        auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
-        if (tablet_writer_it != _tablet_writers.end()) {
-            tablet_writer_it->second->set_tablet_load_rowset_num_info(tablet_load_infos);
+        BaseDeltaWriter* tablet_writer = nullptr;
+        {
+            std::lock_guard<std::mutex> l(_tablet_writers_lock);
+            auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
+            if (tablet_writer_it != _tablet_writers.end()) {
+                tablet_writer = tablet_writer_it->second.get();
+            }
+        }
+        if (tablet_writer != nullptr) {
+            tablet_writer->set_tablet_load_rowset_num_info(tablet_load_infos);
         }
     }
 
