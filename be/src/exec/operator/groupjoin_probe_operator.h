@@ -84,6 +84,20 @@ public:
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(RuntimeState* state, Block* output_block, bool* eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
+        DORIS_CHECK(_output_row_desc != nullptr);
+        return *_output_row_desc;
+    }
+    Status set_child(OperatorPtr child) override {
+        if (Base::_child && _build_side_child == nullptr) {
+            // The second child of a binary GroupJoin plan is the build side. Keep the first child
+            // as the probe input in this pipeline, same as HashJoinProbeOperatorX.
+            _build_side_child = child;
+        } else {
+            RETURN_IF_ERROR(Base::set_child(child));
+        }
+        return Status::OK();
+    }
 
     DataDistribution required_data_distribution(RuntimeState* state) const override;
     bool is_shuffled_operator() const override;
@@ -104,6 +118,8 @@ private:
     std::vector<size_t> _make_nullable_keys;
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
+    std::unique_ptr<RowDescriptor> _output_row_desc;
+    OperatorPtr _build_side_child = nullptr;
 };
 
 } // namespace doris
