@@ -55,8 +55,11 @@ GroupJoinProbeOperatorX::GroupJoinProbeOperatorX(ObjectPool* pool, const TPlanNo
                                      ? tnode.group_join_node.dist_type
                                      : TJoinDistributionType::NONE),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}) {
+                                                               : std::vector<TExpr> {}),
+          _output_tuple_id(tnode.group_join_node.output_tuple_id) {
     _op_name = "GROUP_JOIN_PROBE_OPERATOR";
+    _output_row_desc =
+            std::make_unique<RowDescriptor>(descs, std::vector<TupleId> {_output_tuple_id});
 }
 
 Status GroupJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -71,7 +74,6 @@ Status GroupJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     _aggregate_sides.resize(group_join_node.aggregate_functions.size());
     _sizes_of_aggregate_states.assign(group_join_node.aggregate_functions.size(), 0);
     _aligns_of_aggregate_states.assign(group_join_node.aggregate_functions.size(), 1);
-    _output_tuple_id = group_join_node.output_tuple_id;
 
     TSortInfo dummy;
     for (int i = 0; i < group_join_node.aggregate_functions.size(); ++i) {
