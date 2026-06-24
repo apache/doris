@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -26,6 +27,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/parquet/parquet_type.h"
 
@@ -46,6 +48,8 @@ class Array;
 } // namespace arrow
 
 namespace doris::format::parquet {
+
+struct ParquetLeafReaderTestAccess;
 
 // 嵌套标量叶子的读取结果，将 Dremel 编码的 shape 和实际 value 分离。
 //
@@ -142,7 +146,9 @@ public:
                       ParquetTypeDescriptor type_descriptor, DataTypePtr type, std::string name,
                       std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                       ParquetColumnReaderProfile profile = {},
-                      const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false);
+                      const cctz::time_zone* timezone = nullptr, bool enable_strict_mode = false,
+                      std::function<Status(MutableColumnPtr&, const DecodedColumnView&)>
+                              decoded_value_appender = nullptr);
 
     // ①a. 从 Arrow RecordReader 读取 batch_rows 行，将结果捕获到 ParquetLeafBatch 中。
     // 调用方拿到 batch 后可以多次访问 level 和 value 信息。
@@ -178,6 +184,8 @@ public:
             int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max()) const;
 
 private:
+    friend struct ParquetLeafReaderTestAccess;
+
     // 将 RecordReader 的内部状态捕获为不可变的 ParquetLeafBatch。
     // 分别处理固定宽度类型（values()）和 binary 类型（GetBuilderChunks()）。
     Status collect_batch(::parquet::internal::RecordReader& record_reader,
@@ -190,6 +198,12 @@ private:
                                      const NullMap* null_map,
                                      std::vector<uint8_t>* spaced_values) const;
 
+    Status build_nested_batch_from_leaf_batch(const ParquetLeafBatch& leaf_batch,
+                                              int64_t records_read,
+                                              int16_t value_slot_definition_level,
+                                              ParquetNestedScalarBatch* batch,
+                                              int16_t value_slot_repetition_level) const;
+
     const ::parquet::ColumnDescriptor* _descriptor =
             nullptr;                        // Arrow 列描述符（physical_type, max_dl, max_rl）
     ParquetTypeDescriptor _type_descriptor; // 类型编码信息（decimal 精度、timestamp 单位等）
@@ -200,6 +214,7 @@ private:
     ParquetColumnReaderProfile _profile;        // Profile 计数器
     const cctz::time_zone* _timezone = nullptr; // 时区（timestamp 转换用）
     bool _enable_strict_mode = false;           // 严格模式（类型不匹配时是否报错）
+    std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> _decoded_value_appender;
 };
 
 } // namespace doris::format::parquet
