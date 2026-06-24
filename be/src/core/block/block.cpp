@@ -89,17 +89,13 @@ bool is_recursively_exclusive(const IColumn& column) {
     }
 
     bool exclusive = true;
-    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
         if (!exclusive) {
             return;
         }
-        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        DCHECK(subcolumn_ptr);
-        exclusive = is_recursively_exclusive(*subcolumn_ptr);
+        exclusive = is_recursively_exclusive(subcolumn);
     };
-    // `for_each_subcolumn` only exposes a mutable callback type. This callback
-    // only reads the wrapped pointers and never calls the non-const accessors.
-    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    column.for_each_subcolumn(callback);
     return exclusive;
 }
 
