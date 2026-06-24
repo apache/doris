@@ -756,6 +756,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
         param.query_type = direct_query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
+        param.skip_try = true;
         RETURN_IF_ERROR(iterator->read_from_index(segment_v2::IndexParam {&param}));
 
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();

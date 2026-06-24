@@ -94,6 +94,7 @@ public:
         if (i_param->query_value.get_type() == TYPE_INT) {
             last_int_value = i_param->query_value.get<TYPE_INT>();
         }
+        last_skip_try = i_param->skip_try;
         if (i_param->roaring != nullptr) {
             i_param->roaring->add(3);
         }
@@ -113,6 +114,7 @@ public:
     PrimitiveType last_query_value_type = PrimitiveType::TYPE_NULL;
     bool last_bool_value = false;
     Int32 last_int_value = 0;
+    bool last_skip_try = false;
 };
 
 class DummyInvertedIndexReader final : public segment_v2::InvertedIndexReader {
@@ -2091,6 +2093,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantNestedIntUsesDirectIndexRead
     EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, iterator.last_query_type);
     EXPECT_EQ(TYPE_INT, iterator.last_query_value_type);
     EXPECT_EQ(3, iterator.last_int_value);
+    EXPECT_TRUE(iterator.last_skip_try);
 }
 
 TEST_F(FunctionSearchTest, TestMultiPhraseQueryCase) {
