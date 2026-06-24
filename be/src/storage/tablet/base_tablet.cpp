@@ -888,9 +888,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(sort_block(block, ordered_block, &sort_perm));
         auto segment_id = rowset_writer->allocate_segment_id();
 
-        // Publish-phase partial update may flush transient segments to a GroupRowsetWriter.
-        // For row-binlog writing, RowBinlogSegmentWriter requires `seg_id -> lsn_ids` to be
-        // registered before the segment writer is constructed.
+        // Publish-phase partial update may flush short-lived segments to a GroupRowsetWriter.
+        // For row-binlog writing, RowBinlogDeriveStage needs `seg_id -> lsn_ids` to be
+        // registered before the segment writer is built.
         if (auto* group_writer = typeid_cast<GroupRowsetWriter*>(rowset_writer);
             group_writer != nullptr) {
             auto binlog_writer = group_writer->row_binlog_writer();

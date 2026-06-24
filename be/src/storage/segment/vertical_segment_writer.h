@@ -27,10 +27,12 @@
 #include <memory> // unique_ptr
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h" // Status
 #include "storage/index/index_file_writer.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/column_writer.h"
@@ -66,8 +68,12 @@ struct VerticalSegmentWriterOptions {
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
-    std::shared_ptr<MowContext> mow_ctx;
 };
+
+class DerivedColumnGenerator;
+// Matches block_transform.h: at most one derived column (the row-store column)
+// for each flush, held as a {cid, generator} pair; null generator means none.
+using DerivedColumn = std::pair<uint32_t, std::shared_ptr<const DerivedColumnGenerator>>;
 
 struct RowsInBlock {
     const Block* block;
@@ -94,17 +100,16 @@ public:
     Status batch_block(const Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
+    void set_derived_column(DerivedColumn derived_column) {
+        _derived_column = std::move(derived_column);
+    }
+
     [[nodiscard]] std::string data_dir_path() const {
         return _data_dir == nullptr ? "" : _data_dir->path();
     }
 
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
 
-    // for partial update
-    [[nodiscard]] int64_t num_rows_updated() const { return _num_rows_updated; }
-    [[nodiscard]] int64_t num_rows_deleted() const { return _num_rows_deleted; }
-    [[nodiscard]] int64_t num_rows_new_added() const { return _num_rows_new_added; }
-    [[nodiscard]] int64_t num_rows_filtered() const { return _num_rows_filtered; }
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
 
@@ -146,55 +151,16 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
-    void _maybe_invalid_row_cache(const std::string& key) const;
-    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
-    // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos);
-    std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
-                                  const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos);
-    // used for unique-key with merge on write
-    void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
-                            std::string* encoded_keys);
-    // used for unique-key with merge on write tables with cluster keys
-    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    Status _append_row_store_column(const Block& block, size_t row_pos, size_t num_rows,
-                                    uint32_t cid);
-    Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                              bool have_delete_sign,
-                              const std::vector<RowsetSharedPtr>& specified_rowsets,
-                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              bool& has_default_or_nullable,
-                              std::vector<bool>& use_default_or_null_flag,
-                              const std::function<void(const RowLocation& loc)>& found_cb,
-                              const std::function<Status()>& not_found_cb,
-                              PartialUpdateStats& stats);
-    Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
-    Status _append_block_with_partial_content(RowsInBlock& data, Block& full_block);
-    Status _append_block_with_flexible_partial_content(RowsInBlock& data, Block& full_block);
-    Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
-                                               const PartialUpdateInfo& info,
-                                               std::string* encoded_value);
-    Status _generate_flexible_read_plan(
-            FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
-            bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
-            std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<IOlapColumnDataAccessor*>& key_columns,
-            IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-            PartialUpdateStats& stats);
+    Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
+                                    size_t row_pos, size_t num_rows, uint32_t cid);
     Status _generate_key_index(RowsInBlock& data,
                                std::vector<IOlapColumnDataAccessor*>& key_columns,
                                IOlapColumnDataAccessor* seq_column,
                                std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column);
     Status _generate_primary_key_index(
-            const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
@@ -210,7 +176,6 @@ private:
     }
 
 private:
-    friend class ::doris::BlockAggregator;
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
@@ -224,9 +189,6 @@ private:
 
     SegmentFooterPB _footer;
     SegmentIndexFileCacheInfo _index_file_cache_info;
-    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
-    // for other tables, the sort key is the keys
-    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
 
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
@@ -236,23 +198,13 @@ private:
 
     std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
-    std::vector<const KeyCoder*> _key_coders;
-    // for mow table with cluster keys, this is primary keys
-    std::vector<const KeyCoder*> _primary_key_coders;
-    const KeyCoder* _seq_coder = nullptr;
-    const KeyCoder* _rowid_coder = nullptr;
-    std::vector<uint16_t> _key_index_size;
+    // NOTE: must stay declared after _tablet_schema and _opts, the constructor
+    // init list reads both through _is_mow().
+    RowKeyEncoder _key_encoder;
     size_t _short_key_row_pos = 0;
 
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
-
-    /** for partial update stats **/
-    int64_t _num_rows_updated = 0;
-    int64_t _num_rows_new_added = 0;
-    int64_t _num_rows_deleted = 0;
-    // number of rows filtered in strict mode partial update
-    int64_t _num_rows_filtered = 0;
 
     // _row_count means total row count of this segment
     // In vertical compaction row count is recorded when key columns group finish
@@ -263,13 +215,12 @@ private:
     faststring _min_key;
     faststring _max_key;
 
-    std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
 
-    BlockAggregator _block_aggregator;
+    // the derived column the transform chain hands off to this writer's bounded pump
+    DerivedColumn _derived_column;
 };
 
 } // namespace segment_v2

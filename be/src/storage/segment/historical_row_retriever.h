@@ -26,7 +26,8 @@
 
 namespace doris {
 struct RowsetWriterContext;
-class KeyCoder;
+class HistoricalRowFetcher;
+class RowKeyEncoder;
 struct MowContext;
 
 namespace segment_v2 {
@@ -52,8 +53,7 @@ public:
 
     virtual Status build_after_block(Block* block, size_t row_pos, size_t num_rows) = 0;
     virtual Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
-                                      size_t row_pos, size_t num_rows) = 0;
-    virtual void clear() = 0;
+                                      size_t row_pos, size_t num_rows) const = 0;
 
     virtual std::vector<int64_t>& get_operators() = 0;
 
@@ -63,6 +63,7 @@ protected:
 
 class PrimaryKeyModelRowRetriever : public HistoricalRowRetriever {
 public:
+    ~PrimaryKeyModelRowRetriever() override;
     Status init(const HistoricalRowRetrieverContext& context) override;
 
     Status prepare_lookup_plan_from_source_columns(
@@ -80,47 +81,21 @@ public:
     Status build_after_block(Block* block, size_t row_pos, size_t num_rows) override;
 
     Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
-                              size_t /*row_pos*/, size_t num_rows) override;
-
-    void clear() override {
-        _key_columns.clear();
-        _seq_column = nullptr;
-        _use_default_or_null_flag.clear();
-        _has_default_or_nullable = false;
-        _rssid_to_rid.clear();
-        _rsid_to_rowset.clear();
-        _operators.clear();
-    }
+                              size_t /*row_pos*/, size_t num_rows) const override;
 
     std::vector<int64_t>& get_operators() override { return _operators; };
 
 private:
-    void _maybe_invalid_row_cache(const std::string& key);
-
-    // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos, bool null_first = true);
-
-    std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
-                                  const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                                  size_t pos, bool null_first = true);
-
-    // used for unique-key with merge on write
-    void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
-                            std::string* encoded_keys);
-
     // get key_columns, seq column, delete data from source block, prepare for searching historial data
     std::vector<IOlapColumnDataAccessor*> _key_columns;
     const IOlapColumnDataAccessor* _seq_column = nullptr;
     std::shared_ptr<MowContext> _mow_context;
     // used for building primary key index during vectorized write.
     // for mow table with cluster keys, this is cluster keys
-    std::vector<const KeyCoder*> _key_coders;
-    KeyCoder* _seq_coder = nullptr;
+    std::unique_ptr<RowKeyEncoder> _key_encoder;
 
-    // group every rowset-segment row id to speed up reader
-    FixedReadPlan _rssid_to_rid;
-    std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
+    // owns the rowset pins and the fixed read plan fed by the probe results
+    std::unique_ptr<HistoricalRowFetcher> _row_fetcher;
 
     // cache flags for filling missing columns
     std::vector<bool> _use_default_or_null_flag;

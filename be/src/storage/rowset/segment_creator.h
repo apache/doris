@@ -103,6 +103,8 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
+    RowsetWriterContext& context() { return _context; }
+
     Status flush_single_block(const Block* block, int32_t segment_id,
                               int64_t* flush_size = nullptr);
 

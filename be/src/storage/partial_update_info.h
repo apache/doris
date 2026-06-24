@@ -21,12 +21,14 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/data_type/primitive_type.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"
 
@@ -45,8 +47,13 @@ struct HistoricalRowRetrieverContext;
 struct RowsetWriterContext;
 struct RowsetId;
 class BitmapValue;
+class Block;
+class HistoricalRowFetcher;
+class OlapBlockDataConvertor;
+class RowKeyEncoder;
+struct MowContext;
 namespace segment_v2 {
-class VerticalSegmentWriter;
+class MowKeyProbe;
 }
 
 class SegmentCacheHandle;
@@ -144,6 +151,10 @@ private:
 class FlexibleReadPlan {
 public:
     FlexibleReadPlan(bool has_row_store_for_column) : use_row_store(has_row_store_for_column) {}
+    void clear() {
+        plan.clear();
+        row_store_plan.clear();
+    }
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          const BitmapValue& skip_bitmap);
     // for column store
@@ -190,10 +201,18 @@ private:
     std::map<RowsetId, std::map<uint32_t /* segment_id */, std::vector<RidAndPos>>> row_store_plan;
 };
 
+ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx);
+
 class BlockAggregator {
 public:
-    ~BlockAggregator() = default;
-    BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer);
+    ~BlockAggregator();
+    // All references must live longer than the aggregator; the flexible fill
+    // stage builds everything as locals in one apply() scope. The aggregator
+    // owns its block convertor (key + sequence column slots).
+    BlockAggregator(TabletSchema& tablet_schema, BaseTabletSPtr tablet,
+                    std::shared_ptr<MowContext> mow_context,
+                    const PartialUpdateInfo& partial_update_info, const RowKeyEncoder& key_encoder,
+                    const segment_v2::MowKeyProbe& probe, HistoricalRowFetcher& fetcher);
 
     Status convert_pk_columns(Block* block, size_t row_pos, size_t num_rows,
                               std::vector<IOlapColumnDataAccessor*>& key_columns);
@@ -233,8 +252,16 @@ private:
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
 
-    segment_v2::VerticalSegmentWriter& _writer;
+    Status _generate_encoded_default_seq_value(std::string* encoded_value);
+
     TabletSchema& _tablet_schema;
+    BaseTabletSPtr _tablet;
+    std::shared_ptr<MowContext> _mow_context;
+    const PartialUpdateInfo& _partial_update_info;
+    const RowKeyEncoder& _key_encoder;
+    std::unique_ptr<OlapBlockDataConvertor> _convertor;
+    const segment_v2::MowKeyProbe& _probe;
+    HistoricalRowFetcher& _fetcher;
 
     // used to store state when aggregating rows in block
     struct AggregateState {
