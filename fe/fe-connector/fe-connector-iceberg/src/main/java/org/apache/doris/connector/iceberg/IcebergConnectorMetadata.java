@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
@@ -43,6 +44,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -254,6 +256,85 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    // ========== E7: System Tables (P6.5) ==========
+
+    /**
+     * Lists the system-table names iceberg exposes. Connector-global: legacy
+     * {@code IcebergSysTable.SUPPORTED_SYS_TABLES} is built once from {@code MetadataTableType.values()}
+     * (minus {@code POSITION_DELETES}) and applies to every iceberg table, so this returns the same
+     * lower-cased names for any base handle — a defensive unmodifiable copy. {@code POSITION_DELETES} is
+     * NOT exposed (Q2): querying {@code t$position_deletes} degrades to the generic fe-core not-found path
+     * rather than legacy's bespoke "not supported yet" message.
+     */
+    @Override
+    public List<String> listSupportedSysTables(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle) {
+        List<String> names = new ArrayList<>();
+        for (MetadataTableType type : MetadataTableType.values()) {
+            if (type != MetadataTableType.POSITION_DELETES) {
+                names.add(type.name().toLowerCase(Locale.ROOT));
+            }
+        }
+        return Collections.unmodifiableList(names);
+    }
+
+    /**
+     * Resolves a handle for the named system table of {@code baseTableHandle}, or empty when iceberg does
+     * not expose {@code sysName} (case-insensitive; includes a {@code null} name, an unknown name, and
+     * {@code position_deletes}, Q2).
+     *
+     * <p>Resolution is LAZY and pure — no catalog round-trip. Unlike paimon (whose handle stashes a
+     * transient SDK {@code Table}, so {@code getSysTableHandle} eagerly loads it), the iceberg handle
+     * carries no SDK {@code Table}; the metadata-table is built on demand in {@code getTableSchema}/scan
+     * via {@code MetadataTableUtils} (mirroring legacy {@code IcebergSysExternalTable.getSysIcebergTable},
+     * which builds it lazily). Eager-loading here would be wasted work — the result cannot be stashed on
+     * the handle, so it would be rebuilt downstream — and a remote round-trip not present in legacy. The
+     * base table's existence has already been verified by {@code getTableHandle} (the generic
+     * {@code PluginDrivenSysExternalTable.resolveConnectorTableHandle} acquires the base handle first).
+     *
+     * <p>Deviation 1 (time travel): the base handle's snapshot/ref/schema pin is RETAINED on the sys
+     * handle (the OPPOSITE of paimon's pin-clearing {@code forSystemTable}) — iceberg system tables
+     * legally time-travel ({@code t$snapshots FOR VERSION/TIME AS OF ...}), so a pinned sys read must
+     * honor the pin.
+     */
+    @Override
+    public Optional<ConnectorTableHandle> getSysTableHandle(ConnectorSession session,
+            ConnectorTableHandle baseTableHandle, String sysName) {
+        // Null-safe: a null / unknown / position_deletes sysName is "this connector does not expose that
+        // sys table" (Optional.empty per the contract), NOT an NPE/exception.
+        if (!isSupportedSysTable(sysName)) {
+            return Optional.empty();
+        }
+        // Normalize to lower case for handle-identity parity with legacy (SysTable renders the suffix as
+        // "$" + name.toLowerCase()), so t$SNAPSHOTS and t$snapshots are the SAME handle. The support check
+        // above is case-insensitive; only the canonical stored name is lower-cased.
+        String sys = sysName.toLowerCase(Locale.ROOT);
+        IcebergTableHandle base = (IcebergTableHandle) baseTableHandle;
+        return Optional.of(IcebergTableHandle.forSystemTable(
+                base.getDbName(), base.getTableName(), sys,
+                base.getSnapshotId(), base.getRef(), base.getSchemaId()));
+    }
+
+    /**
+     * Whether iceberg exposes a system table named {@code sysName} (case-insensitive). Mirrors legacy
+     * {@code IcebergSysTable.SUPPORTED_SYS_TABLES}: every {@code MetadataTableType} except
+     * {@code POSITION_DELETES} (Q2). A {@code null} name is simply not exposed (returns false, not NPE).
+     */
+    private static boolean isSupportedSysTable(String sysName) {
+        if (sysName == null) {
+            return false;
+        }
+        for (MetadataTableType type : MetadataTableType.values()) {
+            if (type == MetadataTableType.POSITION_DELETES) {
+                continue;
+            }
+            if (type.name().equalsIgnoreCase(sysName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ========== Write / Transaction (P6.3) ==========
