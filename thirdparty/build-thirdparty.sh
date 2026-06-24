@@ -2134,6 +2134,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
+        lzma
         libunwind
         jemalloc_doris
         rocksdb
@@ -2158,7 +2159,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         mysql
         aws_sdk
         js_and_css
-        lzma
         xml2
         idn
         gsasl
