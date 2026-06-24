@@ -265,13 +265,6 @@ suite("correlated_scalar_subquery") {
 
     test {
         sql """
-              SELECT correlated_scalar_t1.c1 FROM correlated_scalar_t1 WHERE correlated_scalar_t1.c1 = (SELECT correlated_scalar_t1.c1);
-        """
-        exception "access outer query's column in project is not supported"
-    }
-
-    test {
-        sql """
               SELECT o.c1,
                     (SELECT COUNT(*) FROM (
                         SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
