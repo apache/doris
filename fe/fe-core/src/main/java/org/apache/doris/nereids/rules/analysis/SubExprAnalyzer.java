@@ -358,6 +358,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             }
         }
 
+        public PlanNodeCorrelatedInfo visitLogicalOneRowRelation(LogicalOneRowRelation plan, Void context) {
+            boolean containCorrelatedSlots = findCorrelatedSlots(plan);
+            if (containCorrelatedSlots) {
+                throw new AnalysisException(
+                        String.format("access outer query's column in project is not supported",
+                                correlatedSlots));
+            } else {
+                return new PlanNodeCorrelatedInfo(plan.getType(), false);
+            }
+        }
+
         public PlanNodeCorrelatedInfo visitLogicalAggregate(LogicalAggregate plan, Void context) {
             boolean containCorrelatedSlots = findCorrelatedSlots(plan);
             if (containCorrelatedSlots) {
@@ -433,6 +444,11 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                         case LOGICAL_JOIN:
                             throw new AnalysisException(
                                     "access outer query's column before join is not supported");
+                        case LOGICAL_UNION:
+                        case LOGICAL_INTERSECT:
+                        case LOGICAL_EXCEPT:
+                            throw new AnalysisException(
+                                    "access outer query's column before set operation is not supported");
                         case LOGICAL_SORT:
                             // allow any sort node, the sort node will be removed by ELIMINATE_ORDER_BY_UNDER_SUBQUERY
                             break;
