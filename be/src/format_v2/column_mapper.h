@@ -225,6 +225,10 @@ protected:
     // File-layer column predicate filters are reader-specific pruning hints. Parquet consumes them
     // for row-group/page-index/statistics pruning; simple delimited readers do not.
     virtual bool enable_column_predicate_filters() const { return true; }
+    // Row-oriented readers such as CSV/Text cannot physically read only a nested child from one
+    // delimited text field. They must scan the whole complex top-level field and let TableReader
+    // rematerialize the requested table child after row-level filters have run.
+    virtual bool force_full_complex_scan_projection() const { return false; }
 
     const ColumnDefinition* _find_file_field(
             const ColumnDefinition& table_column,
@@ -282,6 +286,7 @@ public:
 protected:
     bool enable_lazy_materialization() const override { return false; }
     bool enable_column_predicate_filters() const override { return false; }
+    bool force_full_complex_scan_projection() const override { return true; }
 };
 
 } // namespace doris::format

@@ -30,10 +30,14 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
@@ -80,6 +84,31 @@ std::vector<SlotDescriptor*> build_slots(ObjectPool* pool) {
     return desc_tbl->get_tuple_descriptor(0)->slots();
 }
 
+SlotDescriptor* make_test_slot(ObjectPool* pool, int slot_id, int slot_idx, DataTypePtr type,
+                               const std::string& name) {
+    TSlotDescriptor slot_desc;
+    slot_desc.__set_id(slot_id);
+    slot_desc.__set_parent(0);
+    slot_desc.__set_slotType(type->to_thrift());
+    slot_desc.__set_columnPos(slot_idx);
+    slot_desc.__set_byteOffset(0);
+    slot_desc.__set_nullIndicatorByte(slot_idx / 8);
+    slot_desc.__set_nullIndicatorBit(slot_idx % 8);
+    slot_desc.__set_slotIdx(slot_idx);
+    slot_desc.__set_isMaterialized(true);
+    slot_desc.__set_colName(name);
+    return pool->add(new SlotDescriptor(slot_desc));
+}
+
+std::vector<SlotDescriptor*> build_struct_slots(ObjectPool* pool) {
+    const auto nullable_int = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_int, nullable_int}, Strings {"a", "b"}));
+    return {make_test_slot(pool, 0, 0, make_nullable(std::make_shared<DataTypeInt32>()), "id"),
+            make_test_slot(pool, 1, 1, struct_type, "s"),
+            make_test_slot(pool, 2, 2, make_nullable(std::make_shared<DataTypeInt32>()), "score")};
+}
+
 std::unique_ptr<CsvReader> create_reader(const std::string& path, TFileScanRangeParams* params,
                                          const std::vector<SlotDescriptor*>& slots,
                                          MockRuntimeState* state, RuntimeProfile* profile,
@@ -121,6 +150,74 @@ int32_t nullable_int_at(const IColumn& column, size_t row) {
     const auto& nullable = assert_cast<const ColumnNullable&>(column);
     const auto& nested = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
     return nested.get_data()[row];
+}
+
+int32_t nullable_struct_int_child_at(const IColumn& column, size_t child_index, size_t row) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(column);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(nullable.get_nested_column());
+    const auto& child_nullable =
+            assert_cast<const ColumnNullable&>(struct_column.get_column(child_index));
+    const auto& nested = assert_cast<const ColumnInt32&>(child_nullable.get_nested_column());
+    return nested.get_data()[row];
+}
+
+class StructIntChildGreaterThanExpr final : public VExpr {
+public:
+    StructIntChildGreaterThanExpr(size_t block_position, size_t child_index, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _block_position(block_position),
+              _child_index(child_index),
+              _value(value) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    bool is_constant() const override { return false; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_block_position).column);
+        const auto& struct_column = assert_cast<const ColumnStruct&>(nullable.get_nested_column());
+        const auto& child_nullable =
+                assert_cast<const ColumnNullable&>(struct_column.get_column(_child_index));
+        const auto& child_data =
+                assert_cast<const ColumnInt32&>(child_nullable.get_nested_column());
+
+        auto result = ColumnUInt8::create();
+        auto& data = result->get_data();
+        data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const auto source_row = selector == nullptr ? row : (*selector)[row];
+            data[row] = !nullable.is_null_at(source_row) &&
+                        !child_nullable.is_null_at(source_row) &&
+                        child_data.get_element(source_row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<StructIntChildGreaterThanExpr>(_block_position,
+                                                                       _child_index, _value);
+        return Status::OK();
+    }
+
+private:
+    size_t _block_position;
+    size_t _child_index;
+    int32_t _value;
+    const std::string _name = "StructIntChildGreaterThanExpr";
+};
+
+VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
+    auto context = VExprContext::create_shared(expr);
+    auto status = context->prepare(state, RowDescriptor());
+    EXPECT_TRUE(status.ok()) << status;
+    status = context->open(state);
+    EXPECT_TRUE(status.ok()) << status;
+    return context;
 }
 
 class CsvV2ReaderTest : public testing::Test {
@@ -225,6 +322,41 @@ TEST_F(CsvV2ReaderTest, ColumnIdxsMapSlotsToCsvOrdinals) {
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
     EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "alice");
+}
+
+// Scenario: CSV stores one complex column as one text field, so v2 must read the whole struct
+// field before evaluating a file-local predicate on one child. This covers `SELECT s.a WHERE
+// s.b > 10` style scans after MaterializedColumnMapper has requested the full top-level `s`.
+TEST_F(CsvV2ReaderTest, FullStructColumnSupportsChildConjunctFiltering) {
+    const auto complex_path = (_test_dir / "complex.csv").string();
+    std::ofstream output(complex_path, std::ios::binary);
+    output << "id|s|score\n";
+    output << "1|{\"a\": 11, \"b\": 5}|10\n";
+    output << "2|{\"a\": 22, \"b\": 20}|20\n";
+    output.close();
+
+    _params.file_attributes.text_params.__set_column_separator("|");
+    _params.__set_column_idxs({0, 1, 2});
+    auto slots = build_struct_slots(&_pool);
+    auto reader = create_reader(complex_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    request->conjuncts = {prepared_conjunct(
+            &_state, std::make_shared<StructIntChildGreaterThanExpr>(
+                             /*block_position=*/0, /*child_index=*/1, /*value=*/10))};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_struct_int_child_at(*block.get_by_position(0).column, 0, 0), 22);
+    EXPECT_EQ(nullable_struct_int_child_at(*block.get_by_position(0).column, 1, 0), 20);
 }
 
 // Scenario: a table-level scan can need only partition/default columns, leaving the CSV

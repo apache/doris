@@ -1293,14 +1293,17 @@ static bool table_root_is_map(const ColumnMapping& mapping) {
 }
 
 static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
-                              bool is_predicate_column,
+                              bool is_predicate_column, bool force_full_complex_scan_projection,
                               const FilterProjectionMap* filter_projections = nullptr) {
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     LocalColumnIndex projection = LocalColumnIndex::top_level(file_column_id);
-    if (needs_nested_file_projection(*mapping)) {
+    // Columnar readers can turn a complex mapping into a nested file projection, but
+    // row-oriented readers must scan the full top-level complex field because all children are
+    // encoded in the same text cell.
+    if (!force_full_complex_scan_projection && needs_nested_file_projection(*mapping)) {
         RETURN_IF_ERROR(build_complex_projection(*mapping, &projection));
     }
-    if (is_predicate_column) {
+    if (is_predicate_column && !force_full_complex_scan_projection) {
         DCHECK(filter_projections != nullptr);
         // If a projected complex root is also used by a predicate, rebuild the predicate scan
         // projection from the output mapping before merging predicate-only children. For
@@ -1688,7 +1691,8 @@ Status TableColumnMapper::create_scan_request(
                 }
             }
             if (!used_by_filter || !enable_lazy_materialization()) {
-                RETURN_IF_ERROR(add_scan_column(file_request, mapping, false));
+                RETURN_IF_ERROR(add_scan_column(file_request, mapping, false,
+                                                force_full_complex_scan_projection()));
             }
         }
     }
@@ -1751,6 +1755,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                 continue;
             }
             RETURN_IF_ERROR(add_scan_column(file_request, mapping, enable_lazy_materialization(),
+                                            force_full_complex_scan_projection(),
                                             &filter_projections));
         }
     }
