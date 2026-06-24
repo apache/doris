@@ -349,4 +349,95 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(58, result.second);
         Assertions.assertEquals(900000, result.microSecond);
     }
+
+    @Test
+    void testRoundMicroSecondWithOverflow() {
+        // Scale=3: rounding 9995 → 10000, overflow microsecond to 1000000, should carry 1 second
+        // This previously crashed with DateTimeParseException because roundMicroSecond
+        // tried to reparse getStringValue() which includes a "+00:00" suffix.
+        TimestampTzLiteral literal = new TimestampTzLiteral(
+                TimeStampTzType.of(3), "2024-01-01 00:00:00.9995 +00:00");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(1, literal.month);
+        Assertions.assertEquals(1, literal.day);
+        Assertions.assertEquals(0, literal.hour);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(1, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
+        Assertions.assertEquals(3, literal.getDataType().getScale());
+        Assertions.assertEquals("2024-01-01 00:00:01.000+00:00", literal.getStringValue());
+    }
+
+    @Test
+    void testRoundMicroSecondWithOverflowAndTimezone() {
+        // Rounding overflow with a non-UTC timezone string (parsed via explicit zone path)
+        TimestampTzLiteral literal = new TimestampTzLiteral(
+                TimeStampTzType.of(3), "2024-01-01 00:00:00.9995 America/New_York");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(1, literal.month);
+        Assertions.assertEquals(1, literal.day);
+        Assertions.assertEquals(5, literal.hour);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(1, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
+        Assertions.assertEquals(3, literal.getDataType().getScale());
+    }
+
+    @Test
+    void testRoundMicroSecondWithoutOverflow() {
+        // Scale=3: rounding 9994 → 999, no overflow
+        TimestampTzLiteral literal = new TimestampTzLiteral(
+                TimeStampTzType.of(3), "2024-06-15 12:30:45.9994 +00:00");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(6, literal.month);
+        Assertions.assertEquals(15, literal.day);
+        Assertions.assertEquals(12, literal.hour);
+        Assertions.assertEquals(30, literal.minute);
+        Assertions.assertEquals(45, literal.second);
+        // microSecond stores microseconds: 999ms = 999000µs
+        Assertions.assertEquals(999000, literal.microSecond);
+    }
+
+    @Test
+    void testRoundMicroSecondOverflowCrossDateBoundary() {
+        // Scale=3: 23:59:59.9995 → overflows to next day 00:00:00
+        TimestampTzLiteral literal = new TimestampTzLiteral(
+                TimeStampTzType.of(3), "2024-01-01 23:59:59.9995 +00:00");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(1, literal.month);
+        Assertions.assertEquals(2, literal.day);
+        Assertions.assertEquals(0, literal.hour);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(0, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
+    }
+
+    @Test
+    void testFromTimeZoneExplicit() {
+        // fromTimeZone with explicit timezone should convert from given tz to UTC
+        TimestampTzLiteral literal = TimestampTzLiteral.fromTimeZone(
+                TimeStampTzType.of(6), "2024-01-15 00:00:00", "America/New_York");
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(1, literal.month);
+        Assertions.assertEquals(15, literal.day);
+        Assertions.assertEquals(5, literal.hour);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(0, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
+    }
+
+    @Test
+    void testFromTimeZoneExplicitWithOffsetString() {
+        // fromTimeZone with a string that already has a timezone should use the string's timezone
+        TimestampTzLiteral literal = TimestampTzLiteral.fromTimeZone(
+                TimeStampTzType.of(6), "2024-01-15 00:00:00 +05:00", "America/New_York");
+        // +05:00 in string should take precedence; 00:00:00 +05:00 → 2024-01-14 19:00:00 UTC
+        Assertions.assertEquals(2024, literal.year);
+        Assertions.assertEquals(1, literal.month);
+        Assertions.assertEquals(14, literal.day);
+        Assertions.assertEquals(19, literal.hour);
+        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(0, literal.second);
+        Assertions.assertEquals(0, literal.microSecond);
+    }
 }

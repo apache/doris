@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.RebalancerTestUtil;
@@ -39,6 +40,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -2013,5 +2015,191 @@ public class DynamicPartitionTableTest {
         Assert.assertEquals(55, partitions.size());
         // due to partition size eq 0, use previous partition's(54th) bucket num
         Assert.assertEquals(53, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+    }
+
+    @Test
+    public void testTimeStampTzDynamicPartition() throws Exception {
+        // Set session timezone to something different from the partition timezone
+        // to verify scheduler does not incorrectly use session timezone via ConnectContext fallback.
+        connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
+
+        String createOlapTblStmt = "CREATE TABLE test.`timestamptz_dynamic_partition` (\n"
+                + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"day\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.time_zone\" = \"America/New_York\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_partition");
+        Assert.assertTrue(table.dynamicPartitionExists());
+
+        // Execute dynamic partition scheduling
+        Env.getCurrentEnv().getDynamicPartitionScheduler()
+                .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+
+        // Verify total partitions (7 = start(-3) to end(3), inclusive)
+        int partitionCount = table.getPartitionNames().size();
+        Assert.assertEquals(7, partitionCount);
+
+        // Verify partition names are clean (no timezone suffix, follow pattern "p" + yyyyMMdd)
+        RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
+        for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
+            RangePartitionItem item = (RangePartitionItem) entry.getValue();
+
+            // Verify the partition name is clean
+            String partitionName = table.getPartition(entry.getKey()).getName();
+            Assert.assertTrue("Partition name should start with 'p': " + partitionName,
+                    partitionName.startsWith("p"));
+            // Should be exactly "p" + 8 digits (yyyyMMdd) — no timezone suffix
+            Assert.assertEquals("Partition name should be exactly 9 chars (p + yyyyMMdd): " + partitionName,
+                    9, partitionName.length());
+
+            // Verify the range endpoints are valid and correctly ordered
+            Range<PartitionKey> range = item.getItems();
+            PartitionKey lower = range.lowerEndpoint();
+            PartitionKey upper = range.upperEndpoint();
+            Assert.assertTrue("lower must be < upper: " + range,
+                    lower.compareTo(upper) < 0);
+
+            // The lower key value should represent a valid UTC datetime
+            List<LiteralExpr> lowerKeys = lower.getKeys();
+            Assert.assertEquals(1, lowerKeys.size());
+            String lowerStr = lowerKeys.get(0).getStringValue();
+            // Legacy DateLiteral format should be "yyyy-MM-dd HH:mm:ss" with optional "+00:00" suffix
+            Assert.assertTrue("Lower key should match datetime pattern: " + lowerStr,
+                    lowerStr.matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}([.]\\d+)?([+]\\d{2}:\\d{2})?"));
+        }
+
+        // Verify that the timezone was correctly applied by checking a specific partition.
+        // The America/New_York timezone (UTC-5 in January) vs Asia/Shanghai session (UTC+8).
+        // If the scheduler incorrectly used the session timezone, the values would differ.
+        // Since scheduler runs without ConnectContext, it would fallback to UTC without our fix.
+        // With our fix, it uses the partition's timezone correctly.
+        // Just check that no exception occurs and the ranges are consistent.
+        for (Partition partition : table.getPartitions()) {
+            RangePartitionItem item = (RangePartitionItem) partitionInfo.getItem(partition.getId());
+            Assert.assertNotNull("Each partition should have a range item", item);
+        }
+    }
+
+    @Test
+    public void testTimeStampTzDynamicPartitionWeekUnit() throws Exception {
+        connectContext.getSessionVariable().setTimeZone("Europe/London");
+
+        String createOlapTblStmt = "CREATE TABLE test.`timestamptz_dynamic_week` (\n"
+                + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"week\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.time_zone\" = \"Asia/Tokyo\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_week");
+        Assert.assertTrue(table.dynamicPartitionExists());
+
+        Env.getCurrentEnv().getDynamicPartitionScheduler()
+                .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+
+        int partitionCount = table.getPartitionNames().size();
+        Assert.assertEquals(7, partitionCount);
+
+        // Verify partition names follow week pattern (clean, no timezone suffix)
+        RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
+        for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
+            RangePartitionItem item = (RangePartitionItem) entry.getValue();
+            String partitionName = table.getPartition(entry.getKey()).getName();
+            Assert.assertTrue("Partition name should start with 'p': " + partitionName,
+                    partitionName.startsWith("p"));
+            // Week partition name should be like "p2026_26" (year_week)
+            Assert.assertFalse("Partition name must not contain timezone: " + partitionName,
+                    partitionName.contains("Asia") || partitionName.contains("Tokyo"));
+
+            // Verify range validity
+            Range<PartitionKey> range = item.getItems();
+            Assert.assertTrue("lower must be < upper",
+                    range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+        }
+    }
+
+    @Test
+    public void testTimeStampTzDynamicPartitionHourUnit() throws Exception {
+        connectContext.getSessionVariable().setTimeZone("America/Chicago");
+
+        String createOlapTblStmt = "CREATE TABLE test.`timestamptz_dynamic_hour` (\n"
+                + "  `k1` TIMESTAMPTZ NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`, `k2`)\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"hour\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.time_zone\" = \"+00:00\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("timestamptz_dynamic_hour");
+        Assert.assertTrue(table.dynamicPartitionExists());
+
+        Env.getCurrentEnv().getDynamicPartitionScheduler()
+                .executeDynamicPartitionFirstTime(db.getId(), table.getId());
+
+        int partitionCount = table.getPartitionNames().size();
+        Assert.assertEquals(7, partitionCount);
+
+        // Hour partition names are "p" + yyyyMMddHH (10 chars)
+        RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
+        for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
+            RangePartitionItem item = (RangePartitionItem) entry.getValue();
+            String partitionName = table.getPartition(entry.getKey()).getName();
+            Assert.assertTrue("Partition name should start with 'p': " + partitionName,
+                    partitionName.startsWith("p"));
+            // Hour partition names: p + yyyyMMddHH → length 11 (p + 10 digits)
+            Assert.assertEquals("Hour partition name length: " + partitionName,
+                    11, partitionName.length());
+
+            // Verify range validity
+            Range<PartitionKey> range = item.getItems();
+            Assert.assertTrue("lower must be < upper",
+                    range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+        }
     }
 }

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Table;
@@ -81,6 +82,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 /**
@@ -302,6 +304,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     dynamicPartitionProperty, now, idx, partitionFormat);
             String nextBorder = DynamicPartitionUtil.getPartitionRangeString(
                     dynamicPartitionProperty, now, idx + 1, partitionFormat);
+            // Save original border for partition name (must not contain timezone suffix)
+            String prevBorderForName = prevBorder;
+            prevBorder = appendTimeZoneIfNeeded(partitionColumn, prevBorder,
+                    dynamicPartitionProperty.getTimeZone());
+            nextBorder = appendTimeZoneIfNeeded(partitionColumn, nextBorder,
+                    dynamicPartitionProperty.getTimeZone());
             PartitionValue lowerValue = new PartitionValue(prevBorder);
             PartitionValue upperValue = new PartitionValue(nextBorder);
 
@@ -370,7 +378,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             String partitionName = dynamicPartitionProperty.getPrefix()
                     + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
-                    prevBorder, dynamicPartitionProperty.getTimeUnit());
+                    prevBorderForName, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
@@ -483,9 +491,25 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_DATA_BASE_TIME, baseTime);
     }
 
+    /**
+     * For TIMESTAMPTZ partition columns, append the partition timezone to the border string
+     * so that TimestampTzLiteral.fromSessionTimeZone correctly interprets the value
+     * in the table's timezone instead of falling back to UTC when there is no ConnectContext.
+     */
+    private static String appendTimeZoneIfNeeded(Column column, String border, TimeZone timeZone) {
+        if (column.getDataType() == PrimitiveType.TIMESTAMPTZ) {
+            return border + " " + timeZone.toZoneId();
+        }
+        return border;
+    }
+
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
             String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
+        lowerBorderOfReservedHistory = appendTimeZoneIfNeeded(partitionColumn, lowerBorderOfReservedHistory,
+                olapTable.getTableProperty().getDynamicPartitionProperty().getTimeZone());
+        upperBorderOfReservedHistory = appendTimeZoneIfNeeded(partitionColumn, upperBorderOfReservedHistory,
+                olapTable.getTableProperty().getDynamicPartitionProperty().getTimeZone());
         PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
         PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
         try {
@@ -526,6 +550,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 now, realStart, partitionFormat);
         String limitBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, 0, partitionFormat);
+        lowerBorder = appendTimeZoneIfNeeded(partitionColumn, lowerBorder,
+                dynamicPartitionProperty.getTimeZone());
+        limitBorder = appendTimeZoneIfNeeded(partitionColumn, limitBorder,
+                dynamicPartitionProperty.getTimeZone());
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         PartitionValue limitPartitionValue = new PartitionValue(limitBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();

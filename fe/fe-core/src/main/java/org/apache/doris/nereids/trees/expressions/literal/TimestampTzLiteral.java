@@ -30,6 +30,8 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+
 import java.time.LocalDateTime;
 import java.util.Objects;
 
@@ -82,9 +84,29 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      * fromSessionTimeZone
      */
     public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal) {
+        return fromTimeZone(dateType, literal, getSessionTimeZone());
+    }
+
+    /**
+     * Build a TIMESTAMPTZ literal from a datetime string, explicitly specifying the source timezone.
+     * Strings with an explicit zone/offset keep their own timezone semantics;
+     * strings without one are converted from the given timeZone to UTC.
+     */
+    public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, String s, String timeZone) {
+        if (DateTimeChecker.hasTimeZone(s)) {
+            return new TimestampTzLiteral(dateType, s);
+        }
+        return fromTimeZone(dateType, new DateTimeV2Literal(s), timeZone);
+    }
+
+    /**
+     * Build a TIMESTAMPTZ literal from a DateTimeV2Literal, explicitly specifying the source timezone.
+     */
+    public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
+            String timeZone) {
         DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
                 literal,
-                new StringLiteral(getSessionTimeZone()),
+                new StringLiteral(timeZone),
                 new StringLiteral("UTC"));
         return new TimestampTzLiteral(dateType,
                 utcLiteral.year,
@@ -406,6 +428,34 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     public TimestampTzLiteral roundFloor(int newScale) {
         return new TimestampTzLiteral(TimeStampTzType.of(newScale), year, month, day, hour, minute, second,
                 microSecond / (int) Math.pow(10, 6 - newScale) * (int) Math.pow(10, 6 - newScale));
+    }
+
+    @Override
+    protected void roundMicroSecond(int scale) {
+        Preconditions.checkArgument(scale >= 0 && scale <= DateTimeV2Type.MAX_SCALE,
+                "invalid datetime v2 scale: %s", scale);
+        double factor = Math.pow(10, 6 - scale);
+
+        this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
+
+        if (this.microSecond >= 1000000) {
+            // Use internal fields directly instead of parsing getStringValue(),
+            // because getStringValue() includes a timezone suffix (+00:00) that
+            // the parent class's DATE_TIME_FORMATTER_TO_MICRO_SECOND cannot parse.
+            LocalDateTime localDateTime = LocalDateTime.of(
+                    (int) year, (int) month, (int) day,
+                    (int) hour, (int) minute, (int) second).plusSeconds(1);
+            this.year = localDateTime.getYear();
+            this.month = localDateTime.getMonthValue();
+            this.day = localDateTime.getDayOfMonth();
+            this.hour = localDateTime.getHour();
+            this.minute = localDateTime.getMinute();
+            this.second = localDateTime.getSecond();
+            this.microSecond -= 1000000;
+        }
+        if (checkRange() || checkDate(year, month, day)) {
+            throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
+        }
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
