@@ -831,14 +831,6 @@ void ExecEnv::clear_new_load_stream_mgr() {
     this->_new_load_stream_mgr.reset();
 }
 
-void ExecEnv::set_load_stream_mgr(std::unique_ptr<LoadStreamMgr>&& load_stream_mgr) {
-    this->_load_stream_mgr = std::move(load_stream_mgr);
-}
-
-void ExecEnv::clear_load_stream_mgr() {
-    this->_load_stream_mgr.reset();
-}
-
 void ExecEnv::set_stream_load_executor(std::unique_ptr<StreamLoadExecutor>&& stream_load_executor) {
     this->_stream_load_executor = std::move(stream_load_executor);
 }
