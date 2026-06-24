@@ -194,6 +194,17 @@ public class NereidsToConnectorExpressionConverterTest {
     }
 
     @Test
+    public void orWithUnconvertibleDisjunctDropsEntirelyToNull() {
+        // O5-2-GAP-006: OR conversion is all-or-nothing — if ANY disjunct is unconvertible (here a NullSafeEqual,
+        // which nullSafeEqualDropsToNull proves drops to null) the WHOLE OR drops to null. Pushing only the
+        // convertible disjunct would NARROW the conflict filter (drop the unrepresentable alternative) -> a missed
+        // conflict -> unsafe. orMapsToConnectorOr covers only the both-disjuncts-convertible case.
+        Assertions.assertNull(NereidsToConnectorExpressionConverter.convert(new Or(
+                new EqualTo(slot("a", ScalarType.INT), new IntegerLiteral(1)),
+                new NullSafeEqual(slot("b", ScalarType.INT), new IntegerLiteral(2)))));
+    }
+
+    @Test
     public void isNullMapsToConnectorIsNullNotNegated() {
         ConnectorExpression e = NereidsToConnectorExpressionConverter.convert(
                 new IsNull(slot("a", ScalarType.INT)));

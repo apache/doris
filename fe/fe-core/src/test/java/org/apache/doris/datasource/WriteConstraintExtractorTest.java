@@ -169,6 +169,31 @@ public class WriteConstraintExtractorTest {
     }
 
     @Test
+    public void targetConjunctsDropOnlyTheUnconvertibleArm() {
+        // O5-2-GAP-001: with two TARGET-only conjuncts where one is convertible (id = 1) and the other is an
+        // unconvertible column-to-column comparison (v = w), the converter drops only the unconvertible conjunct
+        // (per-conjunct, NOT the whole AND) -> a lone surviving comparison. multipleTargetConjunctsAreAnded covers
+        // two convertible arms; targetConjunctUnrepresentableByConverterIsDropped covers a single unconvertible
+        // arm; neither covers per-conjunct drop inside a multi-conjunct AND (which only widens the filter -> safe).
+        SlotReference id = slot(targetTable, "id", ScalarType.INT);
+        SlotReference v = slot(targetTable, "v", ScalarType.INT);
+        SlotReference w = slot(targetTable, "w", ScalarType.INT);
+        Set<Expression> conjuncts = ImmutableSet.of(
+                new EqualTo(id, new IntegerLiteral(1)),     // convertible
+                new EqualTo(v, w));                          // target-only, column-to-column -> unconvertible
+
+        Optional<ConnectorPredicate> result =
+                WriteConstraintExtractor.extract(filterOver(conjuncts, id), TARGET_ID, NO_EXCLUSION);
+
+        Assert.assertTrue("the convertible target conjunct survives", result.isPresent());
+        Assert.assertTrue("only the convertible arm remains -> a lone comparison, not an AND of one",
+                result.get().getExpression() instanceof ConnectorComparison);
+        Assert.assertEquals("id",
+                ((ConnectorColumnRef) ((ConnectorComparison) result.get().getExpression()).getLeft())
+                        .getColumnName());
+    }
+
+    @Test
     public void conjunctWithoutInputSlotsIsDropped() {
         SlotReference slot = slot(targetTable, "id", ScalarType.INT);
         Plan plan = filterOver(ImmutableSet.of(BooleanLiteral.of(true)), slot);

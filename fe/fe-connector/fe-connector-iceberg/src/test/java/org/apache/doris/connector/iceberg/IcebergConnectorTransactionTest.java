@@ -141,6 +141,18 @@ public class IcebergConnectorTransactionTest {
                 .build();
     }
 
+    /** A data file placed into a concrete partition (e.g. {@code "region=us"}) so partition-scoped
+     *  conflict detection can discriminate it. */
+    private static DataFile partitionedDataFile(PartitionSpec spec, String path, long records, String partitionPath) {
+        return DataFiles.builder(spec)
+                .withPath(path)
+                .withFileSizeInBytes(1024)
+                .withRecordCount(records)
+                .withFormat(FileFormat.PARQUET)
+                .withPartitionPath(partitionPath)
+                .build();
+    }
+
     /** A data (or delete) commit fragment serialized exactly as BE would send it. */
     private static byte[] commitBytes(TIcebergCommitData data) {
         try {
@@ -642,6 +654,51 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void deletePartitionedIdentityNarrowsConflictDetectionToTouchedPartition() {
+        // T05/parity: for an identity-partitioned DELETE the commit-time conflict-detection filter is narrowed to
+        // the touched partition (buildConflictDetectionFilter -> buildIdentityPartitionExpression -> col = value),
+        // so a concurrent data-file append to a DIFFERENT partition is NOT a conflict, while one in the SAME
+        // partition is. Every existing DELETE/MERGE conflict test is UNPARTITIONED, so this whole partition-filter
+        // path (areAllIdentityPartitions / extractPartitionValues / spec-id match / combine) was never exercised.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+
+        // (a) concurrent append in a DIFFERENT partition (eu) -> narrowed out -> the delete still commits.
+        Assertions.assertDoesNotThrow(() -> runPartitionedDelete(spec, "us", "eu"),
+                "an identity-partition filter (region='us') must exclude a concurrent append to region='eu'");
+
+        // (b) concurrent append in the SAME partition (us) -> within the filter -> conflict detected. This also
+        // proves the validation actually runs, so (a) passing is narrowing — not validation being skipped.
+        Assertions.assertThrows(DorisConnectorException.class, () -> runPartitionedDelete(spec, "us", "us"),
+                "a concurrent append to the SAME partition the delete touches must be detected as a conflict");
+    }
+
+    @Test
+    public void deleteNonIdentityPartitionSpecDisablesConflictNarrowing() {
+        // parity: when not every partition transform is identity (areAllIdentityPartitions == false), no partition
+        // narrowing is applied, so conflict detection falls back to the whole table — a concurrent append in ANY
+        // bucket is a conflict (contrast the identity case above, where a different partition is excluded).
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).bucket("region", 4).build();
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("format-version", "2"));
+        String seedPath = "s3://b/db1/t1/region_bucket=0/seed.parquet";
+        table.newAppend().appendFile(partitionedDataFile(spec, seedPath, 5L, "region_bucket=0")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+        catalog.loadTable(id).newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region_bucket=1/concurrent.parquet", 7L, "region_bucket=1")).commit();
+
+        TIcebergCommitData del = positionDeleteItem("s3://b/db1/t1/region_bucket=0/del.parquet", 2L, seedPath);
+        del.setPartitionValues(Collections.singletonList("0"));
+        del.setPartitionSpecId(spec.specId());
+        txn.addCommitData(commitBytes(del));
+
+        Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                "a non-identity (bucket) partition spec disables narrowing -> the concurrent append still conflicts");
+    }
+
+    @Test
     public void isSerializableIsolationLevelDefaultsAndReadsProperty() {
         InMemoryCatalog catalog = freshCatalog();
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
@@ -656,6 +713,28 @@ public class IcebergConnectorTransactionTest {
         Table snap = catalog.createTable(TableIdentifier.of("db1", "n"), SCHEMA, PartitionSpec.unpartitioned(),
                 props("delete_isolation_level", "snapshot"));
         Assertions.assertFalse(txn.isSerializableIsolationLevel(snap), "snapshot isolation is not serializable");
+    }
+
+    @Test
+    public void deleteSnapshotIsolationSkipsConcurrentDataFileValidation() {
+        // parity: at delete_isolation_level=snapshot (non-serializable) validateNoConflictingDataFiles is NOT
+        // applied, so a concurrent data-file append since the base snapshot does NOT fail the delete — the inverse
+        // of deleteDetectsConcurrentDataFileConflict (which runs at the default serializable level).
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("format-version", "2", "delete_isolation_level", "snapshot"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 5L)).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+        catalog.loadTable(id).newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/concurrent.parquet", 7L)).commit();
+        txn.addCommitData(commitBytes(
+                positionDeleteItem("s3://b/db1/t1/del.parquet", 2L, "s3://b/db1/t1/seed.parquet")));
+
+        Assertions.assertDoesNotThrow(txn::commit,
+                "snapshot isolation skips validateNoConflictingDataFiles -> the concurrent append is not a conflict");
     }
 
     @Test
@@ -718,6 +797,33 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction empty = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertTrue(
                 empty.collectRewrittenDeleteFiles(Collections.singletonList(newDelete)).isEmpty());
+    }
+
+    @Test
+    public void collectRewrittenDeleteFilesDedupsPuffinByPathOffsetSize() {
+        // DV-T04 parity: buildDeleteFileDedupKey keys PUFFIN (deletion-vector) deletes by
+        // path#contentOffset#contentSizeInBytes, NOT the bare path. Two DVs in the SAME puffin file (same path)
+        // with distinct (offset,size) are BOTH kept; an exact (path,offset,size) duplicate is deduped. The
+        // existing dedup test uses only PARQUET file-scoped deletes (keyed by path), so this PUFFIN arm was
+        // unexercised — a regression that dropped the offset/size from the key would silently merge distinct DVs.
+        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        String puffin = "s3://b/db1/t1/deletes.puffin";
+        String data = "s3://b/db1/t1/data-1.parquet";
+
+        DeleteFile dv1 = deletionVector(spec, puffin, data, 0L, 64L);
+        DeleteFile dv1Dup = deletionVector(spec, puffin, data, 0L, 64L);   // same path+offset+size -> deduped
+        DeleteFile dv2 = deletionVector(spec, puffin, data, 64L, 80L);     // same path, different offset+size -> kept
+
+        Map<String, List<DeleteFile>> map = new HashMap<>();
+        map.put(data, Arrays.asList(dv1, dv1Dup, dv2));
+        txn.setRewrittenDeleteFilesByReferencedDataFile(map);
+
+        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(
+                Collections.singletonList(positionDeleteItem("s3://b/db1/t1/new-del.parquet", 1L, data)));
+
+        Assertions.assertEquals(2, rewritten.size(),
+                "two DVs in one puffin file with distinct (offset,size) survive; the exact duplicate is deduped");
     }
 
     @Test
@@ -797,6 +903,48 @@ public class IcebergConnectorTransactionTest {
         Expression expected = Expressions.and(Expressions.equal("region", "us"), Expressions.isNull("id"));
         Assertions.assertEquals(expected.toString(),
                 txn.buildWriteConstraintExpression(table).map(Expression::toString).orElse(null));
+    }
+
+    /**
+     * Seeds an identity-partitioned table, opens a DELETE that touches partition {@code deleteRegion}, races a
+     * concurrent data-file append into {@code concurrentRegion}, then commits — exercising the identity-partition
+     * conflict-detection narrowing end-to-end through {@code commit()}.
+     */
+    private static void runPartitionedDelete(PartitionSpec spec, String deleteRegion, String concurrentRegion) {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("format-version", "2"));
+        String seedPath = "s3://b/db1/t1/region=" + deleteRegion + "/seed.parquet";
+        table.newAppend().appendFile(partitionedDataFile(spec, seedPath, 5L, "region=" + deleteRegion)).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+
+        catalog.loadTable(id).newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=" + concurrentRegion + "/concurrent.parquet", 7L,
+                "region=" + concurrentRegion)).commit();
+
+        TIcebergCommitData del =
+                positionDeleteItem("s3://b/db1/t1/region=" + deleteRegion + "/del.parquet", 2L, seedPath);
+        del.setPartitionValues(Collections.singletonList(deleteRegion));
+        del.setPartitionSpecId(spec.specId());
+        txn.addCommitData(commitBytes(del));
+        txn.commit();
+    }
+
+    /** Builds an old, file-scoped deletion-vector (PUFFIN) {@link DeleteFile} keyed by path#offset#size. */
+    private static DeleteFile deletionVector(PartitionSpec spec, String path, String referencedDataFile,
+            long contentOffset, long contentSize) {
+        return FileMetadata.deleteFileBuilder(spec)
+                .ofPositionDeletes()
+                .withPath(path)
+                .withFormat(FileFormat.PUFFIN)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(1L)
+                .withReferencedDataFile(referencedDataFile)
+                .withContentOffset(contentOffset)
+                .withContentSizeInBytes(contentSize)
+                .build();
     }
 
     /** Builds an old, file-scoped position-delete {@link DeleteFile} (referenced -> ContentFileUtil.isFileScoped). */

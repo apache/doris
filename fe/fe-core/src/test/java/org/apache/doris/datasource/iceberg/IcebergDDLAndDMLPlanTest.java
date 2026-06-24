@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -248,12 +249,14 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertEquals(2, projects.size());
         boolean hasOperation = false;
         boolean hasRowId = false;
+        Byte operationCode = null;
         for (NamedExpression project : projects) {
             if (project instanceof UnboundAlias) {
                 Optional<String> alias = ((UnboundAlias) project).getAlias();
                 if (alias.isPresent()
                         && IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(alias.get())) {
                     hasOperation = true;
+                    operationCode = operationLiteralOf((UnboundAlias) project);
                 }
                 continue;
             }
@@ -269,9 +272,23 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         }
         Assertions.assertTrue(hasOperation);
         Assertions.assertTrue(hasRowId);
+        // Parity (DML-SYN-001): pin the operation-column CONSTANT, not just its name. The oracle previously only
+        // name-matched "operation"; a synthesis bug emitting the wrong code (e.g. INSERT=1 instead of DELETE=2)
+        // would write rows back as inserts and still pass. The byte value IS the row-level semantics.
+        Assertions.assertEquals(Byte.valueOf(IcebergMergeOperation.DELETE_OPERATION_NUMBER), operationCode,
+                "a DELETE must stamp the DELETE operation code on every row");
 
         PhysicalPlan physicalPlan = planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
         assertContainsPhysicalSink(physicalPlan, PhysicalIcebergDeleteSink.class);
+    }
+
+    /** Extracts the constant operation code from the synthesized {@code operation} projection
+     *  ({@code UnboundAlias(TinyIntLiteral(code), "operation")}). */
+    private static Byte operationLiteralOf(UnboundAlias operationColumn) {
+        Expression operand = operationColumn.child(0);
+        Assertions.assertTrue(operand instanceof TinyIntLiteral,
+                "the operation column must wrap a constant TinyIntLiteral operation code, was: " + operand);
+        return ((TinyIntLiteral) operand).getValue();
     }
 
     @Test
@@ -359,12 +376,14 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         List<NamedExpression> projects = ((LogicalProject<?>) child).getProjects();
         boolean hasOperation = false;
         boolean hasRowId = false;
+        Byte operationCode = null;
         for (NamedExpression project : projects) {
             if (project instanceof UnboundAlias) {
                 Optional<String> alias = ((UnboundAlias) project).getAlias();
                 if (alias.isPresent()
                         && IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(alias.get())) {
                     hasOperation = true;
+                    operationCode = operationLiteralOf((UnboundAlias) project);
                 }
                 continue;
             }
@@ -380,6 +399,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         }
         Assertions.assertTrue(hasOperation);
         Assertions.assertTrue(hasRowId);
+        // Parity (DML-SYN-002): an UPDATE rewrites rows as a merge-sink stream; pin the UPDATE operation code so a
+        // synthesis bug emitting DELETE(2)/INSERT(1) instead of UPDATE(3) can't silently pass the name-only check.
+        Assertions.assertEquals(Byte.valueOf(IcebergMergeOperation.UPDATE_OPERATION_NUMBER), operationCode,
+                "an UPDATE must stamp the UPDATE operation code on every row");
 
         PhysicalPlan physicalPlan = planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
         assertContainsPhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);

@@ -41,11 +41,15 @@ import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TSortField;
 import org.apache.doris.thrift.TSortInfo;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expressions;
@@ -159,11 +163,69 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(SchemaParser.toJson(table.schema()), sink.getSchemaJson(),
                 "schema-json must equal the legacy SchemaParser.toJson(table.schema()) (no v3 rewrite append)");
         Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecId());
-        Assertions.assertNotNull(sink.getPartitionSpecsJson(), "partitioned table must emit partition specs");
+        // WP-001: byte-equal the legacy partition-specs JSON, not just non-null. A garbled/dropped spec JSON
+        // silently corrupts partitioned writes once iceberg cuts over; the value is what BE reads back.
+        Assertions.assertEquals(Maps.transformValues(table.specs(), PartitionSpecParser::toJson),
+                sink.getPartitionSpecsJson(),
+                "partition-specs-json must byte-equal Maps.transformValues(table.specs(), PartitionSpecParser::toJson)");
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
         Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressionType());
         Assertions.assertFalse(sink.isOverwrite());
         Assertions.assertFalse(sink.isSetStaticPartitionValues());
+    }
+
+    @Test
+    public void planWriteDataLocationFallsBackToObjectStoreThenFolderLocation() {
+        // WP-007/parity: dataLocation cascades WRITE_DATA_LOCATION -> (OBJECT_STORE_ENABLED ? OBJECT_STORE_PATH)
+        // -> WRITE_FOLDER_STORAGE_LOCATION -> {table.location}/data. Every other test sets WRITE_DATA_LOCATION, so
+        // the two object-store / folder-storage fallbacks (which a misordered cascade would silently swap) were
+        // never exercised. The resolved path is scheme-normalized (oss:// -> s3://) just like WRITE_DATA_LOCATION.
+
+        // (a) object-store path wins when enabled and no write.data.path is set.
+        Table objStore = unpartitionedTableWith("obj", ImmutableMap.of(
+                "write.format.default", "parquet",
+                TableProperties.OBJECT_STORE_ENABLED, "true",
+                TableProperties.OBJECT_STORE_PATH, "oss://bucket/wh/db1/obj/objstore"));
+        Assertions.assertEquals("s3://bucket/wh/db1/obj/objstore",
+                planSink(objStore, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "obj"))).getOutputPath());
+
+        // (b) folder-storage location wins when object-store is disabled and no write.data.path is set.
+        Table folder = unpartitionedTableWith("fold", ImmutableMap.of(
+                "write.format.default", "parquet",
+                TableProperties.WRITE_FOLDER_STORAGE_LOCATION, "oss://bucket/wh/db1/fold/folder"));
+        Assertions.assertEquals("s3://bucket/wh/db1/fold/folder",
+                planSink(folder, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "fold"))).getOutputPath());
+    }
+
+    @Test
+    public void planWriteMapsFileFormatAndCompressionCodecVariety() {
+        // WP-005 / WP-009 / parity: only parquet+zstd is otherwise exercised, yet toTFileFormatType +
+        // toTFileCompressType map ORC and seven other codecs. A single enum mis-map (e.g. lz4 -> LZO, or
+        // ORC -> PARQUET) silently corrupts every write in that format. Pin a representative ORC + non-zstd matrix.
+        assertFormatAndCodec("orc", TableProperties.ORC_COMPRESSION, "zlib",
+                TFileFormatType.FORMAT_ORC, TFileCompressType.ZLIB);
+        assertFormatAndCodec("parquet", TableProperties.PARQUET_COMPRESSION, "snappy",
+                TFileFormatType.FORMAT_PARQUET, TFileCompressType.SNAPPYBLOCK);
+        assertFormatAndCodec("parquet", TableProperties.PARQUET_COMPRESSION, "lz4",
+                TFileFormatType.FORMAT_PARQUET, TFileCompressType.LZ4BLOCK);
+    }
+
+    private void assertFormatAndCodec(String format, String codecKey, String codec,
+            TFileFormatType expectedFormat, TFileCompressType expectedCompress) {
+        Table table = unpartitionedTableWith("fmt", ImmutableMap.of(
+                "write.format.default", format, codecKey, codec, "write.data.path", "oss://bucket/wh/db1/fmt/data"));
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "fmt")));
+        Assertions.assertEquals(expectedFormat, sink.getFileFormat());
+        Assertions.assertEquals(expectedCompress, sink.getCompressionType());
+    }
+
+    /** An unpartitioned table at a fresh catalog with the given properties. */
+    private static Table unpartitionedTableWith(String name, Map<String, String> props) {
+        return freshCatalog().createTable(TableIdentifier.of("db1", name), SCHEMA,
+                PartitionSpec.unpartitioned(), new HashMap<>(props));
     }
 
     @Test

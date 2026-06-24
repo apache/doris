@@ -13,10 +13,14 @@
 
 ## 📋 索引
 
-> 时间倒序；当前共 **40** 项（最新 DV-040；本轮 P6.2-T11 补登 DV-038/039/040 + 回填此前漏入索引的 DV-036/037）。
+> 时间倒序；当前共 **44** 项（最新 DV-044；本轮 P6.3-T08 把 P6.3 写路径 ~40 项 UT 不可见 deviation 批化中央登记为 DV-041/042/043/044，镜像 P6.2-T11 的 DV-038/039/040 分层）。
 
 | 编号 | 偏差主题 | 原计划位置 | 日期 | 当前状态 |
 |---|---|---|---|---|
+| DV-044 | **P6.3 iceberg 写路径 perf/cosmetic/EXPLAIN-diff/等价结构 批汇总**（结果恒等；镜像 DV-040/DV-035 style）：jdbc txn 全局注册生命周期变更·writeOperation 移 T03/beginTransaction throwing 默认（DV-T01-b/c）·jdbc EXPLAIN 头标签 `WRITE TYPE:JDBC_WRITE`→`WRITE:plan-provider`（窄化，INSERT SQL 经 appendExplainInfo 保，DV-T02-b）·appendExplainInfo EXPLAIN 期读元数据（净优于 legacy 每-INSERT 查，DV-T02-c）·异常型 `DorisConnectorException`/`IllegalStateException`（消息字节同，DV-T03-a/T04-b/T05-b/T06-c）·`scanManifestsWith` 丢→SDK 默认池（DV-T04-a/T05-f）·partition_data_json Jackson vs Gson（DV-T04-d）·单 `beginWrite`+`commit` switch（DV-T04-e）·显式 ZoneId 形参（DV-T04-f/T05-d）·O5-2 惰性转/私有 formatVersion 重复（DV-T05-a/e）·double loadTable 只读重 I/O（DV-T06-d）·新 `getBackendFileType`/`getWriteSortColumns` SPI 接缝 + `SINK_REQUIRE_FULL_SCHEMA_ORDER`（DV-T06-e）·EXPLAIN sink 标签 `PLUGIN-DRIVEN TABLE SINK` vs `ICEBERG TABLE SINK`（plan-shape 不变，OQ-3）·jdbc thrift 移位（OQ-1→DV-T02-a 实现）。全部**非正确性** | T01–T07 设计 §6 / [task 表 §P6.3](./tasks/P6-iceberg-migration.md) | 2026-06-24 | 🟢 已登记（accept；结果恒等/展示/性能；P6.6 docker 真值闸）|
+| DV-043 | **P6.3 iceberg 写路径 parity-忠实 correctness-bearing 但 UT 不可见 批汇总**（parity-by-construction / widening-safe，各有 P6.6 docker 闸）：jdbc affected-rows `-1` 哨兵 + `DPP_NORMAL_ALL`（BE 真实计数离线不可验，DV-T01-a）·jdbc `TJdbcTableSink` thrift 由 fe-core 移连接器 `planWrite`（OQ-1 字节-parity 移位，§4.1 逐字段 + UT，DV-T02-a）·`beginWrite` 的 `newTransaction()` auth-wrap（Kerberized HMS `doRefresh`，离线 InMemoryCatalog 不可分辨，DV-T03-d）·TIMESTAMP/identity 分区值连接器-本地解析 + 显式 zone（BE canonical fmt，DV-T04-c）·`IcebergPredicateConverter` conflict-mode 丢不可转/NullSafeEqual/Cast/col-col/NE → 冲突 filter **widens**（no-missed-conflict 安全，忠实 legacy 冲突路 Option A，用户签字 2026-06-24；DV-T05-c/T07b-matrix/T07b-literal）·连接器 hadoopConfig 经 fe-filesystem `toHadoopConfigurationMap` vs legacy fe-core（默认口径微差，P6.6 docker 断字节，DV-T06-hadoopconfig）。**别于 DV-041**：本条**已修待 docker 实证**，DV-041 是**未接线翻闸阻塞** | T01–T07 设计 §6 / [task 表 §P6.3](./tasks/P6-iceberg-migration.md) | 2026-06-24 | 🟢 已登记（accept；P6.6 docker 真值闸必逐项验）|
+| DV-042 | **P6.3 北极星 (iii) 有界架构偏差：iceberg DML plan 合成 fe-resident（Route B / option (i)，PMC 签字）**：iceberg DELETE/UPDATE/MERGE 的 plan 合成（`$row_id` 注入 / branch-label 投影代数 / nereids→iceberg expr）**暂留 fe-core**，经连接器-键控 `RowLevelDmlTransform` 注册表调用；合成内反向 `instanceof IcebergExternalTable`。**有界 intentional**——保 EXPLAIN parity，**只在北极星 (iii) 通用化**（Trino 式：连接器 0 优化器 import、引擎核心全 DML 合成）**关闭**，触发 = 第二个行级-DML 消费者（hive P7 / paimon），后续专门 RFC。含等价结构项：T07c 冲突-filter 顺序（provably-equivalent reorder）/单 table resolve（删 legacy 冗余 re-resolve）/`IcebergXCommand.run()` 循环 transitional-dead（P6.7 随类删）·conflict-mode 合成列排除经注入 Predicate（DV-T07b-exclusion）·`rewritableDeleteFileSets` 经 T07c executor finalize seam（DV-T07-rewritable）| RFC §5.3/§10 / T07 设计 §4.5.8 / [task 表 §P6.3](./tasks/P6-iceberg-migration.md) | 2026-06-24 | 🟢 已登记（accept；有界、PMC 签字、保 EXPLAIN parity；北极星 iii 后续 RFC 关闭）|
+| DV-041 | **P6.3 写路径翻闸阻塞 BLOCKER：通用 `visitPhysicalConnectorTableSink` 缺合成列物化 + 分布（DV-038 同主题新面）+ 休眠-至-翻闸激活集**。**主阻塞（DV-T07-materialize）**=通用 `visitPhysicalConnectorTableSink` 无合成列 `setMaterializedColumnName`（`$operation`/`$row_id`）+ `DistributionSpecMerge` 分布，仅 legacy `visitPhysicalIcebergMergeSink` 有 → iceberg DELETE/MERGE 经通用 sink 真正走通前须先长出，否则上游列被丢 → BE `iceberg_reader.cpp` StructNode DCHECK（**同 DV-038 崩溃类**）；T07 有意不碰 `PhysicalPlanTranslator:589-627`。**休眠-至-翻闸激活集（P6.6 必接线，全有或全无）**：写分布 `getRequirePhysicalProperties` 分区-hash 延后（DV-T06-a）·branch-INSERT thread-through（DV-T06-branch）·REST 对象存储 vended overlay（不接翻闸后 403，DV-T07-vended）·O5-2 `getConnectorTransactionOrNull()`→null 休眠（翻闸激活，DV-T07c-o5seam）·FILE_BROKER 地址（DV-T06-broker/T07-broker）| T06 §6 / T07 §1.1/§6 / RFC §5 / [task 表 §P6.3](./tasks/P6-iceberg-migration.md) | 2026-06-24 | 🔴 翻闸前（P6.6）必修/必接线（与 DV-038 同 holistic）|
 | DV-040 | **P6.2 iceberg scan perf/observability/EXPLAIN-drop + lenient-validation + benign superset 批汇总**（~36 项，镜像 DV-035 style）：profile/`planWith` drop·manifest 统计 drop·空表 COUNT EXPLAIN `(-1)`·COUNT `>10000` 并行 trim drop·typed-vs-string carriers·per-file format·Jackson vs Gson·predicate over-approx（reversed/IsNull/Like/Between/LARGEINT/edge-literal，BE residual 兜底）·ZoneId alias-map·`delete_files` unset·fail-loud 异常型·`Locale.ROOT`·INCREMENTAL fail-loud·TIMESTAMP epoch-millis·vended `io().properties()`/非-fail-soft/PROVIDER_CHAIN gap·**🔵 split-package shadowing**（vendored `DeleteFileIndex` 与 iceberg-core 共存，T08 extractor 漏报本条补登，跨引用 P6.1 R-004/#973270）。全部**非正确性**（结果恒等/展示/源不同值同/安全超集/BE 兜底） | T02–T09 设计 / [T11 汇总](./designs/P6-T11-iceberg-scan-summary-design.md) | 2026-06-23 | 🟢 已登记（accept；P6.6 docker 真值闸）|
 | DV-039 | **P6.2 iceberg scan parity-忠实 HIGH/MEDIUM correctness-bearing 但 UT 不可见 deviation 批汇总**（已连接器内缓解、单项不阻塞翻闸、各有 P6.6 docker 闸）：HIGH=columns-from-path unset-then-set(#968880 防双填)·`isPartitionBearing()` 空分区崩修（**0-新-SPI 唯一例外**，非破坏默认）·主数据路径 `normalizeStorageUri`(path/originalPath 拆)·Option A 全 pinned-schema 字典(time-travel 防 `iceberg_reader.cpp:181` DCHECK)·静态 `location.*` 凭据发射(T09 前 403)；MEDIUM=latest-snapshot 二元组·name-mapping 回退·fail-loud 竞态窗·vended live round-trip·Kerberized `doAs`(跨引用 DV-031)·tag/branch REF-pin·1-arg normalize delete 路。**别于 DV-038**：本条**已修待 docker 实证**，DV-038 是**未修共享 fe-core 崩溃** | T03/T04/T06/T07/T08/T09 设计 / [T11 汇总](./designs/P6-T11-iceberg-scan-summary-design.md) | 2026-06-23 | 🟢 已登记（accept；P6.6 docker 真值闸必逐项验）|
 | DV-038 | **P6.2 iceberg 翻闸阻塞 BLOCKER：共享 fe-core field-id 路径 BE StructNode DCHECK 崩溃（1 主题/2 面，CI #969249 类）**。**面 1**=`GLOBAL_ROWID` 被通用 `classifyColumn` 误归 REGULAR→不在 field-id 字典→`iceberg_reader.cpp` DCHECK→整 BE 崩（连接器无法修，须改共享 fe-core `classifyColumn`→SYNTHESIZED，但 `paimon_reader.cpp` 无对应处理器→盲改破 paimon top-N）。**面 2**=`getColumnHandles` 无 snapshot 重载→rename+time-travel 丢被重命名 slot field-id→同一 DCHECK（iceberg 侧 T07 Option A 已闭合，但**共享 seam 仍潜伏 PAIMON** snapshot-id time-travel+rename）。审计 critic 实证 blocker 计数=**2**（同主题），合并单条但显式记两面（Rule 12）。**P6.6 翻闸前必 holistic 修 + paimon 影响分析（可能 BE 协同）** | T06 §6 / T07 §6 / T10 audit / [HANDOFF 🔴🔴](./HANDOFF.md) | 2026-06-23 | 🔴 翻闸前必修（面 1 用户签字延后 2026-06-22 / 面 2 待 P6.6 holistic）|
@@ -61,6 +65,68 @@
 ---
 
 ## 详细记录（时间倒序）
+
+### DV-044 — P6.3 iceberg 写路径：perf / cosmetic / EXPLAIN-diff / 等价结构（结果恒等；镜像 DV-040/DV-035 批 style）
+- **状态**：🟢 已登记（accept；结果恒等/展示/性能/等价结构）｜**日期**：2026-06-24｜**签字**：各项已随 T01–T07 task 用户签字（见各设计 §6），本条为 P6.3-T08 中央汇总
+- **原计划位置**：T01–T07〔a/b/c〕各设计文档 §6 + [task 表 §P6.3 line 239](./tasks/P6-iceberg-migration.md)
+- **范围**：P6.3 写框架统一 + iceberg 写路径共 ~20 项 UT 不可见但**非正确性**的偏差，批化为一条。要点分类：
+  - **生命周期 / 时序变更（行为等价）**：jdbc 退化 no-op txn 现经通用 `PluginDrivenTransactionManager.begin`/`putTxnById` 全局注册（连接器 0 注册码，DV-T01-b）；`writeOperation` 枚举移 T03、`beginTransaction` 默认保 throwing（非 RFC 字面 no-op，由 `NoOpConnectorTransaction` 退化，DV-T01-c）；`writeOperation` 产品消费者落 T04/T06、T03 仅默认值契约测（DV-T03-b）；txn-id 双注册由通用 manager 完成（同 maxcompute，DV-T03-c）。
+  - **EXPLAIN / observability drop（cosmetic）**：jdbc EXPLAIN 头标签 `WRITE TYPE: JDBC_WRITE`→`WRITE: plan-provider`（窄化，INSERT SQL 经 `appendExplainInfo` 保，DV-T02-b）；`appendExplainInfo` 在 EXPLAIN-string 期触发连接器读元数据（**净优于** legacy 每-INSERT 查；纯 INSERT 为 0，DV-T02-c）；sink EXPLAIN 标签 `PLUGIN-DRIVEN TABLE SINK`+detail vs `ICEBERG TABLE SINK`（plan-shape 不变，OQ-3，非回归）。
+  - **fail-loud 异常型 / 源不同值同**：begin/commit/guard 失败抛 `DorisConnectorException`/`IllegalStateException`/SDK `ValidationException`/`VerifyException` vs legacy `UserException`/`AnalysisException`/`IllegalArgumentException`/`RuntimeException`（消息字节同义，DV-T03-a/T04-b/T05-b/T06-c）；`partition_data_json` 经 iceberg Jackson 非 fe-core Gson（`List<String>` 字节同，DV-T04-d）；私有 `formatVersion(Table)` 与 `IcebergConnectorMetadata.getFormatVersion` 重复（避跨类编辑，DV-T05-e）。
+  - **perf / scale-only（结果恒等）**：op 的 `scanManifestsWith(pool)` 丢 → SDK 默认 worker pool（提交结果字节等价，DV-T04-a/T05-f）；op 选择经单 `beginWrite`+`commit()` switch 而非 legacy 3 begin/finish 方法名、`CommonStatistics` 内联（DV-T04-e）；`getWriteSortColumns`（translator 期）+ `beginWrite`（bind 期）double loadTable 只读重 I/O（DV-T06-d）。
+  - **SPI 接缝 / 参数化（thrift-free，等价）**：TIMESTAMP/identity 解析取显式 `ZoneId` 形参非 thread-local（DV-T04-f/T05-d；correctness 半在 DV-043）；O5-2 `applyWriteConstraint` 暂存中立 `ConnectorPredicate`、commit 时惰性转（DV-T05-a）；新 `ConnectorContext.getBackendFileType`（scheme→`TFileType` 的 thrift-free enum-name 接缝）+ `getWriteSortColumns`（null=无 sort / 非 null=有）+ 声明 `SINK_REQUIRE_FULL_SCHEMA_ORDER`（DV-T06-e）。
+- **为何可接受**：全部**非正确性**——生命周期/异常型行为等价、仅展示（EXPLAIN）、源不同值同、perf/scale 结果恒等、SPI 接缝 thrift-free 等价。jdbc/maxcompute/paimon 写字节 parity 经其各自回归门守（T01–T06 无回归）。
+- **真值闸**：P6.6 docker（翻闸后回归套件）逐项确认无害 + assembled-Thrift vs legacy。
+- **关联**：[DV-040]（P6.2 同 style 批）、[DV-035]（P4 同 style 批）、[DV-041]（翻闸阻塞）、[DV-042]（北极星 iii）、[DV-043]（correctness-bearing）、T01–T07 设计 §6。
+
+### DV-043 — P6.3 iceberg 写路径：parity-忠实 HIGH/MEDIUM correctness-bearing 但 UT 不可见 deviation（parity-by-construction / widening-safe，各有 P6.6 docker 闸）
+- **状态**：🟢 已登记（accept；各项 parity-by-construction 或 widening-safe + P6.6 docker 真值闸必验）｜**日期**：2026-06-24｜**签字**：各项随 T01–T07 task 用户签字（Option A 冲突矩阵 2026-06-24）
+- **原计划位置**：T01/T02/T03/T04/T05/T06/T07b 各设计文档 §6 + [task 表 §P6.3](./tasks/P6-iceberg-migration.md)
+- **范围**：与 [DV-044] 区别 = 本条各项**承载正确性**（误则错结果），但**parity-by-construction 或只-widening（绝不漏冲突）** 故单项不阻塞翻闸；每项有具体 P6.6 docker 闸。
+  - **byte-parity 移位（OQ-1）**：jdbc `TJdbcTableSink` thrift 由 fe-core planner 移连接器 `JdbcWritePlanProvider.planWrite`（DV-T02-a）——14 字段逐字段 parity（设计 §4.1）+ 连接池 `getInt`/`DEFAULT_POOL_*` 非 bind 硬编 fallback 陷阱已避；UT 断字节，docker 终验。
+  - **affected-rows 哨兵**：jdbc 退化 txn 的 `NoOpConnectorTransaction.getUpdateCnt` 返 `-1` 哨兵 + executor `if(cnt>=0)` 守 `DPP_NORMAL_ALL`，否则默认 0 clobber 回归（DV-T01-a）——correct-by-construction，BE 真实计数离线 UT 不可验。
+  - **auth-wrap 离线不可见**：`beginWrite` 的 `loadTable`+`newTransaction()` 须在 `executeAuthenticated` 内（Kerberized HMS `BaseTable.newTransaction` 触发无条件远程 `doRefresh`），离线 InMemoryCatalog 无 auth 不可分辨（DV-T03-d，跨引用 [DV-031]）。
+  - **zone-aware 分区值解析**：TIMESTAMP/identity 分区值经连接器-本地 parser + 显式 `ZoneId`（非 nereids `DateLiteral`+thread-local），BE 发 canonical 格式（DV-T04-c）——实务等价，docker 断字节。
+  - **conflict-mode widening（Option A，用户签字 2026-06-24）**：O5-2 写约束经 `IcebergPredicateConverter` conflict-mode 转换，**忠实** legacy 真实冲突路——legacy 不处理的形式（NullSafeEqual / Cast 包裹列 / col-col / 裸 bool / NE）一律丢弃 → 冲突 filter **widens**（更保守，**no-missed-conflict 安全**）；字面量经扫描侧 `extractIcebergLiteral` 矩阵（边缘 UUID/FIXED/GEO 分歧只放宽）；合成列排除经 T07c 注入 Predicate（DV-T05-c/T07b-matrix/T07b-literal）。**本轮 T08 gap-fill UT 已补 per-conjunct drop（O5-2-GAP-001）+ OR all-or-nothing（O5-2-GAP-006）+ 分区冲突 filter 端到端（OP-SEL-01/VAL-T05-*）**，逻辑半已 UT 锁。
+  - **hadoopConfig 口径**：连接器 `hadoopConfig` 经 fe-filesystem `StorageProperties.toHadoopConfigurationMap()` vs legacy fe-core `getBackendConfigProperties()`，默认口径可能微差（DV-T06-hadoopconfig）——P6.6 docker 断字节 parity。
+- **为何各项不单独阻塞翻闸**：每项 **parity-by-construction**（thrift 逐字段 / 哨兵守 / auth-wrap 镜像 legacy）或 **widening-only**（冲突 filter 只放宽、绝不漏冲突）；UT 已覆盖逻辑/wiring（T08 gap-fill 补全），剩余仅「真 BE/Kerberized/live 行为」须 docker。**别于 [DV-041]**：DV-041 是**未接线翻闸阻塞**，本条是**已修待 docker 实证**。
+- **真值闸**：P6.6 docker——INSERT/DELETE/UPDATE/MERGE 写 parity + 事务提交/冲突检测 + jdbc affected-rows + Kerberized auth + assembled-Thrift vs legacy。
+- **关联**：[DV-041]（翻闸阻塞）、[DV-044]（perf/cosmetic）、[DV-039]（P6.2 同类 correctness-bearing）、[DV-031]（Kerberos）、T01–T07 设计。
+
+### DV-042 — P6.3 北极星 (iii) 有界架构偏差：iceberg DML plan 合成 fe-resident（Route B / option (i)，PMC 签字）
+- **状态**：🟢 已登记（accept；有界 intentional、PMC/RFC §4 签字、保 EXPLAIN parity）｜**日期**：2026-06-24｜**签字**：RFC §4 Q1 = Route B / option (i)（PMC 评审通过）
+- **原计划位置**：[06-iceberg-write-path-rfc.md §5.3/§10](./06-iceberg-write-path-rfc.md) + [T07 设计 §4.5.8](./tasks/designs/P6.3-T07-rowlevel-dml-unification-design.md) + [task 表 §P6.3 范围外](./tasks/P6-iceberg-migration.md)
+- **偏差描述**：iceberg DELETE/UPDATE/MERGE 的 **plan 合成**（`$row_id` 注入 / branch-label 投影代数 / nereids→iceberg expr）**暂留 fe-core**，经连接器-键控 `RowLevelDmlTransform` 注册表（`RowLevelDmlCommand` 壳 + capability 派发）调用；合成内仍有反向 `instanceof IcebergExternalTable` cast（fe-resident 合成内属本条，其余 catalog/statistics 读侧 cast 归 P6.7）。这是 RFC §4 Q1 用户/PMC 裁定的 **Route B / option (i) 务实路径**（拒 option (ii) 新 nereids-spi 模块），与北极星 **(iii) Trino 式通用化**（连接器 0 优化器 import、引擎核心全 DML 合成、连接器供 3 声明式 SPI = row-id handle + RowChangeParadigm + merge sink）有界偏离。
+- **范围（含 T07c 等价结构项）**：
+  - **DV-04x（本条核心）**：DML plan 合成 fe-resident + 连接器-键控变换注册表 + 合成内反向 instanceof。
+  - T07c **冲突-filter 计算顺序**从 T04 分支内挪到 `newExecutor` 后（单 merged call，provably-equivalent reorder；T04 冲突已 stable、新 executor 无副作用、结果字节同，DV-T07c-conflict-order）。
+  - T07c 壳做**单 table resolve**，删 legacy 冗余 re-resolve + instanceof throw（dispatcher 已解析、吞/抛纪律保，harmless，DV-T07c-resolve）。
+  - `IcebergXCommand.run()`/`executeMergePlan()` 循环保留但不再被路由 = **transitional dead**，P6.7 随类删；live 路径仅壳一份循环（DV-T07c-dormant-loop）。
+  - conflict-mode 合成列排除按名排扫描侧 row-lineage 列，合成列**生产**排除由 T07c `WriteConstraintExtractor` 注入 `Predicate<SlotReference>` 完成（DV-T07b-exclusion）。
+  - `rewritableDeleteFileSets`（fv≥3 DV rewrite）经 T07c executor finalize seam 注入连接器 opaque sink（critic 定点 option b vs c，DV-T07-rewritable）。
+- **为何可接受**：option (i) 保 **EXPLAIN/执行 parity**（oracle `IcebergDDLAndDMLPlanTest` 14/0 byte-parity 铁证，本轮 T08 又补 DELETE/UPDATE operation-literal 值断言）、surgical（不新建 nereids-spi 模块）；等价结构项 provably-equivalent 或 transitional-dead。**有界**——不随意扩散，仅在北极星 (iii) 专门 RFC 时关闭。
+- **真值闸**：oracle byte-parity（已绿）+ P6.6 docker EXPLAIN/执行不回归；北极星 (iii) 触发 = 第二个行级-DML 消费者（hive P7 / paimon 第二消费者）→ 后续专门 RFC 彻底关闭本条。
+- **关联**：[06-iceberg-write-path-rfc.md §10 北极星](./06-iceberg-write-path-rfc.md)、[DV-041]（翻闸阻塞，DV-T07-materialize 是其物化半）、[DV-009]（写 sink 收口位置）、T07 设计。
+
+### DV-041 — P6.3 写路径**翻闸阻塞 BLOCKER**：通用 `visitPhysicalConnectorTableSink` 缺合成列物化 + 分布（DV-038 同主题新面）+ 休眠-至-翻闸激活集
+- **状态**：🔴 **翻闸前（P6.6）必修/必接线**——未接则 iceberg DELETE/MERGE 经通用 sink 挂 BE / REST 读 403｜**日期**：2026-06-24｜**签字**：T07 §1.1 critic finding 5 + 激活集各项随 T06/T07 task 用户签字延后
+- **原计划位置**：[T06 设计 §6](./tasks/designs/P6.3-T06-iceberg-sink-unification-design.md) + [T07 设计 §1.1/§6](./tasks/designs/P6.3-T07-rowlevel-dml-unification-design.md) + [RFC §5](./06-iceberg-write-path-rfc.md) + [HANDOFF 🔴🔴](./HANDOFF.md)
+- **偏差描述**（**主阻塞与 [DV-038] 同一 BE StructNode DCHECK 崩溃类，新面**）：
+  - **主阻塞 — DV-T07-materialize（合成列物化 + 分布）**：通用 `visitPhysicalConnectorTableSink`（`PhysicalPlanTranslator`）**无**合成列 `setMaterializedColumnName`（`$operation`/`$row_id`）+ `DistributionSpecMerge` 分布——这两者**仅** legacy `visitPhysicalIcebergMergeSink` 有。iceberg DELETE/MERGE 经通用 sink 真正走通前，通用 translator 须**先长出**合成列物化 + 分布，否则上游合成列被丢 → BE `iceberg_reader.cpp` field-id 路 StructNode `DCHECK` → 整 BE 崩（**同 DV-038 崩溃签名**）。T07 **有意不碰** `PhysicalPlanTranslator:589-627`，把它登记为 P6.6 翻闸阻塞。
+- **休眠-至-翻闸激活集**（**P6.6 必接线，翻闸全有或全无**；不接则对应 catalog/查询断，但非 BE 崩）：
+  - 写分布 `getRequirePhysicalProperties`（分区-hash）延后——capability 模型错配（mc 强制 local-sort，iceberg 必须不），dormant（DV-T06-a）。
+  - branch-INSERT thread-through——通用 `PluginDrivenWriteHandle` 不带 branch 字段，T06 折出 `branch=Optional.empty()`，须 P6.6 经 `PluginDrivenInsertCommandContext` 加字段（DV-T06-branch）。
+  - REST 对象存储 **vended overlay**——delete/merge sink 的 `hadoop_config` 静态、无 vended overlay；翻闸后 REST 对象存储读 **403**（DV-T07-vended，同 P6.2 [DV-039] vended 族）。
+  - O5-2 `BaseExternalTableInsertExecutor.getConnectorTransactionOrNull()` → **null 休眠**（iceberg 走 legacy txn），翻闸（iceberg 进 plugin-driven）后激活（DV-T07c-o5seam）。
+  - FILE_BROKER 写地址（`broker_addresses`）解析缺（broker 写少见，P6.6 确认需求后补，DV-T06-broker/T07-broker）。
+- **为何登记为 BLOCKER（Rule 12）**：主阻塞与 [DV-038] **同一** BE field-id 路 StructNode DCHECK 崩溃类、同需 holistic 共享 fe-core/translator 修；激活集是翻闸**全有或全无**的必接线项（`CatalogFactory:104-113`）。现 iceberg **不在** `SPI_READY_TYPES`，写路径 behind gate dormant，故未触发。
+- **真值闸**：P6.6 docker——翻闸前必接线主阻塞（合成列物化 + 分布）+ 激活集，跑 iceberg DELETE/MERGE（防 BE 崩）+ REST 对象存储读（防 403）+ branch-INSERT。**须先接线再翻闸**。
+- **关联**：[DV-038]（同 BE StructNode DCHECK 主题，DV-041 是写路径新面；翻闸前须一并 holistic 修）、[DV-042]（DML 合成 fe-resident，DV-T07-materialize 是其物化半）、[DV-009]（写 sink 收口）、T06/T07 设计、[HANDOFF 🔴🔴 块](./HANDOFF.md)。
+- **后续动作（翻闸阻塞 checklist，P6.6 前必清）**：
+  - [ ] 通用 `visitPhysicalConnectorTableSink`：长出合成列 `setMaterializedColumnName`（`$operation`/`$row_id`）+ `DistributionSpecMerge`（与 [DV-038] 一并 holistic）
+  - [ ] 写分布 `getRequirePhysicalProperties` 接线（DV-T06-a）+ branch/broker thread-through
+  - [ ] REST 对象存储 vended overlay 接 delete/merge sink（DV-T07-vended）
+  - [ ] O5-2 `getConnectorTransactionOrNull()` 翻闸激活核对（DV-T07c-o5seam）
 
 ### DV-040 — P6.2 iceberg scan：perf / observability / EXPLAIN-profile drop + lenient-validation + benign superset（结果恒等 / cosmetic / scale-only；镜像 DV-035 批 style）
 - **状态**：🟢 已登记（accept；结果恒等/展示/性能/良性超集）｜**日期**：2026-06-23｜**签字**：各项已随 T02–T09 task 用户签字（见各设计文档 §deviation），本条为中央汇总
