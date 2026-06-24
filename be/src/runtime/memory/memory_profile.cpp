@@ -18,18 +18,17 @@
 #include "runtime/memory/memory_profile.h"
 
 #include "bvar/reducer.h"
-#include "olap/metadata_adder.h"
-#include "olap/schema_cache.h"
-#include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_profile.h"
+#include "storage/metadata_adder.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "util/mem_info.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static bvar::Adder<int64_t> memory_all_tracked_sum_bytes("memory_all_tracked_sum_bytes");
 static bvar::Adder<int64_t> memory_global_trackers_sum_bytes("memory_global_trackers_sum_bytes");
@@ -162,8 +161,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     // 2 refresh metadata memory tracker
     ExecEnv::GetInstance()->tablets_no_cache_mem_tracker()->set_consumption(
             MetadataAdder<TabletMeta>::get_all_tablets_size() -
-            TabletSchemaCache::instance()->value_mem_consumption() -
-            SchemaCache::instance()->value_mem_consumption());
+            TabletSchemaCache::instance()->value_mem_consumption());
     ExecEnv::GetInstance()->rowsets_no_cache_mem_tracker()->set_consumption(
             MetadataAdder<RowsetMeta>::get_all_rowsets_size());
     ExecEnv::GetInstance()->segments_no_cache_mem_tracker()->set_consumption(
@@ -375,5 +373,4 @@ void MemoryProfile::print_log_process_usage() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

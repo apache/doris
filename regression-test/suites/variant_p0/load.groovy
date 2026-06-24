@@ -23,8 +23,8 @@ suite("regression_test_variant", "p0"){
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             set 'memtable_on_sink_node', 'true'
             file file_name // import json file
@@ -101,10 +101,10 @@ suite("regression_test_variant", "p0"){
             qt_sql4 "select v['b'], v['b']['c'] from  ${table_name} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
             qt_sql5 "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
             qt_sql6 "select cast(v['b'] as string) from ${table_name} where  cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,  cast(v['b'] as string) "
-            // verify table_name 
+            // verify table_name
         }
         sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
-       
+
         // 2. type confilct cases
         def table_name = "type_conflict_resolution"
         create_table table_name
@@ -182,7 +182,7 @@ suite("regression_test_variant", "p0"){
 
                 )
                 DUPLICATE KEY(`k`)
-                DISTRIBUTED BY RANDOM BUCKETS 5 
+                DISTRIBUTED BY RANDOM BUCKETS 5
                 properties("replication_num" = "1", "disable_auto_compaction" = "false");
             """
         sql """insert into ${table_name} values (1,  '{"A" : 123}', '{"B" : 123}', '{"C" : 456}');"""
@@ -230,7 +230,7 @@ suite("regression_test_variant", "p0"){
         qt_sql_29_1 """select * from alter_variant where length(cast(v2 as string)) > 2 and cast(v2 as string) != 'null' order by k, cast(v as string), cast(v2 as string);"""
         verify table_name
 
-        // 11. boolean values 
+        // 11. boolean values
         table_name = "boolean_values"
         create_table table_name
         sql """INSERT INTO ${table_name} VALUES (1, ''), (2, '{"k1": true, "k2": false}'), (3, '{}'), (4, '{"k1": false}');"""
@@ -292,7 +292,7 @@ suite("regression_test_variant", "p0"){
         sql """insert into ${table_name} values (5, '{"i" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
-        sql "select /*+SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=false,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=4,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=true,parallel_scan_max_scanners_count=16,parallel_scan_min_rows_per_scanner=128,enable_fold_constant_by_be=true,enable_rewrite_element_at_to_slot=true,runtime_filter_type=2,enable_parallel_result_sink=false,sort_phase_num=0,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_common_expr_pushdown=true,enable_local_exchange=true,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=true,enable_two_phase_read_opt=true,enable_common_expr_pushdown_for_inverted_index=false,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */ * from ${table_name}"
+        sql "select /*+SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=false,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=4,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=true,parallel_scan_max_scanners_count=16,parallel_scan_min_rows_per_scanner=128,enable_fold_constant_by_be=true,enable_rewrite_element_at_to_slot=true,runtime_filter_type=2,enable_parallel_result_sink=false,sort_phase_num=0,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_segment_limit_pushdown=true,enable_local_exchange=true,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=true,enable_two_phase_read_opt=true,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */ * from ${table_name}"
         qt_sql_36_1 "select cast(v['a'] as int), cast(v['b'] as int), cast(v['c'] as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
@@ -309,22 +309,22 @@ suite("regression_test_variant", "p0"){
         // table_name = "invalid_variant"
         // set_be_config.call("max_filter_ratio_for_variant_parsing", "1")
         // create_table.call(table_name,  "DUPLICATE", "4")
-        // sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
-        // sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
+        // sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')"""
+        // sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')"""
         // set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
-        // sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
-        // sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
+        // sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')"""
+        // sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')"""
         // sql "select * from ${table_name}"
 
         // test all sparse columns
         table_name = "all_sparse_columns"
         create_table.call(table_name,  "DUPLICATE", "1")
-        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
-        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "2"}')""" 
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')"""
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "2"}')"""
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
 
         // test mow with delete
-        table_name = "variant_mow" 
+        table_name = "variant_mow"
         sql """
          CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -332,7 +332,7 @@ suite("regression_test_variant", "p0"){
                 v variant
             )
             UNIQUE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 4 
+            DISTRIBUTED BY HASH(k) BUCKETS 4
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true");
         """
         sql """insert into ${table_name} values (1, "abc", '{"a" : 1}'), (1, "cde", '{"b" : 1}')"""
@@ -348,14 +348,14 @@ suite("regression_test_variant", "p0"){
         sql "truncate table sparse_columns"
 
         // test cast
-        table_name = "variant_cast"         
+        table_name = "variant_cast"
         create_table.call(table_name,  "DUPLICATE", "1")
         sql """
             insert into variant_cast values(1,'["CXO0N: 1045901740", "HMkTa: 1348450505", "44 HHD: 915015173", "j9WoJ: -1517316688"]'),(2,'"[1]"'),(3,'123456'),(4,'1.11111')
         """
-        qt_sql_39 "select k, json_type(cast(v as json), '\$')  from variant_cast order by k" 
-        qt_sql_39 "select cast(v as array<text>)  from variant_cast where k = 1 order by k" 
-        qt_sql_39 "select cast(v as string)  from variant_cast where k = 2 order by k" 
+        qt_sql_39 "select k, json_type(cast(v as json), '\$')  from variant_cast order by k"
+        qt_sql_39 "select cast(v as array<text>)  from variant_cast where k = 1 order by k"
+        qt_sql_39 "select cast(v as string)  from variant_cast where k = 2 order by k"
 
         sql "DROP TABLE IF EXISTS records"
         sql """
@@ -379,7 +379,6 @@ suite("regression_test_variant", "p0"){
                 "light_schema_change" = "true",
                 "store_row_column" = "true",
                 "disable_auto_compaction" = "false",
-                "enable_single_replica_compaction" = "false",
                 "group_commit_interval_ms" = "10000",
                 "group_commit_data_bytes" = "134217728"
                 );
@@ -410,7 +409,7 @@ suite("regression_test_variant", "p0"){
               "replication_allocation" = "tag.location.default: 1"
             );
             """
-            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+            exception("errCode = 2, detailMessage = Variant type should not be used in distribution column[content].")
         }
 
          test {
@@ -425,7 +424,7 @@ suite("regression_test_variant", "p0"){
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
             );
-            """ 
+            """
             exception("errCode = 2, detailMessage = Variant type should not be used in key")
         }
         sql "DROP TABLE IF EXISTS var_as_key"

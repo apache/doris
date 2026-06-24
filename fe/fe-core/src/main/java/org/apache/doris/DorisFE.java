@@ -18,6 +18,7 @@
 package org.apache.doris;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterGuardFactory;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -31,6 +32,7 @@ import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -41,8 +43,10 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
-import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tls.server.FeServerStarterFactory;
+import org.apache.doris.tls.server.ServerStarter;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
@@ -51,6 +55,7 @@ import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
@@ -66,6 +71,7 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -91,6 +97,8 @@ public class DorisFE {
 
     // HTTP server instance, used for graceful shutdown
     private static HttpServer httpServer;
+    private static ServerStarter thriftServerStarter;
+    private static QeService qeService;
 
     public static void main(String[] args) {
         // Every doris version should have a final meta version, it should not change
@@ -118,9 +126,6 @@ public class DorisFE {
 
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args, StartupOptions options) {
-        if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
-            Log4jConfig.foreground = true;
-        }
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
             System.err.println("env DORIS_HOME is not set.");
             return;
@@ -153,12 +158,29 @@ public class DorisFE {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
+            // Set foreground flag after Config.init() but before Log4jConfig class loading,
+            // so that Log4jConfig's static block can read the correct config values (e.g. log_rollover_strategy).
+            if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
+                Log4jConfig.foreground = true;
+            }
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
                 serverReady.set(false);
                 gracefulShutdown();
+
+                if (qeService != null) {
+                    qeService.stop();
+                }
+
+                if (thriftServerStarter != null) {
+                    try {
+                        thriftServerStarter.stop();
+                    } catch (Exception e) {
+                        LOG.warn("stop FE thrift starter failed", e);
+                    }
+                }
 
                 // Shutdown HTTP server after main process graceful shutdown is complete
                 if (httpServer != null) {
@@ -187,6 +209,7 @@ public class DorisFE {
             }
 
             fuzzyConfigs();
+            initClusterGuard(dorisHomeDir);
 
             LOG.info("Doris FE starting...");
 
@@ -221,12 +244,16 @@ public class DorisFE {
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
 
+            if (Config.enable_file_cache_admission_control) {
+                FileCacheAdmissionManager.getInstance().loadOnStartup();
+            }
+
             // init and start:
             // 1. HttpServer for HTTP Server
-            // 2. FeServer for Thrift Server
+            // 2. FE thrift server starter
             // 3. QeService for MySQL Server
-            FeServer feServer = new FeServer(Config.rpc_port);
-            feServer.start();
+            thriftServerStarter = FeServerStarterFactory.createThriftServerStarter(Config.rpc_port);
+            thriftServerStarter.start();
 
             if (options.enableHttpServer) {
                 httpServer = new HttpServer();
@@ -240,7 +267,8 @@ public class DorisFE {
                 httpServer.setKeyStorePassword(Config.key_store_password);
                 httpServer.setKeyStoreType(Config.key_store_type);
                 httpServer.setKeyStoreAlias(Config.key_store_alias);
-                httpServer.setEnableHttps(Config.enable_https);
+                httpServer.setEnableHttps(Config.enable_https
+                        && !(Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.HTTP)));
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);
@@ -251,8 +279,8 @@ public class DorisFE {
             SimpleScheduler.init();
 
             if (options.enableQeService) {
-                QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
-                                                    ExecuteEnv.getInstance().getScheduler());
+                qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
+                        ExecuteEnv.getInstance().getScheduler());
                 qeService.start();
             }
 
@@ -260,6 +288,7 @@ public class DorisFE {
             startMonitor();
 
             serverReady.set(true);
+
             // JVM will exit when shutdown hook is completed
             while (true) {
                 Thread.sleep(2000);
@@ -347,7 +376,12 @@ public class DorisFE {
         options.addOption("m", "metaversion", true, "Specify the meta version to decode log value");
         options.addOption("r", FeConstants.METADATA_FAILURE_RECOVERY_KEY, false,
                 "Check if the specified metadata recover is valid");
+        options.addOption(Option.builder().longOpt(FeConstants.RECOVERY_JOURNAL_ID_KEY).hasArg()
+                .desc("Specify the recovery truncate journal id, and journals greater than this id will be removed")
+                .build());
         options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
+        options.addOption(Option.builder().longOpt(FeConstants.DROP_BACKENDS_KEY)
+                .desc("When this FE becomes MASTER, drop all backends from cluster metadata (destructive)").build());
 
         CommandLine cmd = null;
         try {
@@ -383,6 +417,17 @@ public class DorisFE {
         }
         if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
             System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
+        }
+        if (cmd.hasOption(FeConstants.RECOVERY_JOURNAL_ID_KEY)) {
+            String recoveryJournalId = cmd.getOptionValue(FeConstants.RECOVERY_JOURNAL_ID_KEY);
+            if (Strings.isNullOrEmpty(recoveryJournalId)) {
+                System.err.println("recovery_journal_id is missing");
+                System.exit(-1);
+            }
+            System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, recoveryJournalId.trim());
+        }
+        if (cmd.hasOption(FeConstants.DROP_BACKENDS_KEY)) {
+            System.setProperty(FeConstants.DROP_BACKENDS_KEY, "true");
         }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
@@ -574,6 +619,11 @@ public class DorisFE {
         }
     }
 
+    private static void initClusterGuard(String dorisHomeDir) throws Exception {
+        ClusterGuardFactory.getGuard().onStartup(dorisHomeDir);
+        LOG.info("Cluster guard initialized successfully.");
+    }
+
     public static void overwriteConfigs() {
         if (Config.isCloudMode() && Config.enable_feature_binlog) {
             Config.enable_feature_binlog = false;
@@ -589,9 +639,14 @@ public class DorisFE {
         // Keep global fuzzy knobs that are not session-based.
         if (Config.fuzzy_test_type.equalsIgnoreCase("daily")
                 || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
-            Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
-            LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
+            Config.random_add_order_by_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
+            LOG.info("fuzzy set random_add_order_by_keys_for_mow={}", Config.random_add_order_by_keys_for_mow);
         }
+
+        Config.enable_txn_log_outside_lock = new Random().nextBoolean();
+        LOG.info("fuzzy set enable_txn_log_outside_lock={}", Config.enable_txn_log_outside_lock);
+        Config.enable_batch_editlog = new Random().nextBoolean();
+        LOG.info("fuzzy set enable_batch_editlog={}", Config.enable_batch_editlog);
 
         setFuzzyForCatalog();
     }
@@ -601,8 +656,8 @@ public class DorisFE {
             return;
         }
 
-        Config.max_hive_partition_cache_num = Util.getRandomLong(0, 10, 10000);
-        Config.max_hive_partition_table_cache_num = Util.getRandomLong(0, 10, 10000);
+        Config.max_hive_partition_cache_num = Util.getRandomLong(0, 10, 10000, 100000);
+        Config.max_hive_partition_table_cache_num = Util.getRandomLong(0, 10, 1000, 10000);
         Config.external_cache_expire_time_seconds_after_access = Util.getRandomLong(0, 1, 10, 86400);
         Config.external_cache_refresh_time_minutes = Util.getRandomLong(1, 10);
         Config.max_external_cache_loader_thread_pool_size = Util.getRandomInt(1, 10, 64);

@@ -110,10 +110,11 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new LogicalFileSinkRewrite().build(),
                 new LogicalHiveTableSinkRewrite().build(),
                 new LogicalIcebergTableSinkRewrite().build(),
-                new LogicalJdbcTableSinkRewrite().build(),
+                new LogicalMaxComputeTableSinkRewrite().build(),
+                new LogicalIcebergMergeSinkRewrite().build(),
+                new LogicalConnectorTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
                 new LogicalDictionarySinkRewrite().build(),
-                new LogicalDeferMaterializeResultSinkRewrite().build(),
                 new LogicalOlapTableSinkExpressionRewrite().build());
     }
 
@@ -518,10 +519,26 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class LogicalJdbcTableSinkRewrite extends OneRewriteRuleFactory {
+    private class LogicalMaxComputeTableSinkRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
-            return logicalJdbcTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
+            return logicalMaxComputeTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
+                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
+        }
+    }
+
+    private class LogicalIcebergMergeSinkRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalIcebergMergeSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
+                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
+        }
+    }
+
+    private class LogicalConnectorTableSinkRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalConnectorTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }
@@ -538,14 +555,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalDictionarySink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalDeferMaterializeResultSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalDeferMaterializeResultSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }

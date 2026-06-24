@@ -26,13 +26,12 @@
 #include "agent/agent_server.h"
 #include "agent/topic_subscriber.h"
 #include "common/status.h"
-#include "runtime/stream_load/stream_load_recorder.h"
+#include "load/stream_load/stream_load_recorder.h"
 
 namespace doris {
 
 class StorageEngine;
 class ExecEnv;
-class ThriftServer;
 class TAgentResult;
 class TAgentTaskRequest;
 class TAgentPublishRequest;
@@ -61,6 +60,12 @@ public:
     BaseBackendService(ExecEnv* exec_env);
 
     ~BaseBackendService() override;
+
+    // Start runtime workers that the thrift server depends on (agent workers,
+    // ingest-binlog thread pool, etc.). Must be called before constructing the
+    // thrift server. The name makes the side effects explicit: this is not a
+    // lightweight preparation hook.
+    virtual Status start_thrift_dependencies() = 0;
 
     // Agent service
     void submit_tasks(TAgentResult& return_value,
@@ -122,6 +127,11 @@ public:
     void test_storage_connectivity(TTestStorageConnectivityResponse& response,
                                    const TTestStorageConnectivityRequest& request) override;
 
+    void get_python_envs(std::vector<TPythonEnvInfo>& result) override;
+
+    void get_python_packages(std::vector<TPythonPackageInfo>& result,
+                             const std::string& python_version) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
@@ -155,14 +165,11 @@ protected:
 // `StorageEngine` mixin for `BaseBackendService`
 class BackendService final : public BaseBackendService {
 public:
-    // NOTE: now we do not support multiple backend in one process
-    static Status create_service(StorageEngine& engine, ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server,
-                                 std::shared_ptr<doris::BackendService> service);
-
     BackendService(StorageEngine& engine, ExecEnv* exec_env);
 
     ~BackendService() override;
+
+    Status start_thrift_dependencies() override;
 
     void get_tablet_stat(TTabletStatResult& result) override;
 

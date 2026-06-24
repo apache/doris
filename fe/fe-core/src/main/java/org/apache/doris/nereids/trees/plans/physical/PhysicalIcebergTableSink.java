@@ -26,9 +26,11 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.ArrayList;
@@ -72,10 +74,10 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalIcebergTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
@@ -85,24 +87,24 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalIcebergTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child());
+                groupExpression, getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalIcebergTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0));
+                groupExpression, logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalIcebergTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     /**
@@ -110,6 +112,15 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
+        // For Iceberg rewrite operations with small data volume,
+        // use GATHER distribution to collect data to a single node
+        // This helps minimize the number of output files
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() != null
+                && connectContext.getStatementContext().isUseGatherForIcebergRewrite()) {
+            return PhysicalProperties.GATHER;
+        }
+
         Set<String> partitionNames = targetTable.getPartitionNames();
         if (!partitionNames.isEmpty()) {
             List<Integer> columnIdx = new ArrayList<>();

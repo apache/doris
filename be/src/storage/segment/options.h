@@ -1,0 +1,54 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <cstddef>
+
+namespace doris {
+namespace segment_v2 {
+
+static constexpr size_t STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536;
+static constexpr size_t STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 256 * 1024l;
+
+constexpr long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384; // default row store page size: 16KB
+
+struct PageBuilderOptions {
+    size_t data_page_size = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+
+    size_t dict_page_size = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+
+    bool need_check_bitmap = true;
+
+    bool is_dict_page = false; // page used for saving dictionary
+
+    // On-disk binary plain encoding used by BinaryDictPageBuilder for its dict word page and
+    // dict-overflow fallback page (PLAIN_ENCODING / PLAIN_ENCODING_V2 / PLAIN_ENCODING_V3).
+    // Consumed only by BinaryDictPageBuilder.
+    EncodingTypePB dict_binary_plain_encoding = PLAIN_ENCODING;
+};
+
+struct PageDecoderOptions {
+    bool need_check_bitmap = true;
+    bool only_read_offsets = false;
+};
+
+} // namespace segment_v2
+} // namespace doris

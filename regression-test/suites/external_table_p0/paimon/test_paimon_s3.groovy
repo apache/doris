@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_s3", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
+suite("test_paimon_s3", "p0,external") {
     def testQuery = { String catalogProperties, String prefix, String dbName ->
         def catalog_name = "test_paimon_on_fs_${prefix}_catalog"
         sql """

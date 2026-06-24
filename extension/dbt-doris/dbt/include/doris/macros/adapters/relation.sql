@@ -212,6 +212,14 @@
   {% do return([false, new_relation]) %}
 {% endmacro %}
 
+{% macro drop_relation_if_exists(relation) %}
+  {{ doris__drop_relation(relation) }}
+{% endmacro %}
+
+{% macro create_indexes(relation) -%}
+  {# Doris does not support traditional indexes; this is a no-op #}
+{%- endmacro %}
+
 {% macro catalog_source(catalog,database,table) -%}
   `{{catalog}}`.`{{database}}`.`{{table}}`
 {%- endmacro %}

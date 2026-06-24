@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -67,6 +68,23 @@ public abstract class ComparisonPredicate extends BinaryOperator {
             } else if (c.getDataType().isJsonType()) {
                 throw new AnalysisException("comparison predicate could not contains json type: " + this.toSql());
             }
+        }
+        checkScoreComparisonType();
+    }
+
+    private void checkScoreComparisonType() {
+        Expression left = left();
+        Expression right = right();
+
+        if (left instanceof Score && !right.getDataType().isNumericType() && !right.getDataType().isNullType()) {
+            throw new AnalysisException(
+                    "score() function can only be compared with numeric types, but found: "
+                            + right.getDataType() + " in " + this.toSql());
+        }
+        if (right instanceof Score && !left.getDataType().isNumericType() && !left.getDataType().isNullType()) {
+            throw new AnalysisException(
+                    "score() function can only be compared with numeric types, but found: "
+                            + left.getDataType() + " in " + this.toSql());
         }
     }
 }

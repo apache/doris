@@ -19,6 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -29,12 +30,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
-import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.filesystem.FileSystemUtil;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -114,9 +117,12 @@ public class ExportMgr {
         try {
             // delete existing files
             if (Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-                String fullPath = job.getExportPath();
-                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
-                        job.getBrokerDesc());
+                try (org.apache.doris.filesystem.FileSystem fs =
+                        FileSystemFactory.getFileSystem(job.getBrokerDesc())) {
+                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(job.getExportPath())), true);
+                } catch (java.io.IOException e) {
+                    throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
+                }
             }
             // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
             for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
@@ -554,4 +560,3 @@ public class ExportMgr {
         return size;
     }
 }
-

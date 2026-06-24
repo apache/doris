@@ -36,20 +36,21 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
-#include "http/http_channel.h"
-#include "http/http_headers.h"
-#include "http/http_request.h"
-#include "http/http_status.h"
-#include "olap/base_compaction.h"
-#include "olap/cumulative_compaction.h"
-#include "olap/cumulative_compaction_policy.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/full_compaction.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "util/doris_metrics.h"
+#include "service/http/http_channel.h"
+#include "service/http/http_headers.h"
+#include "service/http/http_request.h"
+#include "service/http/http_status.h"
+#include "storage/compaction/base_compaction.h"
+#include "storage/compaction/cumulative_compaction.h"
+#include "storage/compaction/cumulative_compaction_policy.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/compaction/full_compaction.h"
+#include "storage/compaction_task_tracker.h"
+#include "storage/olap_define.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -166,12 +167,13 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
 
     LOG(INFO) << "manual submit compaction task, tablet id: " << tablet_id
               << " table id: " << table_id;
-    // 3. submit compaction task
+    // 3. submit compaction task (trigger_method=1 for MANUAL)
     RETURN_IF_ERROR(_engine.submit_compaction_task(
-            tablet, compaction_type == PARAM_COMPACTION_BASE ? CompactionType::BASE_COMPACTION
-                    : compaction_type == PARAM_COMPACTION_CUMULATIVE
-                            ? CompactionType::CUMULATIVE_COMPACTION
-                            : CompactionType::FULL_COMPACTION));
+            tablet,
+            compaction_type == PARAM_COMPACTION_BASE         ? CompactionType::BASE_COMPACTION
+            : compaction_type == PARAM_COMPACTION_CUMULATIVE ? CompactionType::CUMULATIVE_COMPACTION
+                                                             : CompactionType::FULL_COMPACTION,
+            /*trigger_method=*/1));
 
     LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
               << " table id: " << table_id;

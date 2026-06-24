@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_full_compaction.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <boost/container_hash/hash.hpp>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -24,16 +26,15 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "core/column/column.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/compaction.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "storage/compaction/compaction.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
-#include "vec/columns/column.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -378,7 +379,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *cloud_tablet(), -1, initiator, delete_bitmap.get(), delete_bitmap.get(),
             _output_rowset->rowset_id().to_string(), storage_resource,
-            config::delete_bitmap_store_write_version));
+            config::delete_bitmap_store_write_version, cloud_tablet()->table_id()));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())

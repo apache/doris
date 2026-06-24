@@ -101,6 +101,7 @@ public class NereidsCoordinator extends Coordinator {
             setForInsert(-1L);
         }
 
+        syncLocalShufflePlannerOption();
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -115,6 +116,7 @@ public class NereidsCoordinator extends Coordinator {
 
         // we don't need to check the dataSink, Because setting jobId means this must be a load operation
         setForInsert(jobId);
+        syncLocalShufflePlannerOption();
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -132,9 +134,18 @@ public class NereidsCoordinator extends Coordinator {
         // same reason in `setForInsert`
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.needEnqueue = false;
+        syncLocalShufflePlannerOption();
 
         Preconditions.checkState(!fragments.isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+    }
+
+    private void syncLocalShufflePlannerOption() {
+        coordinatorContext.queryOptions.setEnableLocalShufflePlanner(
+                coordinatorContext.distributedPlans != null
+                && !coordinatorContext.distributedPlans.isEmpty()
+                && coordinatorContext.connectContext != null
+                && coordinatorContext.connectContext.getSessionVariable().isEnableLocalShufflePlanner());
     }
 
     @Override
@@ -148,6 +159,8 @@ public class NereidsCoordinator extends Coordinator {
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragments
                 = ThriftPlansBuilder.plansToThrift(coordinatorContext);
         executionTask = PipelineExecutionTaskBuilder.build(coordinatorContext, workerToFragments);
+        waitForTimeBasedReadTransactionsVisible(coordinatorContext.connectContext, coordinatorContext.scanNodes,
+                coordinatorContext.queryGlobals);
         executionTask.execute();
     }
 
@@ -492,6 +505,7 @@ public class NereidsCoordinator extends Coordinator {
         // Set this field to true to avoid data entering the normal cache LRU queue
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
+        this.coordinatorContext.queryOptions.setNewVersionPercentile(true);
     }
 
     private void setForQuery() {

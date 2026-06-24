@@ -28,7 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.qe.ConnectContext;
@@ -42,11 +42,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -58,113 +59,77 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRewriteUtilTest {
-    @Mocked
-    private MTMV mtmv;
-    @Mocked
-    private ConnectContext ctx;
-    @Mocked
-    private SessionVariable sessionVariable;
-    @Mocked
-    private Partition p1;
-    @Mocked
-    private MTMVRelation relation;
-    @Mocked
-    private MTMVStatus status;
-    @Mocked
-    private MTMVPartitionUtil mtmvPartitionUtil;
-    @Mocked
-    private MTMVUtil mtmvUtil;
+    private MTMV mtmv = Mockito.mock(MTMV.class);
+    private ConnectContext ctx = Mockito.mock(ConnectContext.class);
+    private SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+    private Partition p1 = Mockito.mock(Partition.class);
+    private MTMVRelation relation = Mockito.mock(MTMVRelation.class);
+    private MTMVStatus status = Mockito.mock(MTMVStatus.class);
+    private MTMVPartitionInfo mvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic;
+    private MockedStatic<MTMVUtil> mtmvUtilStatic;
     private long currentTimeMills = 3L;
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
+        mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class);
+        mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
 
-        new Expectations() {
-            {
-                mtmv.getPartitions();
-                minTimes = 0;
-                result = Lists.newArrayList(p1);
+        Mockito.when(mtmv.getPartitions()).thenReturn(Lists.newArrayList(p1));
 
-                mtmv.getPartitionNames();
-                minTimes = 0;
-                result = Sets.newHashSet("p1");
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet("p1"));
 
-                p1.getName();
-                minTimes = 0;
-                result = "p1";
+        Mockito.when(p1.getName()).thenReturn("p1");
 
-                p1.getVisibleVersionTime();
-                minTimes = 0;
-                result = 1L;
+        Mockito.when(p1.getVisibleVersionTime()).thenReturn(1L);
 
-                mtmv.getGracePeriod();
-                minTimes = 0;
-                result = 0L;
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(0L);
 
-                mtmv.getRelation();
-                minTimes = 0;
-                result = relation;
+        Mockito.when(mtmv.getRelation()).thenReturn(relation);
 
-                mtmv.getStatus();
-                minTimes = 0;
-                result = status;
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
 
-                mtmv.getGracePeriod();
-                minTimes = 0;
-                result = 0L;
+        Mockito.when(status.getState()).thenReturn(MTMVState.NORMAL);
 
-                status.getState();
-                minTimes = 0;
-                result = MTMVState.NORMAL;
+        Mockito.when(status.getRefreshState()).thenReturn(MTMVRefreshState.SUCCESS);
 
-                status.getRefreshState();
-                minTimes = 0;
-                result = MTMVRefreshState.SUCCESS;
+        Mockito.when(ctx.getSessionVariable()).thenReturn(sessionVariable);
 
-                ctx.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
+        Mockito.when(sessionVariable.isEnableMaterializedViewRewrite()).thenReturn(true);
 
-                sessionVariable.isEnableMaterializedViewRewrite();
-                minTimes = 0;
-                result = true;
+        Mockito.when(sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()).thenReturn(true);
 
-                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
-                minTimes = 0;
-                result = true;
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(true);
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
-                        (Set<BaseTableInfo>) any,
-                        (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = true;
+        mtmvUtilStatic.when(() -> MTMVUtil.mtmvContainsExternalTable(
+                Mockito.any(MTMV.class))).thenReturn(false);
 
-                MTMVUtil.mtmvContainsExternalTable((MTMV) any);
-                minTimes = 0;
-                result = false;
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPartitionInfo);
 
-                mtmv.canBeCandidate();
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(mvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.SELF_MANAGE);
+
+        Mockito.when(mvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet());
+
+        Mockito.when(mtmv.canBeCandidate()).thenReturn(true);
+    }
+
+    @After
+    public void tearDown() {
+        mtmvPartitionUtilStatic.close();
+        mtmvUtilStatic.close();
     }
 
     @Test
     public void testGetMTMVCanRewritePartitionsForceConsistent() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmv.getGracePeriod();
-                minTimes = 0;
-                result = 2L;
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
-                        (Set<BaseTableInfo>) any,
-                        (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
 
         // currentTimeMills is 3, grace period is 2, and partition getVisibleVersionTime is 1
         // if forceConsistent this should get 0 partitions which mtmv can use.
@@ -183,19 +148,12 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsInGracePeriod() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmv.getGracePeriod();
-                minTimes = 0;
-                result = 2L;
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(2L);
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
-                        (Set<BaseTableInfo>) any,
-                        (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
 
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
@@ -205,19 +163,12 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsNotInGracePeriod() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmv.getGracePeriod();
-                minTimes = 0;
-                result = 1L;
+        Mockito.when(mtmv.getGracePeriod()).thenReturn(1L);
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
-                        (Set<BaseTableInfo>) any,
-                        (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
 
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
@@ -227,13 +178,7 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsDisableMaterializedViewRewrite() {
-        new Expectations() {
-            {
-                sessionVariable.isEnableMaterializedViewRewrite();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(sessionVariable.isEnableMaterializedViewRewrite()).thenReturn(false);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
@@ -244,15 +189,10 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
-        new Expectations() {
-            {
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
-                        (Set<BaseTableInfo>) any,
-                        (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVPartitionSync(
+                Mockito.any(MTMVRefreshContext.class), Mockito.anyString(),
+                Mockito.any(Set.class),
+                Mockito.any(Set.class))).thenReturn(false);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
@@ -261,17 +201,10 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsEnableContainExternalTable() {
-        new Expectations() {
-            {
-                MTMVUtil.mtmvContainsExternalTable((MTMV) any);
-                minTimes = 0;
-                result = true;
+        mtmvUtilStatic.when(() -> MTMVUtil.mtmvContainsExternalTable(
+                Mockito.any(MTMV.class))).thenReturn(true);
 
-                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()).thenReturn(true);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
@@ -280,17 +213,10 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsDisableContainExternalTable() {
-        new Expectations() {
-            {
-                MTMVUtil.mtmvContainsExternalTable((MTMV) any);
-                minTimes = 0;
-                result = true;
+        mtmvUtilStatic.when(() -> MTMVUtil.mtmvContainsExternalTable(
+                Mockito.any(MTMV.class))).thenReturn(true);
 
-                sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(sessionVariable.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()).thenReturn(false);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
@@ -301,13 +227,7 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsStateAbnormal() {
-        new Expectations() {
-            {
-                mtmv.canBeCandidate();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(mtmv.canBeCandidate()).thenReturn(false);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
@@ -316,13 +236,7 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsRefreshStateAbnormal() {
-        new Expectations() {
-            {
-                status.getRefreshState();
-                minTimes = 0;
-                result = MTMVRefreshState.FAIL;
-            }
-        };
+        Mockito.when(status.getRefreshState()).thenReturn(MTMVRefreshState.FAIL);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);
@@ -331,13 +245,7 @@ public class MTMVRewriteUtilTest {
 
     @Test
     public void testGetMTMVCanRewritePartitionsRefreshStateInit() {
-        new Expectations() {
-            {
-                mtmv.canBeCandidate();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(mtmv.canBeCandidate()).thenReturn(false);
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
                 .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills, false,
                         null);

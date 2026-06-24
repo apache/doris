@@ -17,55 +17,64 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class AdminDropClusterSnapshotCommandTest {
-    @Mocked
     private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
     private ConnectContext connectContext;
+    private AccessControllerManager accessControllerManager;
+    private MockedStatic<Env> envMockedStatic;
+    private MockedStatic<ConnectContext> ctxMockedStatic;
 
-    private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    private String originalMinPrivilege;
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+    @BeforeEach
+    public void setUp() {
+        originalMinPrivilege = Config.cluster_snapshot_min_privilege;
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+        env = Mockito.mock(Env.class);
+        connectContext = Mockito.mock(ConnectContext.class);
+        accessControllerManager = Mockito.mock(AccessControllerManager.class);
 
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        ctxMockedStatic = Mockito.mockStatic(ConnectContext.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        ctxMockedStatic.when(ConnectContext::get).thenReturn(connectContext);
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(connectContext.getState()).thenReturn(new QueryState());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        Config.cluster_snapshot_min_privilege = originalMinPrivilege;
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+        if (ctxMockedStatic != null) {
+            ctxMockedStatic.close();
+        }
     }
 
     @Test
     public void testValidateNormal() throws Exception {
-        runBefore();
+        Mockito.when(connectContext.isSkipAuth()).thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
+
         Config.deploy_mode = "";
         AdminDropClusterSnapshotCommand command = new AdminDropClusterSnapshotCommand("SNAPSHOT_ID", "323741");
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
@@ -94,22 +103,52 @@ public class AdminDropClusterSnapshotCommandTest {
     }
 
     @Test
-    public void testValidateNoPriviledge() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    public void testValidateNoPrivilegeRootMode() {
+        // Test root mode (default): admin user should be denied
+        Config.cluster_snapshot_min_privilege = "root";
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        UserIdentity nonRootUser = new UserIdentity("admin", "%");
+        nonRootUser.setIsAnalyzed();
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(nonRootUser);
+
+        Config.deploy_mode = "cloud";
+
+        AdminDropClusterSnapshotCommand command = new AdminDropClusterSnapshotCommand("snapshot_id", "323741");
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
+                "Access denied; you need (at least one of) the (root privilege) privilege(s) for this operation");
+    }
+
+    @Test
+    public void testValidateAdminModeWithAdminUser() {
+        // Test admin mode: admin user with ADMIN privilege should be allowed
+        Config.cluster_snapshot_min_privilege = "admin";
+
+        UserIdentity adminUser = new UserIdentity("admin", "%");
+        adminUser.setIsAnalyzed();
+
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(true);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(adminUser);
+
+        Config.deploy_mode = "cloud";
+
+        AdminDropClusterSnapshotCommand command = new AdminDropClusterSnapshotCommand("snapshot_id", "323741");
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateAdminModeWithNormalUser() {
+        // Test admin mode: normal user without ADMIN privilege should be denied
+        Config.cluster_snapshot_min_privilege = "admin";
+
+        UserIdentity normalUser = new UserIdentity("normal_user", "%");
+        normalUser.setIsAnalyzed();
+
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(false);
+        Mockito.when(connectContext.getCurrentUserIdentity()).thenReturn(normalUser);
+
         Config.deploy_mode = "cloud";
 
         AdminDropClusterSnapshotCommand command = new AdminDropClusterSnapshotCommand("snapshot_id", "323741");

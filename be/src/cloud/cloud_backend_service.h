@@ -25,13 +25,11 @@ class CloudStorageEngine;
 
 class CloudBackendService final : public BaseBackendService {
 public:
-    static Status create_service(CloudStorageEngine& engine, ExecEnv* exec_env, int port,
-                                 std::unique_ptr<ThriftServer>* server,
-                                 std::shared_ptr<doris::CloudBackendService> service);
-
     CloudBackendService(CloudStorageEngine& engine, ExecEnv* exec_env);
 
     ~CloudBackendService() override;
+
+    Status start_thrift_dependencies() override;
 
     // If another cluster load, FE need to notify the cluster to sync the load data
     void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
@@ -57,6 +55,9 @@ public:
                                 int64_t last_stream_record_time) override;
 
 private:
+    void _warm_up_cache(TWarmUpCacheAsyncResponse& response,
+                        const TWarmUpCacheAsyncRequest& request);
+
     CloudStorageEngine& _engine;
 };
 

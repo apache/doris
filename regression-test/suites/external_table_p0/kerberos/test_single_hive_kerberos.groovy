@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+suite("test_single_hive_kerberos", "p0,external") {
     def command = "sudo docker ps"
     def process = command.execute()
     process.waitFor()

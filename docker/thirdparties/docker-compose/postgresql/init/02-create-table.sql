@@ -437,4 +437,9 @@ CREATE TABLE test_timestamp_tz_db.ts_test (
     ts_ntz  timestamp NULL
 );
 
-
+CREATE TABLE catalog_pg_test.test_array_null (
+    id int4 NOT NULL,
+    text_arr text[] NULL,
+    int_arr int4[] NULL,
+    varchar_arr varchar[] NULL
+);

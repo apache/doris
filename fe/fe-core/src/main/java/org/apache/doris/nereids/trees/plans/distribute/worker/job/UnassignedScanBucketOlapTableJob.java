@@ -86,6 +86,18 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         return olapScanNodes;
     }
 
+    /**
+     * Select a replica and its hosting worker for each bucket's tablets across all
+     * OLAP scan nodes in this fragment, grouping by bucket index. This is the key
+     * mechanism for bucket-shuffle join and colocate join: tablets belonging to the
+     * same bucket index across different tables are co-located on the same worker,
+     * enabling local join without data shuffling.
+     *
+     * @param distributeContext the distribute context
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @return a map from worker to its {@link UninstancedScanSource} keyed by bucket index,
+     *         e.g. {@code {BackendWorker("172.0.0.1") -> {bucket 0: {olapScanNode1: [...], olapScanNode2: [...]}}}}
+     */
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
@@ -112,6 +124,23 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         );
     }
 
+    /**
+     * Split each worker's assigned buckets into one or more instances, then fill up
+     * missing bucket instances when needed for outer join or non-intersect set operations
+     * in bucket-shuffle mode.
+     * <p>
+     * After the default even-split from {@link AbstractUnassignedScanJob#insideMachineParallelization},
+     * this method checks whether the fragment contains right outer join, full outer join,
+     * semi/anti join, or non-intersect set operations that use bucket shuffle. If a bucket
+     * index has no left-side data (e.g. due to tablet pruning), a placeholder instance is
+     * created for that bucket so the right-side data still has a destination to be shuffled to,
+     * preventing the join from silently dropping rows.
+     *
+     * @param workerToScanRanges map from worker to its un-instanced bucket ranges
+     * @param inputJobs multimap from child exchange nodes to their assigned jobs
+     * @param distributeContext the distribute context for parallelism configuration
+     * @return the list of assigned jobs, with missing bucket placeholders filled in
+     */
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
@@ -177,6 +206,29 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         return assignedJobs;
     }
 
+    /**
+     * Creates local shuffle instances for bucket-based join fragments.
+     * Handles two scenarios:
+     * <ol>
+     *   <li><b>All serial</b>: all scan nodes use serial source. Only the first
+     *       instance scans, others share via local shuffle. Each instance is
+     *       assigned a subset of bucket indexes for join processing.</li>
+     *   <li><b>Mixed serial/non-serial</b>: some scan nodes are serial (e.g.
+     *       multi-partition table) and some are not. The serial scan source is
+     *       merged into the first instance, while non-serial sources are
+     *       parallelized normally. All instances use
+     *       {@link LocalShuffleBucketJoinAssignedJob} which carries the specific
+     *       bucket indexes to join.</li>
+     * </ol>
+     * Any remaining slots (when {@code instanceNum} exceeds the number of
+     * bucket groups) are filled with empty instances that have no join buckets.
+     *
+     * @param scanSource the bucket scan source to distribute
+     * @param instanceNum the target number of instances for this worker
+     * @param instances the output list receiving newly created assigned jobs
+     * @param context the connect context for generating instance IDs
+     * @param worker the worker that will host all instances
+     */
     @Override
     protected void assignLocalShuffleJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
             ConnectContext context, DistributedPlanWorker worker) {
@@ -270,7 +322,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         Map<Integer, Map<ScanNode, ScanRanges>> serialScanRanges = Maps.newLinkedHashMap();
         Map<Integer, Map<ScanNode, ScanRanges>> nonSerialScanRanges = Maps.newLinkedHashMap();
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode.isSerialOperator()) {
+            if (scanNode.isSerialNode()) {
                 collectScanRanges(totalScanSource, scanNode, serialScanRanges);
             } else {
                 collectScanRanges(totalScanSource, scanNode, nonSerialScanRanges);
@@ -504,5 +556,63 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             }
         }
         return workers;
+    }
+
+    /**
+     * Compute parallelism for bucket-based scan fragments.
+     * In addition to the base class constraints, this override introduces a
+     * tablet-count-based strategy for pure colocate scan (no exchange nodes):
+     * parallelism is derived from the total tablet count, capped by the
+     * session variable {@code colocateMaxParallelNum} (default 128).
+     * <p>
+     * When exchange nodes are present (e.g. bucket shuffle join), falls back
+     * to {@link AbstractUnassignedScanJob#degreeOfParallelism} to avoid
+     * over-parallelizing the join fragment.
+     *
+     * @param maxParallel the maximum possible parallelism (bucket count)
+     * @param useLocalShuffleToAddParallel whether local shuffle is active
+     * @return the number of instances to create per worker
+     */
+    @Override
+    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
+        Preconditions.checkArgument(maxParallel > 0, "maxParallel must be positive");
+        if (!fragment.getDataPartition().isPartitioned()) {
+            return 1;
+        }
+        if (fragment.queryCacheParam != null) {
+            return maxParallel;
+        }
+        if (scanNodes.size() == 1 && scanNodes.get(0) instanceof OlapScanNode) {
+            OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
+            ConnectContext connectContext = statementContext.getConnectContext();
+            if (connectContext != null && olapScanNode.shouldUseOneInstance(connectContext)) {
+                return 1;
+            }
+        }
+
+        // The tablet-based parallelism strategy only applies when the fragment has no exchange nodes
+        // (e.g. pure colocate scan). When exchange nodes are present (e.g. bucket shuffle join),
+        // fall back to the base class behavior to avoid over-parallelizing the join fragment.
+        if (!exchangeToChildJob.isEmpty()) {
+            return super.degreeOfParallelism(maxParallel, useLocalShuffleToAddParallel);
+        }
+
+        long tabletNum = 0;
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                tabletNum = olapScanNode.getTotalTabletsNum();
+                break;
+            }
+        }
+
+        ConnectContext connectContext = statementContext.getConnectContext();
+        int colocateMaxParallelNum = 128;
+        if (connectContext != null) {
+            colocateMaxParallelNum = connectContext.getSessionVariable().colocateMaxParallelNum;
+        }
+
+        int maxParallelism = (int) Math.max(tabletNum, fragment.getParallelExecNum());
+        return Math.min(maxParallelism, colocateMaxParallelNum);
     }
 }

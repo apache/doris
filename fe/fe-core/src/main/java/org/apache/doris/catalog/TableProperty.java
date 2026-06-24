@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -60,6 +61,10 @@ public class TableProperty implements GsonPostProcessable {
     // the follower variables are built from "properties"
     private DynamicPartitionProperty dynamicPartitionProperty =
             EnvFactory.getInstance().createDynamicPartitionProperty(Maps.newHashMap());
+    // True when "properties" carries dynamic_partition.* entries that are incomplete
+    // (missing required keys) and were ignored when building dynamicPartitionProperty.
+    // Derived from "properties", not persisted.
+    private boolean invalidDynamicPartition = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
@@ -96,7 +101,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean variantEnableFlattenNested = false;
 
-    private boolean enableSingleReplicaCompaction = false;
+    private int verticalCompactionNumColumnsPerGroup = 5;
 
     private boolean storeRowColumn = false;
 
@@ -166,7 +171,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
-                buildEnableSingleReplicaCompaction();
+                buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
@@ -188,6 +193,17 @@ public class TableProperty implements GsonPostProcessable {
      */
     public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
                                                    ReplicaAllocation replicaAlloc) {
+        if (Config.isCloudMode()) {
+            // In cloud mode, rewrite all unsupported or forced properties from the source cluster.
+            // These properties (e.g., replication_num, replication_allocation, storage_policy,
+            // storage_medium, in_memory, etc.) are not applicable in cloud mode. If kept, they would
+            // cause some critical problems.
+            PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+            buildInMemory();
+            buildStorageMedium();
+            buildStoragePolicy();
+            buildMinLoadReplicaNum();
+        }
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             if (!reserveDynamicPartitionEnable) {
@@ -214,13 +230,37 @@ public class TableProperty implements GsonPostProcessable {
             if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
                 if (!DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
                     LOG.warn("Ignore invalid dynamic property key: {}: value: {}", entry.getKey(), entry.getValue());
+                    continue;
                 }
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
 
+        if (!dynamicPartitionProperties.isEmpty()
+                && !hasRequiredDynamicPartitionProperties(dynamicPartitionProperties)) {
+            LOG.warn("Ignore incomplete dynamic partition properties: {}", dynamicPartitionProperties);
+            dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(Maps.newHashMap());
+            invalidDynamicPartition = true;
+            return this;
+        }
+        invalidDynamicPartition = false;
         dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
+    }
+
+    // Required keys of a usable dynamic partition config. END/BUCKETS have no null-safe default
+    // in DynamicPartitionProperty's constructor (Integer.parseInt), so a raw map carrying only
+    // optional keys (e.g. a leftover storage_medium/storage_policy from a failed ALTER) must be
+    // rejected here to avoid parseInt(null) during backup/selectiveCopy/image replay.
+    private boolean hasRequiredDynamicPartitionProperties(Map<String, String> dynamicPartitionProperties) {
+        return dynamicPartitionProperties.containsKey(DynamicPartitionProperty.TIME_UNIT)
+                && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.END)
+                && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.PREFIX)
+                && dynamicPartitionProperties.containsKey(DynamicPartitionProperty.BUCKETS);
+    }
+
+    public boolean hasInvalidDynamicPartition() {
+        return invalidDynamicPartition;
     }
 
     public TableProperty buildInMemory() {
@@ -324,23 +364,34 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
+        migrateDeprecatedVariantEnableFlattenNestedProperty();
         variantEnableFlattenNested = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
         return this;
+    }
+
+    private void migrateDeprecatedVariantEnableFlattenNestedProperty() {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)
+                && properties.containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                    properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+            return;
+        }
+        properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
     }
 
     public boolean variantEnableFlattenNested() {
         return variantEnableFlattenNested;
     }
 
-    public TableProperty buildEnableSingleReplicaCompaction() {
-        enableSingleReplicaCompaction = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION, "false"));
+    public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
+        verticalCompactionNumColumnsPerGroup = Integer.parseInt(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP, "5"));
         return this;
     }
 
-    public boolean enableSingleReplicaCompaction() {
-        return enableSingleReplicaCompaction;
+    public int verticalCompactionNumColumnsPerGroup() {
+        return verticalCompactionNumColumnsPerGroup;
     }
 
     public TableProperty buildStoreRowColumn() {
@@ -556,8 +607,15 @@ public class TableProperty implements GsonPostProcessable {
             binlogConfig.setMaxHistoryNums(
                     Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.valueOf(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            binlogConfig.setNeedHistoricalValue(Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)));
+        }
         this.binlogConfig = binlogConfig;
-
         return this;
     }
 
@@ -570,13 +628,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public void setBinlogConfig(BinlogConfig newBinlogConfig) {
         Map<String, String> binlogProperties = Maps.newHashMap();
-        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.isEnable()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.getEnable()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS,
                 String.valueOf(newBinlogConfig.getTtlSeconds()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES,
                 String.valueOf(newBinlogConfig.getMaxBytes()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS,
                 String.valueOf(newBinlogConfig.getMaxHistoryNums()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT,
+                String.valueOf(newBinlogConfig.getBinlogFormat()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                String.valueOf(newBinlogConfig.getNeedHistoricalValue()));
         modifyTableProperties(binlogProperties);
         this.binlogConfig = newBinlogConfig;
     }
@@ -751,6 +813,15 @@ public class TableProperty implements GsonPostProcessable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE, groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE,
+                PropertyAnalyzer.GROUP_COMMIT_MODE_OFF);
+    }
+
     public void setRowStoreColumns(List<String> rowStoreColumns) {
         if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
@@ -884,7 +955,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionFileCountThreshold();
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
-        buildEnableSingleReplicaCompaction();
+        buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();

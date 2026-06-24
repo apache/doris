@@ -1,0 +1,220 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/row_cursor.h"
+
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <numeric>
+#include <ostream>
+
+#include "common/cast_set.h"
+#include "common/consts.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
+#include "storage/key_coder.h"
+#include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
+#include "util/slice.h"
+
+namespace doris {
+using namespace ErrorCode;
+
+RowCursor::RowCursor() = default;
+RowCursor::~RowCursor() = default;
+RowCursor::RowCursor(RowCursor&&) noexcept = default;
+RowCursor& RowCursor::operator=(RowCursor&&) noexcept = default;
+
+void RowCursor::_init_schema(TabletSchemaSPtr schema, uint32_t column_count) {
+    std::vector<uint32_t> columns(column_count);
+    std::iota(columns.begin(), columns.end(), 0);
+    _schema.reset(new Schema(schema->columns(), columns));
+}
+
+Status RowCursor::init(TabletSchemaSPtr schema, const OlapTuple& tuple) {
+    size_t key_size = tuple.size();
+    if (key_size > schema->num_columns()) {
+        return Status::Error<INVALID_ARGUMENT>(
+                "Input param are invalid. Column count is bigger than num_columns of schema. "
+                "column_count={}, schema.num_columns={}",
+                key_size, schema->num_columns());
+    }
+    _init_schema(schema, cast_set<uint32_t>(key_size));
+    return _from_tuple(tuple);
+}
+
+Status RowCursor::init_scan_key(TabletSchemaSPtr schema, std::vector<Field> fields) {
+    size_t key_size = fields.size();
+    if (key_size > schema->num_columns()) {
+        return Status::Error<INVALID_ARGUMENT>(
+                "Input param are invalid. Column count is bigger than num_columns of schema. "
+                "column_count={}, schema.num_columns={}",
+                key_size, schema->num_columns());
+    }
+    _init_schema(schema, cast_set<uint32_t>(key_size));
+    _fields = std::move(fields);
+    return Status::OK();
+}
+
+Status RowCursor::_from_tuple(const OlapTuple& tuple) {
+    if (tuple.size() != _schema->num_column_ids()) {
+        return Status::Error<INVALID_ARGUMENT>(
+                "column count does not match. tuple_size={}, field_count={}", tuple.size(),
+                _schema->num_column_ids());
+    }
+    _fields.resize(tuple.size());
+    for (size_t i = 0; i < tuple.size(); ++i) {
+        _fields[i] = tuple.get_field(i);
+    }
+    return Status::OK();
+}
+
+RowCursor RowCursor::clone() const {
+    RowCursor result;
+    result._schema = std::make_unique<Schema>(*_schema);
+    result._fields = _fields;
+    return result;
+}
+
+std::string RowCursor::to_string() const {
+    std::string result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (i > 0) {
+            result.append("|");
+        }
+        if (_fields[i].is_null()) {
+            result.append("1&NULL");
+        } else {
+            result.append("0&");
+            result.append(
+                    _fields[i].to_debug_string(_schema->column(cast_set<uint32_t>(i))->frac()));
+        }
+    }
+    return result;
+}
+
+void RowCursor::_encode_column_value(const TabletColumn* column, const Field& value,
+                                     bool full_encode, std::string* buf) const {
+    FieldType ft = column->type();
+    const KeyCoder* coder = get_key_coder(ft);
+
+    if (field_is_slice_type(ft)) {
+        // String types: CHAR, VARCHAR, STRING — all stored as String in Field.
+        const String& str = value.get<TYPE_STRING>();
+
+        if (ft == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            // CHAR type: must pad with \0 to the declared column length
+            size_t col_len = column->length();
+            String padded(col_len, '\0');
+            memcpy(padded.data(), str.data(), std::min(str.size(), col_len));
+
+            Slice slice(padded.data(), col_len);
+            if (full_encode) {
+                coder->full_encode_ascending(&slice, buf);
+            } else {
+                coder->encode_ascending(&slice, column->index_length(), buf);
+            }
+        } else {
+            // VARCHAR / STRING: use actual length
+            Slice slice(str.data(), str.size());
+            if (full_encode) {
+                coder->full_encode_ascending(&slice, buf);
+            } else {
+                coder->encode_ascending(&slice, column->index_length(), buf);
+            }
+        }
+        return;
+    }
+
+    // Non-string scalar keys are fixed-width; their KeyCoder::encode_ascending
+    // ignores `index_size` and delegates to full_encode_ascending, so the
+    // `full_encode` flag here is a no-op and we always call the full helper.
+    switch (ft) {
+#define CASE(FT, PT)                                                    \
+    case FieldType::FT:                                                 \
+        full_encode_field_as_key<PrimitiveType::PT>(value, coder, buf); \
+        break;
+        DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
+#undef CASE
+    default:
+        LOG(FATAL) << "unsupported field type for encoding: " << int(ft);
+        break;
+    }
+}
+
+// Encodes the first `num_keys` key columns as a memcomparable byte string.
+// Each slot is [marker][value bytes]. The marker sits at a position that
+// real entries fill with KEY_NORMAL_MARKER (0x02), so any byte > 0x02 there
+// sorts strictly after every real entry — independent of the value bytes.
+//
+// Examples — PK (a STRING, b STRING), stored entry (foo, bar) encodes as
+// `02 foo | 02 bar`. Calls with num_keys=2 and only partial key "foo":
+//
+//   padding_minimal=true                  -> 02 foo | 00          (MINIMAL)
+//   padding_minimal=false, is_mow=false   -> 02 foo | FF          (MAXIMAL)
+//   padding_minimal=false, is_mow=true    -> 02 foo | 03      (NORMAL_NEXT)
+template <bool is_mow>
+void RowCursor::encode_key_with_padding(std::string* buf, size_t num_keys,
+                                        bool padding_minimal) const {
+    for (uint32_t cid = 0; cid < num_keys; cid++) {
+        auto* column = _schema->column(cid);
+        if (column == nullptr) {
+            if (padding_minimal) {
+                buf->push_back(KeyConsts::KEY_MINIMAL_MARKER);
+            } else {
+                if (is_mow) {
+                    buf->push_back(KeyConsts::KEY_NORMAL_NEXT_MARKER);
+                } else {
+                    buf->push_back(KeyConsts::KEY_MAXIMAL_MARKER);
+                }
+            }
+            break;
+        }
+
+        if (cid >= _fields.size() || _fields[cid].is_null()) {
+            buf->push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
+            continue;
+        }
+
+        buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
+        _encode_column_value(column, _fields[cid], is_mow, buf);
+    }
+}
+
+// Explicit template instantiations
+template void RowCursor::encode_key_with_padding<false>(std::string*, size_t, bool) const;
+template void RowCursor::encode_key_with_padding<true>(std::string*, size_t, bool) const;
+
+template <bool full_encode>
+void RowCursor::encode_key(std::string* buf, size_t num_keys) const {
+    for (uint32_t cid = 0; cid < num_keys; cid++) {
+        if (cid >= _fields.size() || _fields[cid].is_null()) {
+            buf->push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
+            continue;
+        }
+        buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
+        _encode_column_value(_schema->column(cid), _fields[cid], full_encode, buf);
+    }
+}
+
+template void RowCursor::encode_key<false>(std::string*, size_t) const;
+template void RowCursor::encode_key<true>(std::string*, size_t) const;
+
+} // namespace doris

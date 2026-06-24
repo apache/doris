@@ -22,10 +22,17 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
@@ -65,8 +72,10 @@ public class HashJoinNode extends JoinNodeBase {
     // TODO: need review
     private final Map<ExprId, SlotId> hashOutputExprSlotIdMap = Maps.newHashMap();
 
+    private final Expr matchCondition;
+
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
-            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts,
+            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, Expr matchCondition,
             List<Expr> markJoinConjuncts, boolean isMarkJoin) {
         super(id, "HASH JOIN", joinOp, isMarkJoin);
         Preconditions.checkArgument((eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty())
@@ -90,6 +99,7 @@ public class HashJoinNode extends JoinNodeBase {
         }
         this.distrMode = DistributionMode.NONE;
         this.otherJoinConjuncts = otherJoinConjuncts;
+        this.matchCondition = matchCondition;
         this.markJoinConjuncts = markJoinConjuncts;
         children.add(outer);
         children.add(inner);
@@ -118,6 +128,19 @@ public class HashJoinNode extends JoinNodeBase {
         colocateReason = reason;
     }
 
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        // BE: HashJoinBuild/Probe.is_shuffled_operator() = PARTITIONED || BUCKET_SHUFFLE || COLOCATE.
+        // (BROADCAST and NONE are not shuffled — they don't depend on hash distribution.)
+        return distrMode == DistributionMode.PARTITIONED
+                || distrMode == DistributionMode.BUCKET_SHUFFLE
+                || isColocate;
+    }
+
     public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
         return hashOutputExprSlotIdMap;
     }
@@ -139,13 +162,19 @@ public class HashJoinNode extends JoinNodeBase {
         msg.hash_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
         msg.hash_join_node.setIsMark(isMarkJoin());
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
-                    eqJoinPredicate.getChild(1).treeToThrift());
-            eqJoinCondition.setOpcode(eqJoinPredicate.getOp().getOpcode());
+            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
+                    ExprToThriftVisitor.treeToThrift(eqJoinPredicate.getChild(0)),
+                    ExprToThriftVisitor.treeToThrift(eqJoinPredicate.getChild(1)));
+            eqJoinCondition.setOpcode(ExprToThriftVisitor.toThriftOpcode(eqJoinPredicate.getOp()));
             msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
         }
         for (Expr e : otherJoinConjuncts) {
-            msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
+            msg.hash_join_node.addToOtherJoinConjuncts(ExprToThriftVisitor.treeToThrift(e));
+        }
+        if (matchCondition != null) {
+            Preconditions.checkState(joinOp == JoinOperator.ASOF_LEFT_OUTER_JOIN
+                    || joinOp == JoinOperator.ASOF_LEFT_INNER_JOIN, "match condition is not allowed in " + joinOp);
+            msg.hash_join_node.setMatchCondition(ExprToThriftVisitor.treeToThrift(matchCondition));
         }
 
         if (markJoinConjuncts != null) {
@@ -158,13 +187,14 @@ public class HashJoinNode extends JoinNodeBase {
                     Preconditions.checkState(e instanceof BinaryPredicate,
                             "mark join conjunct must be BinaryPredicate");
                     TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
-                            e.getChild(0).treeToThrift(), e.getChild(1).treeToThrift());
-                    eqJoinCondition.setOpcode(((BinaryPredicate) e).getOp().getOpcode());
+                            ExprToThriftVisitor.treeToThrift(e.getChild(0)),
+                            ExprToThriftVisitor.treeToThrift(e.getChild(1)));
+                    eqJoinCondition.setOpcode(ExprToThriftVisitor.toThriftOpcode(((BinaryPredicate) e).getOp()));
                     msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
                 }
             } else {
                 for (Expr e : markJoinConjuncts) {
-                    msg.hash_join_node.addToMarkJoinConjuncts(e.treeToThrift());
+                    msg.hash_join_node.addToMarkJoinConjuncts(ExprToThriftVisitor.treeToThrift(e));
                 }
             }
         }
@@ -201,11 +231,16 @@ public class HashJoinNode extends JoinNodeBase {
         }
 
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
+            output.append(detailPrefix).append("equal join conjunct: ")
+                    .append(eqJoinPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("other join predicates: ")
                     .append(getExplainString(otherJoinConjuncts)).append("\n");
+        }
+        if (matchCondition != null) {
+            output.append(detailPrefix).append("match condition: ")
+                    .append(matchCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("mark join predicates: ")
@@ -266,5 +301,97 @@ public class HashJoinNode extends JoinNodeBase {
 
     public List<Expr> getMarkJoinConjuncts() {
         return markJoinConjuncts;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        LocalExchangeTypeRequire probeSideRequire;
+        LocalExchangeTypeRequire buildSideRequire;
+        LocalExchangeType outputType = null;
+
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (distrMode == DistributionMode.BROADCAST) {
+            // BE HashJoinProbeOperatorX::required_data_distribution (probe side):
+            //   enable_broadcast_join_force_passthrough ? PASSTHROUGH
+            //     : (_child->is_serial_operator() ? PASSTHROUGH : NOOP)
+            // We mirror the force-passthrough session variable to match BE.  NOTE: for a
+            // *non-serial* probe this is currently a no-op — enforceRequire only inserts a
+            // PASSTHROUGH local exchange to fan a serial (1-task) source out to N tasks; an
+            // already-N-task source satisfies passthrough so no exchange is added (verified on
+            // a 4-BE cluster: identical plan and results vs BE-native, no crash).  Keeping the
+            // check matches BE's intent and is in place should the framework later force the
+            // exchange; a true rebalance of a non-serial probe is a perf-only follow-up.
+            // getConnectContext() can be null (unit-test mocks); treat as no force.
+            boolean forcePassthrough = translatorContext.getConnectContext() != null
+                    && translatorContext.getConnectContext().getSessionVariable()
+                            .enableBroadcastJoinForcePassthrough;
+            boolean probeChildSerial = children.get(0).isSerialOperatorOnBe(
+                    translatorContext.getConnectContext());
+            boolean buildChildSerial = children.get(1).isSerialOperatorOnBe(
+                    translatorContext.getConnectContext());
+            boolean probePassthrough = forcePassthrough || probeChildSerial;
+            probeSideRequire = probePassthrough
+                    ? LocalExchangeTypeRequire.requirePassthrough()
+                    : LocalExchangeTypeRequire.noRequire();
+            buildSideRequire = buildChildSerial
+                    ? LocalExchangeTypeRequire.requirePassToOne()
+                    : LocalExchangeTypeRequire.noRequire();
+            // For serial or force-passthrough probe: output is PASSTHROUGH.
+            // For a non-serial probe without the flag: propagate the probe's distribution.
+            outputType = probePassthrough ? LocalExchangeType.PASSTHROUGH : null;
+        } else if (isColocate() || isBucketShuffle()) {
+            // Both probe and build sides require BUCKET_HASH_SHUFFLE: the bucket distribution
+            // must be preserved on both inputs. A serial child on either side is handled the
+            // same way (serial exchange returns NOOP → enforceRequire() inserts the LE).
+            probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+            // For BUCKET_SHUFFLE with serial build child: use requireBucketHash() (not
+            // requirePassToOne()). Unlike BROADCAST joins, BUCKET_SHUFFLE has no shared
+            // hash table mechanism — PASS_TO_ONE routes all data to task 0 while tasks 1..N-1
+            // build empty hash tables, losing rows. BUCKET_HASH_SHUFFLE correctly distributes
+            // build data by bucket to match the probe side's bucket distribution.
+            // The serial exchange returns NOOP, so enforceRequire() will insert a
+            // BUCKET_HASH_SHUFFLE local exchange (with PASSTHROUGH fan-out for heavy-ops
+            // bottleneck avoidance).
+            buildSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+            outputType = AddLocalExchange.resolveExchangeType(
+                    LocalExchangeTypeRequire.requireBucketHash());
+        } else {
+            // PARTITIONED (shuffle) join: both sides enter via global hash exchange.
+            // Require GLOBAL specifically so that any inserted exchange uses the same
+            // instance mapping as the cross-fragment exchange. LOCAL hash has a different
+            // modulus (per-BE instance count vs total instance count) and would cause
+            // join mismatches (DORIS-26101).
+            //
+            // Exception: serial source (use_serial_exchange=true + pooling). The serial
+            // exchange sends to a single BE so shuffle_idx_to_instance_idx has only one
+            // entry — GLOBAL hash would route data to non-existent indices (DORIS-26120).
+            // Fall back to generic requireHash() which resolves to LOCAL, matching BE's
+            // _use_serial_source behavior.
+            boolean serialSource = fragment != null
+                    && fragment.useSerialSource(translatorContext.getConnectContext());
+            buildSideRequire = probeSideRequire = serialSource
+                    ? LocalExchangeTypeRequire.requireHash()
+                    : LocalExchangeTypeRequire.requireGlobalExecutionHash();
+            outputType = null; // derived from probeResult.second below
+        }
+
+        Pair<PlanNode, LocalExchangeType> probeResult = enforceRequire(
+                translatorContext, children.get(0), 0, probeSideRequire);
+        Pair<PlanNode, LocalExchangeType> buildResult = enforceRequire(
+                translatorContext, children.get(1), 1, buildSideRequire);
+        this.children = Lists.newArrayList(probeResult.first, buildResult.first);
+        if (outputType == null) {
+            outputType = probeResult.second;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return childIndex == 1;
     }
 }

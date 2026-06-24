@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.auth.certificate.SanEntryCodec;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
@@ -39,6 +39,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 
 // https://dev.mysql.com/doc/refman/8.0/en/account-names.html
 // user name must be literally matched.
@@ -55,6 +57,16 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     private String host;
     @SerializedName(value = "isDomain")
     private boolean isDomain;
+
+    // TLS certificate authentication fields
+    @SerializedName(value = "san")
+    private String san;
+    @SerializedName(value = "issuer")
+    private String issuer;
+    @SerializedName(value = "cipher")
+    private String cipher;
+    @SerializedName(value = "subject")
+    private String subject;
 
     private boolean isAnalyzed = false;
 
@@ -120,6 +132,100 @@ public class UserIdentity implements Writable, GsonPostProcessable {
 
     public boolean isDomain() {
         return isDomain;
+    }
+
+    // TLS certificate authentication getters and setters
+    public String getSan() {
+        return san;
+    }
+
+    public void setSan(String san) {
+        this.san = san;
+    }
+
+    public List<String> getSanEntries() {
+        if (Strings.isNullOrEmpty(san)) {
+            return Collections.emptyList();
+        }
+        return SanEntryCodec.parseAndNormalize(san);
+    }
+
+    public boolean hasSanRequirement() {
+        return !Strings.isNullOrEmpty(san);
+    }
+
+    public String getSanRequirementSql() {
+        if (!hasSanRequirement()) {
+            return null;
+        }
+        try {
+            return SanEntryCodec.toSqlString(getSanEntries());
+        } catch (IllegalArgumentException e) {
+            LOG.warn("Failed to normalize stored SAN requirement for user {}", user, e);
+            return san;
+        }
+    }
+
+    public String getIssuer() {
+        return issuer;
+    }
+
+    public void setIssuer(String issuer) {
+        this.issuer = issuer;
+    }
+
+    public String getCipher() {
+        return cipher;
+    }
+
+    public void setCipher(String cipher) {
+        this.cipher = cipher;
+    }
+
+    public String getSubject() {
+        return subject;
+    }
+
+    public void setSubject(String subject) {
+        this.subject = subject;
+    }
+
+    /**
+     * Checks if this user has any TLS certificate requirements.
+     */
+    public boolean hasTlsRequirements() {
+        return hasSanRequirement() || issuer != null || cipher != null || subject != null;
+    }
+
+    /**
+     * Clears all TLS certificate requirements.
+     * Used when REQUIRE NONE is specified.
+     */
+    public void clearTlsRequirements() {
+        this.san = null;
+        this.issuer = null;
+        this.cipher = null;
+        this.subject = null;
+    }
+
+    /**
+     * Applies TLS options from a TlsOptions object.
+     * If tlsOptions is null or has no REQUIRE clause, no changes are made.
+     * If REQUIRE NONE is specified, all TLS requirements are cleared.
+     * Otherwise, the TLS fields are set from the TlsOptions.
+     */
+    public void applyTlsOptions(TlsOptions tlsOptions) {
+        if (tlsOptions == null || !tlsOptions.hasRequireClause()) {
+            return;
+        }
+        if (tlsOptions.isRequireNone()) {
+            clearTlsRequirements();
+        } else {
+            this.san = tlsOptions.getSan();
+            this.issuer = tlsOptions.getIssuer();
+            this.cipher = tlsOptions.getCipher();
+            this.subject = tlsOptions.getSubject();
+        }
     }
 
     public void setIsAnalyzed() {
@@ -203,7 +309,7 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     // return default_role_rbac_username@host or default_role_rbac_username@[domain]
     public String toDefaultRoleName() {
         StringBuilder sb = new StringBuilder(
-                RoleManager.DEFAULT_ROLE_PREFIX + ClusterNamespace.getNameFromFullName(user) + "@");
+                RoleManager.DEFAULT_ROLE_PREFIX + user + "@");
         if (isDomain) {
             sb.append("[");
         }
@@ -212,11 +318,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
             sb.append("]");
         }
         return sb.toString();
-    }
-
-    // should be remove after version 3.0
-    public void removeClusterPrefix() {
-        user = ClusterNamespace.getNameFromFullName(user);
     }
 
     public static UserIdentity read(DataInput in) throws IOException {
@@ -273,6 +374,5 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         isAnalyzed = true;
-        removeClusterPrefix();
     }
 }

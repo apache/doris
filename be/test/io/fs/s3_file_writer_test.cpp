@@ -57,8 +57,8 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
-#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "runtime/exec_env.h"
+#include "storage/index/index_file_writer.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -340,7 +340,7 @@ TEST_F(S3FileWriterTest, multi_part_io_error) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -487,7 +487,7 @@ TEST_F(S3FileWriterTest, put_object_io_error) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -524,8 +524,8 @@ TEST_F(S3FileWriterTest, appendv_random_quit) {
 
     io::FileReaderSPtr local_file_reader;
 
-    ASSERT_EQ(Status::OK(),
-              fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader));
+    ASSERT_EQ(Status::OK(), fs->open_file("./be/test/storage/test_data/all_types_100000.txt",
+                                          &local_file_reader));
 
     constexpr int buf_size = 8192;
     size_t quit_time = rand() % local_file_reader->size();
@@ -574,7 +574,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 5 * 1024 * 1024;
@@ -642,7 +642,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 
 //     io::FileReaderSPtr local_file_reader;
 
-//     auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+//     auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
 //     ASSERT_TRUE(st.ok()) << st;
 
 //     constexpr int buf_size = 8192;
@@ -727,7 +727,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 
 //     io::FileReaderSPtr local_file_reader;
 
-//     auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+//     auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
 //     ASSERT_TRUE(st.ok()) << st;
 
 //     constexpr int buf_size = 8192;
@@ -797,8 +797,9 @@ TEST_F(S3FileWriterTest, normal) {
 
     io::FileReaderSPtr local_file_reader;
 
-    ASSERT_TRUE(fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader)
-                        .ok());
+    ASSERT_TRUE(
+            fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader)
+                    .ok());
 
     constexpr int buf_size = 8192;
 
@@ -848,7 +849,7 @@ TEST_F(S3FileWriterTest, smallFile) {
 
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_1000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_1000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -898,7 +899,7 @@ TEST_F(S3FileWriterTest, close_error) {
 
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_1000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_1000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     auto sp = SyncPoint::get_instance();
@@ -958,7 +959,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -1007,7 +1008,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -1053,7 +1054,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -1102,6 +1103,7 @@ public:
 
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         create_multipart_count++;
         create_multipart_params.push_back(opts);
         last_opts = opts;
@@ -1110,6 +1112,7 @@ public:
 
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
                                      std::string_view stream) override {
+        std::lock_guard lock(_mutex);
         put_object_count++;
         put_object_params.emplace_back(opts, std::string(stream));
         last_opts = opts;
@@ -1121,14 +1124,13 @@ public:
 
     ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
                                             std::string_view stream, int part_num) override {
+        std::lock_guard lock(_mutex);
         upload_part_count++;
         // upload_part_params.push_back({opts, std::string(stream), part_num});
         last_opts = opts;
         last_stream = std::string(stream);
         last_part_num = part_num;
-        std::stringstream ss;
-        ss << std::setfill('0') << std::setw(3) << part_num;
-        parts[opts.path.native() + "_" + ss.str()] = std::string(stream);
+        parts[_part_key(opts.path.native(), part_num)] = std::string(stream);
         uploaded_bytes += stream.size();
         return default_upload_response;
     }
@@ -1136,14 +1138,15 @@ public:
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) override {
+        std::lock_guard lock(_mutex);
         complete_multipart_count++;
         complete_multipart_params.push_back({opts, completed_parts});
         last_opts = opts;
         last_completed_parts = completed_parts;
         std::string final_obj;
         final_obj.reserve(uploaded_bytes);
-        for (auto& i : parts) {
-            final_obj.append(i.second);
+        for (const auto& part : completed_parts) {
+            final_obj.append(parts.at(_part_key(opts.path.native(), part.part_num)));
         }
         complete[opts.path.native()] = final_obj;
         objects[opts.path.native()] = final_obj;
@@ -1151,6 +1154,7 @@ public:
     }
 
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         return {.resp = ObjectStorageResponse::OK(),
                 .file_size = static_cast<int64_t>(objects[opts.path.native()].size())};
     }
@@ -1158,6 +1162,7 @@ public:
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
                                      size_t offset, size_t bytes_read,
                                      size_t* size_return) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         last_offset = offset;
         last_bytes_read = bytes_read;
@@ -1169,6 +1174,7 @@ public:
 
     ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                        std::vector<FileInfo>* files) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         if (files) {
             *files = default_file_list;
@@ -1178,24 +1184,28 @@ public:
 
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                          std::vector<std::string> objs) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         last_deleted_objects = std::move(objs);
         return default_response;
     }
 
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         return default_response;
     }
 
     ObjectStorageResponse delete_objects_recursively(
             const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         return default_response;
     }
 
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
                                        int64_t expiration_secs, const S3ClientConf& conf) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         last_expiration_secs = expiration_secs;
         return default_presigned_url;
@@ -1241,6 +1251,7 @@ public:
     int64_t uploaded_bytes = 0;
 
     void reset() {
+        std::lock_guard lock(_mutex);
         last_opts = ObjectStoragePathOptions {};
         last_stream.clear();
         last_part_num = 0;
@@ -1262,7 +1273,17 @@ public:
         objects.clear();
         complete.clear();
         parts.clear();
+        uploaded_bytes = 0;
     }
+
+private:
+    static std::string _part_key(const std::string& path, int part_num) {
+        std::stringstream ss;
+        ss << path << "_" << std::setfill('0') << std::setw(3) << part_num;
+        return ss.str();
+    }
+
+    std::mutex _mutex;
 };
 
 } // namespace io

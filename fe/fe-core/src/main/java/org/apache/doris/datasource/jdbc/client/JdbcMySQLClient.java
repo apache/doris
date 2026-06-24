@@ -36,6 +36,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -58,7 +59,7 @@ public class JdbcMySQLClient extends JdbcClient {
             rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
             if (rs.next()) {
                 String versionComment = rs.getString("Value");
-                isDoris = versionComment.toLowerCase().contains("doris");
+                isDoris = isDorisCompatibleVersionComment(versionComment);
             }
         } catch (SQLException | JdbcClientException e) {
             closeClient();
@@ -72,6 +73,18 @@ public class JdbcMySQLClient extends JdbcClient {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         this.dbType = dbType;
+    }
+
+    static boolean isDorisCompatibleVersionComment(String versionComment) {
+        if (Strings.isNullOrEmpty(versionComment)) {
+            return false;
+        }
+        String lowerVersionComment = versionComment.toLowerCase(Locale.ROOT);
+        return lowerVersionComment.contains("doris")
+                || lowerVersionComment.contains("selectdb")
+                || lowerVersionComment.contains("velodb")
+                || (lowerVersionComment.contains("enterprise version")
+                    && lowerVersionComment.contains("cloud mode"));
     }
 
     @Override
@@ -454,6 +467,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createHllType();
             case "BITMAP":
                 return Type.BITMAP;
+            case "QUANTILE_STATE":
+                return Type.QUANTILE_STATE;
             case "VARBINARY":
                 return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default:

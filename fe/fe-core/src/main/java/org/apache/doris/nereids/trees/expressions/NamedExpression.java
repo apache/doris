@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.util.Utils;
 
@@ -65,7 +66,7 @@ public abstract class NamedExpression extends Expression {
     @Override
     public String getExpressionName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+            this.exprName = Optional.of(NameFormatUtils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
         }
         return this.exprName.get();
     }

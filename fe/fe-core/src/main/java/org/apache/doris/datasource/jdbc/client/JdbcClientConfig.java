@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.collect.Maps;
 
@@ -52,8 +53,8 @@ public class JdbcClientConfig implements Cloneable {
 
     public JdbcClientConfig() {
         this.onlySpecifiedDatabase = JdbcResource.getDefaultPropertyValue(JdbcResource.ONLY_SPECIFIED_DATABASE);
-        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(JdbcResource.LOWER_CASE_META_NAMES);
-        this.metaNamesMapping = JdbcResource.getDefaultPropertyValue(JdbcResource.META_NAMES_MAPPING);
+        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(ExternalCatalog.LOWER_CASE_META_NAMES);
+        this.metaNamesMapping = JdbcResource.getDefaultPropertyValue(ExternalCatalog.META_NAMES_MAPPING);
         this.connectionPoolMinSize = Integer.parseInt(
                 JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE));
         this.connectionPoolMaxSize = Integer.parseInt(

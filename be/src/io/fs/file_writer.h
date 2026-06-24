@@ -72,6 +72,16 @@ public:
     // If there is no data appended, an empty file will be persisted.
     virtual Status close(bool non_block = false) = 0;
 
+    // Non-blocking probe for a previous close(true).
+    // OK means close finished successfully. NeedSendAgain means close is still running.
+    // Other errors mean close finished with error or the writer does not support this API.
+    // NOTE: This method consumes the async close result when it is ready. The caller must
+    // use it as the only completion path for that async close; mixing it with close(false)
+    // or another try_finish_close consumer is not supported.
+    virtual Status try_finish_close() {
+        return Status::NotSupported("try_finish_close is not supported");
+    }
+
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
@@ -81,6 +91,10 @@ public:
     virtual size_t bytes_appended() const = 0;
 
     virtual State state() const = 0;
+
+    // Returns true if this file's data was written to a packed file.
+    // Used to determine whether to collect packed slice location from PackedFileManager.
+    virtual bool is_in_packed_file() const { return false; }
 
     FileCacheAllocatorBuilder* cache_builder() const {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();

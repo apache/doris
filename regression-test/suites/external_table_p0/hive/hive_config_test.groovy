@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("hive_config_test", "p0,external,hive,external_docker,external_docker_hive") {
+suite("hive_config_test", "p0,external") {
     String db_name = "regression_test_external_table_p0_hive"
     String internal_table = "hive_config_test"
     String catalog_name = "docker_hive"

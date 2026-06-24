@@ -47,7 +47,7 @@ suite("test_full_compaction_ck") {
             CREATE TABLE ${tableName} (
             `user_id` INT NOT NULL, `value` INT NOT NULL)
             UNIQUE KEY(`user_id`)
-            CLUSTER BY(`value`)
+            ORDER BY(`value`)
             DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",

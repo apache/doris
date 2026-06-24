@@ -340,7 +340,6 @@ suite("nereids_unnest_fn") {
         name, tags, unnest(tags);
     '''
 
-    /* this case is unnstable, still under investigation, enable it after root cause fixed 
     order_qt_sql_sum_window '''
     select
         name,
@@ -354,7 +353,7 @@ suite("nereids_unnest_fn") {
     order by
         name, category_ids, unnest(category_ids);
     '''
-    */
+
     order_qt_sql_sum_window2 '''
     select
         name,

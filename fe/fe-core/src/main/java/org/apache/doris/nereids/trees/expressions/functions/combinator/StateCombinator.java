@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
+import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionB
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -66,11 +68,10 @@ public class StateCombinator extends ScalarFunction
         }
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {
-            return arg.getDataType();
-        }).collect(ImmutableList.toImmutableList()), arguments.stream().map(arg -> {
-            return arg.nullable();
-        }).collect(ImmutableList.toImmutableList()));
+        this.returnType = new AggStateType(nested.getName(),
+                arguments.stream().map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
+                arguments.stream().map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
     }
 
     private StateCombinator(ScalarFunctionParams functionParams, AggregateFunction nested) {
@@ -83,11 +84,12 @@ public class StateCombinator extends ScalarFunction
         }
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        this.returnType = new AggStateType(nested.getName(), functionParams.arguments.stream().map(arg -> {
-            return arg.getDataType();
-        }).collect(ImmutableList.toImmutableList()), functionParams.arguments.stream().map(arg -> {
-            return arg.nullable();
-        }).collect(ImmutableList.toImmutableList()));
+        this.returnType = new AggStateType(nested.getName(),
+                functionParams.arguments.stream()
+                        .map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
+                functionParams.arguments.stream()
+                        .map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
     }
 
     public static StateCombinator create(AggregateFunction nested) {

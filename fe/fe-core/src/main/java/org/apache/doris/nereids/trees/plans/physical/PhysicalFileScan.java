@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -118,6 +119,10 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         return selectedPartitions;
     }
 
+    public boolean hasPartitionPredicate() {
+        return selectedPartitions.hasPartitionPredicate;
+    }
+
     public Optional<TableSample> getTableSample() {
         return tableSample;
     }
@@ -132,16 +137,18 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        String rfV2 = "";
-        if (!runtimeFiltersV2.isEmpty()) {
-            rfV2 = runtimeFiltersV2.toString();
+        String rfs = "";
+        if (!runtimeFilters.isEmpty()) {
+            rfs = runtimeFilters.toString();
         }
-        return Utils.toSqlString("PhysicalFileScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
-            "stats", statistics,
+        return Utils.toSqlString("PhysicalFileScan[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "table", table.getName(),
+                "stats", statistics,
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
-                "operativeCols", getOperativeSlots(), "RFV2", rfV2
+                "operativeCols", getOperativeSlots(),
+                "RF", rfs
         );
     }
 
@@ -152,17 +159,17 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     @Override
     public PhysicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots, scanParams);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), selectedPartitions, tableSample,
+                tableSnapshot, operativeSlots, scanParams));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots, scanParams);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, logicalProperties.get(), selectedPartitions, tableSample,
+                tableSnapshot, operativeSlots, scanParams));
     }
 
     @Override
@@ -173,10 +180,9 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalFileScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots, scanParams);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams));
     }
 
     @Override

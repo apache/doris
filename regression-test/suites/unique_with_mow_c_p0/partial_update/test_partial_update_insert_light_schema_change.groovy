@@ -49,7 +49,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         `c8` int NULL,
                         `c9` int NULL)
                         UNIQUE KEY(`c0`)
-                        CLUSTER BY(c2, c8) 
+                        ORDER BY(c2, c8) 
                         DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                         PROPERTIES(
                             "replication_num" = "1",
@@ -110,7 +110,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         `c8` int NULL,
                         `c9` int NULL)
                         UNIQUE KEY(`c0`)
-                        CLUSTER BY(c9, c5, c3) 
+                        ORDER BY(c9, c5, c3) 
                         DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                         PROPERTIES(
                             "replication_num" = "1",
@@ -157,7 +157,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         `v2` int NULL,
                         `c` int NULL)
                         UNIQUE KEY(`k`)
-                        CLUSTER BY(v2) 
+                        ORDER BY(v2) 
                         DISTRIBUTED BY HASH(`k`) BUCKETS 1
                         PROPERTIES(
                             "replication_num" = "1",
@@ -190,7 +190,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         `c8` int NULL,
                         `c9` int NULL)
                         UNIQUE KEY(`c0`)
-                        CLUSTER BY(c7, c6) 
+                        ORDER BY(c7, c6) 
                         DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                         PROPERTIES(
                             "replication_num" = "1",
@@ -308,7 +308,7 @@ suite("test_partial_update_insert_light_schema_change", "p0") {
                         `c8` int NULL,
                         `c9` int NULL)
                         UNIQUE KEY(`c0`)
-                        CLUSTER BY(c3, c8) 
+                        ORDER BY(c3, c8) 
                         DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                         PROPERTIES(
                             "replication_num" = "1",

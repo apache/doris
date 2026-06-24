@@ -33,9 +33,7 @@
 
 namespace doris {
 
-namespace vectorized {
 class Block;
-}
 
 namespace kerberos {
 
@@ -70,7 +68,7 @@ public:
     // Set the cleanup interval for testing purpose
     void set_cleanup_interval(std::chrono::seconds interval) { _cleanup_interval = interval; }
 
-    void get_ticket_cache_info_block(vectorized::Block* block, const cctz::time_zone& ctz);
+    void get_ticket_cache_info_block(Block* block, const cctz::time_zone& ctz);
 
     virtual ~KerberosTicketMgr();
 

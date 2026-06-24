@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS catalog_sales (
     cs_net_profit decimal(7,2)
 )
 UNIQUE KEY(cs_item_sk, cs_order_number)
-CLUSTER BY(cs_list_price, cs_call_center_sk, cs_item_sk)
+ORDER BY(cs_list_price, cs_call_center_sk, cs_item_sk)
 DISTRIBUTED BY HASH(cs_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

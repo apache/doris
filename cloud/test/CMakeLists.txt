@@ -1,6 +1,19 @@
-if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/enterprise/CMakeLists.txt)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/enterprise)
-endif()
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
@@ -39,6 +52,7 @@ add_executable(meta_reader_test meta_reader_test.cpp)
 
 add_executable(meta_service_test
    meta_service_test.cpp
+   meta_service_helper_test.cpp
    meta_service_job_test.cpp
    meta_service_http_test.cpp
    meta_service_operation_log_test.cpp
@@ -46,6 +60,7 @@ add_executable(meta_service_test
    meta_service_tablet_stats_test.cpp
    meta_service_versioned_read_test.cpp
    schema_kv_test.cpp
+   compaction_rw_separation_test.cpp
 )
 
 add_executable(meta_server_test meta_server_test.cpp)
@@ -85,6 +100,28 @@ add_executable(stopwatch_test stopwatch_test.cpp)
 add_executable(util_test util_test.cpp)
 
 add_executable(network_util_test network_util_test.cpp)
+
+set(TLS_UT_TARGETS)
+if (ENABLE_TLS)
+    file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
+    foreach(TLS_UT_FILE ${TLS_UT_FILES})
+        get_filename_component(TLS_UT_NAME ${TLS_UT_FILE} NAME_WE)
+        add_executable(${TLS_UT_NAME} ${TLS_UT_FILE})
+        list(APPEND TLS_UT_TARGETS ${TLS_UT_NAME})
+    endforeach()
+endif()
+
+set(SNAPSHOT_UT_TARGETS)
+if (ENABLE_SNAPSHOT)
+    file(GLOB_RECURSE SNAPSHOT_UT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${SNAPSHOT_MODULE_DIR}/*.cpp")
+    foreach(SNAPSHOT_UT_FILE ${SNAPSHOT_UT_FILES})
+        get_filename_component(SNAPSHOT_UT_NAME ${SNAPSHOT_UT_FILE} NAME_WE)
+        add_executable(snapshot_${SNAPSHOT_UT_NAME} ${SNAPSHOT_UT_FILE})
+        list(APPEND SNAPSHOT_UT_TARGETS snapshot_${SNAPSHOT_UT_NAME})
+    endforeach()
+endif()
 
 add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
 
@@ -143,6 +180,14 @@ target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 target_link_libraries(util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
+
+foreach(TLS_UT_TARGET ${TLS_UT_TARGETS})
+    target_link_libraries(${TLS_UT_TARGET} ${TEST_LINK_LIBS})
+endforeach()
+
+foreach(SNAPSHOT_UT_TARGET ${SNAPSHOT_UT_TARGETS})
+    target_link_libraries(${SNAPSHOT_UT_TARGET} ${TEST_LINK_LIBS})
+endforeach()
 
 target_link_libraries(txn_lazy_commit_test ${TEST_LINK_LIBS})
 
@@ -205,4 +250,3 @@ install(FILES
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE
     DESTINATION ${BUILD_DIR}/test)
-

@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -29,13 +31,13 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -170,13 +172,13 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     }
 
     /**getWhereClauseItemColumn*/
-    public Column getWhereClauseItemColumn(OlapTable olapTable) throws DdlException {
+    public Column getWhereClauseItemColumn() throws DdlException {
         if (whereClauseItem == null) {
             return null;
         }
         // sessionVars is null because in BindSink, the where clause guard expr
         // can directly use the session var in materialized view metadata.
-        return whereClauseItem.toMVColumn(olapTable, null);
+        return whereClauseItem.toMVColumn(null);
     }
 
     public MVColumnItem getWhereClauseItem() {
@@ -285,10 +287,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             TupleDescriptor tupleDescriptor = validateContext.planTranslatorContext.generateTupleDesc();
             tupleDescriptor.setTable(olapTable);
             for (Slot slot : olapScan.getOutput()) {
-                translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
+                translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.disableTableName();
             }
             return olapScan;
         }
@@ -329,7 +330,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 }
                 try {
                     Expr defineExpr = translateToLegacyExpr(predicate, context.planTranslatorContext);
-                    context.filterItem = new MVColumnItem(defineExpr.toSqlWithoutTbl(), defineExpr);
+                    context.filterItem = new MVColumnItem(
+                            defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                            defineExpr);
                 } catch (Exception ex) {
                     throw new AnalysisException(ex.getMessage());
                 }
@@ -629,7 +632,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.disableTableName();
             return expr;
         }
 

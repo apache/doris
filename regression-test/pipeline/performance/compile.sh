@@ -75,9 +75,11 @@ merge_pr_to_target_branch_latest() {
     fi
 }
 
+install_maven_cmd=""
 if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-4.0" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-ldb-toolchain-latest"
+    install_maven_cmd="cd /usr/local/ && wget -t3 -c -q https://dlcdn.apache.org/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz && tar -zxf apache-maven-3.9.12-bin.tar.gz && export PATH=/usr/local/apache-maven-3.9.12/bin:\$PATH && mvn --version && cd - &&"
 elif [[ "${target_branch}" == "branch-3.1" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-for-3.1-0.19"
@@ -146,7 +148,7 @@ sudo docker run -i --rm \
                     && export USE_JEMALLOC='ON' \
                     && export ENABLE_PCH=OFF \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
-                    && ${USE_CUSTOM_LDB} \
+                    && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
 set +x
 set -x

@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import java.util.LinkedList;
 
 // Counter means indicators field. The counter's name is key, the counter itself is value.
 public class AggCounter extends Counter {
@@ -48,12 +47,6 @@ public class AggCounter extends Counter {
             min.minValue(counter);
         }
         number++;
-    }
-
-    public void addCounters(LinkedList<Counter> rhsCounter) {
-        for (Counter counter : rhsCounter) {
-            addCounter(counter);
-        }
     }
 
     public void mergeCounter(AggCounter rhsAggCounter) {

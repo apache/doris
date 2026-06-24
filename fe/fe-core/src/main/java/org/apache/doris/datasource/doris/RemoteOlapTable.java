@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TempPartitions;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.Backend;
 
@@ -103,14 +104,40 @@ public class RemoteOlapTable extends OlapTable {
         this.nameToPartition = newNameToPartition;
     }
 
+    public void rebuildTempPartitions(List<Partition> oldPartitions, List<Partition> updatedPartitions,
+                                  List<Long> removedPartitions) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("rebuildTempPartitions oldPartitions: " + oldPartitions.size() + ", updatedPartitions: "
+                    + updatedPartitions.size() + ", removedPartitions: " + removedPartitions.size());
+        }
+        ConcurrentHashMap<Long, Partition> newIdToPartition = new ConcurrentHashMap<>();
+        for (Partition oldPartition : oldPartitions) {
+            newIdToPartition.put(oldPartition.getId(), oldPartition);
+        }
+        for (Long removedPartition : removedPartitions) {
+            newIdToPartition.remove(removedPartition);
+        }
+        for (Partition updatedPartition : updatedPartitions) {
+            newIdToPartition.put(updatedPartition.getId(), updatedPartition);
+        }
+        Map<String, Partition> newNameToPartition = Maps.newTreeMap();
+        for (Partition partition : newIdToPartition.values()) {
+            newNameToPartition.put(partition.getName(), partition);
+        }
+        this.setTempPartitions(new TempPartitions(newIdToPartition, newNameToPartition));
+    }
+
     public void invalidateBackendsIfNeed() {
         ImmutableMap<Long, Backend> backends =
-                Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr().getBackends(catalog.getId());
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .doris(catalog.getId())
+                        .getBackends(catalog.getId());
         for (Partition partition : getPartitions()) {
             for (Tablet tablet : partition.getBaseIndex().getTablets()) {
                 for (long backendId : tablet.getBackendIds()) {
                     if (!backends.containsKey(backendId)) {
-                        Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr()
+                        Env.getCurrentEnv().getExtMetaCacheMgr()
+                                .doris(catalog.getId())
                                 .invalidateBackendCache(catalog.getId());
                         return;
                     }
@@ -125,6 +152,8 @@ public class RemoteOlapTable extends OlapTable {
     }
 
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getDorisExternalMetaCacheMgr().getBackends(catalog.getId());
+        return Env.getCurrentEnv().getExtMetaCacheMgr()
+                .doris(catalog.getId())
+                .getBackends(catalog.getId());
     }
 }

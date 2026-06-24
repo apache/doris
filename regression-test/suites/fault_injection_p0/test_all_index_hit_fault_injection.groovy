@@ -96,7 +96,7 @@ suite("test_all_index_hit_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName2, 'test_all_index_hit_fault_injection_2', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
-      sql """ set enable_common_expr_pushdown = true """
+      sql """ set enable_segment_limit_pushdown = true """
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [column_name: "clientip,request"])
         GetDebugPoint().enableDebugPointForAllBEs("VectorizedFnCall.must_in_slow_path", [column_name: "status,size"])

@@ -103,6 +103,18 @@ md5sum_func() {
     return 0
 }
 
+is_git_package() {
+    local TP_ARCH="$1"
+    local GIT_URL_VAR="${TP_ARCH}_GIT_URL"
+    [[ -n "${!GIT_URL_VAR}" ]]
+}
+
+git_url_for() {
+    local TP_ARCH="$1"
+    local GIT_URL_VAR="${TP_ARCH}_GIT_URL"
+    echo "${!GIT_URL_VAR}"
+}
+
 # return 0 if download succeed.
 # return 1 if not.
 download_func() {
@@ -156,27 +168,44 @@ download_func() {
     return "${STATUS}"
 }
 
+download_with_fallbacks() {
+    local FILENAME="$1"
+    local DESC_DIR="$2"
+    local MD5SUM="$3"
+    shift 3
+
+    local DOWNLOAD_URL=""
+    for DOWNLOAD_URL in "$@"; do
+        [[ -n "${DOWNLOAD_URL}" ]] || continue
+        if download_func "${FILENAME}" "${DOWNLOAD_URL}" "${DESC_DIR}" "${MD5SUM}"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # download thirdparty archives
 echo "===== Downloading thirdparty archives..."
 for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if is_git_package "${TP_ARCH}"; then
+        echo "Skip downloading ${TP_ARCH} (git repo: $(git_url_for "${TP_ARCH}"))"
+        continue
+    fi
     NAME="${TP_ARCH}_NAME"
     MD5SUM="${TP_ARCH}_MD5SUM"
-    if [[ -z "${REPOSITORY_URL}" ]]; then
-        URL="${TP_ARCH}_DOWNLOAD"
-        if ! download_func "${!NAME}" "${!URL}" "${TP_SOURCE_DIR}" "${!MD5SUM}"; then
-            echo "Failed to download ${!NAME}"
-            exit 1
-        fi
-    else
-        URL="${REPOSITORY_URL}/${!NAME}"
-        if ! download_func "${!NAME}" "${URL}" "${TP_SOURCE_DIR}" "${!MD5SUM}"; then
-            #try to download from home
-            URL="${TP_ARCH}_DOWNLOAD"
-            if ! download_func "${!NAME}" "${!URL}" "${TP_SOURCE_DIR}" "${!MD5SUM}"; then
-                echo "Failed to download ${!NAME}"
-                exit 1 # download failed again exit.
-            fi
-        fi
+    URL="${TP_ARCH}_DOWNLOAD"
+    FALLBACK_URL="${TP_ARCH}_FALLBACK_DOWNLOAD"
+    DOWNLOAD_URLS=()
+    if [[ -n "${REPOSITORY_URL}" ]]; then
+        DOWNLOAD_URLS+=("${REPOSITORY_URL%/}/${!NAME}")
+    fi
+    DOWNLOAD_URLS+=("${!URL}")
+    if [[ -n "${!FALLBACK_URL}" ]]; then
+        DOWNLOAD_URLS+=("${!FALLBACK_URL}")
+    fi
+    if ! download_with_fallbacks "${!NAME}" "${TP_SOURCE_DIR}" "${!MD5SUM}" "${DOWNLOAD_URLS[@]}"; then
+        echo "Failed to download ${!NAME}"
+        exit 1
     fi
 done
 echo "===== Downloading thirdparty archives...done"
@@ -184,6 +213,9 @@ echo "===== Downloading thirdparty archives...done"
 # check if all tp archives exists
 echo "===== Checking all thirdpart archives..."
 for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if is_git_package "${TP_ARCH}"; then
+        continue
+    fi
     NAME="${TP_ARCH}_NAME"
     if [[ ! -r "${TP_SOURCE_DIR}/${!NAME}" ]]; then
         echo "Failed to fetch ${!NAME}"
@@ -201,6 +233,9 @@ SUFFIX_XZ="\.tar\.xz$"
 SUFFIX_ZIP="\.zip$"
 SUFFIX_BZ2="\.tar\.bz2$"
 for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if is_git_package "${TP_ARCH}"; then
+        continue
+    fi
     NAME="${TP_ARCH}_NAME"
     SOURCE="${TP_ARCH}_SOURCE"
 
@@ -240,6 +275,57 @@ for TP_ARCH in "${TP_ARCHIVES[@]}"; do
 done
 echo "===== Unpacking all thirdparty archives...done"
 
+# Clone and checkout git repositories
+echo "===== Cloning git repositories..."
+for TP_ARCH in "${TP_ARCHIVES[@]}"; do
+    if ! is_git_package "${TP_ARCH}"; then
+        continue
+    fi
+
+    GIT_URL_VAR="${TP_ARCH}_GIT_URL"
+    GIT_TAG_VAR="${TP_ARCH}_GIT_TAG"
+    SOURCE_VAR="${TP_ARCH}_SOURCE"
+    
+    GIT_URL="${!GIT_URL_VAR}"
+    GIT_TAG="${!GIT_TAG_VAR}"
+    SOURCE_DIR="${TP_SOURCE_DIR}/${!SOURCE_VAR}"
+
+    if [[ -z "${GIT_URL}" ]] || [[ -z "${GIT_TAG}" ]] || [[ -z "${!SOURCE_VAR}" ]]; then
+        echo "Warning: ${TP_ARCH} git configuration incomplete, skipping"
+        continue
+    fi
+
+    if [[ ! -d "${SOURCE_DIR}" ]]; then
+        echo "Cloning ${TP_ARCH} from ${GIT_URL}..."
+        cd "${TP_SOURCE_DIR}"
+        if ! git clone "${GIT_URL}" "${!SOURCE_VAR}"; then
+            echo "Failed to clone ${TP_ARCH}"
+            exit 1
+        fi
+    else
+        echo "${TP_ARCH} repository already exists, updating..."
+        cd "${SOURCE_DIR}"
+        git fetch origin || true
+    fi
+
+    cd "${SOURCE_DIR}"
+    if ! git checkout "${GIT_TAG}" 2>/dev/null; then
+        echo "Tag ${GIT_TAG} not found, trying to fetch..."
+        is_shallow="$(git rev-parse --is-shallow-repository 2>/dev/null || echo false)"
+        if [[ "${is_shallow}" == "true" ]]; then
+            git fetch --unshallow origin || git fetch --depth=2147483647 origin
+        else
+            git fetch origin
+        fi
+        if ! git checkout "${GIT_TAG}"; then
+            echo "Failed to checkout ${GIT_TAG} for ${TP_ARCH}"
+            exit 1
+        fi
+    fi
+    echo "Successfully checked out ${GIT_TAG} for ${TP_ARCH}"
+done
+echo "===== Cloning git repositories...done"
+
 echo "===== Patching thirdparty archives..."
 
 ###################################################################################
@@ -267,6 +353,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
         cd -
     fi
     echo "Finished patching ${GLOG_SOURCE}"
+fi
+
+# snappy patch to fix sign-compare warning
+if [[ " ${TP_ARCHIVES[*]} " =~ " SNAPPY " ]]; then
+    cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/snappy-1.1.10-sign-compare.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${SNAPPY_SOURCE}"
 fi
 
 # mysql patch
@@ -337,6 +434,27 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-13.0.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
+            # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+
+            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
+            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+
+            # apache-arrow-17.0.0-status-inline-static-fix.patch :
+            # Move Status::message()/detail() empty sentinels out of header
+            # inline function-local statics. Clang can place those weak inline
+            # std::string objects in RELRO, then crash while initializing them.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-status-inline-static-fix.patch"
+
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -526,6 +644,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
     echo "Finished patching ${KRB5_SOURCE}"
 fi
 
+# patch libhdfs3
+if [[ " ${TP_ARCHIVES[*]} " =~ " HDFS3 " ]]; then
+    if [[ "${HDFS3_SOURCE}" == "doris-thirdparty-libhdfs3-v2.3.9" ]]; then
+        cd "${TP_SOURCE_DIR}/${HDFS3_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libhdfs3-v2.3.9-hostname.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${HDFS3_SOURCE}"
+fi
+
 # patch bitshuffle
 MACHINE_OS=$(uname -s)
 
@@ -588,6 +719,21 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
+# patch paimon-cpp
+if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
+            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
+        else
+            echo "Skip paimon-cpp patch: already applied or not applicable for current source"
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${PAIMON_CPP_SOURCE}"
+fi
+
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE
     if [[ ! -f "$PATCHED_MARK" ]] ; then
@@ -599,6 +745,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     fi
     cd -
     echo "Finished patching ${CCTZ_SOURCE}"
+fi
+
+# boost patch to fix sigtimedwait not available on macOS
+if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
+    cd "${TP_SOURCE_DIR}/${BOOST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/boost-1.81.0-mac-sigtimedwait.patch"
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${BOOST_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

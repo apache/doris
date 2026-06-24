@@ -67,7 +67,13 @@ FDB_PORT=4500
 
 # Define the FoundationDB version
 # shellcheck disable=2034
-FDB_VERSION="7.1.38"
+FDB_VERSION="7.3.69"
+
+# Define the FoundationDB storage engine. Allowed:
+# - ssd: sqlite engine
+# - ssd-rocksdb-v1: rocksdb engine
+# shellcheck disable=2034
+FDB_STORAGE_ENGINE="ssd-rocksdb-v1"
 
 # Users who run the fdb processes, default is the current user
 # shellcheck disable=2034

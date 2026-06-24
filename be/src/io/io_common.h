@@ -30,7 +30,9 @@ enum class ReaderType : uint8_t {
     READER_COLD_DATA_COMPACTION = 5,
     READER_SEGMENT_COMPACTION = 6,
     READER_FULL_COMPACTION = 7,
-    UNKNOWN = 8
+    READER_BINLOG_COMPACTION = 8,
+    READER_BINLOG = 9,
+    UNKNOWN = 10
 };
 
 namespace io {
@@ -94,6 +96,7 @@ struct IOContext {
     bool is_dryrun = false;
     // if `is_warmup` == true, this I/O request is from a warm up task
     bool is_warmup {false};
+    int64_t condition_cache_filtered_rows = 0;
 };
 
 } // namespace io

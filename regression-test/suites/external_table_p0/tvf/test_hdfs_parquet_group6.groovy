@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
+suite("test_hdfs_parquet_group6", "p0,external") {
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -677,8 +677,8 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                 sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
-                exception "Can't read byte array length from plain decoder"
+                        "format" = "parquet"); """
+                exception "Can't read enough bytes in plain decode"
             }
 
 

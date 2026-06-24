@@ -17,13 +17,13 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.qe.ComputeGroupException;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -135,12 +135,11 @@ public class TableQueryPlanAction extends RestBaseController {
             LOG.info("receive SQL statement [{}] from external service [ user [{}]] for database [{}] table [{}]",
                     sql, ConnectContext.get().getCurrentUserIdentity(), dbName, tblName);
 
-            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
-                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
                 table = db.getTableOrMetaException(tblName, TableIf.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
@@ -157,7 +156,7 @@ public class TableQueryPlanAction extends RestBaseController {
                     ConnectContext.get().getCloudCluster();
                 }
                 // parse/analysis/plan the sql and acquire tablet distributions
-                handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);
+                handleQuery(ConnectContext.get(), dbName, tblName, sql, resultMap);
             } finally {
                 table.readUnlock();
             }
@@ -232,7 +231,7 @@ public class TableQueryPlanAction extends RestBaseController {
             String dbName = tableQualifier.get(1);
             String tableName = tableQualifier.get(2);
 
-            if (GlobalVariable.lowerCaseTableNames == 0) {
+            if (Env.getLowerCaseTableNames(InternalCatalog.INTERNAL_CATALOG_NAME) == 0) {
                 if (!(dbName.equals(requestDb) && tableName.equals(requestTable))) {
                     throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
                             "requested database and table must consistent with sql: request [ "
@@ -299,7 +298,7 @@ public class TableQueryPlanAction extends RestBaseController {
             tPlanFragment.output_sink = tDataSink;
 
             tQueryPlanInfo.plan_fragment = tPlanFragment;
-            tQueryPlanInfo.desc_tbl = planner.getDescTable().toThrift();
+            tQueryPlanInfo.desc_tbl = DescriptorToThriftConverter.toThrift(planner.getDescTable());
             // set query_id
             tQueryPlanInfo.query_id = queryId;
 
@@ -358,10 +357,10 @@ public class TableQueryPlanAction extends RestBaseController {
                 .setQueryId(DebugUtil.printId(ctx.queryId()))
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
-                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
+                .setUser(ctx.getQualifiedUser())
                 .setFeIp(FrontendOptions.getLocalHostAddress())
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
-                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
+                .setDb(ctx.getDatabase())
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :

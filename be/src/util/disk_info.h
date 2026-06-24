@@ -30,8 +30,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 // DiskInfo is an interface to query for the disk information at runtime.  This
 // contains information about the system as well as the specific data node
 // configuration.
@@ -104,7 +102,5 @@ private:
 
     static void get_device_names();
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

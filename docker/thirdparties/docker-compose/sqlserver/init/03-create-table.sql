@@ -277,3 +277,10 @@ CREATE TABLE dbo.test_identity_decimal (
 	id decimal(18,0) IDENTITY(1,1),
 	col int
 );
+
+CREATE TABLE dbo.test_date_filter (
+    id int PRIMARY KEY NOT NULL,
+    date_value date NULL,
+    datetime_value datetime NULL,
+    datetime2_value datetime2 NULL
+);

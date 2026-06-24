@@ -20,55 +20,39 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.info.TableRefInfo;
-import org.apache.doris.thrift.TTupleDescriptor;
+import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public class TupleDescriptor {
     private final TupleId id;
-    private final String debugName; // debug only
     private final ArrayList<SlotDescriptor> slots;
+    private final HashMap<Integer, SlotDescriptor> idToSlotDesc;
 
     // underlying table, if there is one
     private TableIf table;
-    // underlying table, if there is one
-    private TableRefInfo ref;
-
-    private int tableId = -1;
 
     public TupleDescriptor(TupleId id) {
         this.id = id;
-        this.slots = new ArrayList<SlotDescriptor>();
-        this.debugName = "";
-    }
-
-    public TupleDescriptor(TupleId id, String debugName) {
-        this.id = id;
-        this.slots = new ArrayList<SlotDescriptor>();
-        this.debugName = debugName;
+        this.slots = new ArrayList<>();
+        this.idToSlotDesc = new HashMap<>();
     }
 
     public void addSlot(SlotDescriptor desc) {
         slots.add(desc);
+        idToSlotDesc.putIfAbsent(desc.getId().asInt(), desc);
     }
 
     public TupleId getId() {
         return id;
-    }
-
-    public TableRefInfo getRef() {
-        return ref;
-    }
-
-    public void setRef(TableRefInfo tableRefInfo) {
-        ref = tableRefInfo;
     }
 
     public ArrayList<SlotDescriptor> getSlots() {
@@ -82,12 +66,7 @@ public class TupleDescriptor {
      * @return this slot's desc
      */
     public SlotDescriptor getSlot(int slotId) {
-        for (SlotDescriptor slotDesc : slots) {
-            if (slotDesc.getId().asInt() == slotId) {
-                return slotDesc;
-            }
-        }
-        return null;
+        return idToSlotDesc.get(slotId);
     }
 
     public ArrayList<SlotId> getAllSlotIds() {
@@ -119,17 +98,6 @@ public class TupleDescriptor {
         table = tbl;
     }
 
-    public TTupleDescriptor toThrift() {
-        TTupleDescriptor ttupleDesc = new TTupleDescriptor(id.asInt(), 0, 0);
-        if (table != null && table.getId() >= 0) {
-            ttupleDesc.setTableId((int) table.getId());
-        }
-        if (tableId > 0) {
-            ttupleDesc.setTableId(tableId);
-        }
-        return ttupleDesc;
-    }
-
     @Override
     public String toString() {
         String tblStr = (table == null ? "null" : table.getName());
@@ -138,22 +106,6 @@ public class TupleDescriptor {
             slotStrings.add(slot.debugString());
         }
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("tbl", tblStr)
-                .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
-                .toString();
-    }
-
-    public String debugString() {
-        // TODO(zc):
-        // String tblStr = (getTable() == null ? "null" : getTable().getFullName());
-        String tblStr = (getTable() == null ? "null" : getTable().getName());
-        List<String> slotStrings = Lists.newArrayList();
-        for (SlotDescriptor slot : slots) {
-            slotStrings.add(slot.debugString());
-        }
-        return MoreObjects.toStringHelper(this)
-                .add("id", id.asInt())
-                .add("name", debugName)
-                .add("tbl", tblStr)
                 .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
                 .toString();
     }
@@ -168,8 +120,29 @@ public class TupleDescriptor {
                 .add("tbl", tblStr));
         builder.append("\n");
         for (SlotDescriptor slot : slots) {
-            builder.append(slot.getExplainString(prefix)).append("\n");
+            builder.append(getExplainString(slot, prefix)).append("\n");
         }
         return builder.toString();
+    }
+
+    public String getExplainString(SlotDescriptor slotDescriptor, String prefix) {
+        String caption =  slotDescriptor.getCaption();
+        Column column = slotDescriptor.getColumn();
+        Type type = slotDescriptor.getType();
+        Expr virtualColumn = slotDescriptor.getVirtualColumn();
+        return new StringBuilder()
+                .append(prefix).append("SlotDescriptor{")
+                .append("id=").append(slotDescriptor.getId().asInt())
+                .append(", col=").append(caption)
+                .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
+                .append(", type=").append(type == null ? "null" : type.toSql())
+                .append(", nullable=").append(slotDescriptor.isNullable())
+                .append(", isAutoIncrement=").append(slotDescriptor.isNullable())
+                .append(", subColPath=").append(slotDescriptor.getSubColPath())
+                .append(", virtualColumn=")
+                .append(virtualColumn == null
+                        ? null : virtualColumn.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
+                .append("}")
+                .toString();
     }
 }

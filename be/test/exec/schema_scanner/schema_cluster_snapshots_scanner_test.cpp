@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_cluster_snapshots_scanner.h"
+#include "information_schema/schema_cluster_snapshots_scanner.h"
 
 #include <gtest/gtest.h>
 
-#include "vec/columns/column_string.h"
-#include "vec/core/block.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
 
 namespace doris {
 
@@ -49,10 +49,11 @@ TEST_F(SchemaClusterSnapshotsScannerTest, test_get_next_block_internal) {
         snapshot.set_ttl_seconds(3600);
         snapshot.set_snapshot_label("label");
         snapshot.set_reason("reason");
+        snapshot.set_resource_id("vault_1");
         snapshots.push_back(snapshot);
     }
 
-    auto data_block = vectorized::Block::create_unique();
+    auto data_block = Block::create_unique();
     scanner._init_block(data_block.get());
 
     auto st = scanner._fill_block_impl(data_block.get());
@@ -62,6 +63,10 @@ TEST_F(SchemaClusterSnapshotsScannerTest, test_get_next_block_internal) {
     auto col = data_block->safe_get_by_position(0);
     auto v = (*col.column)[1].get<TYPE_STRING>();
     EXPECT_EQ(v, "232ds");
+
+    auto vault_col = data_block->safe_get_by_position(12);
+    auto vault_id = (*vault_col.column)[1].get<TYPE_STRING>();
+    EXPECT_EQ(vault_id, "vault_1");
 }
 
 } // namespace doris

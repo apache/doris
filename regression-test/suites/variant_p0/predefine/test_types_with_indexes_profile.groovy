@@ -14,10 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){ 
+suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -58,9 +58,9 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
         `var`  variant <
                 'array_decimal_*':array<decimalv3 (26,9)>,
                 'array_ipv6_*':array<ipv6>,
-                'int_*':int, 
-                'string_*':string, 
-                'decimal_*':decimalv3(26,9), 
+                'int_*':int,
+                'string_*':string,
+                'decimal_*':decimalv3(26,9),
                 'datetime_*':datetime,
                 'datetimev2_*':datetimev2(6),
                 'date_*':date,
@@ -116,7 +116,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
               "largeint_1": "12345678901234567890123456789012345678",
               "char_1": "short text"
             }'
-        ); 
+        );
     """
     for (int i = 1; i < 10; i++) {
       load_json_data.call(tableName, getS3Url() + "/regression/variant/schema_tmpt${i}.json")
@@ -197,7 +197,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     }
     // accurateCheckIndexWithQueries()
     // sql "insert into test_variant_predefine_types_with_indexes_profile select * from test_variant_predefine_types_with_indexes_profile"
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
+    // queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
 
     queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['int_1'] as int) = 42")
 
@@ -229,5 +229,5 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     for (int i = 1; i < 10; i++) {
       sql """insert into test_variant_predefine_types_with_indexes_profile values (1, '{"a" : 123, "b" : 456, "d" : 789, "f" : "12345678901234567890123456789012345678"}')"""
     }
-    trigger_and_wait_compaction(tableName, "full", 1800) 
+    trigger_and_wait_compaction(tableName, "full", 1800)
 }

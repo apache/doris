@@ -20,8 +20,11 @@ package org.apache.doris.metric;
 import org.apache.doris.common.Config;
 import org.apache.doris.metric.Metric.MetricUnit;
 
-import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 public class CloudMetrics {
     protected static String CLOUD_CLUSTER_DELIMITER = "@delimiter#";
@@ -33,7 +36,7 @@ public class CloudMetrics {
     protected static AutoMappedMetric<GaugeMetricImpl<Double>> CLUSTER_QUERY_PER_SECOND_GAUGE;
     protected static AutoMappedMetric<GaugeMetricImpl<Double>> CLUSTER_QUERY_ERR_RATE_GAUGE;
 
-    protected static AutoMappedMetric<Histogram> CLUSTER_QUERY_LATENCY_HISTO;
+    protected static AutoMappedMetric<HistogramMetric> CLUSTER_QUERY_LATENCY_HISTO;
 
     protected static AutoMappedMetric<GaugeMetricImpl<Integer>> CLUSTER_BACKEND_ALIVE;
     protected static AutoMappedMetric<GaugeMetricImpl<Integer>> CLUSTER_BACKEND_ALIVE_TOTAL;
@@ -50,6 +53,20 @@ public class CloudMetrics {
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_GLOBAL_BALANCE_NUM;
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM;
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER;
+
+    // Per-method meta-service RPC metrics
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_FAILED;
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RETRY;
+    public static AutoMappedMetric<GaugeMetricImpl<Double>> META_SERVICE_RPC_PER_SECOND;
+    public static AutoMappedMetric<HistogramMetric> META_SERVICE_RPC_LATENCY;
+
+    // Aggregate meta-service metrics
+    public static LongCounterMetric META_SERVICE_RPC_ALL_TOTAL;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_FAILED;
+    public static LongCounterMetric META_SERVICE_RPC_ALL_RETRY;
+    public static GaugeMetricImpl<Double> META_SERVICE_RPC_ALL_PER_SECOND;
 
     protected static void init() {
         if (Config.isNotCloudMode()) {
@@ -80,13 +97,15 @@ public class CloudMetrics {
             MetricUnit.NOUNIT, "backend alive num in cluster", 0));
 
         CLUSTER_QUERY_LATENCY_HISTO = new AutoMappedMetric<>(key -> {
-            String[] values = key.split(CLOUD_CLUSTER_DELIMITER);
+            String[] values = key.split(CLOUD_CLUSTER_DELIMITER, 2);
             String clusterId = values[0];
             String clusterName = values[1];
-            String metricName = MetricRegistry.name("query", "latency", "ms", "cluster_id="
-                    + clusterId, "cluster_name=" + clusterName);
-            return MetricRepo.METRIC_REGISTER.histogram(metricName);
+            List<MetricLabel> labels = Arrays.asList(new MetricLabel("cluster_id", clusterId),
+                    new MetricLabel("cluster_name", clusterName));
+            return new HistogramMetric(MetricRegistry.name("query", "latency", "ms"), labels);
         });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "cloud_cluster_query_latency", CLUSTER_QUERY_LATENCY_HISTO, Config::isCloudMode);
 
         CLUSTER_WARM_UP_JOB_EXEC_COUNT = new AutoMappedMetric<>(name -> new LongCounterMetric(
                 "file_cache_warm_up_job_exec_count", MetricUnit.NOUNIT, "warm up job execution count"));
@@ -124,5 +143,46 @@ public class CloudMetrics {
         CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
             "cloud_warm_up_balance_num", MetricUnit.NOUNIT,
             "current cluster cloud warm up cache sync edit log number"));
+
+        VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "virtual_compute_group_switch_total", MetricUnit.NOUNIT,
+            "virtual compute group active standby switch count"));
+
+        // Per-method meta-service RPC metrics
+        META_SERVICE_RPC_TOTAL = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_total", MetricUnit.NOUNIT,
+                "total meta service RPC calls"));
+        META_SERVICE_RPC_FAILED = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_failed", MetricUnit.NOUNIT,
+                "failed meta service RPC calls"));
+        META_SERVICE_RPC_RETRY = MetricRepo.addLabeledMetrics("method", () ->
+            new LongCounterMetric("meta_service_rpc_retry", MetricUnit.NOUNIT,
+                "meta service RPC retry attempts"));
+        META_SERVICE_RPC_PER_SECOND = new AutoMappedMetric<>(methodName -> {
+            GaugeMetricImpl<Double> gauge = new GaugeMetricImpl<>("meta_service_rpc_per_second",
+                    MetricUnit.NOUNIT, "meta service RPC requests per second", 0.0);
+            gauge.addLabel(new MetricLabel("method", methodName));
+            return gauge;
+        });
+        META_SERVICE_RPC_LATENCY = new AutoMappedMetric<>(methodName -> {
+            List<MetricLabel> labels = Collections.singletonList(new MetricLabel("method", methodName));
+            return new HistogramMetric(MetricRegistry.name("meta_service", "rpc", "latency", "ms"), labels);
+        });
+        MetricRepo.DORIS_METRIC_REGISTER.addHistogramMetrics(
+                "meta_service_rpc_latency", META_SERVICE_RPC_LATENCY, Config::isCloudMode);
+
+        // Aggregate meta-service metrics
+        META_SERVICE_RPC_ALL_TOTAL = new LongCounterMetric("meta_service_rpc_all_total",
+            MetricUnit.NOUNIT, "total meta service RPC calls across all methods");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_TOTAL);
+        META_SERVICE_RPC_ALL_FAILED = new LongCounterMetric("meta_service_rpc_all_failed",
+            MetricUnit.NOUNIT, "total failed meta service RPC calls");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_FAILED);
+        META_SERVICE_RPC_ALL_RETRY = new LongCounterMetric("meta_service_rpc_all_retry",
+            MetricUnit.NOUNIT, "total meta service RPC retry attempts");
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_RETRY);
+        META_SERVICE_RPC_ALL_PER_SECOND = new GaugeMetricImpl<>("meta_service_rpc_all_per_second",
+            MetricUnit.NOUNIT, "meta service RPC requests per second (all methods)", 0.0);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_PER_SECOND);
     }
 }

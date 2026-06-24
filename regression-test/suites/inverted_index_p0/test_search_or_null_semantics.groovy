@@ -73,13 +73,13 @@ suite("test_search_or_null_semantics") {
         (20, 'Tech Article', NULL, 'Academic', 'Education')
     """
 
-    sql "SET enable_common_expr_pushdown = true"
+    sql "SET enable_segment_limit_pushdown = true"
 
     // Test 1: The core bug scenario - cross-field OR with one field NULL
     // Before fix: SEARCH returned 1 row (only row 16, lost 15 rows with NULL content)
     // After fix: SEARCH returns 16 rows (rows 1-16)
     def test1 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar")')
     """
 
@@ -88,7 +88,7 @@ suite("test_search_or_null_semantics") {
 
     // Test 2: Verify the 15 critical rows are included
     def test2 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE title MATCH_ALL 'Philosophy'
           AND content IS NULL
           AND SEARCH('title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar")')
@@ -99,7 +99,7 @@ suite("test_search_or_null_semantics") {
 
     // Test 3: Three-way OR with different NULL patterns
     def test3 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar") OR author:ANY(Political)')
     """
 
@@ -108,7 +108,7 @@ suite("test_search_or_null_semantics") {
 
     // Test 4: OR within AND with NULL
     def test4 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('category:Education AND (title:ALL(Philosophy) OR content:ALL(Disney))')
     """
 
@@ -118,7 +118,7 @@ suite("test_search_or_null_semantics") {
 
     // Test 5: Deeply nested OR with multiple NULL fields
     def test5 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('
             (title:ALL(Philosophy) OR content:ALL(Disney))
             OR (author:ANY(Writer) OR category:Technology)
@@ -132,13 +132,13 @@ suite("test_search_or_null_semantics") {
     // Test 6: Verify SQL three-valued logic truth table for OR
     // TRUE OR NULL = TRUE
     def test6a = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE (title MATCH_ALL 'Philosophy' AND content IS NULL)
     """
     assertEquals(15, test6a[0][0], "Should have 15 rows with TRUE OR NULL pattern")
 
     def test6b = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE (title MATCH_ALL 'Philosophy' AND content IS NULL)
           AND SEARCH('title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar")')
     """
@@ -147,7 +147,7 @@ suite("test_search_or_null_semantics") {
 
     // Test 7: Complex nested query similar to original bug report
     def test7 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('
             title:ALL(Philosophy)
             OR NOT (
@@ -167,22 +167,33 @@ suite("test_search_or_null_semantics") {
     assertTrue(test7_count >= 15, "Complex nested query should include the 15 Philosophy rows")
     logger.info("Test 7 PASSED: Complex nested query (returned ${test7_count} rows)")
 
-    // Test 8: NOT with OR and NULL (SQL three-valued logic)
-    // Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
-    // Rows 17-20: OR = NULL -> NOT NULL = NULL (excluded)
-    def test8 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+    // Test 8: NOT with OR and NULL
+    // Standard mode (SQL three-valued logic):
+    //   Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
+    //   Rows 17-20: OR = NULL -> NOT NULL = NULL (excluded)
+    //   Result: 0 rows
+    // Lucene mode (two-valued logic):
+    //   Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
+    //   Rows 17-20: no match -> NOT no_match = TRUE (included)
+    //   Result: 4 rows
+    def test8_standard = sql """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
+        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))', '{"mode":"standard"}')
+    """
+    assertEquals(0, test8_standard[0][0], "Standard mode: NOT OR should exclude all rows due to NULL semantics")
+
+    def test8_lucene = sql """
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))')
     """
-
-    assertEquals(0, test8[0][0], "NOT OR should exclude all rows due to NULL semantics")
-    logger.info("Test 8 PASSED: NOT OR with NULL correctly excludes all rows")
+    assertEquals(4, test8_lucene[0][0], "Lucene mode: NOT OR returns 4 rows (rows 17-20, no match treated as FALSE)")
+    logger.info("Test 8 PASSED: NOT OR with NULL works correctly in both modes")
 
     // Test 9: Verify SEARCH works with and without pushdown
-    sql "SET enable_common_expr_pushdown = false"
+    sql "SET enable_segment_limit_pushdown = false"
 
     def test9 = sql """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}
         WHERE SEARCH('title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar")')
     """
 

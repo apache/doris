@@ -212,7 +212,8 @@ void convert_tmp_rowsets(
         MetaServiceCode& code, std::string& msg, int64_t db_id,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         std::map<int64_t, TabletIndexPB>& tablet_ids, bool is_versioned_write,
-        bool is_versioned_read, Versionstamp versionstamp, ResourceManager* resource_mgr) {
+        bool is_versioned_read, Versionstamp versionstamp, ResourceManager* resource_mgr,
+        bool defer_deleting_pending_delete_bitmaps) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -413,19 +414,6 @@ void convert_tmp_rowsets(
         stats.segment_size += tmp_rowset_pb.data_disk_size();
 
         if (is_versioned_write) {
-            std::string meta_rowset_key = versioned::meta_rowset_key(
-                    {instance_id, tmp_rowset_pb.tablet_id(), tmp_rowset_pb.rowset_id_v2()});
-            if (config::enable_recycle_rowset_strip_key_bounds) {
-                doris::RowsetMetaCloudPB rowset_meta_copy = tmp_rowset_pb;
-                // Strip key bounds to shrink operation log for ts compaction recycle entries
-                rowset_meta_copy.clear_segments_key_bounds();
-                rowset_meta_copy.clear_segments_key_bounds_truncated();
-                blob_put(txn.get(), meta_rowset_key, rowset_meta_copy.SerializeAsString(), 0);
-            } else {
-                blob_put(txn.get(), meta_rowset_key, tmp_rowset_pb.SerializeAsString(), 0);
-            }
-            LOG(INFO) << "put versioned meta_rowset_key=" << hex(meta_rowset_key);
-
             // If this is a versioned write, we need to put the rowset with versionstamp
             RowsetMetaCloudPB copied_rowset_meta(tmp_rowset_pb);
             std::string rowset_load_key = versioned::meta_rowset_load_key(
@@ -495,6 +483,15 @@ void convert_tmp_rowsets(
         }
     }
 
+    if (defer_deleting_pending_delete_bitmaps) {
+        for (auto& [tablet_id, _] : tablet_stats) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            txn->remove(pending_key);
+            LOG(INFO) << "remove delete bitmap pending key, pending_key=" << hex(pending_key)
+                      << " txn_id=" << txn_id;
+        }
+    }
+
     TEST_SYNC_POINT_RETURN_WITH_VOID("convert_tmp_rowsets::before_commit", &code);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -507,7 +504,7 @@ void convert_tmp_rowsets(
 
 void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, int64_t txn_id,
                                 std::shared_ptr<TxnKv> txn_kv, MetaServiceCode& code,
-                                std::string& msg) {
+                                std::string& msg, bool defer_deleting_pending_delete_bitmaps) {
     // 1. visible txn info
     // 2. remove running key and put recycle txn key
 
@@ -563,6 +560,35 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
         LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
+        // Remove delete bitmap locks if deferring deletion
+        if (defer_deleting_pending_delete_bitmaps) {
+            for (int64_t table_id : txn_info.table_ids()) {
+                std::string lock_key =
+                        meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+                // Read the lock first to check if it still belongs to the current txn
+                std::string lock_val;
+                TxnErrorCode err = txn->get(lock_key, &lock_val);
+                if (err == TxnErrorCode::TXN_OK) {
+                    DeleteBitmapUpdateLockPB lock_info;
+                    if (lock_info.ParseFromString(lock_val)) {
+                        // Only remove the lock if it still belongs to the current txn
+                        if (lock_info.lock_id() == txn_id) {
+                            txn->remove(lock_key);
+                            LOG(INFO) << "remove delete bitmap lock, lock_key=" << hex(lock_key)
+                                      << " table_id=" << table_id << " txn_id=" << txn_id;
+                        } else {
+                            LOG(WARNING) << "delete bitmap lock is held by another txn, "
+                                         << "lock_key=" << hex(lock_key) << " table_id=" << table_id
+                                         << " expected_txn_id=" << txn_id
+                                         << " actual_lock_id=" << lock_info.lock_id();
+                        }
+                    }
+                } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    LOG(WARNING) << "failed to get delete bitmap lock, lock_key=" << hex(lock_key)
+                                 << " table_id=" << table_id << " err=" << err;
+                }
+            }
+        }
         // The recycle txn pb will be written when recycle the commit txn log,
         // if the txn versioned write is enabled.
         if (!txn_info.versioned_write()) {
@@ -607,14 +633,20 @@ TxnLazyCommitTask::TxnLazyCommitTask(const std::string& instance_id, int64_t txn
     DCHECK(txn_id > 0);
 }
 
+void TxnLazyCommitTask::finish(MetaServiceCode code, std::string msg) {
+    {
+        std::unique_lock lock(mutex_);
+        finished_ = true;
+        code_ = code;
+        msg_ = std::move(msg);
+    }
+    cond_.notify_all();
+}
+
 void TxnLazyCommitTask::commit() {
     StopWatch sw;
     DORIS_CLOUD_DEFER {
-        {
-            std::unique_lock lock(mutex_);
-            this->finished_ = true;
-        }
-        this->cond_.notify_all();
+        finish(code_, msg_);
         g_bvar_txn_lazy_committer_committing_duration << sw.elapsed_us();
     };
 
@@ -647,6 +679,7 @@ void TxnLazyCommitTask::commit() {
         return;
     }
 
+    bool defer_deleting_pending_delete_bitmaps = txn_info.defer_deleting_pending_delete_bitmaps();
     bool is_versioned_write = txn_info.versioned_write();
     bool is_versioned_read = txn_info.versioned_read();
     CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
@@ -702,7 +735,8 @@ void TxnLazyCommitTask::commit() {
                     executor.add([&, partition_id, this]() {
                         return commit_partition(db_id, partition_id,
                                                 partition_to_tmp_rowset_metas.at(partition_id),
-                                                is_versioned_read, is_versioned_write);
+                                                is_versioned_read, is_versioned_write,
+                                                defer_deleting_pending_delete_bitmaps);
                     });
                 }
                 bool finished = false;
@@ -723,7 +757,8 @@ void TxnLazyCommitTask::commit() {
                 for (int64_t partition_id : partition_ids) {
                     std::tie(code_, msg_) = commit_partition(
                             db_id, partition_id, partition_to_tmp_rowset_metas[partition_id],
-                            is_versioned_read, is_versioned_write);
+                            is_versioned_read, is_versioned_write,
+                            defer_deleting_pending_delete_bitmaps);
                     if (code_ != MetaServiceCode::OK) break;
                 }
             }
@@ -732,7 +767,8 @@ void TxnLazyCommitTask::commit() {
                 LOG(WARNING) << "txn_id=" << txn_id_ << " code=" << code_ << " msg=" << msg_;
                 break;
             }
-            make_committed_txn_visible(instance_id_, db_id, txn_id_, txn_kv_, code_, msg_);
+            make_committed_txn_visible(instance_id_, db_id, txn_id_, txn_kv_, code_, msg_,
+                                       defer_deleting_pending_delete_bitmaps);
         } while (false);
     } while (code_ == MetaServiceCode::KV_TXN_CONFLICT &&
              retry_times++ < config::txn_store_retry_times);
@@ -741,7 +777,8 @@ void TxnLazyCommitTask::commit() {
 std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
         int64_t db_id, int64_t partition_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowset_metas,
-        bool is_versioned_read, bool is_versioned_write) {
+        bool is_versioned_read, bool is_versioned_write,
+        bool defer_deleting_pending_delete_bitmaps) {
     std::stringstream ss;
     CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
                                  txn_lazy_committer_->resource_manager().get());
@@ -814,7 +851,8 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
         convert_tmp_rowsets(instance_id_, txn_id_, txn_kv_, code, msg, db_id,
                             sub_partition_tmp_rowset_metas, tablet_ids, is_versioned_write,
                             is_versioned_read, versionstamp,
-                            txn_lazy_committer_->resource_manager().get());
+                            txn_lazy_committer_->resource_manager().get(),
+                            defer_deleting_pending_delete_bitmaps);
         if (code != MetaServiceCode::OK) {
             return {code, msg};
         }
@@ -933,6 +971,25 @@ TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv,
     parallel_commit_pool_->start();
 }
 
+TxnLazyCommitter::~TxnLazyCommitter() {
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        stopped_ = true;
+    }
+
+    if (worker_pool_ != nullptr) {
+        worker_pool_->stop();
+    }
+    if (parallel_commit_pool_ != nullptr) {
+        parallel_commit_pool_->stop();
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        running_tasks_.clear();
+    }
+}
+
 /**
  * @brief Submit a lazy commit txn task
  * 
@@ -946,6 +1003,12 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
     std::shared_ptr<TxnLazyCommitTask> task;
     {
         std::unique_lock<std::mutex> lock(mutex_);
+        if (stopped_) {
+            task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
+            task->finish(MetaServiceCode::UNDEFINED_ERR, "txn lazy committer is stopped");
+            return task;
+        }
+
         auto iter = running_tasks_.find(txn_id);
         if (iter != running_tasks_.end()) {
             return iter->second;
@@ -954,13 +1017,17 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
         task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
         running_tasks_.emplace(txn_id, task);
         g_bvar_txn_lazy_committer_submitted << 1;
-    }
 
-    worker_pool_->submit([task]() {
-        task->commit();
-        task->txn_lazy_committer_->remove(task->txn_id_);
-        g_bvar_txn_lazy_committer_finished << 1;
-    });
+        int ret = worker_pool_->submit([task]() {
+            task->commit();
+            task->txn_lazy_committer_->remove(task->txn_id_);
+            g_bvar_txn_lazy_committer_finished << 1;
+        });
+        if (ret != 0) {
+            running_tasks_.erase(txn_id);
+            task->finish(MetaServiceCode::UNDEFINED_ERR, "failed to submit txn lazy commit task");
+        }
+    }
     DCHECK(task != nullptr);
     return task;
 }

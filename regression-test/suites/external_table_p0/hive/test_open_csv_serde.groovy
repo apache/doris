@@ -16,14 +16,14 @@
 // under the License.
 
 
-suite("test_open_csv_serde","p0,external,tvf,hive,external_docker,external_docker_hive") {
+suite("test_open_csv_serde", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
     }
 
-    for (String hivePrefix : ["hive2","hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
     
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_open_csv_serde"

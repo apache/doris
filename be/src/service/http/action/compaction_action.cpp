@@ -1,0 +1,443 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "service/http/action/compaction_action.h"
+
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <exception>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <utility>
+
+#include "absl/strings/substitute.h"
+#include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/status.h"
+#include "service/http/http_channel.h"
+#include "service/http/http_headers.h"
+#include "service/http/http_request.h"
+#include "service/http/http_status.h"
+#include "storage/compaction/base_compaction.h"
+#include "storage/compaction/binlog_compaction.h"
+#include "storage/compaction/cumulative_compaction.h"
+#include "storage/compaction/cumulative_compaction_policy.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/compaction_task_tracker.h"
+#include "storage/olap_define.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
+#include "util/stopwatch.hpp"
+
+namespace doris {
+using namespace ErrorCode;
+
+namespace {
+
+constexpr std::string_view HEADER_JSON = "application/json";
+
+} // namespace
+
+CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
+                                   StorageEngine& engine, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type ptype)
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _compaction_type(ctype) {}
+
+/// check param and fetch tablet_id & table_id from req
+static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
+    // req tablet id and table id, we have to set only one of them.
+    const auto& req_tablet_id = req->param(TABLET_ID_KEY);
+    const auto& req_table_id = req->param(TABLE_ID_KEY);
+    if (req_tablet_id.empty()) {
+        if (req_table_id.empty()) {
+            // both tablet id and table id are empty, return error.
+            return Status::InternalError(
+                    "tablet id and table id can not be empty at the same time!");
+        } else {
+            try {
+                *table_id = std::stoull(req_table_id);
+            } catch (const std::exception& e) {
+                return Status::InternalError("convert table_id failed, {}", e.what());
+            }
+            return Status::OK();
+        }
+    } else if (req_table_id.empty()) {
+        try {
+            *tablet_id = std::stoull(req_tablet_id);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert tablet_id failed, {}", e.what());
+        }
+        return Status::OK();
+    } else {
+        // both tablet id and table id are not empty, return err.
+        return Status::InternalError("tablet id and table id can not be set at the same time!");
+    }
+}
+
+/// retrieve specific id from req
+static Status _check_param(HttpRequest* req, uint64_t* id_param, const std::string param_name) {
+    const auto& req_id_param = req->param(param_name);
+    if (!req_id_param.empty()) {
+        try {
+            *id_param = std::stoull(req_id_param);
+        } catch (const std::exception& e) {
+            return Status::InternalError("convert {} failed, {}", param_name, e.what());
+        }
+    }
+
+    return Status::OK();
+}
+
+// for viewing the compaction status
+Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
+    uint64_t tablet_id = 0;
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
+    if (tablet_id == 0) {
+        return Status::InternalError("check param failed: missing tablet_id");
+    }
+
+    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
+    }
+
+    tablet->get_compaction_status(json_result);
+    return Status::OK();
+}
+
+Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* json_result) {
+    // 1. param check
+    // check req_tablet_id or req_table_id is not empty and can not be set together.
+    uint64_t tablet_id = 0;
+    uint64_t table_id = 0;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
+
+    // check compaction_type
+    std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
+    if (compaction_type != PARAM_COMPACTION_BASE &&
+        compaction_type != PARAM_COMPACTION_CUMULATIVE &&
+        compaction_type != PARAM_COMPACTION_FULL && compaction_type != PARAM_COMPACTION_BINLOG) {
+        return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
+    }
+
+    // "force" = "true" means skip permit limiter when submitting full compaction to thread pool
+    bool force = false;
+    std::string param_force = req->param(PARAM_COMPACTION_FORCE);
+    if (param_force == "true") {
+        force = true;
+    } else if (!param_force.empty() && param_force != "false") {
+        return Status::NotSupported("The force = '{}' is not supported", param_force);
+    }
+
+    if (tablet_id == 0 && table_id != 0) {
+        std::vector<TabletSharedPtr> tablet_vec = _engine.tablet_manager()->get_all_tablet(
+                [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
+        for (const auto& tablet : tablet_vec) {
+            tablet->set_last_full_compaction_schedule_time(UnixMillis());
+            RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
+                                                           force, true, 1));
+        }
+    } else {
+        // 2. fetch the tablet by tablet_id
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
+        }
+
+        DBUG_EXECUTE_IF("CompactionAction._handle_run_compaction.submit_cumu_task", {
+            RETURN_IF_ERROR(_engine.submit_compaction_task(
+                    tablet, CompactionType::CUMULATIVE_COMPACTION, false));
+            LOG(INFO) << "Manual debug compaction task is successfully triggered";
+            *json_result =
+                    R"({"status": "Success", "msg": "debug compaction task is successfully triggered. Table id: )" +
+                    std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
+            return Status::OK();
+        })
+
+        if (compaction_type == PARAM_COMPACTION_FULL) {
+            // 3. submit full compaction task to thread pool
+            tablet->set_last_full_compaction_schedule_time(UnixMillis());
+            RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
+                                                           force, true, 1));
+        } else {
+            // 3. execute base/cumulative/binlog compaction task in a detached thread
+            std::packaged_task<Status()> task([this, tablet, compaction_type]() {
+                return _execute_compaction_callback(tablet, compaction_type);
+            });
+            std::future<Status> future_obj = task.get_future();
+            std::thread(std::move(task)).detach();
+
+            if (compaction_type == PARAM_COMPACTION_BASE) {
+                tablet->set_last_base_compaction_schedule_time(UnixMillis());
+            } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
+                tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+            }
+
+            // 4. wait for result for 2 seconds by async
+            std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
+            if (status == std::future_status::ready) {
+                Status olap_status = future_obj.get();
+                if (!olap_status.ok()) {
+                    return olap_status;
+                }
+            } else {
+                LOG(INFO) << "Manual compaction task is timeout for waiting "
+                          << (status == std::future_status::timeout);
+            }
+        }
+    }
+    LOG(INFO) << "Manual compaction task is successfully triggered";
+    *json_result =
+            R"({"status": "Success", "msg": "compaction task is successfully triggered. Table id: )" +
+            std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
+    return Status::OK();
+}
+
+Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
+    uint64_t tablet_id = 0;
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
+                                   "check param failed");
+
+    if (tablet_id == 0) {
+        // overall compaction status
+        _engine.get_compaction_status_json(json_result);
+        return Status::OK();
+    } else {
+        // fetch the tablet by tablet_id
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
+            return Status::InternalError("fail to get {}", tablet_id);
+        }
+
+        std::string json_template = R"({
+            "status" : "Success",
+            "run_status" : $0,
+            "msg" : "$1",
+            "tablet_id" : $2,
+            "compact_type" : "$3"
+        })";
+
+        std::string msg = "compaction task for this tablet is not running";
+        std::string compaction_type;
+        bool run_status = false;
+
+        {
+            // Full compaction holds both base compaction lock and cumu compaction lock.
+            // So we can not judge if full compaction is running by check these two locks holding.
+            // Here, we use a variable 'is_full_compaction_running' to check if full compaction is running.
+            if (tablet->is_full_compaction_running()) {
+                msg = "compaction task for this tablet is running";
+                compaction_type = "full";
+                run_status = true;
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
+                return Status::OK();
+            }
+        }
+
+        {
+            // use try lock to check this tablet is running cumulative compaction
+            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(),
+                                                         std::try_to_lock);
+            if (!lock_cumulative.owns_lock()) {
+                msg = "compaction task for this tablet is running";
+                compaction_type = "cumulative";
+                run_status = true;
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
+                return Status::OK();
+            }
+        }
+
+        {
+            // use try lock to check this tablet is running binlog compaction
+            std::unique_lock<std::mutex> lock_binlog(tablet->get_binlog_compaction_lock(),
+                                                     std::try_to_lock);
+            if (!lock_binlog.owns_lock()) {
+                msg = "compaction task for this tablet is running";
+                compaction_type = "binlog";
+                run_status = true;
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
+                return Status::OK();
+            }
+        }
+
+        {
+            // use try lock to check this tablet is running base compaction
+            std::unique_lock<std::mutex> lock_base(tablet->get_base_compaction_lock(),
+                                                   std::try_to_lock);
+            if (!lock_base.owns_lock()) {
+                msg = "compaction task for this tablet is running";
+                compaction_type = "base";
+                run_status = true;
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
+                return Status::OK();
+            }
+        }
+        // not running any compaction
+        *json_result = absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+        return Status::OK();
+    }
+}
+
+Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
+                                                      const std::string& compaction_type,
+                                                      int8_t prefer_compaction_level) {
+    MonotonicStopWatch timer;
+    timer.start();
+
+    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    tablet->tablet_meta()->compaction_policy());
+    if (tablet->get_cumulative_compaction_policy() == nullptr) {
+        tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
+    }
+    Status res = Status::OK();
+    auto* tracker = CompactionTaskTracker::instance();
+    auto do_compact = [&](Compaction& compaction, CompactionProfileType profile_type) {
+        RETURN_IF_ERROR(compaction.prepare_compact());
+        // Register task as RUNNING with tracker (manual trigger, direct execution path)
+        // Use compaction.compaction_id() which was allocated in constructor.
+        int64_t compaction_id = compaction.compaction_id();
+        {
+            CompactionTaskInfo info;
+            info.compaction_id = compaction_id;
+            info.tablet_id = tablet->tablet_id();
+            info.table_id = tablet->get_table_id();
+            info.partition_id = tablet->partition_id();
+            info.compaction_type = profile_type;
+            info.status = CompactionTaskStatus::RUNNING;
+            info.trigger_method = TriggerMethod::MANUAL;
+            auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
+            info.scheduled_time_ms = now_ms;
+            info.start_time_ms = now_ms;
+            info.compaction_score = tablet->get_real_compaction_score();
+            info.input_rowsets_count = compaction.input_rowsets_count();
+            info.input_row_num = compaction.input_row_num_value();
+            info.input_data_size = compaction.input_rowsets_data_size();
+            info.input_index_size = compaction.input_rowsets_index_size();
+            info.input_total_size = compaction.input_rowsets_total_size();
+            info.input_segments_num = compaction.input_segments_num_value();
+            info.input_version_range = compaction.input_version_range_str();
+            info.is_vertical = compaction.is_vertical();
+            info.backend_id = BackendOptions::get_backend_id();
+            tracker->register_task(std::move(info));
+        }
+        auto st = compaction.execute_compact();
+        // Idempotent cleanup: if execute returned early (e.g. TRY_LOCK_FAILED)
+        // before submit_profile_record was called, task remains in active_tasks.
+        tracker->remove_task(compaction_id);
+        return st;
+    };
+    if (compaction_type == PARAM_COMPACTION_BASE) {
+        BaseCompaction base_compaction(_engine, tablet);
+        res = do_compact(base_compaction, CompactionProfileType::BASE);
+        if (!res) {
+            if (!res.is<BE_NO_SUITABLE_VERSION>()) {
+                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+            }
+        }
+    } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
+        {
+            CumulativeCompaction cumulative_compaction(_engine, tablet);
+            res = do_compact(cumulative_compaction, CompactionProfileType::CUMULATIVE);
+            if (!res) {
+                if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+                    // Ignore this error code.
+                    VLOG_NOTICE
+                            << "failed to init cumulative compaction due to no suitable version,"
+                            << "tablet=" << tablet->tablet_id();
+                } else {
+                    DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+                    LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                                 << ", table=" << tablet->tablet_id();
+                }
+            }
+        }
+    } else if (compaction_type == PARAM_COMPACTION_BINLOG) {
+        if (prefer_compaction_level < 0) {
+            tablet->calc_compaction_score(CompactionType::BINLOG_COMPACTION,
+                                          &prefer_compaction_level);
+        }
+        if (prefer_compaction_level < 0) {
+            res = Status::Error<BINLOG_COMPACTION_NO_SUITABLE_VERSION>(
+                    "failed to init binlog compaction due to no suitable version");
+        } else {
+            BinlogCompaction binlog_compaction(_engine, tablet, prefer_compaction_level);
+            res = do_compact(binlog_compaction, CompactionProfileType::BINLOG);
+            if (!res) {
+                if (res.is<BINLOG_COMPACTION_NO_SUITABLE_VERSION>()) {
+                    VLOG_NOTICE << "failed to init binlog compaction due to no suitable version,"
+                                << "tablet=" << tablet->tablet_id() << ", compaction_level="
+                                << static_cast<int>(prefer_compaction_level);
+                } else {
+                    LOG(WARNING) << "failed to do binlog compaction. res=" << res
+                                 << ", table=" << tablet->tablet_id() << ", compaction_level="
+                                 << static_cast<int>(prefer_compaction_level);
+                }
+            }
+        }
+    }
+    timer.stop();
+    LOG(INFO) << "Manual compaction task finish, status=" << res
+              << ", compaction_use_time=" << timer.elapsed_time() / 1000000 << "ms";
+    return res;
+}
+
+void CompactionAction::handle(HttpRequest* req) {
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
+
+    if (_compaction_type == CompactionActionType::SHOW_INFO) {
+        std::string json_result;
+        Status st = _handle_show_compaction(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
+    } else if (_compaction_type == CompactionActionType::RUN_COMPACTION) {
+        std::string json_result;
+        Status st = _handle_run_compaction(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
+    } else {
+        std::string json_result;
+        Status st = _handle_run_status_compaction(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
+    }
+}
+
+} // end namespace doris

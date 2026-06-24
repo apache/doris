@@ -33,7 +33,12 @@ CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
 CONF_Bool(enable_fdb_external_client_directory, "true");
 // The directory path of external foundationdb client library.
 // eg: /path/to/dir1:/path/to/dir2:...
-CONF_String(fdb_external_client_directory, "");
+CONF_String(fdb_external_client_directory, "./lib/fdb/7.3.69/");
+// Enable FDB locality-aware load balancing. When enabled, fdb_zone_id and fdb_dc_id
+// will be set on the database for better location-aware request routing.
+CONF_Bool(enable_fdb_locality_load_balance, "false");
+CONF_String(fdb_zone_id, "");
+CONF_String(fdb_dc_id, "");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -51,6 +56,16 @@ CONF_mString(idempotent_request_replay_exclusion, "GetTabletStatsRequest,GetVers
 CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+
+CONF_Bool(enable_tls, "false");
+CONF_String(tls_certificate_path, "");
+CONF_String(tls_private_key_path, "");
+CONF_String(tls_private_key_password, "");
+CONF_String(tls_verify_mode, "verify_peer");
+CONF_String(tls_ca_certificate_path, "");
+CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
+CONF_String(tls_excluded_protocols, "");
+CONF_String(tls_peer_cert_required_san_dns, "");
 
 CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
@@ -91,14 +106,18 @@ CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
-CONF_Strings(recycle_whitelist, ""); // Comma seprated list
+CONF_mStrings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
-CONF_Strings(recycle_blacklist, ""); // Comma seprated list
+CONF_mStrings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
+// Max expired recycle_rowset entries to process for one tablet in one recycle_rowsets scan.
+// Remaining entries are left for later scans so deletion can spread across tablet prefixes.
+CONF_mInt32(recycle_rowsets_per_tablet_batch_size, "1000");
+CONF_mInt32(recycle_rowsets_delete_batch_size, "300000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
@@ -188,6 +207,20 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
+CONF_mBool(enable_ms_rate_limit, "false");
+// Fault injection: randomly return meta service rate limit error for testing.
+// ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
+CONF_mBool(enable_ms_rate_limit_injection, "false");
+CONF_mInt32(ms_rate_limit_injection_probability, "5");
+CONF_Validator(ms_rate_limit_injection_probability,
+               [](int32_t config) -> bool { return config >= 0 && config <= 100; });
+CONF_mInt64(ms_rate_limit_window_seconds, "60");
+CONF_mInt64(ms_rate_limit_fdb_commit_latency_ms, "50");
+CONF_mInt64(ms_rate_limit_fdb_read_latency_ms, "5");
+CONF_mInt64(ms_rate_limit_fdb_client_thread_busyness_avg_percent, "70");
+CONF_mInt64(ms_rate_limit_fdb_client_thread_busyness_instant_percent, "90");
+CONF_mInt64(ms_rate_limit_cpu_usage_percent, "95");
+CONF_mInt64(ms_rate_limit_memory_usage_percent, "95");
 
 CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
@@ -245,6 +278,10 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Fault injection: randomly return rate limit error for PUT (delete) operations, for testing recycler.
+// s3_rate_limit_inject_probility is the probability (0-100) of injecting a rate limit error.
+CONF_mBool(enable_s3_rate_limit_inject, "false");
+CONF_mInt32(s3_rate_limit_inject_probility, "30");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 
@@ -293,10 +330,10 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
-CONF_Bool(force_azure_blob_global_endpoint, "false");
-
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
+// Whether to retry on S3 SlowDown (429/503) errors
+CONF_Bool(s3_client_retry_slow_down, "false");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
@@ -320,6 +357,11 @@ CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency i
 CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
 CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
+// WARNING: All meta-servers MUST be upgraded before changing this to true.
+// When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+// This reduces contention during transaction commit by extending delete bitmap locks.
+CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
@@ -383,11 +425,11 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
-CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Bool(enable_split_rowset_meta_pb, "true");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 CONF_Bool(enable_split_tablet_schema_pb, "false");
 CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
-CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+CONF_mBool(enable_check_fe_drop_in_safe_time, "true");
 
 CONF_Bool(enable_logging_for_single_version_reading, "false");
 CONF_mBool(enable_logging_conflict_keys, "false");
@@ -432,4 +474,6 @@ CONF_Bool(enable_instance_update_watcher, "true");
 CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
 CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
 
+// Whether to enable recycler. If false, the recycler will skip scanning instances to pending queue.
+CONF_mBool(enable_recycler, "true");
 } // namespace doris::cloud::config

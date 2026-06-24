@@ -34,10 +34,16 @@ public class StreamingJobStatistic {
     private long loadBytes;
     @Getter
     @Setter
+    @SerializedName("fileNumber")
     private long fileNumber;
     @Getter
     @Setter
+    @SerializedName("fileSize")
     private long fileSize;
+    @Getter
+    @Setter
+    @SerializedName("filteredRows")
+    private long filteredRows;
 
     public String toJson() {
         return new Gson().toJson(this);

@@ -47,7 +47,7 @@ suite("test_index_empty_segment_fault_injection", "nonConcurrent") {
 
       sql "sync"
 
-      sql """ set enable_common_expr_pushdown = true; """
+      sql """ set enable_segment_limit_pushdown = true; """
       sql """ set enable_match_without_inverted_index = false; """
 
       try {

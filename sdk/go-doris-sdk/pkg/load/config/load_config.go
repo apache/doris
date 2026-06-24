@@ -106,17 +106,18 @@ type Retry struct {
 
 // Config contains all configuration for stream load operations
 type Config struct {
-	Endpoints   []string
-	User        string
-	Password    string
-	Database    string
-	Table       string
-	LabelPrefix string
-	Label       string
-	Format      Format // Can be &JSONFormat{...} or &CSVFormat{...}
-	Retry       *Retry
-	GroupCommit GroupCommitMode
-	Options     map[string]string
+	Endpoints    []string
+	User         string
+	Password     string
+	Database     string
+	Table        string
+	LabelPrefix  string
+	Label        string
+	Format       Format // Can be &JSONFormat{...} or &CSVFormat{...}
+	Retry        *Retry
+	GroupCommit  GroupCommitMode
+	EnableGzip   bool // If true, the SDK compresses the request body with gzip and sets compress_type=gz
+	Options      map[string]string
 }
 
 // ValidateInternal validates the configuration
@@ -140,6 +141,7 @@ func (c *Config) ValidateInternal() error {
 	if c.Format == nil {
 		return fmt.Errorf("format cannot be nil")
 	}
+
 
 	if c.Retry != nil {
 		if c.Retry.MaxRetryTimes < 0 {

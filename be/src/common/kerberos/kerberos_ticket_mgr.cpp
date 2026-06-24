@@ -22,9 +22,9 @@
 #include <sstream>
 
 #include "common/logging.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "service/backend_options.h"
-#include "vec/core/block.h"
 
 namespace doris::kerberos {
 
@@ -155,8 +155,7 @@ std::vector<KerberosTicketInfo> KerberosTicketMgr::get_krb_ticket_cache_info() {
     return result;
 }
 
-void KerberosTicketMgr::get_ticket_cache_info_block(vectorized::Block* block,
-                                                    const cctz::time_zone& ctz) {
+void KerberosTicketMgr::get_ticket_cache_info_block(Block* block, const cctz::time_zone& ctz) {
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;
     std::string be_ip = be.host;

@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_function") {
+suite("test_search_function", "p0") {
     def tableName = "search_test_table"
     def indexTableName = "search_test_index_table"
-    
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "DROP TABLE IF EXISTS ${indexTableName}"
-    
+
     // Create test table without inverted index
     sql """
         CREATE TABLE ${tableName} (
@@ -39,7 +39,7 @@ suite("test_search_function") {
             "replication_allocation" = "tag.location.default: 1"
         )
     """
-    
+
     // Create test table with inverted index
     sql """
         CREATE TABLE ${indexTableName} (
@@ -61,7 +61,7 @@ suite("test_search_function") {
             "replication_allocation" = "tag.location.default: 1"
         )
     """
-    
+
     // Insert test data
     def testData = [
         [1, "Machine Learning Basics", "Introduction to machine learning algorithms and concepts", "Technology", "machine learning, AI, algorithms", "2023-01-15", 1500],
@@ -75,89 +75,98 @@ suite("test_search_function") {
         [9, "Database Systems", "Relational and NoSQL database concepts", "Technology", "database, SQL, NoSQL", "2023-09-09", 1450],
         [10, "Software Engineering", "Best practices in software development", "Programming", "software engineering, development, practices", "2023-10-01", 1750]
     ]
-    
+
     for (def row : testData) {
         sql """INSERT INTO ${tableName} VALUES (${row[0]}, '${row[1]}', '${row[2]}', '${row[3]}', '${row[4]}', '${row[5]}', ${row[6]})"""
         sql """INSERT INTO ${indexTableName} VALUES (${row[0]}, '${row[1]}', '${row[2]}', '${row[3]}', '${row[4]}', '${row[5]}', ${row[6]})"""
     }
-    
+
     // Wait for index building and data settling
     Thread.sleep(10000)
-    
+
     // Verify data insertion
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}"
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${indexTableName}"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${tableName}"
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${indexTableName}"
+
     // Test 1: Basic term search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Machine') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Machine') ORDER BY id"
+
     // Test 2: Phrase search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:\"Machine Learning\"') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:\"Machine Learning\"') ORDER BY id"
+
     // Test 3: Multiple field search with AND
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Learning AND category:Technology') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Learning AND category:Technology') ORDER BY id"
+
     // Test 4: Multiple field search with OR
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Python OR title:Algorithm') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Python OR title:Algorithm') ORDER BY id"
+
     // Test 5: NOT search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${indexTableName} WHERE search('category:Technology AND NOT title:Machine')"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${indexTableName} WHERE search('category:Technology AND NOT title:Machine')"
+
     // Test 6: Complex nested search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('(title:Learning OR content:algorithms) AND category:Technology') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('(title:Learning OR content:algorithms) AND category:Technology') ORDER BY id"
+
     // Test 7: Wildcard search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Learn*') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Learn*') ORDER BY id"
+
     // Test 8: Prefix search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Data*') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Data*') ORDER BY id"
+
     // Test 9: Search in content field
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('content:neural') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('content:neural') ORDER BY id"
+
     // Test 10: Search in tags field
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:programming') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:programming') ORDER BY id"
+
     // Test 11: Case insensitive search
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:MACHINE') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:MACHINE') ORDER BY id"
+
     // Test 12: Search with spaces in field values
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('content:\"machine learning\"') ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('content:\"machine learning\"') ORDER BY id"
+
     // Test 13: Empty search result
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${indexTableName} WHERE search('title:nonexistent')"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ COUNT(*) FROM ${indexTableName} WHERE search('title:nonexistent')"
+
     // Test 14: Search combined with other WHERE conditions
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('category:Technology') AND view_count > 1400 ORDER BY id"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('category:Technology') AND view_count > 1400 ORDER BY id"
+
     // Test 15: Search with GROUP BY
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ category, COUNT(*) as cnt FROM ${indexTableName} WHERE search('title:Learning OR title:Programming') GROUP BY category ORDER BY category"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ category, COUNT(*) as cnt FROM ${indexTableName} WHERE search('title:Learning OR title:Programming') GROUP BY category ORDER BY category"
+
     // Test 16: Search with ORDER BY
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, view_count FROM ${indexTableName} WHERE search('tags:AI OR tags:programming') ORDER BY view_count DESC"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title, view_count FROM ${indexTableName} WHERE search('tags:AI OR tags:programming') ORDER BY view_count DESC"
+
     // Test 17: Search with LIMIT
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('category:Technology') ORDER BY id LIMIT 3"
-    
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('category:Technology') ORDER BY id LIMIT 3"
+
     // Test 18: Search function in SELECT clause (should not be allowed - search is a predicate)
     // This test is commented out as it expects an exception
     //qt_sql "SELECT id, search('title:Machine') FROM ${indexTableName}"
-    
+
     // Test 19: Invalid DSL syntax
     // This test is commented out as it expects an exception
     //qt_sql "SELECT id FROM ${indexTableName} WHERE search('title:')"
-    
-    // Test 20: ANY query test
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ANY(AI programming)') ORDER BY id"
-    
-    // Test 21: ALL query test
-    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
 
-    // Test 22: Search on non-indexed table (will throw exception)
+    // Test 20: ANY query test
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ANY(AI programming)') ORDER BY id"
+
+    // Test 21: ALL query test
+    qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
+
+    // Test 22: Search on non-indexed table — must now throw at FE planning time.
+    // After the fix for Jira CIR-20006, RewriteSearchToSlots refuses to rewrite
+    // a SEARCH predicate against a column that has no inverted index, with an
+    // AnalysisException that names the column and points at "inverted index".
+    boolean threw = false
     try {
-        sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"""
+        sql """SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"""
     } catch (Exception e) {
+        threw = true
         logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("SearchExpr should not be executed without inverted index"))
+        assertTrue(e.getMessage().contains("inverted index"),
+                   "expected error to mention 'inverted index', got: ${e.getMessage()}")
+        assertTrue(e.getMessage().contains("title"),
+                   "expected error to mention 'title', got: ${e.getMessage()}")
     }
+    assertTrue(threw, "expected AnalysisException for SEARCH on column without inverted index")
 }

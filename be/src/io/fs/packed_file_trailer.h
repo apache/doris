@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <cstdint>
 #include <string>
 #include <string_view>
 
 #include "common/status.h"
-#include "gen_cpp/cloud.pb.h"
 
 namespace doris::io {
 

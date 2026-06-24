@@ -49,7 +49,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(
-                logicalJoin().when(join -> join.getJoinType().isOuterJoin())
+                logicalJoin().when(join -> join.getJoinType().isOuterJoin() || join.getJoinType().isAsofOuterJoin())
         ).then(filter -> {
             LogicalJoin<Plan, Plan> join = filter.child();
 
@@ -79,7 +79,7 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                     conjunctsChanged |= conjuncts.add(isNotNull);
                 }
             }
-            if (newJoinType.isInnerJoin()) {
+            if (newJoinType.isInnerJoin() || newJoinType.isAsofInnerJoin()) {
                 /*
                  * for example: (A left join B on A.a=B.b) join C on B.x=C.x
                  * inner join condition B.x=C.x implies 'B.x is not null',
@@ -116,8 +116,14 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
         if (joinType.isRightOuterJoin() && canFilterLeftNull) {
             return JoinType.INNER_JOIN;
         }
+        if (joinType.isAsofRightOuterJoin() && canFilterLeftNull) {
+            return JoinType.ASOF_RIGHT_INNER_JOIN;
+        }
         if (joinType.isLeftOuterJoin() && canFilterRightNull) {
             return JoinType.INNER_JOIN;
+        }
+        if (joinType.isAsofLeftOuterJoin() && canFilterRightNull) {
+            return JoinType.ASOF_LEFT_INNER_JOIN;
         }
         if (joinType.isFullOuterJoin() && canFilterLeftNull && canFilterRightNull) {
             return JoinType.INNER_JOIN;

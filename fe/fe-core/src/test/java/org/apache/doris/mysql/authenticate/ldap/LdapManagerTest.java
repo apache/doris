@@ -17,50 +17,71 @@
 
 package org.apache.doris.mysql.authenticate.ldap;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.Role;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 
 public class LdapManagerTest {
 
     private static final String USER1 = "user1";
     private static final String USER2 = "user2";
+    private static final String LDAP_GROUP_ROLE = "ldap_group_role";
+    private static final String LDAP_DEFAULT_ROLE = "ldap_default_role";
+    private static final String MISSING_LDAP_DEFAULT_ROLE = "missing_ldap_default_role";
 
-    @Mocked
-    private LdapClient ldapClient;
+    private LdapClient ldapClient = Mockito.mock(LdapClient.class);
 
     @Before
     public void setUp() {
         Config.authentication_type = "ldap";
+        LdapConfig.ldap_default_roles = new String[0];
     }
 
     private void mockClient(boolean userExist, boolean passwd) {
-        new Expectations() {
-            {
-                ldapClient.doesUserExist(anyString);
-                minTimes = 0;
-                result = userExist;
+        mockClient(userExist, passwd, new ArrayList<>());
+    }
 
-                ldapClient.checkPassword(anyString, anyString);
-                minTimes = 0;
-                result = passwd;
+    private void mockClient(boolean userExist, boolean passwd, ArrayList<String> groups) {
+        Mockito.when(ldapClient.doesUserExist(Mockito.anyString())).thenReturn(userExist);
+        Mockito.when(ldapClient.checkPassword(Mockito.anyString(), Mockito.anyString())).thenReturn(passwd);
+        Mockito.when(ldapClient.getGroups(Mockito.anyString())).thenReturn(groups);
+    }
 
-                ldapClient.getGroups(anyString);
-                minTimes = 0;
-                result = new ArrayList<>();
-            }
-        };
+    private void mockAuth(MockedStatic<Env> envMockedStatic, Role ldapGroupRole, Role ldapDefaultRole) {
+        mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole, true);
+    }
+
+    private void mockAuth(MockedStatic<Env> envMockedStatic, Role ldapGroupRole, Role ldapDefaultRole,
+            boolean ldapGroupRoleExists) {
+        Env env = Mockito.mock(Env.class);
+        Auth auth = Mockito.mock(Auth.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(auth.doesRoleExist(LDAP_GROUP_ROLE)).thenReturn(ldapGroupRoleExists);
+        if (ldapGroupRoleExists) {
+            Mockito.when(auth.getRoleByName(LDAP_GROUP_ROLE)).thenReturn(ldapGroupRole);
+        }
+        Mockito.when(auth.doesRoleExist(LDAP_DEFAULT_ROLE)).thenReturn(true);
+        Mockito.when(auth.getRoleByName(LDAP_DEFAULT_ROLE)).thenReturn(ldapDefaultRole);
+        Mockito.when(auth.doesRoleExist(MISSING_LDAP_DEFAULT_ROLE)).thenReturn(false);
     }
 
     @Test
     public void testGetUserInfo() {
         LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
         Assert.assertNotNull(ldapUserInfo);
@@ -75,6 +96,7 @@ public class LdapManagerTest {
     @Test
     public void testCheckUserPasswd() {
         LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
         mockClient(true, true);
         Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
@@ -84,5 +106,81 @@ public class LdapManagerTest {
 
         mockClient(true, false);
         Assert.assertFalse(ldapManager.checkUserPasswd(USER2, "123"));
+    }
+
+    @Test
+    public void testGetUserInfoWithLdapDefaultRolesWithoutLdapGroups() {
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        LdapConfig.ldap_default_roles = new String[] {LDAP_DEFAULT_ROLE, MISSING_LDAP_DEFAULT_ROLE};
+        Role ldapGroupRole = new Role(LDAP_GROUP_ROLE);
+        Role ldapDefaultRole = new Role(LDAP_DEFAULT_ROLE);
+        mockClient(true, true, new ArrayList<>());
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole);
+
+            LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+            Assert.assertNotNull(ldapUserInfo);
+            Assert.assertFalse(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assert.assertEquals(2, ldapUserInfo.getRoles().size());
+        }
+    }
+
+    @Test
+    public void testGetUserInfoWithLdapDefaultRolesWhenLdapGroupRoleMissing() {
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        LdapConfig.ldap_default_roles = new String[] {LDAP_DEFAULT_ROLE, MISSING_LDAP_DEFAULT_ROLE};
+        Role ldapGroupRole = new Role(LDAP_GROUP_ROLE);
+        Role ldapDefaultRole = new Role(LDAP_DEFAULT_ROLE);
+        mockClient(true, true, new ArrayList<>(Arrays.asList(LDAP_GROUP_ROLE)));
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole, false);
+
+            LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+            Assert.assertNotNull(ldapUserInfo);
+            Assert.assertFalse(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assert.assertEquals(2, ldapUserInfo.getRoles().size());
+        }
+    }
+
+    @Test
+    public void testGetUserInfoWithBlankLdapDefaultRoles() {
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        LdapConfig.ldap_default_roles = new String[] {null, "", "   ", LDAP_DEFAULT_ROLE};
+        Role ldapGroupRole = new Role(LDAP_GROUP_ROLE);
+        Role ldapDefaultRole = new Role(LDAP_DEFAULT_ROLE);
+        mockClient(true, true, new ArrayList<>(Arrays.asList(LDAP_GROUP_ROLE)));
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole);
+
+            LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+            Assert.assertNotNull(ldapUserInfo);
+            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assert.assertEquals(3, ldapUserInfo.getRoles().size());
+        }
+    }
+
+    @Test
+    public void testGetUserInfoWithLdapDefaultRoles() {
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        LdapConfig.ldap_default_roles = new String[] {LDAP_DEFAULT_ROLE, MISSING_LDAP_DEFAULT_ROLE};
+        Role ldapGroupRole = new Role(LDAP_GROUP_ROLE);
+        Role ldapDefaultRole = new Role(LDAP_DEFAULT_ROLE);
+        mockClient(true, true, new ArrayList<>(Arrays.asList(LDAP_GROUP_ROLE)));
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            mockAuth(envMockedStatic, ldapGroupRole, ldapDefaultRole);
+
+            LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
+            Assert.assertNotNull(ldapUserInfo);
+            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapGroupRole));
+            Assert.assertTrue(ldapUserInfo.getRoles().contains(ldapDefaultRole));
+            Assert.assertEquals(3, ldapUserInfo.getRoles().size());
+        }
     }
 }

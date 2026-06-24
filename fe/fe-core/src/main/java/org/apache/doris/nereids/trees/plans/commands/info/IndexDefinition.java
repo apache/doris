@@ -25,8 +25,9 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -67,17 +68,6 @@ public class IndexDefinition {
     private boolean ifNotExists = false;
 
     private PartitionNamesInfo partitionNames;
-
-    /**
-     * IndexType
-     */
-    public enum IndexType {
-        BITMAP,
-        INVERTED,
-        BLOOMFILTER,
-        NGRAM_BF,
-        ANN
-    }
 
     /**
      * constructor for IndexDefinition
@@ -168,8 +158,11 @@ public class IndexDefinition {
             if (!itemType.isFloatType()) {
                 throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
             }
-            if (keysType != KeysType.DUP_KEYS) {
-                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            if (keysType != KeysType.DUP_KEYS
+                    && !(keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                throw new AnalysisException(
+                        "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
+                                + " merge-on-write enabled");
             }
             return;
         }
@@ -265,8 +258,11 @@ public class IndexDefinition {
             if (!itemType.isFloatingPointType()) {
                 throw new AnalysisException("ANN index column item type must be float type");
             }
-            if (keysType != KeysType.DUP_KEYS) {
-                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            if (keysType != KeysType.DUP_KEYS
+                    && !(keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
+                throw new AnalysisException(
+                        "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
+                                + " merge-on-write enabled");
             }
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
                 throw new AnalysisException("ANN index is not supported in index format V1");
@@ -348,7 +344,7 @@ public class IndexDefinition {
         if (partitionNames != null) {
             partitionNames.validate();
         }
-        if (isBuildDeferred && indexType == IndexType.INVERTED) {
+        if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF)) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
             }
@@ -363,7 +359,8 @@ public class IndexDefinition {
             AnnIndexPropertiesChecker.checkProperties(this.properties);
         }
 
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
+                || indexType == IndexType.NGRAM_BF) {
             if (cols == null || cols.size() != 1) {
                 throw new AnalysisException(
                         indexType.toString() + " index can only apply to a single column.");
@@ -499,5 +496,12 @@ public class IndexDefinition {
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY));
+    }
+
+    public String getAnalyzerIdentity() {
+        if (indexType != IndexType.INVERTED) {
+            return "";
+        }
+        return InvertedIndexUtil.buildAnalyzerIdentity(properties);
     }
 }

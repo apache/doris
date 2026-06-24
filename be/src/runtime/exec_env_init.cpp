@@ -16,7 +16,6 @@
 // under the License.
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <simdjson.h>
@@ -33,6 +32,9 @@
 #include <vector>
 
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_ms_rpc_rate_limit_services.h"
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -42,59 +44,54 @@
 #include "common/config.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/multi_version.h"
 #include "common/status.h"
+#include "cpp/token_bucket_rate_limiter.h"
+#include "exec/exchange/vdata_stream_mgr.h"
+#include "exec/pipeline/task_queue.h"
+#include "exec/pipeline/task_scheduler.h"
+#include "exec/scan/scanner_scheduler.h"
+#include "exec/sink/delta_writer_v2_pool.h"
+#include "exec/sink/load_stream_map_pool.h"
+#include "exec/spill/spill_file_manager.h"
+#include "exprs/function/dictionary_factory.h"
+#include "format/orc/orc_memory_pool.h"
+#include "format/parquet/arrow_memory_pool.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
-#include "olap/id_manager.h"
-#include "olap/memtable_memory_limiter.h"
-#include "olap/olap_define.h"
-#include "olap/options.h"
-#include "olap/page_cache.h"
-#include "olap/rowset/segment_v2/condition_cache.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/schema_cache.h"
-#include "olap/segment_loader.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_column_object_pool.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema_cache.h"
-#include "olap/wal/wal_manager.h"
-#include "pipeline/pipeline_tracing.h"
-#include "pipeline/query_cache/query_cache.h"
-#include "pipeline/task_queue.h"
-#include "pipeline/task_scheduler.h"
+#include "load/channel/load_channel_mgr.h"
+#include "load/channel/load_stream_mgr.h"
+#include "load/group_commit/group_commit_mgr.h"
+#include "load/group_commit/wal/wal_manager.h"
+#include "load/load_path_mgr.h"
+#include "load/memtable/memtable_memory_limiter.h"
+#include "load/routine_load/routine_load_task_executor.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_executor.h"
+#include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/cdc_client_mgr.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/index_policy/index_policy_mgr.h"
-#include "runtime/load_channel_mgr.h"
-#include "runtime/load_path_mgr.h"
-#include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/heap_profiler.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/process_profile.h"
+#include "runtime/query_cache/query_cache.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/small_file_mgr.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/stream_load/stream_load_recorder_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -102,27 +99,36 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/cache/ann_index_ivf_list_cache.h"
+#include "storage/cache/page_cache.h"
+#include "storage/id_manager.h"
+#include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
+#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/olap_define.h"
+#include "storage/options.h"
+#include "storage/segment/condition_cache.h"
+#include "storage/segment/encoding_info.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet_column_object_pool.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema_cache.h"
+#include "udf/python/python_server.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
+#include "util/client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/dns_cache.h"
-#include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
-#include "vec/exec/format/orc/orc_memory_pool.h"
-#include "vec/exec/format/parquet/arrow_memory_pool.h"
-#include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/functions/dictionary_factory.h"
-#include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_map_pool.h"
-#include "vec/spill/spill_stream_manager.h"
+
 // clang-format off
 // this must after util/brpc_client_cache.h
 // /doris/thirdparty/installed/include/brpc/errno.pb.h:69:3: error: expected identifier
@@ -136,9 +142,14 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
+
+// Warmup download rate limiter metrics
+bvar::LatencyRecorder warmup_download_rate_limit_latency("warmup_download_rate_limit_latency");
+bvar::Adder<int64_t> warmup_download_rate_limit_ns("warmup_download_rate_limit_ns");
+bvar::Adder<int64_t> warmup_download_rate_limit_exceed_req_num(
+        "warmup_download_rate_limit_exceed_req_num");
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
@@ -217,9 +228,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (ready()) {
         return Status::OK();
     }
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
     for (const auto& spill_path : spill_store_paths) {
-        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+        spill_store_map.emplace(spill_path.path, std::make_unique<SpillDataDir>(
                                                          spill_path.path, spill_path.capacity_bytes,
                                                          spill_path.storage_medium));
     }
@@ -230,7 +241,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    set_stream_mgr(new doris::vectorized::VDataStreamMgr());
+    set_stream_mgr(new doris::VDataStreamMgr());
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
@@ -257,6 +268,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(cast_set<int>(buffered_reader_min_threads))
                               .set_max_threads(cast_set<int>(buffered_reader_max_threads))
                               .build(&_buffered_reader_prefetch_thread_pool));
+
+    static_cast<void>(ThreadPoolBuilder("SegmentPrefetchThreadPool")
+                              .set_min_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_min))
+                              .set_max_threads(cast_set<int>(
+                                      config::segment_prefetch_thread_pool_thread_num_max))
+                              .build(&_segment_prefetch_thread_pool));
 
     static_cast<void>(ThreadPoolBuilder("SendTableStatsThreadPool")
                               .set_min_threads(8)
@@ -299,7 +317,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
@@ -339,11 +356,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _cdc_client_mgr = new CdcClientMgr();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
-    _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
+    _delta_writer_v2_pool = std::make_unique<DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
-    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
+
+    _spill_file_mgr = new SpillFileManager(std::move(spill_store_map));
     _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
@@ -413,13 +431,45 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         RETURN_IF_ERROR(_packed_file_manager->init());
         _packed_file_manager->start_background_manager();
+
+        // Start cluster info background worker for compaction read-write separation
+        static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
+
+        // Initialize MS RPC rate limiters and table-level backpressure handling.
+        _ms_rpc_rate_limit_services = std::make_unique<MSRpcRateLimitServices>();
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_host_level_ms_rpc_rate_limiters(
+                        _ms_rpc_rate_limit_services->host_level_ms_rpc_rate_limiters());
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_ms_backpressure_handler(
+                        _ms_rpc_rate_limit_services->ms_backpressure_handler());
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
 
-    RETURN_IF_ERROR(_spill_stream_mgr->init());
+    // Initialize warmup download rate limiter for cloud mode
+    // Always create the rate limiter in cloud mode to support dynamic rate limit changes
+    if (config::is_cloud_mode()) {
+        int64_t rate_limit = config::file_cache_warmup_download_rate_limit_bytes_per_second;
+        // When rate_limit <= 0, pass 0 to disable rate limiting
+        int64_t rate = rate_limit > 0 ? rate_limit : 0;
+        // max_burst is the same as rate (1 second burst)
+        // limit is 0 which means no total limit
+        // When rate is 0, S3RateLimiter will not throttle (no rate limiting)
+        _warmup_download_rate_limiter = new S3RateLimiterHolder(rate, rate, 0, [&](int64_t ns) {
+            if (ns > 0) {
+                warmup_download_rate_limit_latency << ns / 1000;
+                warmup_download_rate_limit_ns << ns;
+                warmup_download_rate_limit_exceed_req_num << 1;
+            }
+        });
+    }
+
+    RETURN_IF_ERROR(_spill_file_mgr->init());
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
-    _dict_factory = new doris::vectorized::DictionaryFactory();
+    _dict_factory = new doris::DictionaryFactory();
     _s_ready = true;
 
     init_simdjson_parser();
@@ -439,7 +489,7 @@ Status ExecEnv::_create_internal_workload_group() {
 }
 
 void ExecEnv::_init_runtime_filter_timer_queue() {
-    _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
+    _runtime_filter_timer_queue = new doris::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
 }
 
@@ -542,6 +592,20 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Init ANN index IVF list cache (dedicated cache for IVF on disk)
+    {
+        int64_t ann_cache_limit = ParseUtil::parse_mem_spec(config::ann_index_ivf_list_cache_limit,
+                                                            MemInfo::mem_limit(),
+                                                            MemInfo::physical_mem(), &is_percent);
+        while (!is_percent && ann_cache_limit > MemInfo::mem_limit() / 2) {
+            ann_cache_limit = ann_cache_limit / 2;
+        }
+        _ann_index_ivf_list_cache = AnnIndexIVFListCache::create_global_cache(ann_cache_limit);
+        LOG(INFO) << "ANN index IVF list cache memory limit: "
+                  << PrettyPrinter::print(ann_cache_limit, TUnit::BYTES)
+                  << ", origin config value: " << config::ann_index_ivf_list_cache_limit;
+    }
+
     // Init row cache
     int64_t row_cache_mem_limit =
             ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
@@ -564,6 +628,17 @@ Status ExecEnv::init_mem_env() {
     } else {
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
+#ifdef __APPLE__
+    // On macOS, rlim_cur can be RLIM_INFINITY (INT64_MAX), which causes
+    // fd_number / 100 * percentage to overflow and crash cast_set<uint32_t>.
+    // Linux kernels cap this via fs.nr_open (default 1M), so only macOS needs this.
+    {
+        constexpr uint64_t max_fd = UINT32_MAX >> 2;
+        if (fd_number > max_fd) {
+            fd_number = max_fd;
+        }
+    }
+#endif
 
     int64_t segment_cache_capacity = 0;
     if (config::is_cloud_mode()) {
@@ -588,8 +663,6 @@ Status ExecEnv::init_mem_env() {
     LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
-
-    _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
     size_t block_file_cache_fd_cache_size =
             std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
@@ -629,8 +702,18 @@ Status ExecEnv::init_mem_env() {
     _inverted_index_query_cache = InvertedIndexQueryCache::create_global_cache(
             inverted_index_query_cache_limit, config::inverted_index_query_cache_shards);
     LOG(INFO) << "Inverted index query match cache memory limit: "
-              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << PrettyPrinter::print(inverted_index_query_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
+
+    // ANN index topn result cache
+    int64_t ann_topn_cache_limit =
+            ParseUtil::parse_mem_spec(config::ann_index_result_cache_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    _ann_index_result_cache =
+            segment_v2::AnnIndexResultCache::create_global_cache(ann_topn_cache_limit);
+    LOG(INFO) << "ANN index topn result cache memory limit: "
+              << PrettyPrinter::print(ann_topn_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::ann_index_result_cache_limit;
 
     // use memory limit
     int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
@@ -643,8 +726,8 @@ Status ExecEnv::init_mem_env() {
     _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
 
     // init orc memory pool
-    _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
-    _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
+    _orc_memory_pool = new doris::ORCMemoryPool();
+    _arrow_memory_pool = new doris::ArrowMemoryPool();
 
     _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
     LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";
@@ -673,7 +756,7 @@ void ExecEnv::init_mem_tracker() {
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
     _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in TabletSchemaCache)");
     _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
     _rowsets_no_cache_mem_tracker =
@@ -803,15 +886,21 @@ void ExecEnv::destroy() {
     // _id_manager must be destoried before tablet schema cache
     SAFE_DELETE(_id_manager);
 
-    // StorageEngine must be destoried before _cache_manager destory
+    // Stop cluster info background worker before storage engine is destroyed
+    if (config::is_cloud_mode() && _cluster_info) {
+        static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
+    }
+
+    // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
-    SAFE_STOP(_spill_stream_mgr);
+    SAFE_STOP(_spill_file_mgr);
     if (_runtime_query_statistics_mgr) {
         _runtime_query_statistics_mgr->stop_report_thread();
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
@@ -827,7 +916,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_condition_cache);
     SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
-    SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
@@ -839,6 +927,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_column_object_pool);
 
     // _storage_page_cache must be destoried before _cache_manager
+    SAFE_DELETE(_ann_index_ivf_list_cache);
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);
@@ -860,7 +949,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_vstream_mgr);
     // When _vstream_mgr is deconstructed, it will try call query context's dctor and will
     // access spill stream mgr, so spill stream mgr should be deconstructed after data stream manager
-    SAFE_DELETE(_spill_stream_mgr);
+    SAFE_DELETE(_spill_file_mgr);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
@@ -873,6 +962,7 @@ void ExecEnv::destroy() {
     _s3_file_system_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);
@@ -922,11 +1012,102 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_heap_profiler);
 
     SAFE_DELETE(_index_policy_mgr);
+    SAFE_DELETE(_warmup_download_rate_limiter);
 
     _s_tracking_memory = false;
 
     clear_storage_resource();
+    PythonServerManager::instance().shutdown();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 
 } // namespace doris
+
+namespace doris::config {
+namespace {
+
+void refresh_ms_rpc_rate_limiters() {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->reset_host_level_rate_limiters();
+    }
+}
+
+void refresh_ms_backpressure_throttle_params() {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->update_backpressure_throttle_params(ms_backpressure_upgrade_top_k,
+                                                      ms_backpressure_throttle_ratio,
+                                                      ms_rpc_table_qps_limit_floor);
+    }
+}
+
+void refresh_ms_backpressure_coordinator_params() {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->update_backpressure_coordinator_params(ms_backpressure_upgrade_interval_ms,
+                                                         ms_backpressure_downgrade_interval_ms);
+    }
+}
+
+} // namespace
+
+// Callback to update warmup download rate limiter when config changes is registered
+DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
+                 [](int64_t old_val, int64_t new_val) {
+                     auto* rate_limiter = ExecEnv::GetInstance()->warmup_download_rate_limiter();
+                     if (rate_limiter != nullptr && new_val != old_val) {
+                         // Reset rate limiter with new rate limit value
+                         // When new_val <= 0, pass 0 to disable rate limiting
+                         int64_t rate = new_val > 0 ? new_val : 0;
+                         rate_limiter->reset(rate, rate, 0);
+                         if (rate > 0) {
+                             LOG(INFO) << "Warmup download rate limiter updated from " << old_val
+                                       << " to " << new_val << " bytes/s";
+                         } else {
+                             LOG(INFO) << "Warmup download rate limiter disabled";
+                         }
+                     }
+                 });
+
+DEFINE_ON_UPDATE(ms_rpc_qps_default, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_rpc_rate_limiters();
+    }
+});
+
+#define DEFINE_MS_RPC_QPS_ON_UPDATE(enum_name, config_suffix, display_name)             \
+    DEFINE_ON_UPDATE(ms_rpc_qps_##config_suffix, [](int32_t old_val, int32_t new_val) { \
+        if (old_val != new_val) {                                                       \
+            refresh_ms_rpc_rate_limiters();                                             \
+        }                                                                               \
+    });
+META_SERVICE_RPC_TYPES(DEFINE_MS_RPC_QPS_ON_UPDATE)
+#undef DEFINE_MS_RPC_QPS_ON_UPDATE
+
+DEFINE_ON_UPDATE(ms_backpressure_upgrade_interval_ms, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_coordinator_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_downgrade_interval_ms, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_coordinator_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_upgrade_top_k, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_throttle_ratio, [](double old_val, double new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_rpc_table_qps_limit_floor, [](double old_val, double new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+} // namespace doris::config

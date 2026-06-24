@@ -257,7 +257,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getCompressionType(),
                                 tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                 tbl.disableAutoCompaction(),
-                                tbl.enableSingleReplicaCompaction(),
                                 tbl.skipWriteIndexOnLoad(),
                                 tbl.getCompactionPolicy(),
                                 tbl.getTimeSeriesCompactionGoalSizeMbytes(),
@@ -272,7 +271,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.rowStorePageSize(),
                                 tbl.variantEnableFlattenNested(),
                                 tbl.storagePageSize(), tbl.getTDEAlgorithm(),
-                                tbl.storageDictPageSize(), null);
+                                tbl.storageDictPageSize(), null,
+                                tbl.getVerticalCompactionNumColumnsPerGroup(), null);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -889,7 +889,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             for (Column column : rollupSchema) {
                 if (column.getName().equals(mvColumnItem.getName())) {
                     Expr defineExpr = mvColumnItem.getDefineExpr();
-                    defineExpr.disableTableName();
                     column.setDefineExpr(defineExpr);
                     break;
                 }

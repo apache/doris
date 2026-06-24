@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -32,7 +33,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -125,7 +125,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
      */
     public void analyze(ConnectContext ctx) throws Exception {
         // analyze table name
-        tableNameInfo.analyze(ctx);
+        tableNameInfo.analyze(ctx.getNameSpaceContext());
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableNameInfo.getCtl())) {
             throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
         }
@@ -285,7 +285,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());
-        this.setClusterKeysColumnNames(Lists.newArrayList());
+        this.setSortOrderFields(Lists.newArrayList());
         this.setIndexes(Lists.newArrayList());
 
         this.analyzeEngine();

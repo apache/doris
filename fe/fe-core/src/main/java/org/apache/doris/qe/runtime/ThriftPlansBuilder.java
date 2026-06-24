@@ -18,11 +18,13 @@
 package org.apache.doris.qe.runtime;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -39,7 +41,6 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -66,10 +67,12 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRecCTENode;
 import org.apache.doris.thrift.TRecCTEResetInfo;
 import org.apache.doris.thrift.TRecCTETarget;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTopnFilterDesc;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ArrayListMultimap;
@@ -104,6 +107,11 @@ public class ThriftPlansBuilder {
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
         Set<Integer> fragmentToNotifyClose = setParamsForRecursiveCteNode(distributedPlans,
                 coordinatorContext.runtimeFilters);
+
+        // Determine whether this query is assigned to a single backend and propagate it to
+        // TQueryOptions so that BE can apply more appropriate optimization strategies (e.g.
+        // streaming aggregation hash table thresholds).
+        coordinatorContext.queryOptions.setSingleBackendQuery(coordinatorContext.isSingleBackendQuery.get());
 
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
@@ -182,12 +190,10 @@ public class ThriftPlansBuilder {
         return workerToInstances;
     }
 
-    private static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
+    static void setRuntimePredicateIfNeed(Collection<ScanNode> scanNodes) {
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode instanceof OlapScanNode) {
-                for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
-                    topnFilterSortNode.setHasRuntimePredicate();
-                }
+            for (SortNode topnFilterSortNode : scanNode.getTopnFilterSortNodes()) {
+                topnFilterSortNode.setHasRuntimePredicate();
             }
         }
     }
@@ -204,6 +210,27 @@ public class ThriftPlansBuilder {
             }
             return filterDescs;
         });
+    }
+
+    static Map<String, TAIResource> collectAiResources(ConnectContext connectContext) {
+        Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+        if (connectContext == null) {
+            return aiResourceMap;
+        }
+
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            return aiResourceMap;
+        }
+
+        for (String resourceName : statementContext.getUsedAIResourceNames()) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (!(resource instanceof AIResource)) {
+                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
+            }
+            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
+        }
+        return aiResourceMap;
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
@@ -251,7 +278,8 @@ public class ThriftPlansBuilder {
         return workerCounter;
     }
 
-    private static Map<Integer, Integer> computeExchangeSenderNum(PipelineDistributedPlan distributedPlan) {
+    private static Map<Integer, Integer> computeExchangeSenderNum(
+            PipelineDistributedPlan distributedPlan) {
         Map<Integer, Integer> senderNum = Maps.newLinkedHashMap();
         for (Entry<ExchangeNode, DistributedPlan> kv : distributedPlan.getInputs().entries()) {
             ExchangeNode exchangeNode = kv.getKey();
@@ -401,6 +429,13 @@ public class ThriftPlansBuilder {
             params.setLocalParams(Lists.newArrayList());
             params.setWorkloadGroups(coordinatorContext.getWorkloadGroups());
 
+            if (connectContext != null && connectContext.getCurrentUserIdentity() != null) {
+                TResourceInfo resourceInfo = new TResourceInfo();
+                resourceInfo.setUser(connectContext.getCurrentUserIdentity().getQualifiedUser());
+                resourceInfo.setGroup("");
+                params.setResourceInfo(resourceInfo);
+            }
+
             params.setFileScanParams(fileScanRangeParamsMap);
 
             if (fragmentPlan.getFragmentJob() instanceof UnassignedScanBucketOlapTableJob) {
@@ -419,13 +454,7 @@ public class ThriftPlansBuilder {
             params.setShuffleIdxToInstanceIdx(computeDestIdToInstanceId(fragmentPlan, w, instanceToIndex));
 
             // Only used for AI Functions
-            Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
-            for (Resource resource : Env.getCurrentEnv().getResourceMgr().getResource(Resource.ResourceType.AI)) {
-                if (resource instanceof AIResource) {
-                    aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
-                }
-            }
-            params.setAiResources(aiResourceMap);
+            params.setAiResources(collectAiResources(connectContext));
 
             return params;
         });
@@ -571,13 +600,32 @@ public class ThriftPlansBuilder {
             PipelineDistributedPlan receivePlan, DistributedPlanWorker filterWorker,
             BiConsumer<AssignedJob, Integer> computeFn) {
 
-        // current only support all input plans have same destination with same order,
-        // so we can get first input plan to compute shuffle index to instance id
-        Set<Entry<ExchangeNode, DistributedPlan>> exchangeToChildPlanSet = receivePlan.getInputs().entries();
-        if (exchangeToChildPlanSet.isEmpty()) {
+        // When a fragment has multiple ExchangeNode inputs (e.g. NLJ with probe + BROADCAST
+        // build), pick the one with the most destinations on this worker. A BROADCAST input has
+        // 1 dest per BE while HASH-partitioned has N; using BROADCAST would produce a 1-entry
+        // map and cause 'Rows mismatched' for GLOBAL_HASH LOCAL_EXCHANGE.
+        Entry<ExchangeNode, DistributedPlan> exchangeToChildPlan = null;
+        int maxDestsOnWorker = -1;
+        for (Entry<ExchangeNode, DistributedPlan> entry : receivePlan.getInputs().entries()) {
+            ExchangeNode exchNode = entry.getKey();
+            PipelineDistributedPlan childPlan = (PipelineDistributedPlan) entry.getValue();
+            for (Entry<DataSink, List<AssignedJob>> kv : childPlan.getDestinations().entrySet()) {
+                if (kv.getKey().getExchNodeId().asInt() != exchNode.getId().asInt()) {
+                    continue;
+                }
+                int destsOnWorker = (int) kv.getValue().stream()
+                        .filter(j -> j.getAssignedWorker().id() == filterWorker.id())
+                        .count();
+                if (destsOnWorker > maxDestsOnWorker) {
+                    maxDestsOnWorker = destsOnWorker;
+                    exchangeToChildPlan = entry;
+                }
+                break;
+            }
+        }
+        if (exchangeToChildPlan == null) {
             return;
         }
-        Entry<ExchangeNode, DistributedPlan> exchangeToChildPlan = exchangeToChildPlanSet.iterator().next();
         ExchangeNode linkNode = exchangeToChildPlan.getKey();
         PipelineDistributedPlan firstInputPlan = (PipelineDistributedPlan) exchangeToChildPlan.getValue();
         Map<DataSink, List<AssignedJob>> sinkToDestInstances = firstInputPlan.getDestinations();
@@ -660,7 +708,7 @@ public class ThriftPlansBuilder {
         // fragments whose child recursive fragments need to be notified to close
         Set<Integer> fragmentToNotifyClose = new HashSet<>();
         // mapping from fragment id -> TRecCTETarget (the scan node target info)
-        Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
+        Map<PlanFragmentId, List<TRecCTETarget>> fragmentIdToRecCteTargetMap = new TreeMap<>();
         // mapping from fragment id -> set of network addresses for all instances
         Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
         // distributedPlans is ordered in bottom up way, so does the fragments
@@ -668,11 +716,15 @@ public class ThriftPlansBuilder {
             // collect all assigned instance network addresses for this fragment
             List<AssignedJob> fragmentAssignedJobs = plan.getInstanceJobs();
             Set<TNetworkAddress> networkAddresses = new TreeSet<>();
+            Map<TNetworkAddress, TUniqueId> addressTUniqueIdMap = new TreeMap<>();
             for (AssignedJob assignedJob : fragmentAssignedJobs) {
                 DistributedPlanWorker distributedPlanWorker = assignedJob.getAssignedWorker();
                 // use brpc port + host as the address used by BE for control/reset
-                networkAddresses.add(new TNetworkAddress(distributedPlanWorker.host(),
-                        distributedPlanWorker.brpcPort()));
+                TNetworkAddress networkAddress = new TNetworkAddress(distributedPlanWorker.host(),
+                        distributedPlanWorker.brpcPort());
+                if (networkAddresses.add(networkAddress)) {
+                    addressTUniqueIdMap.put(networkAddress, assignedJob.instanceId());
+                }
             }
             PlanFragment planFragment = plan.getFragmentJob().getFragment();
             // remember addresses for later when building reset infos
@@ -693,15 +745,17 @@ public class ThriftPlansBuilder {
                     throw new IllegalStateException(
                             "fragmentAssignedJobs is empty for recursive cte scan node");
                 }
-                // Build a TRecCTETarget using the first assigned instance as representative
-                TRecCTETarget tRecCTETarget = new TRecCTETarget();
-                DistributedPlanWorker distributedPlanWorker = fragmentAssignedJobs.get(0).getAssignedWorker();
-                tRecCTETarget.setAddr(new TNetworkAddress(distributedPlanWorker.host(),
-                        distributedPlanWorker.brpcPort()));
-                tRecCTETarget.setFragmentInstanceId(fragmentAssignedJobs.get(0).instanceId());
-                tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                // Build a TRecCTETargets
+                List<TRecCTETarget> recCTETargets = new ArrayList<>(addressTUniqueIdMap.size());
+                for (Entry<TNetworkAddress, TUniqueId> entry : addressTUniqueIdMap.entrySet()) {
+                    TRecCTETarget tRecCTETarget = new TRecCTETarget();
+                    tRecCTETarget.setAddr(entry.getKey());
+                    tRecCTETarget.setFragmentInstanceId(entry.getValue());
+                    tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                    recCTETargets.add(tRecCTETarget);
+                }
                 // store the target for producers to reference later
-                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), tRecCTETarget);
+                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), recCTETargets);
             }
 
             List<RecursiveCteNode> recursiveCteNodes = planFragment.getPlanRoot()
@@ -720,10 +774,10 @@ public class ThriftPlansBuilder {
                     // mark this child fragment id so it will be notified to close
                     fragmentToNotifyClose.add(childFragmentId.asInt());
                     // add target if a matching RecursiveCteScanNode was recorded
-                    TRecCTETarget tRecCTETarget = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
-                    if (tRecCTETarget != null) {
+                    List<TRecCTETarget> recCTETargets = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
+                    if (recCTETargets != null) {
                         // each producer can only map to one scan node target per child
-                        targets.add(tRecCTETarget);
+                        targets.addAll(recCTETargets);
                         // remove the entry so ancestor producers won't reuse a grandchild scan node
                         fragmentIdToRecCteTargetMap.remove(childFragmentId);
                     }
@@ -745,7 +799,7 @@ public class ThriftPlansBuilder {
                 List<List<Expr>> materializedResultExprLists = recursiveCteNode.getMaterializedResultExprLists();
                 List<List<TExpr>> texprLists = new ArrayList<>(materializedResultExprLists.size());
                 for (List<Expr> exprList : materializedResultExprLists) {
-                    texprLists.add(Expr.treesToThrift(exprList));
+                    texprLists.add(ExprToThriftVisitor.treesToThrift(exprList));
                 }
                 // the recursive side's rf need to be reset
                 // determine which runtime filters on the recursive side must be reset

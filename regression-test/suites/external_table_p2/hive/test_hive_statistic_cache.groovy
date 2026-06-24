@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_statistic_cache", "p2,external") {
 
     Boolean ignoreP2 = true;
     if (ignoreP2) {

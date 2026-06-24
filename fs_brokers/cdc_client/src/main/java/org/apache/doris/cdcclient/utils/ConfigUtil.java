@@ -17,13 +17,19 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import org.apache.doris.cdcclient.common.Constants;
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 
 import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -31,6 +37,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.mysql.cj.conf.ConnectionUrl;
+import io.debezium.config.CommonConnectorConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,8 +45,29 @@ public class ConfigUtil {
     private static ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
-    public static String getServerId(long jobId) {
-        return String.valueOf(Math.abs(String.valueOf(jobId).hashCode()));
+    // Resolve user-configured range, or derive from jobId hash with width = parallelism.
+    // Value validation lives in FE DataSourceConfigValidator; here we trust the input.
+    public static ServerIdRange resolveServerIdRange(
+            String jobId, int snapshotParallelism, String userInput) {
+        ServerIdRange userRange = userInput == null ? null : ServerIdRange.from(userInput.trim());
+        if (userRange != null) {
+            if (userRange.getNumberOfServerIds() < snapshotParallelism) {
+                throw new IllegalArgumentException(
+                        "server_id range size "
+                                + userRange.getNumberOfServerIds()
+                                + " must be >= snapshot_parallelism "
+                                + snapshotParallelism);
+            }
+            return userRange;
+        }
+        int hash = jobId.hashCode() & Integer.MAX_VALUE;
+        int safeMax = Integer.MAX_VALUE - snapshotParallelism + 1;
+        // Use `>` (not `>=`) so parallelism=1 preserves hash==MAX_VALUE for back-compat.
+        int base = hash > safeMax ? hash % safeMax : hash;
+        if (base == 0) {
+            base = 1;
+        }
+        return new ServerIdRange(base, base + snapshotParallelism - 1);
     }
 
     public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {
@@ -96,13 +124,51 @@ public class ConfigUtil {
         return ZoneId.systemDefault();
     }
 
+    public static final String MAX_QUEUE_BYTES_SYS_PROP = "cdc.max.queue.size.in.bytes";
+
+    // Heap-adaptive byte cap for the debezium ChangeEventQueue buffer.
+    // heap 1G->64MB, 2G->128MB, >=4G->256MB. -D<MAX_QUEUE_BYTES_SYS_PROP> overrides
+    // (<=0 disables); a malformed override is logged and ignored, falling back to the cap.
+    private static long resolveMaxQueueSizeInBytes() {
+        String override = System.getProperty(MAX_QUEUE_BYTES_SYS_PROP);
+        if (override != null) {
+            try {
+                long bytes = Long.parseLong(override.trim());
+                return bytes <= 0 ? 0 : bytes;
+            } catch (NumberFormatException e) {
+                LOG.warn(
+                        "Ignoring invalid -D{}={}, expected an integer byte count; "
+                                + "falling back to the adaptive cap",
+                        MAX_QUEUE_BYTES_SYS_PROP,
+                        override);
+            }
+        }
+        long target = Runtime.getRuntime().maxMemory() / 16;
+        return Math.max(64L * 1024 * 1024, Math.min(target, 256L * 1024 * 1024));
+    }
+
     /** Optimized debezium parameters */
     public static Properties getDefaultDebeziumProps() {
         Properties properties = new Properties();
-        properties.setProperty("max.queue.size", Constants.DEBEZIUM_MAX_QUEUE_SIZE);
-        properties.setProperty("max.batch.size", Constants.DEBEZIUM_MAX_BATCH_SIZE);
-        properties.setProperty("poll.interval.ms", Constants.DEBEZIUM_POLL_INTERVAL_MS);
+        properties.put(
+                CommonConnectorConfig.MAX_QUEUE_SIZE_IN_BYTES.name(),
+                String.valueOf(resolveMaxQueueSizeInBytes()));
         return properties;
+    }
+
+    public static String[] getTableList(String schema, Map<String, String> cdcConfig) {
+        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
+        String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+        if (StringUtils.isNotEmpty(includingTables)) {
+            return Arrays.stream(includingTables.split(","))
+                    .map(t -> schema + "." + t.trim())
+                    .toArray(String[]::new);
+        } else if (StringUtils.isNotEmpty(table)) {
+            Preconditions.checkArgument(!table.contains(","), "table only supports one table");
+            return new String[] {schema + "." + table.trim()};
+        } else {
+            return new String[0];
+        }
     }
 
     public static boolean is13Timestamp(String s) {
@@ -119,6 +185,77 @@ public class ConfigUtil {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Parse the exclude-column set for a specific table from config.
+     *
+     * <p>Looks for key {@code "table.<tableName>.exclude_columns"} whose value is a comma-separated
+     * column list, e.g. {@code "secret,internal_note"}.
+     *
+     * @return column name set (original case preserved); empty set when the key is absent
+     */
+    public static Set<String> parseExcludeColumns(Map<String, String> config, String tableName) {
+        String key =
+                DataSourceConfigKeys.TABLE
+                        + "."
+                        + tableName
+                        + "."
+                        + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        String value = config.get(key);
+        if (StringUtils.isEmpty(value)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Parse all per-table exclude-column sets from config at once.
+     *
+     * <p>Scans all keys matching {@code "table.<tableName>.exclude_columns"} and returns a map from
+     * table name to its excluded column set. Intended to be called once during initialization.
+     */
+    public static Map<String, Set<String>> parseAllExcludeColumns(Map<String, String> config) {
+        String prefix = DataSourceConfigKeys.TABLE + ".";
+        String suffix = "." + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        Map<String, Set<String>> result = new HashMap<>();
+        for (String key : config.keySet()) {
+            if (key.startsWith(prefix) && key.endsWith(suffix)) {
+                String tableName = key.substring(prefix.length(), key.length() - suffix.length());
+                if (!tableName.isEmpty()) {
+                    result.put(tableName, parseExcludeColumns(config, tableName));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Parse all target-table name mappings from config.
+     *
+     * <p>Scans all keys matching {@code "table.<srcTableName>.target_table"} and returns a map from
+     * source table name to target (Doris) table name. Tables without a mapping are NOT included;
+     * callers should use {@code getOrDefault(srcTable, srcTable)}.
+     */
+    public static Map<String, String> parseAllTargetTableMappings(Map<String, String> config) {
+        String prefix = DataSourceConfigKeys.TABLE + ".";
+        String suffix = "." + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX;
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<String, String> entry : config.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith(prefix) && key.endsWith(suffix)) {
+                String srcTable = key.substring(prefix.length(), key.length() - suffix.length());
+                String rawValue = entry.getValue();
+                String dstTable = rawValue != null ? rawValue.trim() : "";
+                if (!srcTable.isEmpty() && !dstTable.isEmpty()) {
+                    result.put(srcTable, dstTable);
+                }
+            }
+        }
+        return result;
     }
 
     public static Map<String, String> toStringMap(String json) {

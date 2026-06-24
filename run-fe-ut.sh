@@ -24,6 +24,61 @@ export DORIS_HOME="${ROOT}"
 
 . "${DORIS_HOME}/env.sh"
 
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+is_valid_extra_module_feature() {
+    local feature="$1"
+    [[ "${feature}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+parse_extra_fe_modules() {
+    local spec_value="$1"
+    local entry feature module_path existing
+    local -a feature_keys=()
+
+    FE_EXTRA_MODULE_PATHS=()
+    if [[ -z "${spec_value}" ]]; then
+        return
+    fi
+
+    IFS=',' read -r -a entries <<<"${spec_value}"
+    for entry in "${entries[@]}"; do
+        entry="$(trim_whitespace "${entry}")"
+        if [[ -z "${entry}" || "${entry}" != *=* ]]; then
+            echo "Invalid EXTRA_FE_MODULES entry '${entry}': expected feature=module_path"
+            exit 1
+        fi
+
+        feature="$(trim_whitespace "${entry%%=*}")"
+        module_path="$(trim_whitespace "${entry#*=}")"
+        if [[ -z "${feature}" || -z "${module_path}" ]]; then
+            echo "Invalid EXTRA_FE_MODULES entry '${entry}': feature and module_path must be non-empty"
+            exit 1
+        fi
+        if ! is_valid_extra_module_feature "${feature}"; then
+            echo "Invalid EXTRA_FE_MODULES feature '${feature}'"
+            exit 1
+        fi
+        for existing in "${feature_keys[@]}"; do
+            if [[ "${existing}" == "${feature}" ]]; then
+                echo "Duplicate EXTRA_FE_MODULES feature '${feature}'"
+                exit 1
+            fi
+        done
+        if [[ ! -f "${DORIS_HOME}/fe/${module_path}/pom.xml" ]]; then
+            echo "Missing EXTRA_FE_MODULES module: ${DORIS_HOME}/fe/${module_path}/pom.xml"
+            exit 1
+        fi
+        feature_keys+=("${feature}")
+        FE_EXTRA_MODULE_PATHS+=("${module_path}")
+    done
+}
+
 # Check args
 usage() {
     echo "
@@ -31,6 +86,9 @@ Usage: $0 <options>
   Optional options:
      --coverage           build and run coverage statistic
      --run                build and run ut
+
+  Environment variables:
+     EXTRA_FE_MODULES     Optional FE feature modules in feature=module_path format, separated by commas.
 
   Eg.
     $0                                                                      build and run ut
@@ -86,6 +144,22 @@ fi
 
 echo "Build Frontend UT"
 
+EXTRA_FE_MODULES="${EXTRA_FE_MODULES:-}"
+parse_extra_fe_modules "${EXTRA_FE_MODULES}"
+
+FE_MODULES=("fe-common" "fe-core")
+for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
+    FE_MODULES+=("${extra_module_path}")
+done
+MVN_MODULES="$(IFS=','; echo "${FE_MODULES[*]}")"
+
+echo "Get params:
+    RUN                 -- ${RUN}
+    COVERAGE            -- ${COVERAGE}
+    EXTRA_FE_MODULES    -- ${EXTRA_FE_MODULES}
+    MVN_MODULES         -- ${MVN_MODULES}
+"
+
 echo "******************************"
 echo "    Runing DorisFe Unittest    "
 echo "******************************"
@@ -96,7 +170,7 @@ echo "******************************"
 #cp build/help-resource.zip "${DORIS_HOME}"/fe/fe-core/src/test/resources/real-help-resource.zip
 #cd "${DORIS_HOME}"
 
-"${DORIS_HOME}"/generated-source.sh
+bash "${DORIS_HOME}"/generated-source.sh
 
 cd "${DORIS_HOME}/fe"
 mkdir -p build/compile
@@ -114,15 +188,18 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false -Dtest="$1"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
+            -Dmaven.build.cache.enabled=false -Dtest="$1"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
+        "${MVN_CMD}" -Pcoverage test jacoco:report -pl "${MVN_MODULES}" -am -DfailIfNoTests=false \
+            -Dmaven.test.failure.ignore=true
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
+        "${MVN_CMD}" test -pl "${MVN_MODULES}" -am -Dcheckstyle.skip=true -DfailIfNoTests=false \
+            -Dmaven.build.cache.enabled=false
     fi
 fi

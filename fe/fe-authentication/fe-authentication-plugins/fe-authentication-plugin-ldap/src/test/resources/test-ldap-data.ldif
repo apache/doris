@@ -1,0 +1,77 @@
+# LDIF test data for embedded LDAP server
+# This file is loaded by LdapAuthenticationPluginIntegrationTest
+
+# Base DN
+dn: dc=example,dc=com
+objectClass: top
+objectClass: domain
+dc: example
+
+# Organizational Units
+dn: ou=users,dc=example,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: groups
+
+# Users
+dn: uid=alice,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Smith
+sn: Smith
+mail: alice@example.com
+userPassword: alice123
+
+dn: uid=bob,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Jones
+sn: Jones
+mail: bob@example.com
+userPassword: bob123
+
+dn: uid=charlie,ou=users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: charlie
+cn: Charlie Brown
+sn: Brown
+mail: charlie@example.com
+userPassword: charlie123
+
+# Groups
+dn: cn=developers,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: developers
+description: Development team
+member: uid=alice,ou=users,dc=example,dc=com
+
+dn: cn=analysts,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: analysts
+description: Data analysts team
+member: uid=bob,ou=users,dc=example,dc=com
+
+dn: cn=employees,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: employees
+description: All employees
+member: uid=alice,ou=users,dc=example,dc=com
+member: uid=bob,ou=users,dc=example,dc=com
+member: uid=charlie,ou=users,dc=example,dc=com

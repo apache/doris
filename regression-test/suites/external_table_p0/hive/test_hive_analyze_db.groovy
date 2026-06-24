@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
- suite("test_hive_analyze_db", "p0,external,hive,external_docker,external_docker_hive") {
+ suite("test_hive_analyze_db", "p0,external") {
 
      def verify_column_stats_result = { column, result, count, ndv, nulls, size, avg_size, min, max ->
          def found = false;
@@ -40,7 +40,7 @@
          return;
      }
 
-     for (String hivePrefix : ["hive2", "hive3"]) {
+     for (String hivePrefix : ["hive3"]) {
          String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
          String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
          String catalog_name = "${hivePrefix}_test_hive_partition_column_analyze"

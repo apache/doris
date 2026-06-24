@@ -171,7 +171,9 @@ public class LoadLoadingTask extends LoadTask {
         curCoordinator.setExecMemoryLimit(execMemLimit);
 
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
-        curCoordinator.setBatchSize(batchSize);
+        if (enableMemTableOnSinkNode) {
+            curCoordinator.setBatchSize(batchSize);
+        }
 
         long leftTimeMs = getLeftTimeMs();
         if (leftTimeMs <= 0) {

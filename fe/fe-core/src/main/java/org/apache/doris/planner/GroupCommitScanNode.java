@@ -34,8 +34,8 @@ public class GroupCommitScanNode extends ExternalScanNode {
 
     long tableId;
 
-    public GroupCommitScanNode(PlanNodeId id, TupleDescriptor desc, long tableId) {
-        super(id, desc, "GROUP_COMMIT_SCAN_NODE", false);
+    public GroupCommitScanNode(PlanNodeId id, TupleDescriptor desc, long tableId, ScanContext scanContext) {
+        super(id, desc, "GROUP_COMMIT_SCAN_NODE", scanContext, false);
         this.tableId = tableId;
     }
 

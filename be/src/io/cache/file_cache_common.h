@@ -22,8 +22,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/uint128.h"
 #include "io/io_common.h"
-#include "vec/common/uint128.h"
 
 namespace doris::io {
 
@@ -34,7 +34,7 @@ inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 5;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 inline static constexpr size_t DEFAULT_TTL_PERCENT = 50;
 
-using uint128_t = vectorized::UInt128;
+using uint128_t = UInt128;
 
 enum FileCacheType {
     INDEX = 2,
@@ -71,6 +71,9 @@ struct ReadStatistics {
     bool from_peer_cache = false;
     bool skip_cache = false;
     int64_t bytes_read = 0;
+    int64_t bytes_read_from_local = 0;
+    int64_t bytes_read_from_remote = 0;
+    int64_t bytes_read_from_peer = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
     int64_t peer_read_timer = 0;

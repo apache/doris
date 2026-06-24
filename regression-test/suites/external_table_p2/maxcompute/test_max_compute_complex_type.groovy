@@ -157,7 +157,7 @@
         )
     );
  */
-suite("test_max_compute_complex_type", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_max_compute_complex_type", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("ak")

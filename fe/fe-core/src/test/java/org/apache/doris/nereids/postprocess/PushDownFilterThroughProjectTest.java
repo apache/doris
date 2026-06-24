@@ -45,9 +45,9 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,8 +77,9 @@ public class PushDownFilterThroughProjectTest {
      *
      */
     @Test
-    public void testPushFilter(@Injectable LogicalProperties placeHolder,
-            @Injectable CascadesContext ctx) {
+    public void testPushFilter() {
+        LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
+        CascadesContext ctx = Mockito.mock(CascadesContext.class);
         OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.DUP_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
@@ -94,7 +95,7 @@ public class PushDownFilterThroughProjectTest {
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
@@ -117,8 +118,9 @@ public class PushDownFilterThroughProjectTest {
     }
 
     @Test
-    public void testNotPushFilterWithNonfoldable(@Injectable LogicalProperties placeHolder,
-            @Injectable CascadesContext ctx) {
+    public void testNotPushFilterWithNonfoldable() {
+        LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
+        CascadesContext ctx = Mockito.mock(CascadesContext.class);
         OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.DUP_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
@@ -134,7 +136,7 @@ public class PushDownFilterThroughProjectTest {
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
                 Optional.empty(), new ArrayList<>(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

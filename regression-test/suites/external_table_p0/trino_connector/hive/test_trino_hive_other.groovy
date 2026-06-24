@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_trino_hive_other", "external,hive,external_docker,external_docker_hive") {
+suite("test_trino_hive_other", "p0,external") {
 
     def q01 = {
         qt_q24 """ select name, count(1) as c from student group by name order by name desc;"""

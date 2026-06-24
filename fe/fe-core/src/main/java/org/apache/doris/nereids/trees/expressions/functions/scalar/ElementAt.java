@@ -18,17 +18,23 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -45,13 +51,15 @@ import java.util.List;
  */
 public class ElementAt extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
-            RewriteWhenAnalyze, PreferPushDownProject {
+            PropagateNullLiteral, PreferPushDownProject {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(new FollowToAnyDataType(0))
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
             FunctionSignature.ret(VariantType.INSTANCE)
                     .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );
@@ -83,19 +91,65 @@ public class ElementAt extends ScalarFunction
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public boolean foldable() {
+        // A map may legitimately contain a null key, so element_at(map, NULL) must be evaluated by
+        // the BE (which looks up the null key) rather than being folded to NULL on the FE through
+        // PropagateNullLiteral. Marking it non-foldable here skips that fold for the map null-key
+        // case only; a null container (element_at(NULL, ...)) or a null array/struct index still
+        // folds to NULL as before.
+        if (child(0).getDataType() instanceof MapType && child(1) instanceof NullLiteral) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // Struct field access (the former struct_element) only accepts a constant int/string index,
+        // since the selected field — and therefore the result type — must be known at analysis time.
         if (child(0).getDataType() instanceof StructType) {
-            return new StructElement(child(0), child(1)).getSignatures();
+            Expression field = getArgument(1);
+            if (!(field instanceof StringLikeLiteral || field instanceof IntegerLikeLiteral)) {
+                throw new AnalysisException("element_at over a struct only allows a constant int or"
+                        + " string second parameter: " + this.toSql());
+            }
+        }
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        DataType arg0Type = child(0).getDataType();
+        if (arg0Type instanceof NullType) {
+            return ImmutableList.of(
+                    FunctionSignature.ret(NullType.INSTANCE).args(NullType.INSTANCE, child(1).getDataType()));
+        }
+        if (arg0Type instanceof StructType) {
+            return ImmutableList.of(FunctionSignature.ret(structFieldType((StructType) arg0Type))
+                    .args(arg0Type, child(1).getDataType()));
         }
         return SIGNATURES;
     }
 
-    @Override
-    public Expression rewriteWhenAnalyze() {
-        if (child(0).getDataType() instanceof StructType) {
-            return new StructElement(child(0), child(1));
+    // Resolve the type of the struct field selected by the constant int/string index.
+    private DataType structFieldType(StructType structType) {
+        Expression field = getArgument(1);
+        if (field instanceof IntegerLikeLiteral) {
+            int offset = ((IntegerLikeLiteral) field).getIntValue();
+            if (offset <= 0 || offset > structType.getFields().size()) {
+                throw new AnalysisException("the specified field index out of bound: " + this.toSql());
+            }
+            return structType.getFields().get(offset - 1).getDataType();
+        } else if (field instanceof StringLikeLiteral) {
+            String name = ((StringLikeLiteral) field).getStringValue();
+            StructField structField = structType.getField(name);
+            if (structField == null) {
+                throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
+            }
+            return structField.getDataType();
+        } else {
+            throw new AnalysisException("element_at over a struct only allows a constant int or"
+                    + " string second parameter: " + this.toSql());
         }
-        return this;
     }
 
     @Override
@@ -104,10 +158,10 @@ public class ElementAt extends ScalarFunction
         DataType expressionType = arguments.get(0).getDataType();
         DataType sigType = signature.argumentsTypes.get(0);
         if (expressionType instanceof VariantType && sigType instanceof VariantType) {
-            // only keep the variant max subcolumns count
-            VariantType variantType = new VariantType(((VariantType) expressionType).getVariantMaxSubcolumnsCount());
-            signature = signature.withArgumentType(0, variantType);
-            signature = signature.withReturnType(variantType);
+            // Preserve predefinedFields for schema template matching
+            VariantType originalType = (VariantType) expressionType;
+            signature = signature.withArgumentType(0, originalType);
+            signature = signature.withReturnType(originalType);
         }
         return super.computeSignature(signature);
     }

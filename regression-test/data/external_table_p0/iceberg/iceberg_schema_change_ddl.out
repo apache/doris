@@ -22,7 +22,7 @@ email	text	Yes	true	\N
 1	Alice	25	\N	95.5	\N
 2	Bob	30	\N	87.2	\N
 3	Charlie	22	\N	92.8	\N
-4	David	28	123-456-7890	89.1	david@example.com
+4	David	28	123-456-7890	89.09999999999999	david@example.com
 
 -- !add_3 --
 4	david@example.com
@@ -45,7 +45,7 @@ address	struct<city:text,country:text>	Yes	true	\N
 1	Alice	25	\N	95.5	\N	\N
 2	Bob	30	\N	87.2	\N	\N
 3	Charlie	22	\N	92.8	\N	\N
-4	David	28	123-456-7890	89.1	david@example.com	\N
+4	David	28	123-456-7890	89.09999999999999	david@example.com	\N
 5	Eve	26	223-345-132	91.3	eve@example.com	{"city":"New York", "country":"USA"}
 
 -- !add_multi_3 --
@@ -64,7 +64,7 @@ address	struct<city:text,country:text>	Yes	true	\N
 1	95.5
 2	87.2
 3	92.8
-4	89.1
+4	89.09999999999999
 5	91.3
 
 -- !rename_3 --
@@ -84,7 +84,7 @@ address	struct<city:text,country:text>	Yes	true	\N
 1	25	\N	95.5	\N	\N
 2	30	\N	87.2	\N	\N
 3	22	\N	92.8	\N	\N
-4	28	123-456-7890	89.1	david@example.com	\N
+4	28	123-456-7890	89.09999999999999	david@example.com	\N
 5	26	223-345-132	91.3	eve@example.com	{"city":"New York", "country":"USA"}
 
 -- !drop_3 --
@@ -129,7 +129,7 @@ col2	text	Yes	true	\N		User defined column2
 
 -- !modify_3 --
 30	2	\N	87.2	\N	\N	\N	\N
-28	4	123-456-7890	89.1	david@example.com	\N	\N	\N
+28	4	123-456-7890	89.09999999999999	david@example.com	\N	\N	\N
 26	5	223-345-132	91.3	eve@example.com	{"city":"New York", "country":"USA"}	\N	\N
 
 -- !before_no_comment --
@@ -193,10 +193,10 @@ test_decimal	decimal(10,2)	Yes	true	\N
 1	25	\N	\N	95.5	\N	\N	\N	\N	\N
 2	30	\N	\N	87.2	\N	\N	\N	\N	\N
 3	22	\N	\N	92.8	\N	\N	\N	\N	\N
-4	28	\N	\N	89.1	123-456-7890	david@example.com	\N	\N	\N
+4	28	\N	\N	89.09999999999999	123-456-7890	david@example.com	\N	\N	\N
 5	26	\N	\N	91.3	223-345-132	eve@example.com	{"city":"New York", "country":"USA"}	\N	\N
-6	\N	\N	\N	100.0	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}	\N	\N
-7	\N	\N	\N	0.0	\N	\N	\N	3.140000104904175	123.45
+6	\N	\N	\N	100	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}	\N	\N
+7	\N	\N	\N	0	\N	\N	\N	3.140000104904175	123.45
 
 -- !before_rename_show_tables_old --
 iceberg_ddl_test
@@ -224,19 +224,19 @@ test_decimal	decimal(10,2)	Yes	true	\N
 1	25	\N	\N	95.5	\N	\N	\N	\N	\N
 2	30	\N	\N	87.2	\N	\N	\N	\N	\N
 3	22	\N	\N	92.8	\N	\N	\N	\N	\N
-4	28	\N	\N	89.1	123-456-7890	david@example.com	\N	\N	\N
+4	28	\N	\N	89.09999999999999	123-456-7890	david@example.com	\N	\N	\N
 5	26	\N	\N	91.3	223-345-132	eve@example.com	{"city":"New York", "country":"USA"}	\N	\N
-6	\N	\N	\N	100.0	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}	\N	\N
-7	\N	\N	\N	0.0	\N	\N	\N	3.140000104904175	123.45
+6	\N	\N	\N	100	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}	\N	\N
+7	\N	\N	\N	0	\N	\N	\N	3.140000104904175	123.45
 
 -- !rename_table_back_1 --
 1	25	\N	\N	95.5	\N	\N	\N	\N	\N
 2	30	\N	\N	87.2	\N	\N	\N	\N	\N
 3	22	\N	\N	92.8	\N	\N	\N	\N	\N
-4	28	\N	\N	89.1	123-456-7890	david@example.com	\N	\N	\N
+4	28	\N	\N	89.09999999999999	123-456-7890	david@example.com	\N	\N	\N
 5	26	\N	\N	91.3	223-345-132	eve@example.com	{"city":"New York", "country":"USA"}	\N	\N
-6	\N	\N	\N	100.0	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}	\N	\N
-7	\N	\N	\N	0.0	\N	\N	\N	3.140000104904175	123.45
+6	\N	\N	\N	100	123-456-7890	user6@example.com	{"city":"Los Angeles", "country":"USA"}	\N	\N
+7	\N	\N	\N	0	\N	\N	\N	3.140000104904175	123.45
 
 -- !partition_init_1 --
 id	int	Yes	true	\N		

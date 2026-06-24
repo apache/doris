@@ -19,12 +19,15 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -96,7 +99,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
+            partitionKey.keys.add(LiteralExprUtils.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
         return partitionKey;
@@ -129,7 +132,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(columns.get(i).getType(), false));
+            partitionKey.keys.add(LiteralExprUtils.createInfinity(columns.get(i).getType(), false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -207,7 +210,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         if (values.isEmpty()) {
             for (int i = 0; i < types.size(); ++i) {
-                partitionKey.keys.add(LiteralExpr.createInfinity(types.get(i), false));
+                partitionKey.keys.add(LiteralExprUtils.createInfinity(types.get(i), false));
                 partitionKey.types.add(types.get(i).getPrimitiveType());
             }
             partitionKey.setDefaultListPartition(true);
@@ -378,13 +381,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (LiteralExpr expr : keys) {
             Object value = null;
             if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
-                value = expr.toSql();
+                value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 sb.append(value);
             } else {
                 value = "\"" + expr.getRealValue() + "\"";
                 if (expr instanceof DateLiteral) {
                     DateLiteral dateLiteral = (DateLiteral) expr;
-                    value = dateLiteral.toSql();
+                    value = dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 }
                 sb.append(value);
             }
@@ -427,7 +430,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (LiteralExpr expr : keys) {
             Object value = null;
             if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
-                value = expr.toSql();
+                value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
             } else {
                 value = expr.getRealValue();
                 if (expr instanceof DateLiteral) {

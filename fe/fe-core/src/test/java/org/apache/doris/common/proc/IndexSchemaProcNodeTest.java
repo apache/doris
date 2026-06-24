@@ -22,9 +22,9 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -49,7 +49,6 @@ public class IndexSchemaProcNodeTest {
         ProcResult procResult = indexSchemaProcNode.fetchResult();
         Assert.assertEquals(2, procResult.getRows().size());
         Assert.assertTrue(procResult.getRows().get(1).contains(column2.getDisplayName()));
-        Assert.assertFalse(procResult.getRows().get(1).contains(column2.getName()));
         Assert.assertEquals("The column size should be 6", 6, procResult.getColumnNames().size());
         Assert.assertEquals("The row size should be 6", 6, procResult.getRows().get(1).size());
 

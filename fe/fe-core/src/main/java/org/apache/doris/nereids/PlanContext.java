@@ -83,4 +83,12 @@ public class PlanContext {
     public StatementContext getStatementContext() {
         return connectContext.getStatementContext();
     }
+
+    public ConnectContext getConnectContext() {
+        return connectContext;
+    }
+
+    public GroupExpression getGroupExpression() {
+        return groupExpression;
+    }
 }

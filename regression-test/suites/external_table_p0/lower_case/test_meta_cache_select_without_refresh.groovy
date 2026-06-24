@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_meta_cache_select_without_refresh", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_meta_cache_select_without_refresh_user"

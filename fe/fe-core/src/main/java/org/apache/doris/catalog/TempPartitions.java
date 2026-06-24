@@ -24,6 +24,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +46,12 @@ public class TempPartitions implements GsonPostProcessable {
     private RangePartitionInfo partitionInfo = null;
 
     public TempPartitions() {
+    }
+
+    // used by remote doris catalog
+    public TempPartitions(Map<Long, Partition> idToPartition, Map<String, Partition> nameToPartition) {
+        this.idToPartition = idToPartition;
+        this.nameToPartition = nameToPartition;
     }
 
     public void addPartition(Partition partition) {
@@ -141,5 +149,13 @@ public class TempPartitions implements GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hash(idToPartition, nameToPartition, partitionInfo);
+    }
+
+    public List<Long> getPartitionIds() {
+        return new ArrayList<>(idToPartition.keySet());
+    }
+
+    public Collection<Partition> getPartitions() {
+        return idToPartition.values();
     }
 }

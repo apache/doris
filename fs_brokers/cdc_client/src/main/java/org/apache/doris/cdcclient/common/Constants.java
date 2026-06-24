@@ -22,8 +22,19 @@ public class Constants {
     public static final long POLL_SPLIT_RECORDS_TIMEOUTS = 15000L;
 
     // Debezium default properties
-    public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 10000L;
-    public static final String DEBEZIUM_MAX_QUEUE_SIZE = "162580";
-    public static final String DEBEZIUM_MAX_BATCH_SIZE = "40960";
-    public static final String DEBEZIUM_POLL_INTERVAL_MS = "50";
+    public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 3000L;
+
+    public static final String DORIS_TARGET_DB = "doris_target_db";
+
+    // Background cleanup tick: idle-reader release + retrying deferred slot drops.
+    public static final long BACKGROUND_CLEANUP_INTERVAL_MS = 15_000L;
+    // Idle from-to reader cleanup: release (keep slot) when idle past MULTIPLIER * max_interval.
+    public static final int IDLE_READER_TIMEOUT_MULTIPLIER = 10;
+    // Floor the idle timeout: PG reader rebuild is costly, absorb heartbeat jitter at small
+    // interval.
+    public static final long IDLE_READER_MIN_TIMEOUT_MS = 90_000L;
+
+    // Retry dropping a slot still held by a dead BE until it frees (wal_sender_timeout) or this
+    // elapses.
+    public static final long SLOT_DROP_RETRY_WINDOW_MS = 300_000L;
 }

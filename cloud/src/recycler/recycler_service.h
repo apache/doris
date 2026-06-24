@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-service/txn_lazy_committer.h"
@@ -27,6 +27,8 @@ namespace doris::cloud {
 
 class Recycler;
 class Checker;
+struct RecyclerThreadPoolGroup;
+class TxnLazyCommitter;
 
 class RecyclerServiceImpl : public cloud::RecyclerService {
 public:
@@ -44,10 +46,14 @@ public:
               ::doris::cloud::MetaServiceHttpResponse* response,
               ::google::protobuf::Closure* done) override;
 
-private:
     void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
 
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
+
+    std::shared_ptr<TxnKv> txn_kv() { return txn_kv_; }
+    Recycler* recycler() { return recycler_; }
+    Checker* checker() { return checker_; }
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer() { return txn_lazy_committer_; }
 
 private:
     std::shared_ptr<TxnKv> txn_kv_;
@@ -58,5 +64,15 @@ private:
 
 extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
                                  size_t limit);
+
+void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                       MetaServiceCode& code, std::string& msg,
+                       RecyclerThreadPoolGroup thread_pool_group,
+                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+void recycle_job_info(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                      std::string_view key, MetaServiceCode& code, std::string& msg);
+void check_meta(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                const std::string& host, const std::string& port, const std::string& user,
+                const std::string& password, std::string& msg);
 
 } // namespace doris::cloud

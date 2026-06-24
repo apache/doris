@@ -26,10 +26,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileGroupInfo;
+import org.apache.doris.datasource.FilePartitionUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -65,9 +65,6 @@ import java.util.stream.IntStream;
  */
 public class NereidsFileGroupInfo {
     private static final Logger LOG = LogManager.getLogger(NereidsFileGroupInfo.class);
-
-    private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
-    private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";
 
     /**
      * JobType
@@ -279,11 +276,12 @@ public class NereidsFileGroupInfo {
                         context.fileGroup.getFileFormatProperties().getCompressionType(),
                         fileStatus.path);
                 context.params.setCompressType(compressType);
-                List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
-                        context.fileGroup.getColumnNamesFromPath());
+                FilePartitionUtils.ParsedColumnsFromPath columnsFromPath =
+                        FilePartitionUtils.parseColumnsFromPathWithNullInfo(fileStatus.path,
+                                context.fileGroup.getColumnNamesFromPath(), true, false);
                 List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
-                TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath,
-                        columnsFromPathKeys);
+                TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size,
+                        columnsFromPath.getValues(), columnsFromPathKeys, columnsFromPath.getIsNull());
                 locations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             }
             scanRangeLocations.add(locations);
@@ -331,15 +329,16 @@ public class NereidsFileGroupInfo {
                     context.fileGroup.getFileFormatProperties().getCompressionType(),
                     fileStatus.path);
             context.params.setCompressType(compressType);
-            List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
-                    context.fileGroup.getColumnNamesFromPath());
+            FilePartitionUtils.ParsedColumnsFromPath columnsFromPath =
+                    FilePartitionUtils.parseColumnsFromPathWithNullInfo(fileStatus.path,
+                            context.fileGroup.getColumnNamesFromPath(), true, false);
             List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
             // Assign scan range locations only for broker load.
             // stream load has only one file, and no need to set multi scan ranges.
             if (tmpBytes > bytesPerInstance && jobType != FileGroupInfo.JobType.STREAM_LOAD) {
                 long rangeBytes = bytesPerInstance - curInstanceBytes;
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
-                        columnsFromPath, columnsFromPathKeys);
+                        columnsFromPath.getValues(), columnsFromPathKeys, columnsFromPath.getIsNull());
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset += rangeBytes;
 
@@ -348,8 +347,8 @@ public class NereidsFileGroupInfo {
                 curLocations = newLocations(context.params, brokerDesc, backendPolicy);
                 curInstanceBytes = 0;
             } else {
-                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath,
-                        columnsFromPathKeys);
+                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes,
+                        columnsFromPath.getValues(), columnsFromPathKeys, columnsFromPath.getIsNull());
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -420,7 +419,7 @@ public class NereidsFileGroupInfo {
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,
-            List<String> columnsFromPath, List<String> columnsFromPathKeys) {
+            List<String> columnsFromPath, List<String> columnsFromPathKeys, List<Boolean> columnsFromPathIsNull) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         if (jobType == FileGroupInfo.JobType.BULK_LOAD) {
             rangeDesc.setPath(fileStatus.path);
@@ -429,6 +428,7 @@ public class NereidsFileGroupInfo {
             rangeDesc.setFileSize(fileStatus.size);
             rangeDesc.setColumnsFromPath(columnsFromPath);
             rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+            rangeDesc.setColumnsFromPathIsNull(columnsFromPathIsNull);
             if (getFileType() == TFileType.FILE_HDFS) {
                 URI fileUri = new Path(fileStatus.path).toUri();
                 rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());

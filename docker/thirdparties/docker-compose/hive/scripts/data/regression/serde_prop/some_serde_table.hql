@@ -1,7 +1,9 @@
 create database if not exists regression;
 use regression;
 
-CREATE TABLE `serde_test1`(
+drop table if exists `serde_test1`;
+
+create table `serde_test1`(
   `id` int,
   `name` string)
 ROW FORMAT SERDE
@@ -14,7 +16,9 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
-CREATE TABLE `serde_test2`(
+drop table if exists `serde_test2`;
+
+create table `serde_test2`(
   `id` int, 
   `name` string)
 ROW FORMAT SERDE 
@@ -30,7 +34,9 @@ TBLPROPERTIES (
    'field.delim'='|'
 );
 
-CREATE TABLE `serde_test3`(
+drop table if exists `serde_test3`;
+
+create table `serde_test3`(
   `id` int, 
   `name` string)
 ROW FORMAT SERDE 
@@ -43,7 +49,10 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
 
-CREATE TABLE `serde_test4`(
+drop table if exists `serde_test4`;
+
+
+create table `serde_test4`(
   `id` int, 
   `name` string)
 ROW FORMAT SERDE 
@@ -56,7 +65,9 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT 
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
-CREATE TABLE `serde_test5`(
+drop table if exists `serde_test5`;
+
+create table `serde_test5`(
   `id` int, 
   `name` string)
 ROW FORMAT SERDE 
@@ -69,7 +80,9 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT 
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
-CREATE TABLE `serde_test6`(
+drop table if exists `serde_test6`;
+
+create table `serde_test6`(
   `id` int, 
   `name` string)
 ROW FORMAT SERDE 
@@ -82,7 +95,9 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT 
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
-CREATE TABLE `serde_test7`(
+drop table if exists `serde_test7`;
+
+create table `serde_test7`(
   `id` int, 
   `name` string)
 ROW FORMAT SERDE 
@@ -97,7 +112,9 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT 
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';
 
-CREATE TABLE `serde_test8` like `serde_test7`;
+drop table if exists `serde_test8`;
+
+create table `serde_test8` like `serde_test7`;
 
 insert into serde_test1 values(1, "abc"),(2, "def");
 insert into serde_test2 values(1, "abc"),(2, "def");
@@ -107,7 +124,9 @@ insert into serde_test5 values(1, "abc"),(2, "def");
 insert into serde_test6 values(1, "abc"),(2, "def");
 insert into serde_test7 values(1, null),(2, "|||"),(3, "aaa"),(4, "\"null\"");
 
-CREATE TABLE test_open_csv_default_prop (
+drop table if exists test_open_csv_default_prop;
+
+create table test_open_csv_default_prop (
     id INT,
     name STRING,
     age INT,
@@ -121,7 +140,9 @@ CREATE TABLE test_open_csv_default_prop (
 ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
 STORED AS TEXTFILE;
 
-CREATE TABLE test_open_csv_standard_prop (
+drop table if exists test_open_csv_standard_prop;
+
+create table test_open_csv_standard_prop (
     id INT,
     name STRING,
     age INT,
@@ -140,7 +161,9 @@ WITH SERDEPROPERTIES (
 )
 STORED AS TEXTFILE;
 
-CREATE TABLE test_open_csv_custom_prop (
+drop table if exists test_open_csv_custom_prop;
+
+create table test_open_csv_custom_prop (
     id INT,
     name STRING,
     age INT,
@@ -171,7 +194,9 @@ INSERT INTO TABLE test_open_csv_custom_prop VALUES
 (1, 'John Doe', 28, 50000.75, true, '2022-01-15', '2023-10-21 14:30:00', 4.5, 'Senior Developer'),
 (2, 'Jane,Smith', NULL, NULL, false, '2020-05-20', NULL, NULL, '\"Project Manager\"');
 
-CREATE TABLE test_empty_null_format_text (
+drop table if exists test_empty_null_format_text;
+
+create table test_empty_null_format_text (
   id INT,
   name STRING
 )
@@ -187,7 +212,9 @@ INSERT INTO TABLE test_empty_null_format_text VALUES
   (2, NULL),
   (3, '');
 
-CREATE TABLE test_empty_null_defined_text (
+drop table if exists test_empty_null_defined_text;
+
+create table test_empty_null_defined_text (
   id INT,
   name STRING
 )

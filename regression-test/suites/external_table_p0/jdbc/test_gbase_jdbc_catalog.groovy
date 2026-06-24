@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_gbase_jdbc_catalog", "p0,external,gbase,external_docker,external_docker_gbase") {
+suite("test_gbase_jdbc_catalog", "p0,external") {
     // Because there is no Gbase Dcoker test environment, the test case will not be executed for the time being.
     // Gbase ddl
     // CREATE TABLE gbase_test (

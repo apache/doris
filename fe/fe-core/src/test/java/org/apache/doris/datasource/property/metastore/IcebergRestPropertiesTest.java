@@ -17,13 +17,22 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class IcebergRestPropertiesTest {
@@ -39,8 +48,8 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_TYPE_REST,
-                catalogProps.get(CatalogUtil.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_REST,
+                catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("http://localhost:8080", catalogProps.get(CatalogProperties.URI));
         Assertions.assertEquals("s3://warehouse/path", catalogProps.get(CatalogProperties.WAREHOUSE_LOCATION));
         Assertions.assertEquals("prefix", catalogProps.get("prefix"));
@@ -72,6 +81,23 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(restProps.isIcebergRestVendedCredentialsEnabled());
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertFalse(catalogProps.containsKey("header.X-Iceberg-Access-Delegation"));
+    }
+
+    @Test
+    public void testRestViewEnabled() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+
+        IcebergRestProperties defaultProps = new IcebergRestProperties(props);
+        defaultProps.initNormalizeAndCheckProps();
+        Assertions.assertTrue(defaultProps.isIcebergRestViewEnabled());
+
+        props.put("iceberg.rest.view-enabled", "false");
+        IcebergRestProperties disabledProps = new IcebergRestProperties(props);
+        disabledProps.initNormalizeAndCheckProps();
+        Assertions.assertFalse(disabledProps.isIcebergRestViewEnabled());
+        Assertions.assertFalse(disabledProps.getIcebergRestCatalogProperties()
+                .containsKey("iceberg.rest.view-enabled"));
     }
 
     @Test
@@ -172,8 +198,8 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should only have basic properties, no OAuth2 properties
-        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_TYPE_REST,
-                catalogProps.get(CatalogUtil.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals(CatalogUtil.ICEBERG_CATALOG_REST,
+                catalogProps.get(CatalogProperties.CATALOG_IMPL));
         Assertions.assertEquals("http://localhost:8080", catalogProps.get(CatalogProperties.URI));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));
@@ -270,7 +296,7 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("GLUE", catalogProps.get("rest.signing-name"));
         Assertions.assertEquals("us-west-2", catalogProps.get("rest.signing-region"));
     }
 
@@ -348,6 +374,8 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
         Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
         props.put("iceberg.rest.signing-name", "custom-service");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps(); // Should not throw
         catalogProps = restProps.getIcebergRestCatalogProperties();
@@ -426,5 +454,415 @@ public class IcebergRestPropertiesTest {
                 || errorMessage.contains("access-key-id")
                 || errorMessage.contains("secret-access-key")
                 || errorMessage.contains("sigv4-enabled"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameValidWithAccessKeyAndSecretKey() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                catalogProps.get("rest.secret-access-key"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameCaseInsensitive() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "S3TABLES");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+        Assertions.assertEquals("S3TABLES", restProps.getIcebergRestCatalogProperties().get("rest.signing-name"));
+    }
+
+    @Test
+    public void testGlueSigningNameWithIamRoleFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyGlueRole");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameWithIamRoleFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::999999999999:role/S3TablesRole");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
+    }
+
+    @Test
+    public void testGlueSigningNameWithDefaultCredentialsProvider() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameWithDefaultCredentialsProvider() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        // No credentials, should use DEFAULT provider
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+    }
+
+    @Test
+    public void testS3TablesSigningNameMissingSigningRegionFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("signing-region") && e.getMessage().contains("s3tables"));
+    }
+
+    @Test
+    public void testAccessKeyAndSecretKeyMustBeSetTogether() {
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("iceberg.rest.uri", "http://localhost:8080");
+        props1.put("iceberg.rest.signing-name", "glue");
+        props1.put("iceberg.rest.signing-region", "us-east-1");
+        props1.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props1.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps1 = new IcebergRestProperties(props1);
+        IllegalArgumentException e1 = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps1::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e1.getMessage().contains("access-key-id")
+                && e1.getMessage().contains("secret-access-key"));
+
+        Map<String, String> props2 = new HashMap<>();
+        props2.put("iceberg.rest.uri", "http://localhost:8080");
+        props2.put("iceberg.rest.signing-name", "glue");
+        props2.put("iceberg.rest.signing-region", "us-east-1");
+        props2.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props2.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps2::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testGlueWithIamRoleAndExternalIdFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyGlueRole");
+        props.put("iceberg.rest.external-id", "external-123");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
+    }
+
+    @Test
+    public void testGlueWithExternalIdFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.external-id", "external-123");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.external-id"));
+    }
+
+    @Test
+    public void testGlueWithCredentialsProviderTypeDefault() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.credentials_provider_type", "DEFAULT");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+    }
+
+    @Test
+    public void testS3TablesWithCredentialsProviderTypeInstanceProfile() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.credentials_provider_type", "INSTANCE_PROFILE");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals(
+                "software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider",
+                catalogProps.get("client.credentials-provider"));
+    }
+
+    @Test
+    public void testS3TablesWithCredentialsProviderTypeEnvWithoutAccessKey() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.credentials_provider_type", "ENV");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-west-2", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals(
+                "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider",
+                catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+    }
+
+    @Test
+    public void testGlueWithCredentialsProviderTypeEnv() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "ap-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.credentials_provider_type", "ENV");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals(
+                "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider",
+                catalogProps.get("client.credentials-provider"));
+    }
+
+    @Test
+    public void testAccessKeyPriorityOverCredentialsProviderType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.credentials_provider_type", "DEFAULT");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE",
+                catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                catalogProps.get("rest.secret-access-key"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.secret-access-key"));
+    }
+
+    @Test
+    public void testIamRoleWithCredentialsProviderTypeFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyRole");
+        props.put("iceberg.rest.credentials_provider_type", "INSTANCE_PROFILE");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
+    }
+
+    @Test
+    public void testNonGlueSigningNameWithoutCredentialsAllowed() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "custom-service");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+    }
+
+    @Test
+    public void testToFileIOPropertiesPrefersNonS3Properties() {
+        // When both S3Properties and OSSProperties exist, OSSProperties should be chosen
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        s3Props.put("s3.access_key", "s3AccessKey");
+        s3Props.put("s3.secret_key", "s3SecretKey");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+
+        Map<String, String> ossProps = new HashMap<>();
+        ossProps.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        ossProps.put("oss.access_key", "ossAccessKey");
+        ossProps.put("oss.secret_key", "ossSecretKey");
+        ossProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        OSSProperties oss = (OSSProperties) StorageProperties.createPrimary(ossProps);
+
+        Map<String, String> restPropsMap = new HashMap<>();
+        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
+        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
+        restProps.initNormalizeAndCheckProps();
+
+        List<StorageProperties> storageList = new ArrayList<>();
+        storageList.add(s3);
+        storageList.add(oss);
+
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Configuration conf = new Configuration();
+        restProps.toFileIOProperties(storageList, fileIOProperties, conf);
+
+        // OSSProperties should be used, not S3Properties
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("ossAccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("ossSecretKey", fileIOProperties.get(S3FileIOProperties.SECRET_ACCESS_KEY));
+    }
+
+    @Test
+    public void testToFileIOPropertiesFallsBackToS3Properties() {
+        // When only S3Properties exists, it should be used
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        s3Props.put("s3.access_key", "s3AccessKey");
+        s3Props.put("s3.secret_key", "s3SecretKey");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+
+        Map<String, String> restPropsMap = new HashMap<>();
+        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
+        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
+        restProps.initNormalizeAndCheckProps();
+
+        List<StorageProperties> storageList = new ArrayList<>();
+        storageList.add(s3);
+
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Configuration conf = new Configuration();
+        restProps.toFileIOProperties(storageList, fileIOProperties, conf);
+
+        Assertions.assertEquals("https://s3.us-east-1.amazonaws.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("s3AccessKey", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("us-east-1", fileIOProperties.get(AwsClientProperties.CLIENT_REGION));
+    }
+
+    @Test
+    public void testToFileIOPropertiesOnlyFirstNonS3Used() {
+        // When S3Properties comes first, then two non-S3 types, only the first non-S3 is used
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("s3.endpoint", "https://s3.amazonaws.com");
+        s3Props.put("s3.access_key", "s3AK");
+        s3Props.put("s3.secret_key", "s3SK");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3 = (S3Properties) StorageProperties.createPrimary(s3Props);
+
+        Map<String, String> ossProps1 = new HashMap<>();
+        ossProps1.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        ossProps1.put("oss.access_key", "ossAK1");
+        ossProps1.put("oss.secret_key", "ossSK1");
+        ossProps1.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        OSSProperties oss1 = (OSSProperties) StorageProperties.createPrimary(ossProps1);
+
+        Map<String, String> ossProps2 = new HashMap<>();
+        ossProps2.put("oss.endpoint", "oss-cn-shanghai.aliyuncs.com");
+        ossProps2.put("oss.access_key", "ossAK2");
+        ossProps2.put("oss.secret_key", "ossSK2");
+        ossProps2.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        OSSProperties oss2 = (OSSProperties) StorageProperties.createPrimary(ossProps2);
+
+        Map<String, String> restPropsMap = new HashMap<>();
+        restPropsMap.put("iceberg.rest.uri", "http://localhost:8080");
+        IcebergRestProperties restProps = new IcebergRestProperties(restPropsMap);
+        restProps.initNormalizeAndCheckProps();
+
+        List<StorageProperties> storageList = new ArrayList<>();
+        storageList.add(s3);
+        storageList.add(oss1);
+        storageList.add(oss2);
+
+        Map<String, String> fileIOProperties = new HashMap<>();
+        Configuration conf = new Configuration();
+        restProps.toFileIOProperties(storageList, fileIOProperties, conf);
+
+        // First non-S3Properties (oss1) should be used
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
     }
 }

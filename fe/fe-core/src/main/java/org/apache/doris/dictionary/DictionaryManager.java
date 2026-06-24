@@ -243,7 +243,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             Map<String, Long> nameToIds = dictionaryIds.get(dbName);
             for (Long id : dictIds) {
                 Dictionary dict = idToDictionary.remove(id);
-                if (id == null) {
+                if (dict == null) {
                     LOG.warn("Dictionary {} does not exist in dictionaryIds", id);
                     continue;
                 }
@@ -418,12 +418,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         // not use rerfresh command's executor to avoid potential problems.
-        StmtExecutor executor = InsertTask.makeStmtExecutor(ctx);
+        String insertSql = "insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
+                + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
+                + dictionary.getSourceTableName();
+        StmtExecutor executor = new StmtExecutor(ctx, insertSql);
         NereidsParser parser = new NereidsParser();
-        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser
-                .parseSingle("insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
-                        + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
-                        + dictionary.getSourceTableName());
+        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
         LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
                 adaptiveLoad);
         if (!baseCommand.getLabelName().isPresent()) {

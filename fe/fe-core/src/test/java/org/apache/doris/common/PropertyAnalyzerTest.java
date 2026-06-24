@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
@@ -154,7 +156,7 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, tomorrowTimeStr);
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
         // avoid UT fail because time zone different
-        DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
+        DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(tomorrowTimeStr, Type.DATETIME);
         Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
     }
 
@@ -344,6 +346,19 @@ public class PropertyAnalyzerTest {
     @Test
     public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "0");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "1");
+        Assertions.assertEquals(1, PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0));
+        Assertions.assertFalse(properties.containsKey(
+                PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE));
+        properties.clear();
         properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "-1");
         try {
             PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
@@ -367,6 +382,14 @@ public class PropertyAnalyzerTest {
         } catch (AnalysisException e) {
             Assertions.assertNotNull(e.getMessage());
         }
+    }
+
+    @Test
+    public void testCheckDefaultVariantMaxSparseColumnStatisticsSize() {
+        SessionVariable sessionVariable = new SessionVariable();
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
+        sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
     }
 
     @Test

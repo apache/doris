@@ -33,6 +33,10 @@ changes to statistics are possible, only a reasonable range is required.
 */
 
 suite('test_load_cache', 'docker') {
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -41,6 +45,7 @@ suite('test_load_cache', 'docker') {
         'file_cache_enter_disk_resource_limit_mode_percent=99',
         'enable_evict_file_cache_in_advance=false',
         'file_cache_background_monitor_interval_ms=1000',
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.cloudMode = true
     options.beNum = 1

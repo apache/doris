@@ -30,6 +30,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -42,8 +44,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -234,6 +235,18 @@ public class AnalysisManager implements Writable {
             syncExecute(analysisTaskInfos.values());
             jobInfo.state = AnalysisState.FINISHED;
             updateTableStats(jobInfo);
+            // Sync analyze never populates analysisJobIdToTaskMap, so updateTaskStatus
+            // skip-message accumulation does not fire for it. Surface any per-task skip
+            // reasons (e.g. long-string column skip) as an OK-packet info message so
+            // the user still sees why a column was dropped from collection.
+            List<String> skipMessages = analysisTaskInfos.values().stream()
+                    .map(t -> t.info == null ? null : t.info.message)
+                    .filter(m -> m != null && !m.isEmpty())
+                    .collect(Collectors.toList());
+            if (!skipMessages.isEmpty() && ConnectContext.get() != null) {
+                ConnectContext.get().getState().setOk(0, skipMessages.size(),
+                        String.join(" ", skipMessages));
+            }
             return null;
         }
         recordAnalysisJob(jobInfo);
@@ -254,8 +267,8 @@ public class AnalysisManager implements Writable {
             if (table instanceof View) {
                 continue;
             }
-            TableNameInfo tableNameInfo = new TableNameInfo(db.getCatalog().getName(),
-                    db.getFullName(), table.getName());
+            TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(db.getCatalog(),
+                    db, table);
             // columnNames null means to add all visible columns.
             // Will get all the visible columns in analyzeTableOp.check()
             AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,
@@ -368,6 +381,9 @@ public class AnalysisManager implements Writable {
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(command.forceFull());
         infoBuilder.setUsingSqlForExternalTable(command.usingSqlForExternalTable());
+        AnalyzeProperties analyzeProperties = command.getAnalyzeProperties();
+        infoBuilder.setCollectHotValue((analyzeProperties.hasCollectHotValue()
+                && analyzeProperties.collectHotValue()) || analysisMethod == AnalysisMethod.SAMPLE);
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
@@ -470,7 +486,12 @@ public class AnalysisManager implements Writable {
             return;
         }
         info.state = taskState;
-        info.message = message;
+        // Preserve the existing info.message when flushBuffer calls updateTaskState(FINISHED, "")
+        // for already-finished tasks, so that a previously-set skip message (from
+        // BaseAnalysisTask.handleSkip) is not wiped by the subsequent batch FINISHED update.
+        if (!(taskState.equals(AnalysisState.FINISHED) && StringUtils.isEmpty(message))) {
+            info.message = message;
+        }
         // Update the task cost time when task finished or failed. And only log the final state.
         if (taskState.equals(AnalysisState.FINISHED) || taskState.equals(AnalysisState.FAILED)) {
             info.timeCostInMs = time - info.lastExecTimeInMs;
@@ -494,6 +515,14 @@ public class AnalysisManager implements Writable {
             if (taskState.equals(AnalysisState.FAILED)) {
                 String errMessage = String.format("%s:[%s] ", info.colName, message);
                 job.message = job.message == null ? errMessage : job.message + errMessage;
+            }
+            // Accumulate a non-empty FINISHED message (e.g. long-string skip reason) into
+            // job.message so it is visible in SHOW ANALYZE at job level. Guard on the
+            // incoming message being non-empty to avoid double-counting when flushBuffer
+            // later calls updateTaskState(FINISHED, "") for the same already-skipped task.
+            if (taskState.equals(AnalysisState.FINISHED) && !StringUtils.isEmpty(message)) {
+                String skipMessage = String.format("%s:[%s] ", info.colName, message);
+                job.message = job.message == null ? skipMessage : job.message + skipMessage;
             }
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {

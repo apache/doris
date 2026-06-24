@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -55,7 +57,7 @@ public class FrontendConjunctsUtils {
 
     public static Expression exprToExpression(Expr expr) {
         NereidsParser nereidsParser = new NereidsParser();
-        return nereidsParser.parseExpression(expr.toSql());
+        return nereidsParser.parseExpression(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     /**

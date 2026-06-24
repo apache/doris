@@ -10,7 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mustache.h"
+#include "util/mustache/mustache.h"
 
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>

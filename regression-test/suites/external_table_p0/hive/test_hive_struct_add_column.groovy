@@ -17,7 +17,7 @@
 
 
 
-suite("test_hive_struct_add_column", "all_types,p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_struct_add_column", "p0,external") {
 
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -56,12 +56,12 @@ suite("test_hive_struct_add_column", "all_types,p0,external,hive,external_docker
         qt_test_12  """select *    from test_hive_struct_add_column_orc where sex = 2 order by id; """
         qt_test_13  """select *    from test_hive_struct_add_column_orc where id =sex  order by id;""" 
         qt_test_14  """select *    from test_hive_struct_add_column_orc where id -52=sex order by id;"""
-        qt_test_15  """select *,complex[1]    from test_hive_struct_add_column_orc where struct_element(complex[1],1) = 1 order by id;"""
-        qt_test_16  """ select complex    from test_hive_struct_add_column_orc where struct_element(complex[1],1) = 2 and struct_element(complex[1],2) is null  order by id ; """ 
-        qt_test_17  """select details    from test_hive_struct_add_column_orc where struct_element(details,1) = 25 and struct_element(details,4) is not null  order by id;"""
-        qt_test_18  """select details    from test_hive_struct_add_column_orc where struct_element(details,1) = 25 and struct_element(details,4) is  null  order by id;"""
-        qt_test_19  """ select details,id    from test_hive_struct_add_column_orc where struct_element(details,1) = 25 and struct_element(details,4) is not  null order by id ;"""
-        qt_test_20  """ select details,id    from test_hive_struct_add_column_orc where struct_element(details,1) = 25 and struct_element(details,4) is null order by id;"""
+        qt_test_15  """select *,complex[1]    from test_hive_struct_add_column_orc where element_at(complex[1],1) = 1 order by id;"""
+        qt_test_16  """ select complex    from test_hive_struct_add_column_orc where element_at(complex[1],1) = 2 and element_at(complex[1],2) is null  order by id ; """ 
+        qt_test_17  """select details    from test_hive_struct_add_column_orc where element_at(details,1) = 25 and element_at(details,4) is not null  order by id;"""
+        qt_test_18  """select details    from test_hive_struct_add_column_orc where element_at(details,1) = 25 and element_at(details,4) is  null  order by id;"""
+        qt_test_19  """ select details,id    from test_hive_struct_add_column_orc where element_at(details,1) = 25 and element_at(details,4) is not  null order by id ;"""
+        qt_test_20  """ select details,id    from test_hive_struct_add_column_orc where element_at(details,1) = 25 and element_at(details,4) is null order by id;"""
         qt_test_21  """ select sex,count(*)    from test_hive_struct_add_column_orc group by  sex order by count(*);"""
 
 
@@ -81,12 +81,12 @@ suite("test_hive_struct_add_column", "all_types,p0,external,hive,external_docker
         qt_test_12  """select *    from test_hive_struct_add_column_parquet where sex = 2 order by id; """
         qt_test_13  """select *    from test_hive_struct_add_column_parquet where id =sex  order by id;""" 
         qt_test_14  """select *    from test_hive_struct_add_column_parquet where id -52=sex order by id;"""
-        qt_test_15  """select *,complex[1]    from test_hive_struct_add_column_parquet where struct_element(complex[1],1) = 1 order by id;"""
-        qt_test_16  """ select complex    from test_hive_struct_add_column_parquet where struct_element(complex[1],1) = 2 and struct_element(complex[1],2) is null  order by id ; """ 
-        qt_test_17  """select details    from test_hive_struct_add_column_parquet where struct_element(details,1) = 25 and struct_element(details,4) is not null  order by id;"""
-        qt_test_18  """select details    from test_hive_struct_add_column_parquet where struct_element(details,1) = 25 and struct_element(details,4) is  null  order by id;"""
-        qt_test_19  """ select details,id    from test_hive_struct_add_column_parquet where struct_element(details,1) = 25 and struct_element(details,4) is not  null order by id ;"""
-        qt_test_20  """ select details,id    from test_hive_struct_add_column_parquet where struct_element(details,1) = 25 and struct_element(details,4) is null order by id;"""
+        qt_test_15  """select *,complex[1]    from test_hive_struct_add_column_parquet where element_at(complex[1],1) = 1 order by id;"""
+        qt_test_16  """ select complex    from test_hive_struct_add_column_parquet where element_at(complex[1],1) = 2 and element_at(complex[1],2) is null  order by id ; """ 
+        qt_test_17  """select details    from test_hive_struct_add_column_parquet where element_at(details,1) = 25 and element_at(details,4) is not null  order by id;"""
+        qt_test_18  """select details    from test_hive_struct_add_column_parquet where element_at(details,1) = 25 and element_at(details,4) is  null  order by id;"""
+        qt_test_19  """ select details,id    from test_hive_struct_add_column_parquet where element_at(details,1) = 25 and element_at(details,4) is not  null order by id ;"""
+        qt_test_20  """ select details,id    from test_hive_struct_add_column_parquet where element_at(details,1) = 25 and element_at(details,4) is null order by id;"""
         qt_test_21  """ select sex,count(*)    from test_hive_struct_add_column_parquet group by  sex order by count(*);"""
 
 

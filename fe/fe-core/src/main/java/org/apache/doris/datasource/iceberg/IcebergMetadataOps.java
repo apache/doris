@@ -17,11 +17,20 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -35,26 +44,29 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
-import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
-import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
@@ -67,17 +79,19 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
@@ -86,6 +100,8 @@ import java.util.stream.Stream;
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
+    private static final String NAMESPACE_LOCATION_PROP = "location";
+    private static final List<String> ICEBERG_TABLE_LOCATION_CHILD_DIRS = Arrays.asList("data", "metadata");
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -185,7 +201,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // IcebergMetadataOps handles listTableNames and listViewNames separately.
                 // listTableNames should only focus on the table type,
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (catalog instanceof ViewCatalog) {
+                if (isViewCatalogEnabled()) {
                     views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
                             .stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
@@ -292,7 +308,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 return;
             }
         }
-        nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));
+        Namespace namespace = getNamespace(dorisDb.getRemoteName());
+        Optional<String> namespaceLocation = shouldCleanupManagedLocation()
+                ? loadNamespaceLocation(namespace) : Optional.empty();
+        nsCatalog.dropNamespace(namespace);
+        namespaceLocation.ifPresent(location -> cleanupEmptyLocation(location, "database", dbName, false));
     }
 
     @Override
@@ -353,9 +373,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        properties.putIfAbsent(TableProperties.FORMAT_VERSION, "2");
+        properties.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        properties.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        properties.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
                 schema);
-        catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
+        // Build and create table with optional sort order
+        org.apache.iceberg.SortOrder sortOrder = buildSortOrder(createTableInfo.getSortOrderFields(), schema);
+        if (sortOrder != null && !sortOrder.isUnsorted()) {
+            catalog.buildTable(getTableIdentifier(dbName, tableName), schema)
+                    .withPartitionSpec(partitionSpec)
+                    .withProperties(properties)
+                    .withSortOrder(sortOrder)
+                    .create();
+        } else {
+            catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
+        }
         return false;
     }
 
@@ -406,7 +440,103 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, remoteTblName, remoteDbName);
             }
         }
-        catalog.dropTable(getTableIdentifier(remoteDbName, remoteTblName), true);
+        TableIdentifier tableIdentifier = getTableIdentifier(remoteDbName, remoteTblName);
+        Optional<String> tableLocation = shouldCleanupManagedLocation()
+                ? loadTableLocation(tableIdentifier) : Optional.empty();
+        catalog.dropTable(tableIdentifier, true);
+        tableLocation.ifPresent(location ->
+                cleanupEmptyLocation(location, "table", remoteDbName + "." + remoteTblName, true));
+    }
+
+    private Optional<String> loadNamespaceLocation(Namespace namespace) {
+        Map<String, String> namespaceMetadata = nsCatalog.loadNamespaceMetadata(namespace);
+        String location = namespaceMetadata.get(NAMESPACE_LOCATION_PROP);
+        return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
+    }
+
+    private Optional<String> loadTableLocation(TableIdentifier tableIdentifier) {
+        String location = catalog.loadTable(tableIdentifier).location();
+        return StringUtils.isBlank(location) ? Optional.empty() : Optional.of(location);
+    }
+
+    private void cleanupEmptyLocation(
+            String location, String objectType, String objectName, boolean cleanupIcebergTableChildren) {
+        if (!shouldCleanupManagedLocation() || StringUtils.isBlank(location)) {
+            return;
+        }
+        try (FileSystem fs = createCleanupFileSystem()) {
+            boolean deleted = cleanupIcebergTableChildren
+                    ? deleteEmptyTableLocation(fs, Location.of(location))
+                    : deleteEmptyDirectory(fs, Location.of(location));
+            if (deleted) {
+                LOG.info("Cleaned empty Iceberg {} location {} for {}", objectType, location, objectName);
+            } else {
+                LOG.info("Skip cleaning Iceberg {} location {} for {}, because it still contains files",
+                        objectType, location, objectName);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to clean Iceberg {} location {} for {} after drop",
+                    objectType, location, objectName, e);
+        }
+    }
+
+    private boolean shouldCleanupManagedLocation() {
+        // Only cleanup HMS-Iceberg location
+        return dorisCatalog instanceof IcebergExternalCatalog
+                && IcebergExternalCatalog.ICEBERG_HMS.equals(
+                        ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType());
+    }
+
+    @VisibleForTesting
+    protected FileSystem createCleanupFileSystem() {
+        return new SpiSwitchingFileSystem(dorisCatalog.getCatalogProperty().getStoragePropertiesMap());
+    }
+
+    @VisibleForTesting
+    static boolean deleteEmptyDirectory(FileSystem fs, Location location) throws IOException {
+        if (!fs.exists(location)) {
+            return true;
+        }
+        List<Location> childDirectories = new ArrayList<>();
+        try (FileIterator iterator = fs.list(location)) {
+            while (iterator.hasNext()) {
+                FileEntry entry = iterator.next();
+                if (!entry.isDirectory()) {
+                    return false;
+                }
+                childDirectories.add(entry.location());
+            }
+        }
+        for (Location childDirectory : childDirectories) {
+            if (!deleteEmptyDirectory(fs, childDirectory)) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectoryMarker(fs, location);
+    }
+
+    @VisibleForTesting
+    static boolean deleteEmptyTableLocation(FileSystem fs, Location location) throws IOException {
+        for (String childDir : ICEBERG_TABLE_LOCATION_CHILD_DIRS) {
+            if (!deleteEmptyDirectory(fs, location.resolve(childDir))) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectory(fs, location);
+    }
+
+    private static boolean deleteEmptyDirectoryMarker(FileSystem fs, Location location) throws IOException {
+        Location directoryMarker = Location.of(withTrailingSlash(location.uri()));
+        try {
+            fs.delete(directoryMarker, false);
+        } catch (IOException e) {
+            return !fs.exists(location);
+        }
+        return !fs.exists(location);
+    }
+
+    private static String withTrailingSlash(String uri) {
+        return uri.endsWith("/") ? uri : uri + "/";
     }
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
@@ -716,15 +846,36 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position, long updateTime)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
-        validateForModifyColumn(column, icebergTable);
-        Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
-        UpdateSchema updateSchema = icebergTable.updateSchema();
-        updateSchema.updateColumn(column.getName(), icebergType.asPrimitiveType(), column.getComment());
-        if (column.isAllowNull()) {
-            // we can change a required column to optional, but not the other way around
-            // because we don't know whether there is existing data with null values.
-            updateSchema.makeColumnOptional(column.getName());
+        NestedField currentCol = icebergTable.schema().findField(column.getName());
+        if (currentCol == null) {
+            throw new UserException("Column " + column.getName() + " does not exist");
         }
+
+        validateCommonColumnInfo(column);
+        UpdateSchema updateSchema = icebergTable.updateSchema();
+
+        if (column.getType().isComplexType()) {
+            // Complex type processing branch
+            validateForModifyComplexColumn(column, currentCol);
+            applyComplexTypeChange(updateSchema, column.getName(), currentCol.type(), column.getType());
+            if (column.isAllowNull()) {
+                updateSchema.makeColumnOptional(column.getName());
+            }
+            if (!Objects.equals(currentCol.doc(), column.getComment())) {
+                updateSchema.updateColumnDoc(column.getName(), column.getComment());
+            }
+        } else {
+            // Primitive type processing (existing logic)
+            validateForModifyColumn(column, currentCol);
+            Type icebergType = IcebergUtils.dorisTypeToIcebergType(column.getType());
+            updateSchema.updateColumn(column.getName(), icebergType.asPrimitiveType(), column.getComment());
+            if (column.isAllowNull()) {
+                // we can change a required column to optional, but not the other way around
+                // because we don't know whether there is existing data with null values.
+                updateSchema.makeColumnOptional(column.getName());
+            }
+        }
+
         if (position != null) {
             applyPosition(updateSchema, position, column.getName());
         }
@@ -737,20 +888,181 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         refreshTable(dorisTable, updateTime);
     }
 
-    private void validateForModifyColumn(Column column, Table icebergTable) throws UserException {
-        validateCommonColumnInfo(column);
+    private void validateForModifyColumn(Column column, NestedField currentCol) throws UserException {
         // check complex type
         if (column.getType().isComplexType()) {
             throw new UserException("Modify column type to non-primitive type is not supported: " + column.getType());
         }
-        // check exist
-        NestedField currentCol = icebergTable.schema().findField(column.getName());
-        if (currentCol == null) {
-            throw new UserException("Column " + column.getName() + " does not exist");
-        }
         // check nullable
         if (currentCol.isOptional() && !column.isAllowNull()) {
             throw new UserException("Can not change nullable column " + column.getName() + " to not null");
+        }
+    }
+
+    private void validateForModifyComplexColumn(Column column, NestedField currentCol) throws UserException {
+        if (!column.getType().isComplexType()) {
+            throw new UserException("Modify column type to non-complex type is not supported: " + column.getType());
+        }
+        Type oldIcebergType = currentCol.type();
+        if (oldIcebergType.isPrimitiveType()) {
+            throw new UserException("Modify column type from non-complex to complex is not supported: "
+                    + column.getName());
+        }
+
+        org.apache.doris.catalog.Type oldDorisType = IcebergUtils.icebergTypeToDorisType(oldIcebergType, false, false);
+        org.apache.doris.catalog.Type newDorisType = column.getType();
+        if (!isSameComplexCategory(oldIcebergType, newDorisType)) {
+            throw new UserException("Cannot change complex column type category from "
+                    + oldDorisType.toSql() + " to " + newDorisType.toSql());
+        }
+        try {
+            ColumnType.checkSupportSchemaChangeForComplexType(oldDorisType, newDorisType, false);
+        } catch (DdlException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+        if (currentCol.isOptional() && !column.isAllowNull()) {
+            throw new UserException("Cannot change nullable column " + column.getName() + " to not null");
+        }
+        if (column.getDefaultValue() != null || column.getDefaultValueExprDef() != null) {
+            throw new UserException("Complex type default value only supports NULL");
+        }
+    }
+
+    private boolean isSameComplexCategory(Type oldIcebergType, org.apache.doris.catalog.Type newDorisType) {
+        switch (oldIcebergType.typeId()) {
+            case STRUCT:
+                return newDorisType.isStructType();
+            case LIST:
+                return newDorisType.isArrayType();
+            case MAP:
+                return newDorisType.isMapType();
+            default:
+                return false;
+        }
+    }
+
+    private void applyComplexTypeChange(UpdateSchema updateSchema, String path,
+            org.apache.iceberg.types.Type oldIcebergType,
+            org.apache.doris.catalog.Type newDorisType) throws UserException {
+        switch (oldIcebergType.typeId()) {
+            case STRUCT:
+                applyStructChange(updateSchema, path, oldIcebergType.asStructType(), (StructType) newDorisType);
+                break;
+            case LIST:
+                applyListChange(updateSchema, path, (Types.ListType) oldIcebergType, (ArrayType) newDorisType);
+                break;
+            case MAP:
+                applyMapChange(updateSchema, path, (Types.MapType) oldIcebergType, (MapType) newDorisType);
+                break;
+            default:
+                throw new UserException("Unsupported complex type for modify: " + oldIcebergType);
+        }
+    }
+
+    private void applyStructChange(UpdateSchema updateSchema, String path,
+            Types.StructType oldStructType, StructType newStructType) throws UserException {
+        List<NestedField> oldFields = oldStructType.fields();
+        List<StructField> newFields = newStructType.getFields();
+
+        for (int i = 0; i < oldFields.size(); i++) {
+            NestedField oldField = oldFields.get(i);
+            StructField newField = newFields.get(i);
+            String fieldPath = path + "." + oldField.name();
+
+            if (oldField.isOptional() && !newField.getContainsNull()) {
+                throw new UserException("Cannot change nullable column " + fieldPath + " to not null");
+            }
+
+            org.apache.iceberg.types.Type oldFieldType = oldField.type();
+            org.apache.doris.catalog.Type newFieldType = newField.getType();
+            if (oldFieldType.isPrimitiveType()) {
+                org.apache.doris.catalog.Type oldDorisFieldType =
+                        IcebergUtils.icebergTypeToDorisType(oldFieldType, false, false);
+                boolean typeChanged = !oldDorisFieldType.equals(newFieldType);
+                boolean commentChanged = !Objects.equals(oldField.doc(), newField.getComment());
+                if (typeChanged || commentChanged) {
+                    org.apache.iceberg.types.Type newIcebergFieldType =
+                            IcebergUtils.dorisTypeToIcebergType(newFieldType);
+                    updateSchema.updateColumn(fieldPath, newIcebergFieldType.asPrimitiveType(),
+                            newField.getComment());
+                }
+            } else {
+                applyComplexTypeChange(updateSchema, fieldPath, oldFieldType, newFieldType);
+                if (!Objects.equals(oldField.doc(), newField.getComment())) {
+                    updateSchema.updateColumnDoc(fieldPath, newField.getComment());
+                }
+            }
+
+            if (!oldField.isOptional() && newField.getContainsNull()) {
+                updateSchema.makeColumnOptional(fieldPath);
+            }
+        }
+
+        for (int i = oldFields.size(); i < newFields.size(); i++) {
+            StructField newField = newFields.get(i);
+            if (!newField.getContainsNull()) {
+                throw new UserException("New struct field '" + newField.getName() + "' must be nullable");
+            }
+            org.apache.iceberg.types.Type newFieldIcebergType =
+                    IcebergUtils.dorisTypeToIcebergType(newField.getType());
+            updateSchema.addColumn(path, newField.getName(), newFieldIcebergType, newField.getComment());
+        }
+    }
+
+    private void applyListChange(UpdateSchema updateSchema, String path,
+            Types.ListType oldListType, ArrayType newArrayType) throws UserException {
+        String elementPath = path + "." + oldListType.field(oldListType.elementId()).name();
+        if (oldListType.isElementOptional() && !newArrayType.getContainsNull()) {
+            throw new UserException("Cannot change nullable column " + elementPath + " to not null");
+        }
+        org.apache.iceberg.types.Type oldElementType = oldListType.elementType();
+        org.apache.doris.catalog.Type newElementType = newArrayType.getItemType();
+        if (oldElementType.isPrimitiveType()) {
+            org.apache.doris.catalog.Type oldDorisElementType =
+                    IcebergUtils.icebergTypeToDorisType(oldElementType, false, false);
+            if (!oldDorisElementType.equals(newElementType)) {
+                org.apache.iceberg.types.Type newIcebergElementType =
+                        IcebergUtils.dorisTypeToIcebergType(newElementType);
+                updateSchema.updateColumn(elementPath, newIcebergElementType.asPrimitiveType(), null);
+            }
+        } else {
+            applyComplexTypeChange(updateSchema, elementPath, oldElementType, newElementType);
+        }
+        if (!oldListType.isElementOptional() && newArrayType.getContainsNull()) {
+            updateSchema.makeColumnOptional(elementPath);
+        }
+    }
+
+    private void applyMapChange(UpdateSchema updateSchema, String path,
+            Types.MapType oldMapType, MapType newMapType) throws UserException {
+        org.apache.iceberg.types.Type oldKeyType = oldMapType.keyType();
+        org.apache.doris.catalog.Type newKeyType = newMapType.getKeyType();
+        org.apache.doris.catalog.Type oldDorisKeyType =
+                IcebergUtils.icebergTypeToDorisType(oldKeyType, false, false);
+        if (!oldDorisKeyType.equals(newKeyType)) {
+            throw new UserException("Cannot change MAP key type from "
+                    + oldDorisKeyType.toSql() + " to " + newKeyType.toSql());
+        }
+
+        String valuePath = path + "." + oldMapType.field(oldMapType.valueId()).name();
+        if (oldMapType.isValueOptional() && !newMapType.getIsValueContainsNull()) {
+            throw new UserException("Cannot change nullable column " + valuePath + " to not null");
+        }
+        org.apache.iceberg.types.Type oldValueType = oldMapType.valueType();
+        org.apache.doris.catalog.Type newValueType = newMapType.getValueType();
+        if (oldValueType.isPrimitiveType()) {
+            org.apache.doris.catalog.Type oldDorisValueType =
+                    IcebergUtils.icebergTypeToDorisType(oldValueType, false, false);
+            if (!oldDorisValueType.equals(newValueType)) {
+                org.apache.iceberg.types.Type newIcebergValueType =
+                        IcebergUtils.dorisTypeToIcebergType(newValueType);
+                updateSchema.updateColumn(valuePath, newIcebergValueType.asPrimitiveType(), null);
+            }
+        } else {
+            applyComplexTypeChange(updateSchema, valuePath, oldValueType, newValueType);
+        }
+        if (!oldMapType.isValueOptional() && newMapType.getIsValueContainsNull()) {
+            updateSchema.makeColumnOptional(valuePath);
         }
     }
 
@@ -848,8 +1160,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
-        // Reset cached isValidRelatedTable flag after partition evolution
-        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     /**
@@ -877,8 +1187,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
-        // Reset cached isValidRelatedTable flag after partition evolution
-        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     /**
@@ -920,8 +1228,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
         refreshTable(dorisTable, updateTime);
-        // Reset cached isValidRelatedTable flag after partition evolution
-        ((IcebergExternalTable) dorisTable).setIsValidRelatedTableCached(false);
     }
 
     @Override
@@ -935,7 +1241,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String remoteDbName, String remoteViewName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return false;
         }
         try {
@@ -948,8 +1254,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public View loadView(String dbName, String tblName) {
-        if (!(catalog instanceof ViewCatalog)) {
+    public Object loadView(String dbName, String tblName) {
+        if (!isViewCatalogEnabled()) {
             return null;
         }
         try {
@@ -963,7 +1269,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listViewNames(String db) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return Collections.emptyList();
         }
         try {
@@ -1001,17 +1307,56 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
     }
 
+    private boolean isViewCatalogEnabled() {
+        if (!(catalog instanceof ViewCatalog)) {
+            return false;
+        }
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties) {
+                return ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
+            }
+        }
+        return true;
+    }
+
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
         return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;
         viewCatalog.dropView(getTableIdentifier(remoteDbName, remoteViewName));
     }
+
+    /**
+     * Build Iceberg SortOrder from SortFieldInfo list
+     */
+    private org.apache.iceberg.SortOrder buildSortOrder(List<SortFieldInfo> sortFields, Schema schema) {
+        if (sortFields == null || sortFields.isEmpty()) {
+            return null;
+        }
+
+        org.apache.iceberg.SortOrder.Builder builder = org.apache.iceberg.SortOrder.builderFor(schema);
+        for (SortFieldInfo sortField : sortFields) {
+            String columnName = sortField.getColumnName();
+            if (sortField.isAscending()) {
+                if (sortField.isNullFirst()) {
+                    builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
+                } else {
+                    builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_LAST);
+                }
+            } else {
+                if (sortField.isNullFirst()) {
+                    builder.desc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
+                } else {
+                    builder.desc(columnName, org.apache.iceberg.NullOrder.NULLS_LAST);
+                }
+            }
+        }
+        return builder.build();
+    }
 }
-
-

@@ -21,9 +21,9 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
-#include "olap/rowset/rowset.h"
-#include "olap/schema_change.h"
-#include "olap/tablet_fwd.h"
+#include "storage/rowset/rowset.h"
+#include "storage/schema_change/schema_change.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 

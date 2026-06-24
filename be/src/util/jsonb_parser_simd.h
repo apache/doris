@@ -63,12 +63,11 @@
 #include <limits>
 
 #include "common/status.h"
-#include "jsonb_document.h"
-#include "jsonb_writer.h"
-#include "string_parser.hpp"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using int128_t = __int128;
 struct JsonbParser {
     // According to https://github.com/simdjson/simdjson/pull/2139
@@ -334,5 +333,4 @@ private:
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

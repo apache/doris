@@ -60,7 +60,7 @@ suite("test_point_query_partition_ck") {
                 `value` varchar(100) NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`value`)
+              ORDER BY(`value`)
               PARTITION BY RANGE(`k1`)
               (
                   PARTITION `p1` VALUES LESS THAN ("1"),
@@ -132,7 +132,7 @@ suite("test_point_query_partition_ck") {
           `customer_value_10` TEXT NULL
         ) ENGINE=OLAP
         UNIQUE KEY(`customer_key`)
-        CLUSTER BY(`customer_value_2`, `customer_value_1`)
+        ORDER BY(`customer_value_2`, `customer_value_1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`customer_key`) BUCKETS 10
         PROPERTIES (

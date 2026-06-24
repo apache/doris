@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -35,11 +36,13 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -52,10 +55,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -64,13 +70,19 @@ import java.util.stream.Collectors;
 public abstract class FileScanNode extends ExternalScanNode {
     // For explain
     protected long totalFileSize = 0;
+    // -1 means unknown (batch-mode scans don't materialize splits on FE).
+    protected int selectedFileNum = -1;
     protected long totalPartitionNum = 0;
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
-    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, needCheckColumnPriv);
+    protected List<String> fileCacheAdmissionLogs;
+
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            ScanContext scanContext, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
+        this.fileCacheAdmissionLogs = new ArrayList<>();
     }
 
     @Override
@@ -97,6 +109,21 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public long getTotalFileSize() {
         return totalFileSize;
+    }
+
+    public int getSelectedFileNum() {
+        return selectedFileNum;
+    }
+
+    /**
+     * Get all delete files for the given file range.
+     * @param rangeDesc the file range descriptor
+     * @return list of delete file paths (formatted strings)
+     */
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        // Default implementation: return empty list
+        // Subclasses should override this method
+        return Collections.emptyList();
     }
 
     @Override
@@ -139,6 +166,21 @@ public abstract class FileScanNode extends ExternalScanNode {
                         return Long.compare(o1.getStartOffset(), o2.getStartOffset());
                     }
                 });
+
+                // A Data file may be divided into different splits, so a set is used to remove duplicates.
+                Set<String> dataFilesSet = new HashSet<>();
+                // A delete file might be used by multiple data files, so use set to remove duplicates.
+                Set<String> deleteFilesSet = new HashSet<>();
+                // You can estimate how many delete splits need to be read for a data split
+                // using deleteSplitNum / dataSplitNum(fileRangeDescs.size()) split.
+                long deleteSplitNum = 0;
+                for (TFileRangeDesc fileRangeDesc : fileRangeDescs) {
+                    dataFilesSet.add(fileRangeDesc.getPath());
+                    List<String> deletefiles =  getDeleteFiles(fileRangeDesc);
+                    deleteFilesSet.addAll(deletefiles);
+                    deleteSplitNum += deletefiles.size();
+                }
+
                 // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
                 int size = fileRangeDescs.size();
                 if (size <= 4) {
@@ -164,6 +206,10 @@ public abstract class FileScanNode extends ExternalScanNode {
                             .append(" length: ").append(file.getSize())
                             .append("\n");
                 }
+                output.append(prefix).append("    ").append("dataFileNum=").append(dataFilesSet.size())
+                        .append(", deleteFileNum=").append(deleteFilesSet.size())
+                        .append(", deleteSplitNum=").append(deleteSplitNum)
+                        .append("\n");
             }
         }
 
@@ -191,6 +237,11 @@ public abstract class FileScanNode extends ExternalScanNode {
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
+
+        for (String admissionLog : fileCacheAdmissionLogs) {
+            output.append(prefix).append(admissionLog).append("\n");
+        }
+
         return output.toString();
     }
 
@@ -208,7 +259,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             nameToSlotDesc.put(slot.getColumn().getName(), slot);
         }
 
-        for (Column column : getColumns()) {
+        // Build slot_id -> index map for required_slots to set default_value_expr inline.
+        Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                TFileScanSlotInfo slotInfo = params.getRequiredSlots().get(i);
+                slotIdToRequiredIdx.put(slotInfo.getSlotId(), i);
+            }
+        }
+
+        for (Column column : desc.getTable().getFullSchema()) {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
@@ -249,16 +309,32 @@ public abstract class FileScanNode extends ExternalScanNode {
             // default value.
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
+                TExpr defaultExpr;
                 if (expression != null) {
                     expression = TypeCoercionUtils.castIfNotSameType(expression,
                             DataType.fromCatalogType(slotDesc.getType()));
                     expr = ExpressionTranslator.translate(expression,
                             new PlanTranslatorContext(CascadesContext.initTempContext()));
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                    defaultExpr = ExprToThriftVisitor.treeToThrift(expr);
                 } else {
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                    defaultExpr = tExpr;
+                }
+                // Populate legacy map (for backward compatibility with old BE)
+                params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), defaultExpr);
+                // Also embed default expr directly in the TFileScanSlotInfo
+                Integer idx = slotIdToRequiredIdx.get(slotDesc.getId().asInt());
+                if (idx != null) {
+                    params.getRequiredSlots().get(idx).setDefaultValueExpr(defaultExpr);
                 }
             }
         }
+    }
+
+
+    protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, double durationMs) {
+        String admissionStatus = admitted ? "ADMITTED" : "DENIED";
+        String admissionLog = String.format("file cache request %s: user_identity:%s, reason:%s, cost:%.6f ms",
+                admissionStatus, userIdentity, reason, durationMs);
+        fileCacheAdmissionLogs.add(admissionLog);
     }
 }

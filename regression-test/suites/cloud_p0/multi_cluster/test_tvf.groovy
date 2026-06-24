@@ -71,7 +71,7 @@ suite('test_tvf', 'multi_cluster,docker') {
         // use old clusterName, has been droped
         test {
             sql """select * from numbers("number" = "100")"""
-            exception "Can not find compute group" 
+            exception "Unable to find the compute group"
         }
         // switch to old cluster
         sql """use @${currentCluster.cluster}"""

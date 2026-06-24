@@ -17,7 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.AccessPathInfo;
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -38,8 +39,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -66,10 +65,6 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
-import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TDataAccessPath;
-import org.apache.doris.thrift.TMetaAccessPath;
 
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -231,21 +226,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
     }
 
     @Override
-    public Plan visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Void context) {
-        topN = visitChildren(this, topN, context);
-
-        LogicalTopN logicalTopN = (LogicalTopN) topN.getLogicalTopN().accept(this, context);
-        if (logicalTopN != topN.getLogicalTopN()) {
-            SlotReference replacedColumnIdSlot = replaceExpressions(
-                    ImmutableList.of(topN.getColumnIdSlot()), false, false).second.get(0);
-            return new LogicalDeferMaterializeTopN(
-                    logicalTopN, topN.getDeferMaterializeSlotIds(), replacedColumnIdSlot);
-        }
-
-        return topN;
-    }
-
-    @Override
     public Plan visitLogicalExcept(LogicalExcept except, Void context) {
         except = visitChildren(this, except, context);
 
@@ -378,23 +358,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
     }
 
     @Override
-    public Plan visitLogicalDeferMaterializeOlapScan(
-            LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, Void context) {
-
-        LogicalOlapScan logicalOlapScan
-                = (LogicalOlapScan) deferMaterializeOlapScan.getLogicalOlapScan().accept(this, context);
-
-        if (logicalOlapScan != deferMaterializeOlapScan.getLogicalOlapScan()) {
-            SlotReference replacedColumnIdSlot = replaceExpressions(
-                    ImmutableList.of(deferMaterializeOlapScan.getColumnIdSlot()), false, false).second.get(0);
-            return new LogicalDeferMaterializeOlapScan(
-                    logicalOlapScan, deferMaterializeOlapScan.getDeferMaterializeSlotIds(), replacedColumnIdSlot
-            );
-        }
-        return deferMaterializeOlapScan;
-    }
-
-    @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         filter = visitChildren(this, filter, context);
 
@@ -421,13 +384,13 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         continue;
                     }
                     SlotReference slotReference = (SlotReference) slot;
-                    Optional<List<TColumnAccessPath>> allAccessPaths = slotReference.getAllAccessPaths();
+                    Optional<List<ColumnAccessPath>> allAccessPaths = slotReference.getAllAccessPaths();
                     if (!allAccessPaths.isPresent() || !slotReference.getOriginalColumn().isPresent()) {
                         continue;
                     }
-                    List<TColumnAccessPath> allAccessPathsWithId
+                    List<ColumnAccessPath> allAccessPathsWithId
                             = replaceIcebergAccessPathToId(allAccessPaths.get(), slotReference);
-                    List<TColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
+                    List<ColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
                             slotReference.getPredicateAccessPaths().get(), slotReference);
                     replaceSlots.set(i, ((SlotReference) slot).withAccessPaths(
                             allAccessPathsWithId,
@@ -646,38 +609,28 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         DataType newType = cast.getDataType();
         if (cast.getDataType() instanceof NestedColumnPrunable
                 && newChild.getDataType() instanceof NestedColumnPrunable) {
-            DataTypeAccessTree originTree = DataTypeAccessTree.of(cast.child().getDataType(), TAccessPathType.DATA);
-            DataTypeAccessTree prunedTree = DataTypeAccessTree.of(newChild.getDataType(), TAccessPathType.DATA);
-            DataTypeAccessTree castTree = DataTypeAccessTree.of(cast.getDataType(), TAccessPathType.DATA);
+            DataTypeAccessTree originTree = DataTypeAccessTree.of(
+                    cast.child().getDataType(), ColumnAccessPathType.DATA);
+            DataTypeAccessTree prunedTree = DataTypeAccessTree.of(
+                    newChild.getDataType(), ColumnAccessPathType.DATA);
+            DataTypeAccessTree castTree = DataTypeAccessTree.of(
+                    cast.getDataType(), ColumnAccessPathType.DATA);
             newType = prunedTree.pruneCastType(originTree, castTree);
         }
 
         return new Cast(newChild, newType);
     }
 
-    private List<TColumnAccessPath> replaceIcebergAccessPathToId(
-            List<TColumnAccessPath> originAccessPaths, SlotReference slotReference) {
+    private List<ColumnAccessPath> replaceIcebergAccessPathToId(
+            List<ColumnAccessPath> originAccessPaths, SlotReference slotReference) {
         Column column = slotReference.getOriginalColumn().get();
-        List<TColumnAccessPath> replacedAccessPaths = new ArrayList<>();
-        for (TColumnAccessPath accessPath : originAccessPaths) {
-            List<String> icebergColumnAccessPath = new ArrayList<>();
-            if (accessPath.type == TAccessPathType.DATA) {
-                icebergColumnAccessPath.addAll(accessPath.data_access_path.path);
-                replaceIcebergAccessPathToId(
-                        icebergColumnAccessPath, 0, slotReference.getDataType(), column
-                );
-                TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.DATA);
-                newAccessPath.data_access_path = new TDataAccessPath(icebergColumnAccessPath);
-                replacedAccessPaths.add(newAccessPath);
-            } else {
-                icebergColumnAccessPath.addAll(accessPath.meta_access_path.path);
-                replaceIcebergAccessPathToId(
-                        icebergColumnAccessPath, 0, slotReference.getDataType(), column
-                );
-                TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.META);
-                newAccessPath.meta_access_path = new TMetaAccessPath(icebergColumnAccessPath);
-                replacedAccessPaths.add(newAccessPath);
-            }
+        List<ColumnAccessPath> replacedAccessPaths = new ArrayList<>();
+        for (ColumnAccessPath accessPath : originAccessPaths) {
+            List<String> icebergColumnAccessPath = new ArrayList<>(accessPath.getPath());
+            replaceIcebergAccessPathToId(
+                    icebergColumnAccessPath, 0, slotReference.getDataType(), column
+            );
+            replacedAccessPaths.add(new ColumnAccessPath(accessPath.getType(), icebergColumnAccessPath));
         }
         return replacedAccessPaths;
     }
@@ -724,7 +677,11 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             boolean shouldPrune = false;
             for (Slot slot : output) {
                 int slotId = slot.getExprId().asInt();
-                if (slot.getDataType() instanceof NestedColumnPrunable && replacedDataTypes.containsKey(slotId)) {
+                if ((slot.getDataType() instanceof NestedColumnPrunable
+                        || slot.getDataType().isVariantType()
+                        || slot.getDataType().isStringLikeType()
+                        || slot.nullable())
+                        && replacedDataTypes.containsKey(slotId)) {
                     shouldReplaceSlots.add(slotId);
                     shouldPrune = true;
                 }

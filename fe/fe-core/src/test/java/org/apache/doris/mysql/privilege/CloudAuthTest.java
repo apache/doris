@@ -40,19 +40,19 @@ import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
@@ -61,65 +61,37 @@ public class CloudAuthTest extends TestWithFeService {
 
     private Auth auth;
     private AccessControllerManager accessManager;
-    @Mocked
-    public CloudEnv env;
-    @Mocked
-    private EditLog editLog;
-    @Mocked
-    private ConnectContext ctx;
+    private CloudEnv env = Mockito.mock(CloudEnv.class);
+    private EditLog editLog = Mockito.mock(EditLog.class);
+    private ConnectContext ctx = Mockito.mock(ConnectContext.class);
     private CloudSystemInfoService systemInfoService = new CloudSystemInfoService();
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<ConnectContext> mockedCtxStatic;
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
         auth = new Auth();
         accessManager = new AccessControllerManager(auth);
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedCtxStatic = Mockito.mockStatic(ConnectContext.class);
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        mockedCtxStatic.when(ConnectContext::get).thenReturn(ctx);
+        Mockito.when(ctx.getQualifiedUser()).thenReturn("root");
+        Mockito.when(ctx.getRemoteIP()).thenReturn("192.168.1.1");
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
+        Mockito.when(ctx.getCurrentUserIdentity()).thenReturn(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
+        Mockito.when(ctx.getSessionVariable()).thenReturn(new org.apache.doris.qe.SessionVariable());
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+    }
 
-                env.getAuth();
-                minTimes = 0;
-                result = auth;
-
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                editLog.logCreateUser((PrivInfo) any);
-                minTimes = 0;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                ctx.getQualifiedUser();
-                minTimes = 0;
-                result = "root";
-
-                ctx.getRemoteIP();
-                minTimes = 0;
-                result = "192.168.1.1";
-
-                ctx.getState();
-                minTimes = 0;
-                result = new QueryState();
-
-                ctx.getCurrentUserIdentity();
-                minTimes = 0;
-                result = UserIdentity.createAnalyzedUserIdentWithIp("root", "%");
-
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-            }
-        };
-
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
+        mockedCtxStatic.close();
     }
 
     @Test
@@ -387,9 +359,9 @@ public class CloudAuthTest extends TestWithFeService {
         ShowGrantsCommand sg = new ShowGrantsCommand(new UserIdentity("testUser", "%"), false);
         ShowResultSet showResultSet = sg.doRun(connectContext, null);
         // cluster field
-        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(10));
+        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(11));
         // compute group field
-        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(14));
+        Assert.assertEquals("vcg: Cluster_usage_priv", showResultSet.getResultRows().get(0).get(15));
 
         // -------------------- case 2 -------------------------
         // grant usage_priv on cluster 'cg1' to 'testUser'@'%'
@@ -406,10 +378,10 @@ public class CloudAuthTest extends TestWithFeService {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(10));
+                showResultSet.getResultRows().get(0).get(11));
         // compute group field
         Assert.assertEquals("cg1: Cluster_usage_priv; vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(14));
+                showResultSet.getResultRows().get(0).get(15));
 
         // revoke cg1 from test user
         String revokeCgSql1 = "revoke usage_priv on cluster 'cg1' from 'testUser'@'%'";
@@ -423,10 +395,10 @@ public class CloudAuthTest extends TestWithFeService {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(10));
+                showResultSet.getResultRows().get(0).get(11));
         // compute group field
         Assert.assertEquals("vcg: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(14));
+                showResultSet.getResultRows().get(0).get(15));
 
         // grant cg2 to user
         String grantVcgUser3 = "grant usage_priv on cluster 'cg2' to 'testUser'@'%'";
@@ -454,10 +426,10 @@ public class CloudAuthTest extends TestWithFeService {
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
         Assert.assertEquals("cg2: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(10));
+                showResultSet.getResultRows().get(0).get(11));
         // compute group field
         Assert.assertEquals("cg2: Cluster_usage_priv",
-                showResultSet.getResultRows().get(0).get(14));
+                showResultSet.getResultRows().get(0).get(15));
         // revoke cg2 from user
 
         String revokeCgSql3 = "revoke usage_priv on cluster 'cg2' from 'testUser'";
@@ -481,9 +453,9 @@ public class CloudAuthTest extends TestWithFeService {
                 PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER));
         showResultSet = sg.doRun(connectContext, null);
         // cluster field
-        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(10));
+        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(11));
         // compute group field
-        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(14));
+        Assert.assertEquals("\\N", showResultSet.getResultRows().get(0).get(15));
 
         // drop user
         String dropUserSql5 = "DROP USER testUser";

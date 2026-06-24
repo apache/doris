@@ -39,6 +39,10 @@ public enum JoinType {
     RIGHT_ANTI_JOIN,
     CROSS_JOIN,
     NULL_AWARE_LEFT_ANTI_JOIN,
+    ASOF_LEFT_INNER_JOIN,
+    ASOF_RIGHT_INNER_JOIN,
+    ASOF_LEFT_OUTER_JOIN,
+    ASOF_RIGHT_OUTER_JOIN
     ;
 
     private static final Map<JoinType, JoinType> joinSwapMap = ImmutableMap
@@ -52,6 +56,10 @@ public enum JoinType {
             .put(RIGHT_OUTER_JOIN, LEFT_OUTER_JOIN)
             .put(LEFT_ANTI_JOIN, RIGHT_ANTI_JOIN)
             .put(RIGHT_ANTI_JOIN, LEFT_ANTI_JOIN)
+            .put(ASOF_LEFT_INNER_JOIN, ASOF_RIGHT_INNER_JOIN)
+            .put(ASOF_RIGHT_INNER_JOIN, ASOF_LEFT_INNER_JOIN)
+            .put(ASOF_LEFT_OUTER_JOIN, ASOF_RIGHT_OUTER_JOIN)
+            .put(ASOF_RIGHT_OUTER_JOIN, ASOF_LEFT_OUTER_JOIN)
             .build();
 
     // TODO: the right-semi/right-anti/right-outer join is not derived in paper. We need to derive them
@@ -112,6 +120,14 @@ public enum JoinType {
                 return JoinOperator.LEFT_SEMI_JOIN;
             case RIGHT_SEMI_JOIN:
                 return JoinOperator.RIGHT_SEMI_JOIN;
+            case ASOF_LEFT_INNER_JOIN:
+                return JoinOperator.ASOF_LEFT_INNER_JOIN;
+            case ASOF_RIGHT_INNER_JOIN:
+                return JoinOperator.ASOF_RIGHT_INNER_JOIN;
+            case ASOF_LEFT_OUTER_JOIN:
+                return JoinOperator.ASOF_LEFT_OUTER_JOIN;
+            case ASOF_RIGHT_OUTER_JOIN:
+                return JoinOperator.ASOF_RIGHT_OUTER_JOIN;
             case CROSS_JOIN:
                 return JoinOperator.CROSS_JOIN;
             default:
@@ -211,6 +227,43 @@ public enum JoinType {
 
     public final boolean isNullAwareLeftAntiJoin() {
         return this == NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
+    public final boolean isAsofLeftInnerJoin() {
+        return this == ASOF_LEFT_INNER_JOIN;
+    }
+
+    public final boolean isAsofRightInnerJoin() {
+        return this == ASOF_RIGHT_INNER_JOIN;
+    }
+
+    public final boolean isAsofInnerJoin() {
+        return this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN;
+    }
+
+    public final boolean isAsofLeftOuterJoin() {
+        return this == ASOF_LEFT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofRightOuterJoin() {
+        return this == ASOF_RIGHT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofOuterJoin() {
+        return this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofLeftJoin() {
+        return this == ASOF_LEFT_INNER_JOIN || this == ASOF_LEFT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofRightJoin() {
+        return this == ASOF_RIGHT_INNER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
+    }
+
+    public final boolean isAsofJoin() {
+        return this == ASOF_LEFT_INNER_JOIN || this == ASOF_RIGHT_INNER_JOIN
+                || this == ASOF_LEFT_OUTER_JOIN || this == ASOF_RIGHT_OUTER_JOIN;
     }
 
     public final boolean isSwapJoinType() {

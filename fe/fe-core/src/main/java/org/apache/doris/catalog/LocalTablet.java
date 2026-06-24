@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
@@ -30,15 +31,16 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
+import java.util.stream.LongStream;
 
 public class LocalTablet extends Tablet {
     private static final Logger LOG = LogManager.getLogger(LocalTablet.class);
 
     @SerializedName(value = "rs", alternate = {"replicas"})
-    private List<Replica> replicas;
+    private volatile List<Replica> replicas;
     @SerializedName(value = "lastCheckTime")
     private long lastCheckTime;
 
@@ -107,13 +109,59 @@ public class LocalTablet extends Tablet {
         if (cooldownReplicaId <= 0) {
             return 0;
         }
-        for (Replica r : replicas) {
+        List<Replica> snapshot = replicas; // single volatile read; reuse below
+        for (Replica r : snapshot) {
             if (r.getId() == cooldownReplicaId) {
                 return r.getRemoteDataSize();
             }
         }
         // return replica with max remoteDataSize
-        return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+        return snapshot.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
+    }
+
+    @Override
+    public Replica getReplicaById(long replicaId) {
+        for (Replica replica : getReplicas()) {
+            if (replica.getId() == replicaId) {
+                return replica;
+            }
+        }
+        return null;
+    }
+
+    // ATTN: Replica::getDataSize may zero in cloud and non-cloud
+    // due to dataSize not write to image
+    @Override
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
+        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
+                .mapToLong(Replica::getDataSize);
+        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    @Override
+    public long getRowCount(boolean singleReplica) {
+        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getRowCount);
+        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    // Get the least row count among all valid replicas.
+    // The replica with the least row count is the most accurate one. Because it performs most compaction.
+    @Override
+    public long getMinReplicaRowCount(long version) {
+        long minRowCount = Long.MAX_VALUE;
+        long maxReplicaVersion = 0;
+        for (Replica r : getReplicas()) {
+            if (r.isAlive()
+                    && r.checkVersionCatchUp(version, false)
+                    && (r.getVersion() > maxReplicaVersion
+                    || r.getVersion() == maxReplicaVersion && r.getRowCount() < minRowCount)) {
+                minRowCount = r.getRowCount();
+                maxReplicaVersion = r.getVersion();
+            }
+        }
+        return minRowCount == Long.MAX_VALUE ? 0 : minRowCount;
     }
 
     @Override
@@ -176,29 +224,32 @@ public class LocalTablet extends Tablet {
         this.lastCheckTime = lastCheckTime;
     }
 
-    private boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
-        boolean delete = false;
-        boolean hasBackend = false;
-        long version = newReplica.getVersion();
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
-            if (replica.getBackendIdWithoutException() == newReplica.getBackendIdWithoutException()) {
-                hasBackend = true;
-                if (replica.getVersion() <= version) {
-                    iterator.remove();
-                    delete = true;
-                }
-            }
-        }
-
-        return delete || !hasBackend;
-    }
+    // Writers are synchronized on this tablet to prevent concurrent lost-update:
+    // some callers (e.g. InternalCatalog.createTablets, RestoreJob) do NOT hold
+    // the OlapTable write lock when modifying replicas.
+    // Readers capture the volatile reference once and iterate freely — no lock needed.
 
     @Override
-    public void addReplica(Replica replica, boolean isRestore) {
-        if (isLatestReplicaAndDeleteOld(replica)) {
-            replicas.add(replica);
+    public synchronized void addReplica(Replica replica, boolean isRestore) {
+        long version = replica.getVersion();
+        long backendId = replica.getBackendIdWithoutException();
+        boolean hasBackend = false;
+        boolean deletedOld = false;
+        List<Replica> current = replicas;
+        List<Replica> next = new ArrayList<>(current.size() + 1);
+        for (Replica r : current) {
+            if (r.getBackendIdWithoutException() == backendId) {
+                hasBackend = true;
+                if (r.getVersion() <= version) {
+                    deletedOld = true;
+                    continue; // drop stale replica
+                }
+            }
+            next.add(r);
+        }
+        if (deletedOld || !hasBackend) {
+            next.add(replica);
+            replicas = next; // volatile write; readers see the new immutable snapshot
             if (!isRestore) {
                 Env.getCurrentInvertedIndex().addReplica(id, replica);
             }
@@ -207,12 +258,13 @@ public class LocalTablet extends Tablet {
 
     @Override
     public List<Replica> getReplicas() {
-        return this.replicas;
+        // Volatile read: returns the current immutable snapshot; callers iterate without locking.
+        return Collections.unmodifiableList(replicas);
     }
 
     @Override
     public Replica getReplicaByBackendId(long backendId) {
-        for (Replica replica : replicas) {
+        for (Replica replica : replicas) { // single volatile read
             if (replica.getBackendIdWithoutException() == backendId) {
                 return replica;
             }
@@ -221,9 +273,12 @@ public class LocalTablet extends Tablet {
     }
 
     @Override
-    public boolean deleteReplica(Replica replica) {
-        if (replicas.contains(replica)) {
-            replicas.remove(replica);
+    public synchronized boolean deleteReplica(Replica replica) {
+        List<Replica> current = replicas;
+        if (current.contains(replica)) {
+            List<Replica> next = new ArrayList<>(current);
+            next.remove(replica);
+            replicas = next; // volatile write
             Env.getCurrentInvertedIndex().deleteReplica(id, replica.getBackendIdWithoutException());
             return true;
         }
@@ -231,15 +286,21 @@ public class LocalTablet extends Tablet {
     }
 
     @Override
-    public boolean deleteReplicaByBackendId(long backendId) {
-        Iterator<Replica> iterator = replicas.iterator();
-        while (iterator.hasNext()) {
-            Replica replica = iterator.next();
+    public synchronized boolean deleteReplicaByBackendId(long backendId) {
+        List<Replica> current = replicas;
+        List<Replica> next = new ArrayList<>(current.size());
+        Replica found = null;
+        for (Replica replica : current) {
             if (replica.getBackendIdWithoutException() == backendId) {
-                iterator.remove();
-                Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
-                return true;
+                found = replica;
+            } else {
+                next.add(replica);
             }
+        }
+        if (found != null) {
+            replicas = next; // volatile write
+            Env.getCurrentInvertedIndex().deleteReplica(id, backendId);
+            return true;
         }
         return false;
     }
@@ -255,13 +316,17 @@ public class LocalTablet extends Tablet {
 
         LocalTablet tablet = (LocalTablet) obj;
 
-        if (replicas != tablet.replicas) {
-            if (replicas.size() != tablet.replicas.size()) {
+        // Capture one snapshot per side so a concurrent writer cannot publish
+        // a different list between size/contains/get calls below.
+        List<Replica> thisReplicas = replicas;
+        List<Replica> otherReplicas = tablet.replicas;
+        if (thisReplicas != otherReplicas) {
+            if (thisReplicas.size() != otherReplicas.size()) {
                 return false;
             }
-            int size = replicas.size();
+            int size = thisReplicas.size();
             for (int i = 0; i < size; i++) {
-                if (!tablet.replicas.contains(replicas.get(i))) {
+                if (!otherReplicas.contains(thisReplicas.get(i))) {
                     return false;
                 }
             }
@@ -287,7 +352,7 @@ public class LocalTablet extends Tablet {
         }
 
         boolean allBeAliveOrDecommissioned = true;
-        for (Replica replica : replicas) {
+        for (Replica replica : replicas) { // single volatile read; iteration on the snapshot
             Backend backend = infoService.getBackend(replica.getBackendIdWithoutException());
             if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
                 allBeAliveOrDecommissioned = false;

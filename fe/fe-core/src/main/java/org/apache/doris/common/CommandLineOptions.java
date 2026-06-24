@@ -56,10 +56,6 @@ public class CommandLineOptions {
         return isVersion;
     }
 
-    public String getHelperNode() {
-        return helperNode;
-    }
-
     public boolean runBdbTools() {
         return runBdbTools;
     }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_mysql_jdbc_catalog_nereids", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -82,7 +82,7 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
 
         explain {
             sql("""select id from ${ex_tb0} where id = 111;""")
-            contains "WHERE ((`id` = 111))"
+            contains "WHERE (`id` = 111)"
         }
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """

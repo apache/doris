@@ -84,6 +84,11 @@ public class Explode extends TableGeneratingFunction implements CustomSignature,
                     new StructField(StructLiteral.COL_PREFIX + (i + 1),
                         ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
                 arguments.add(children.get(i).getDataType());
+            } else if (children.get(i).getDataType().isVariantType()) {
+                structFields.add(
+                    new StructField(StructLiteral.COL_PREFIX + (i + 1),
+                        children.get(i).getDataType(), true, ""));
+                arguments.add(children.get(i).getDataType());
             } else {
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             }

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -30,14 +29,11 @@ public class IcebergHMSSource implements IcebergSource {
 
     private final HMSExternalTable hmsTable;
     private final TupleDescriptor desc;
-    private final org.apache.iceberg.Table icebergTable;
+    private org.apache.iceberg.Table icebergTable;
 
     public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc) {
         this.hmsTable = hmsTable;
         this.desc = desc;
-        this.icebergTable =
-            Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getIcebergMetadataCache(hmsTable.getCatalog()).getIcebergTable(hmsTable);
     }
 
     @Override
@@ -47,10 +43,13 @@ public class IcebergHMSSource implements IcebergSource {
 
     @Override
     public String getFileFormat() throws DdlException, MetaNotFoundException {
-        return IcebergUtils.getFileFormat(icebergTable).name();
+        return IcebergUtils.getFileFormat(getIcebergTable()).name();
     }
 
-    public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
+    public synchronized org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
+        if (icebergTable == null) {
+            icebergTable = IcebergUtils.getIcebergTable(hmsTable);
+        }
         return icebergTable;
     }
 

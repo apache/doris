@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_mysql_catalog_table_comment") {
+suite("test_jdbc_mysql_catalog_table_comment", "p0") {
     String ex_table_name = "test_table_comment";
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String s3_endpoint = getS3Endpoint()
@@ -54,10 +54,10 @@ suite("test_jdbc_mysql_catalog_table_comment") {
         sql """switch ${catalog_name}"""
         sql """ use ${ex_db_name}"""
 
-        explain {
-            sql "SHOW CREATE TABLE ${ex_table_name}"
-            contains "test table comment"
-        }
+        def result = sql "SHOW CREATE TABLE ${ex_table_name}"
+        assertTrue(result.toString().contains("test table comment"), "Expected table comment 'test table comment' in SHOW CREATE TABLE output")
+        sql """switch internal"""
+        sql """drop catalog if exists ${catalog_name} """
     }
 
     // doris catalog
@@ -105,13 +105,12 @@ suite("test_jdbc_mysql_catalog_table_comment") {
     sql """switch test_doris_catalog"""
     sql """ use external_doris"""
 
-    explain {
-        sql "SHOW CREATE TABLE table_test"
-        contains "test table comment"
-    }
+    def result2 = sql "SHOW CREATE TABLE table_test"
+    assertTrue(result2.toString().contains("test table comment"), "Expected table comment 'test table comment' in SHOW CREATE TABLE output")
 
+    sql """switch internal"""
     sql """drop catalog if exists test_doris_catalog """
-    sql """drop database if exists internal.EXTERNAL_DORIS"""
+    sql """drop database if exists EXTERNAL_DORIS"""
 
     try_sql """drop user ${jdbcUser}"""
 

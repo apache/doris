@@ -74,7 +74,7 @@ suite("test_compact_seg", "nonConcurrent") {
                 `v3` int(11) NULL,
                 `v4` int(11) NULL
             ) unique KEY(`k1`, `k2`) 
-            cluster by(`v3`, `v4`) 
+            ORDER BY(`v3`, `v4`) 
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
             PROPERTIES (
             """ + (j == 1 ? "\"function_column.sequence_col\"='v4', " : "") +

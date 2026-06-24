@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 //import org.postgresql.Driver
-suite("test_external_pg_nereids", "p2,external,pg,external_remote,external_remote_pg") {
+suite("test_external_pg_nereids", "p2,external") {
 
     Boolean ignoreP2 = true;
     if (ignoreP2) {

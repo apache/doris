@@ -115,6 +115,16 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         file "enclose_with_same_escape.csv"
     }
 
+    // test CSV file with UTF-8 BOM and enclose
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        set 'enclose', "\""
+        set 'escape', '\\'
+
+        file "enclose_with_bom.csv"
+    }
+
     sql "sync"
     qt_select """
         SELECT * FROM ${tableName} ORDER BY k1, k2 

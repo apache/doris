@@ -24,9 +24,9 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "olap/rowset/rowset_fwd.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_fwd.h"
+#include "storage/rowset/rowset_fwd.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 class CloudStorageEngine;

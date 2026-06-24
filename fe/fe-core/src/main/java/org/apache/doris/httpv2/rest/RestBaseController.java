@@ -19,7 +19,6 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -75,7 +74,12 @@ public class RestBaseController extends BaseController {
                                                         HttpServletResponse response) throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
-        UserIdentity currentUser = checkPassword(authInfo);
+        UserIdentity currentUser = checkPassword(authInfo, request);
+
+        // Store UserIdentity in authInfo for convenient parameter passing
+        authInfo.userIdentity = currentUser;
+
+        // Set ConnectContext for backward compatibility
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setRemoteIP(authInfo.remoteIp);
@@ -84,37 +88,49 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr, request.getRequestURI(), request.getQueryString());
+    }
+
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
+            String queryString) {
+        String userInfo = null;
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            userInfo = authInfo.fullUserName + ":" + authInfo.password;
+        }
+        try {
+            // Preserve the original request path to avoid re-encoding an already encoded URI path.
+            URI authorityUri = new URI(request.getScheme(), userInfo, addr.getHostname(),
+                    addr.getPort(), null, null, null);
+            String redirectUrl = authorityUri.toASCIIString() + requestPath;
+            if (!Strings.isNullOrEmpty(queryString)) {
+                redirectUrl += "?" + queryString;
+            }
+            LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
+                    + addr.getPort() + requestPath);
+            return redirectUrl;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected void writeTemporaryRedirect(HttpServletResponse response, String redirectUrl) throws IOException {
+        response.setContentType("text/html;charset=utf-8");
+        response.setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        response.setHeader("Location", redirectUrl);
+        response.flushBuffer();
+    }
+
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
-        RedirectView redirectView = new RedirectView(getRedirectUrL(request, addr));
+        RedirectView redirectView = new RedirectView(buildRedirectUrl(request, addr));
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
         return redirectView;
     }
 
     public String getRedirectUrL(HttpServletRequest request, TNetworkAddress addr) {
-        URI urlObj = null;
-        URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
-        String userInfo = null;
-        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
-            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
-                    + ":" + authInfo.password;
-        }
-        try {
-            urlObj = new URI(urlStr);
-            resultUriObj = new URI(request.getScheme(), userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(), "", null);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        String redirectUrl = resultUriObj.toASCIIString();
-        if (!Strings.isNullOrEmpty(request.getQueryString())) {
-            redirectUrl += request.getQueryString();
-        }
-        LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
-                + addr.getPort() + urlObj.getPath());
-        return redirectUrl;
+        return buildRedirectUrl(request, addr);
     }
 
     public RedirectView redirectToObj(String sign) throws URISyntaxException {
@@ -191,10 +207,6 @@ public class RestBaseController extends BaseController {
         response.setHeader(MetaHelper.X_IMAGE_SIZE, imageFile.length() + "");
         response.setHeader(MetaHelper.X_IMAGE_MD5, DigestUtils.md5Hex(new FileInputStream(imageFile)));
         getFile(request, response, imageFile, imageFile.getName());
-    }
-
-    public String getFullDbName(String dbName) {
-        return ClusterNamespace.getNameFromFullName(dbName);
     }
 
     public boolean needRedirect(String scheme) {
@@ -304,6 +316,19 @@ public class RestBaseController extends BaseController {
         } catch (Exception e) {
             LOG.warn(e);
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+    }
+
+    /**
+     * Check if admin privilege is required.
+     * When enable_all_http_auth is enabled, check if the user has admin privilege.
+     * If not authorized, throws UnauthorizedException.
+     *
+     * @param userIdentity The user identity to check
+     */
+    protected void checkAdminAuth(UserIdentity userIdentity) throws UnauthorizedException {
+        if (Config.enable_all_http_auth) {
+            checkGlobalAuth(userIdentity, org.apache.doris.mysql.privilege.PrivPredicate.ADMIN);
         }
     }
 }

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS promotion (
     p_discount_active char(1)
 )
 UNIQUE KEY(p_promo_sk)
-CLUSTER BY(p_promo_id, p_promo_name)
+ORDER BY(p_promo_id, p_promo_name)
 DISTRIBUTED BY HASH(p_promo_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

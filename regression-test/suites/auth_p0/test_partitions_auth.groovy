@@ -62,7 +62,13 @@ suite("test_partitions_auth","p0,auth") {
         }
         test {
               sql """
-                 select * from partitions('catalog'='internal',"database"="${dbName}","table"="${tableName}");
+                 select * from partitions("catalog"="internal","database"="${dbName}","table"="${tableName}");
+              """
+              exception "denied"
+        }
+        test {
+              sql """
+                 select * from partitions("database"="${dbName}","table"="${tableName}");
               """
               exception "denied"
         }
@@ -75,7 +81,10 @@ suite("test_partitions_auth","p0,auth") {
              show partitions from ${dbName}.${tableName};
           """
         sql """
-             select * from partitions('catalog'='internal',"database"="${dbName}","table"="${tableName}");
+             select * from partitions("catalog"="internal","database"="${dbName}","table"="${tableName}");
+          """
+        sql """
+             select * from partitions("database"="${dbName}","table"="${tableName}");
           """
     }
 

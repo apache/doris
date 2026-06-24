@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
+import org.apache.doris.catalog.info.IndexType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

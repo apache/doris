@@ -25,12 +25,10 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -43,7 +41,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -59,7 +57,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /**
  * Context of physical plan.
@@ -67,6 +64,7 @@ import javax.annotation.Nullable;
 public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final StatementContext statementContext;
+    private final ScanContext scanContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private DescriptorTable descTable;
@@ -99,8 +97,6 @@ public class PlanTranslatorContext {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
 
-    private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
-
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
@@ -112,8 +108,28 @@ public class PlanTranslatorContext {
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
-    private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
+    // Per-node "is there a serial operator between me and the pipeline's sink" flag.
+    // Mirrors BE's any_of(operators[idx..end], is_serial_operator) check used by
+    // _add_local_exchange / need_to_local_exchange to skip LE insertion when an ancestor
+    // in the same pipeline is already serial (the whole pipeline runs with 1 task, so an
+    // extra LE would be a no-op).  Written by AddLocalExchange entry + PlanNode.enforceRequire
+    // step 1 (root → leaf during traversal).  Read by PlanNode.enforceRequire step 4 (Layer 1
+    // skip) and by child overrides that compute their require.  Reset to false at fragment
+    // root and across pipeline boundaries (see shouldResetSerialFlagForChild).
+    private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
+    // Per-node "is there a downstream operator that depends on hash distribution for
+    // correctness, with HASH/NOOP path connecting it to me" flag.  Mirrors BE's
+    // _followed_by_shuffled_operator propagation in pipeline_fragment_context.cpp.
+    // Written by PlanNode.enforceRequire step 1b (root → leaf).  Read by SetOperationNode
+    // to decide whether to propagate hash requirement to its inputs (only when downstream
+    // needs shuffle for correctness, not just for performance like StreamingAgg pre-agg).
+    private final Map<PlanNodeId, Boolean> shuffledAncestorMap = Maps.newHashMap();
+
+    // Whether the current fragment uses LocalShuffleAssignedJob (pooling scan with
+    // ignoreDataDistribution → _parallel_instances=1 in BE). When true, serial operators
+    // indicate real pipeline bottlenecks needing PASSTHROUGH fan-out (heavy_ops).
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
@@ -122,9 +138,13 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
+        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
+                ? ScanContext.EMPTY
+                : ScanContext.builder()
+                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
+                        .build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
-        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
         this.descTable = new DescriptorTable();
     }
 
@@ -132,9 +152,13 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
+        this.scanContext = connectContext == null || connectContext.getSessionVariable() == null
+                ? ScanContext.EMPTY
+                : ScanContext.builder()
+                        .clusterName(connectContext.getSessionVariable().resolveCloudClusterName(connectContext))
+                        .build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
-        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
         this.descTable = descTable;
     }
 
@@ -145,10 +169,9 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.statementContext = new StatementContext();
+        this.scanContext = ScanContext.EMPTY;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
-        IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
-        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
         this.descTable = new DescriptorTable();
     }
 
@@ -232,6 +255,22 @@ public class PlanTranslatorContext {
         return nodeIdGenerator.getNextId();
     }
 
+    public void setHasSerialAncestorInPipeline(PlanNode node, boolean hasSerialAncestorInPipeline) {
+        serialAncestorInPipelineMap.put(node.getId(), hasSerialAncestorInPipeline);
+    }
+
+    public boolean hasSerialAncestorInPipeline(PlanNode node) {
+        return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
+        shuffledAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasShuffleForCorrectnessAncestor(PlanNode node) {
+        return shuffledAncestorMap.getOrDefault(node.getId(), false);
+    }
+
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
         return descTable.addSlotDescriptor(t);
     }
@@ -278,6 +317,14 @@ public class PlanTranslatorContext {
         physicalRelations.add(physicalRelation);
     }
 
+    public String getClusterName() {
+        return scanContext.getClusterName();
+    }
+
+    public ScanContext getScanContext() {
+        return scanContext;
+    }
+
     public List<PhysicalRelation> getPhysicalRelations() {
         return physicalRelations;
     }
@@ -290,15 +337,10 @@ public class PlanTranslatorContext {
         return scanNodes;
     }
 
-    public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {
-        return bufferedSlotRefForWindow;
-    }
-
     /**
      * Create SlotDesc and add it to the mappings from expression to the stales expr.
      */
-    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference,
-            @Nullable TableIf table) {
+    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         Optional<Column> column = slotReference.getOriginalColumn();
@@ -334,10 +376,6 @@ public class PlanTranslatorContext {
         return slotDescriptor;
     }
 
-    public SlotDescriptor createSlotDesc(TupleDescriptor tupleDesc, SlotReference slotReference) {
-        return createSlotDesc(tupleDesc, slotReference, null);
-    }
-
     public List<TupleDescriptor> getTupleDesc(PlanNode planNode) {
         if (planNode.getOutputTupleDesc() != null) {
             return Lists.newArrayList(planNode.getOutputTupleDesc());
@@ -367,10 +405,6 @@ public class PlanTranslatorContext {
 
     public void setTopMaterializeNode(boolean topMaterializeNode) {
         isTopMaterializeNode = topMaterializeNode;
-    }
-
-    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
-        return runtimeFilterV2Context;
     }
 
     public Set<SlotId> getVirtualColumnIds() {

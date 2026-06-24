@@ -17,13 +17,14 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.operations.ExternalMetadataOperations;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -45,6 +46,10 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
     public static final String PAIMON_REST = "rest";
+    public static final String PAIMON_JDBC = "jdbc";
+    public static final String PAIMON_TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
+    public static final String PAIMON_TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
+    public static final String PAIMON_TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
     protected String catalogType;
     protected Catalog catalog;
 
@@ -62,7 +67,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
-        metadataOps = ExternalMetadataOperations.newPaimonMetaOps(this, catalog);
+        metadataOps = new PaimonMetadataOps(this, catalog);
     }
 
     @Override
@@ -84,8 +89,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         return metadataOps.listTableNames(dbName);
     }
 
@@ -156,7 +160,22 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null),
+                PAIMON_TABLE_CACHE_ENABLE);
+        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null),
+                -1L, PAIMON_TABLE_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null),
+                0L, PAIMON_TABLE_CACHE_CAPACITY);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, PaimonExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), PaimonExternalMetaCache.ENGINE);
+        }
     }
 
     @Override

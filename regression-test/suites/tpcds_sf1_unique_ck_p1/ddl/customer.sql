@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS customer (
     c_last_review_date_sk bigint
 )
 UNIQUE KEY(c_customer_sk)
-CLUSTER BY(c_customer_id, c_customer_sk, c_salutation)
+ORDER BY(c_customer_id, c_customer_sk, c_salutation)
 DISTRIBUTED BY HASH(c_customer_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

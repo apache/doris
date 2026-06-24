@@ -18,10 +18,12 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -39,6 +41,7 @@ import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -71,6 +74,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -113,6 +117,7 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
@@ -124,6 +129,9 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -330,13 +338,19 @@ public class Coordinator implements CoordInterface {
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
+    public Coordinator(ConnectContext context, Planner planner,
+            StatsErrorEstimator statsErrorEstimator, long jobId) {
+        this(context, planner, statsErrorEstimator);
+        this.jobId = jobId;
+    }
+
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Planner planner) {
         this.context = context;
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
-        this.descTable = planner.getDescTable().toThrift();
+        this.descTable = DescriptorToThriftConverter.toThrift(planner.getDescTable());
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
@@ -349,7 +363,6 @@ public class Coordinator implements CoordInterface {
         } else {
             distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
-
         setFromUserProperty(context);
 
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -378,7 +391,7 @@ public class Coordinator implements CoordInterface {
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.jobId = jobId;
         this.queryId = queryId;
-        this.descTable = descTable.toThrift();
+        this.descTable = DescriptorToThriftConverter.toThrift(descTable);
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
@@ -425,6 +438,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setMysqlRowBinaryFormat(
                     context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
+        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
+        this.queryOptions.setEnableLocalShufflePlanner(false);
     }
 
     public ConnectContext getConnectContext() {
@@ -507,21 +522,6 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
     }
 
-    public void clearExportStatus() {
-        lock.lock();
-        try {
-            this.pipelineExecContexts.clear();
-            this.queryStatus.updateStatus(TStatusCode.OK, "");
-            if (this.exportFiles == null) {
-                this.exportFiles = Lists.newArrayList();
-            }
-            this.exportFiles.clear();
-            this.needCheckPipelineExecContexts.clear();
-        } finally {
-            lock.unlock();
-        }
-    }
-
     public List<TTabletCommitInfo> getCommitInfos() {
         return commitInfos;
     }
@@ -564,6 +564,26 @@ public class Coordinator implements CoordInterface {
         }
 
         this.idToBackend = Env.getCurrentSystemInfo().getBackendsByCurrentCluster();
+
+        // Log cluster info and groupCommitBackend for debugging NPE in PipelineExecContext
+        if (groupCommitBackend != null) {
+            String currentCluster = "unknown";
+            try {
+                if (ConnectContext.get() != null) {
+                    currentCluster = ConnectContext.get().getCloudCluster();
+                }
+            } catch (Exception e) {
+                LOG.debug("failed to get current cloud cluster for debug log", e);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("query {} prepare: currentCluster={}, idToBackend.size={}, idToBackend.keys={},"
+                                + " groupCommitBackend=[id={}, host={}, cluster={}], groupCommitBackendInMap={}",
+                        DebugUtil.printId(queryId), currentCluster, idToBackend.size(), idToBackend.keySet(),
+                        groupCommitBackend.getId(), groupCommitBackend.getHost(),
+                        groupCommitBackend.getCloudClusterName(),
+                        idToBackend.containsKey(groupCommitBackend.getId()));
+            }
+        }
 
         if (LOG.isDebugEnabled()) {
             int backendNum = idToBackend.size();
@@ -609,6 +629,102 @@ public class Coordinator implements CoordInterface {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(sb.toString());
             }
+        }
+    }
+
+    protected static void waitForTimeBasedReadTransactionsVisible(ConnectContext context, List<ScanNode> scanNodes,
+                                                           TQueryGlobals queryGlobals) throws Exception {
+        if (context == null) {
+            return;
+        }
+        SessionVariable sessionVariable = context.getSessionVariable();
+        if (sessionVariable == null || sessionVariable.isEnableEventualConsistentChange()) {
+            return;
+        }
+
+        // Collect (dbId, tableId) -> max(endTSO)
+        Map<Pair<Long, Long>, Long> tableEndTSO = new HashMap<>();
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                if (olapScanNode.isChangeScan()) {
+                    long endTsMs = olapScanNode.getIncrementalScanEndTime();
+                    if (endTsMs <= 0) {
+                        endTsMs = queryGlobals.getTimestampMs();
+                    }
+                    long endTSO = TSOTimestamp.composeFullTimestamp(endTsMs);
+                    addTableEndTimestamp(tableEndTSO, olapScanNode.getOlapTable(), endTSO);
+                }
+            }
+        }
+        if (tableEndTSO.isEmpty()) {
+            return;
+        }
+
+        long deadlineMs = System.currentTimeMillis() + sessionVariable.getChangeVisibleTimeoutMs();
+        for (Map.Entry<Pair<Long, Long>, Long> entry : tableEndTSO.entrySet()) {
+            long dbId = entry.getKey().first;
+            long tableId = entry.getKey().second;
+            long endTSO = entry.getValue();
+
+            List<TransactionState> committedTxns;
+            try {
+                committedTxns = Env.getCurrentGlobalTransactionMgr().getCommittedTransactions(dbId);
+            } catch (Exception e) {
+                throw new UserException("get committed transactions failed. dbId=" + dbId, e);
+            }
+
+            for (TransactionState txn : committedTxns) {
+                if (txn == null
+                        || txn.getTransactionStatus() != TransactionStatus.COMMITTED
+                        || txn.getTableIdList() == null
+                        || !txn.getTableIdList().contains(tableId)) {
+                    continue;
+                }
+
+                if (txn.getCommitTSO() < 0 || txn.getCommitTSO() > endTSO) {
+                    continue;
+                }
+
+                long remainingMs = deadlineMs - System.currentTimeMillis();
+                if (remainingMs <= 0) {
+                    throw new UserException(String.format(
+                            "timeout waiting committed transactions become visible for time-based read, "
+                                    + "dbId=%d tableId=%d endTSO=%d",
+                            dbId, tableId, endTSO));
+                }
+
+                while (txn.getTransactionStatus() == TransactionStatus.COMMITTED
+                        && remainingMs > 0) {
+                    try {
+                        txn.waitTransactionVisible(remainingMs);
+                    } catch (InterruptedException ignored) {
+                        // ignore
+                    }
+                    remainingMs = deadlineMs - System.currentTimeMillis();
+                }
+
+                if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                    throw new UserException(String.format(
+                            "timeout waiting transaction become visible for time-based read, "
+                                    + "txnId=%d dbId=%d tableId=%d endTSO=%d",
+                            txn.getTransactionId(), dbId, tableId, endTSO));
+                }
+            }
+        }
+    }
+
+    private static void addTableEndTimestamp(Map<Pair<Long, Long>, Long> tableEndTimestampMs,
+                                             OlapTable table, long endTimestampMs) {
+        if (table == null || table.getDatabase() == null) {
+            return;
+        }
+        long dbId = table.getDatabase().getId();
+        long tableId = table.getId();
+        Pair<Long, Long> key = Pair.of(dbId, tableId);
+        Long oldEnd = tableEndTimestampMs.get(key);
+        if (oldEnd == null || oldEnd < endTimestampMs) {
+            tableEndTimestampMs.put(key, endTimestampMs);
         }
     }
 
@@ -721,6 +837,7 @@ public class Coordinator implements CoordInterface {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
+        waitForTimeBasedReadTransactionsVisible(context, scanNodes, queryGlobals);
         processFragmentAssignmentAndParams();
 
         traceInstance();
@@ -814,6 +931,7 @@ public class Coordinator implements CoordInterface {
             // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
             // send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() > 1;
+            boolean isSingleBackend = addressToBackendID.size() == 1;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
@@ -835,6 +953,12 @@ public class Coordinator implements CoordInterface {
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
+                    if (backendId == null) {
+                        LOG.warn("query {} sendPipelineCtx: addressToBackendID lookup returned null!"
+                                + " address={}, fragmentId={}, addressToBackendID={}",
+                                DebugUtil.printId(queryId), entry.getKey(),
+                                fragment.getFragmentId(), addressToBackendID);
+                    }
                     backendFragments.add(Pair.of(fragment.getFragmentId(), backendId));
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
                             entry.getValue(), idToBackend.get(backendId), executionProfile, jobId);
@@ -844,6 +968,7 @@ public class Coordinator implements CoordInterface {
                     entry.getValue().setFragmentNumOnHost(hostCounter.count(pipelineExecContext.address));
                     entry.getValue().setBackendId(pipelineExecContext.backend.getId());
                     entry.getValue().setNeedWaitExecutionTrigger(twoPhaseExecution);
+                    entry.getValue().getQueryOptions().setSingleBackendQuery(isSingleBackend);
                     entry.getValue().setFragmentId(fragment.getFragmentId().asInt());
 
                     pipelineExecContexts.put(Pair.of(fragment.getFragmentId().asInt(), backendId), pipelineExecContext);
@@ -1651,6 +1776,21 @@ public class Coordinator implements CoordInterface {
         return backend.getArrowFlightAddress();
     }
 
+    private Map<String, TAIResource> getNeededAiResources() {
+        Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+        if (context == null || context.getStatementContext() == null) {
+            return aiResourceMap;
+        }
+        for (String resourceName : context.getStatementContext().getUsedAIResourceNames()) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (!(resource instanceof AIResource)) {
+                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
+            }
+            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
+        }
+        return aiResourceMap;
+    }
+
     // estimate if this fragment contains UnionNode
     private boolean containsUnionNode(PlanNode node) {
         if (node instanceof UnionNode) {
@@ -1763,6 +1903,24 @@ public class Coordinator implements CoordInterface {
                 }
                 // TODO: rethink the whole function logic. could All BE sink naturally merged into other judgements?
                 return;
+            }
+            // For local TVF sink with a specific backend_id, we must execute the sink fragment
+            // on the designated backend. Otherwise, data would be written to the wrong node's local disk.
+            if (fragment.getSink() instanceof TVFTableSink) {
+                TVFTableSink tvfSink = (TVFTableSink) fragment.getSink();
+                if ("local".equals(tvfSink.getTvfName()) && tvfSink.getBackendId() != -1) {
+                    Backend targetBackend = Env.getCurrentSystemInfo().getBackend(tvfSink.getBackendId());
+                    if (targetBackend == null || !targetBackend.isAlive()) {
+                        throw new UserException("Backend " + tvfSink.getBackendId()
+                                + " is not available for local TVF sink");
+                    }
+                    TNetworkAddress execHostport = new TNetworkAddress(
+                            targetBackend.getHost(), targetBackend.getBePort());
+                    this.addressToBackendID.put(execHostport, targetBackend.getId());
+                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
+                    params.instanceExecParams.add(instanceParam);
+                    continue;
+                }
             }
 
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
@@ -2449,10 +2607,10 @@ public class Coordinator implements CoordInterface {
                 updateStatus(status);
             }
         }
-        if (params.isSetDeltaUrls()) {
+        if (params.isSetDeltaUrls() && deltaUrls != null) {
             updateDeltas(params.getDeltaUrls());
         }
-        if (params.isSetLoadCounters()) {
+        if (params.isSetLoadCounters() && loadCounters != null) {
             updateLoadCounters(params.getLoadCounters());
         }
         if (params.isSetTrackingUrl()) {
@@ -2485,6 +2643,10 @@ public class Coordinator implements CoordInterface {
         if (params.isSetIcebergCommitDatas()) {
             ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateIcebergCommitData(params.getIcebergCommitDatas());
+        }
+        if (params.isSetMcCommitDatas()) {
+            ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updateMCCommitData(params.getMcCommitDatas());
         }
 
         if (ctx.done) {
@@ -2831,7 +2993,7 @@ public class Coordinator implements CoordInterface {
                             Optional<ScanNode> node = scanNodes.stream().filter(
                                     scanNode -> scanNode.getId().asInt() == scanId).findFirst();
                             Preconditions.checkArgument(node.isPresent());
-                            FInstanceExecParam instanceParamToScan = node.get().isSerialOperator()
+                            FInstanceExecParam instanceParamToScan = node.get().isSerialNode()
                                     ? firstInstanceParam : instanceParam;
                             if (!instanceParamToScan.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
                                 range.put(nodeScanRange.getKey(), Lists.newArrayList());
@@ -3091,14 +3253,6 @@ public class Coordinator implements CoordInterface {
             };
         }
 
-        public void setSerializeFragments(ByteString serializedFragments) {
-            this.serializedFragments = serializedFragments;
-        }
-
-        public ByteString getSerializedFragments() {
-            return serializedFragments;
-        }
-
         public long serializeFragments() throws TException {
             TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
             for (PipelineExecContext cts : ctxs) {
@@ -3189,7 +3343,6 @@ public class Coordinator implements CoordInterface {
 
         Map<TNetworkAddress, TPipelineFragmentParams> toThrift(int backendNum) {
             Set<SortNode> topnSortNodes = scanNodes.stream()
-                    .filter(scanNode -> scanNode instanceof OlapScanNode)
                     .flatMap(scanNode -> scanNode.getTopnFilterSortNodes().stream()).collect(Collectors.toSet());
             topnSortNodes.forEach(SortNode::setHasRuntimePredicate);
 
@@ -3204,6 +3357,14 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
             fragmentThrift.query_cache_param = fragment.queryCacheParam;
+            // Pre-compute topn filter descs once; all instances share the same data.
+            List<TTopnFilterDesc> topnFilterDescs = null;
+            if (!topnFilters.isEmpty()) {
+                topnFilterDescs = new ArrayList<>();
+                for (TopnFilter filter : topnFilters) {
+                    topnFilterDescs.add(filter.toThrift());
+                }
+            }
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
@@ -3234,6 +3395,13 @@ public class Coordinator implements CoordInterface {
                         params.setWorkloadGroups(tWorkloadGroups);
                     }
 
+                    if (context != null && context.getCurrentUserIdentity() != null) {
+                        TResourceInfo resourceInfo = new TResourceInfo();
+                        resourceInfo.setUser(context.getCurrentUserIdentity().getQualifiedUser());
+                        resourceInfo.setGroup("");
+                        params.setResourceInfo(resourceInfo);
+                    }
+
                     params.setFileScanParams(fileScanRangeParamsMap);
                     params.setNumBuckets(fragment.getBucketNum());
                     params.setTotalInstances(instanceExecParams.size());
@@ -3242,15 +3410,7 @@ public class Coordinator implements CoordInterface {
                     }
 
                     // Used for AI Functions
-                    Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
-                    for (Resource resource : Env.getCurrentEnv().getResourceMgr()
-                                                    .getResource(Resource.ResourceType.AI)) {
-                        if (resource instanceof AIResource) {
-                            aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
-                        }
-                    }
-
-                    params.setAiResources(aiResourceMap);
+                    params.setAiResources(getNeededAiResources());
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());
@@ -3275,12 +3435,8 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (!topnFilters.isEmpty()) {
-                    List<TTopnFilterDesc> filterDescs = new ArrayList<>();
-                    for (TopnFilter filter : topnFilters) {
-                        filterDescs.add(filter.toThrift());
-                    }
-                    localParams.setTopnFilterDescs(filterDescs);
+                if (topnFilterDescs != null) {
+                    localParams.setTopnFilterDescs(topnFilterDescs);
                 }
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
@@ -3464,6 +3620,18 @@ public class Coordinator implements CoordInterface {
         return backendAddresses;
     }
 
+    /**
+     * Returns the IDs of backends that have scan ranges assigned, collected from each ScanNode's
+     * scanBackendIds (populated during plan phase).
+     */
+    public List<Long> getScanBackendIds() {
+        Set<Long> result = Sets.newHashSet();
+        for (ScanNode scanNode : scanNodes) {
+            result.addAll(scanNode.getScanBackendIds());
+        }
+        return Lists.newArrayList(result);
+    }
+
     public List<PlanFragment> getFragments() {
         return fragments;
     }
@@ -3490,4 +3658,3 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
-

@@ -25,11 +25,11 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "io/io_common.h"
-#include "olap/olap_common.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 namespace io {
@@ -52,9 +52,9 @@ public:
     }
 
     void update(FileCacheStatistics* stats);
+    std::shared_ptr<AtomicStatistics> report();
 
 private:
-    std::shared_ptr<AtomicStatistics> report();
     void register_entity();
     void update_metrics_callback();
 
@@ -63,6 +63,9 @@ private:
     // use shared_ptr for concurrent
     std::shared_ptr<AtomicStatistics> _statistics;
 };
+
+FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
+                                               const FileCacheStatistics& previous);
 
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;

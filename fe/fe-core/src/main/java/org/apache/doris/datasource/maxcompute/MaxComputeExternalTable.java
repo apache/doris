@@ -54,6 +54,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -64,6 +65,11 @@ public class MaxComputeExternalTable extends ExternalTable {
     public MaxComputeExternalTable(long id, String name, String remoteName, MaxComputeExternalCatalog catalog,
             MaxComputeExternalDatabase db) {
         super(id, name, remoteName, catalog, db, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+    }
+
+    @Override
+    public String getMetaCacheEngine() {
+        return MaxComputeExternalMetaCache.ENGINE;
     }
 
     @Override
@@ -114,27 +120,9 @@ public class MaxComputeExternalTable extends ExternalTable {
         if (!schemaCacheValue.isPresent()) {
             return new TablePartitionValues();
         }
-        Table odpsTable = ((MaxComputeSchemaCacheValue) schemaCacheValue.get()).getOdpsTable();
-        String projectName = odpsTable.getProject();
-        String tableName = odpsTable.getName();
-        MaxComputeMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMaxComputeMetadataCache(catalog.getId());
-        return metadataCache.getCachedPartitionValues(
-                new MaxComputeCacheKey(projectName, tableName),
-                key -> loadPartitionValues((MaxComputeSchemaCacheValue) schemaCacheValue.get()));
-    }
-
-    private TablePartitionValues loadPartitionValues(MaxComputeSchemaCacheValue schemaCacheValue) {
-        List<String> partitionSpecs = schemaCacheValue.getPartitionSpecs();
-        List<Type> partitionTypes = schemaCacheValue.getPartitionTypes();
-        List<String> partitionColumnNames = schemaCacheValue.getPartitionColumnNames();
-        TablePartitionValues partitionValues = new TablePartitionValues();
-        partitionValues.addPartitions(partitionSpecs,
-                partitionSpecs.stream()
-                        .map(p -> parsePartitionValues(partitionColumnNames, p))
-                        .collect(Collectors.toList()),
-                partitionTypes, Collections.nCopies(partitionSpecs.size(), 0L));
-        return partitionValues;
+        MaxComputeExternalMetaCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .maxCompute(getCatalog().getId());
+        return metadataCache.getPartitionValues(getOrBuildNameMapping());
     }
 
     /**
@@ -146,7 +134,7 @@ public class MaxComputeExternalTable extends ExternalTable {
      * @param partitionPath partitionPath format is like the 'part1=123/part2=abc/part3=1bc'
      * @return all values of partitionPath
      */
-    private static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
+    static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
         String[] partitionFragments = partitionPath.split("/");
         if (partitionFragments.length != partitionColumns.size()) {
             throw new RuntimeException("Failed to parse partition values of path: " + partitionPath);
@@ -322,17 +310,11 @@ public class MaxComputeExternalTable extends ExternalTable {
         TMCTable tMcTable = new TMCTable();
         MaxComputeExternalCatalog mcCatalog = ((MaxComputeExternalCatalog) catalog);
 
-        tMcTable.setAccessKey(mcCatalog.getAccessKey());
-        tMcTable.setSecretKey(mcCatalog.getSecretKey());
-        tMcTable.setOdpsUrl("deprecated");
-        tMcTable.setRegion("deprecated");
+        tMcTable.setProperties(mcCatalog.getProperties());
         tMcTable.setEndpoint(mcCatalog.getEndpoint());
         // use mc project as dbName
         tMcTable.setProject(dbName);
         tMcTable.setQuota(mcCatalog.getQuota());
-
-        tMcTable.setTunnelUrl("deprecated");
-        tMcTable.setProject("deprecated");
         tMcTable.setTable(name);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MAX_COMPUTE_TABLE,
                 schema.size(), 0, getName(), dbName);
@@ -345,6 +327,16 @@ public class MaxComputeExternalTable extends ExternalTable {
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getOdpsTable())
                 .orElse(null);
+    }
+
+    public boolean isUnsupportedOdpsTable() {
+        Table odpsTable = getOdpsTable();
+        return isUnsupportedOdpsTable(odpsTable);
+    }
+
+    public static boolean isUnsupportedOdpsTable(Table odpsTable) {
+        Objects.requireNonNull(odpsTable, "MaxCompute table metadata is not initialized");
+        return odpsTable.isExternalTable() || odpsTable.isVirtualView();
     }
 
     @Override

@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.stats.StatsCalculator;
@@ -52,10 +53,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -116,31 +117,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
             return ImmutableList.of();
         }
-        // If the origin attribute satisfies the group by key but does not meet the requirements, ban the plan.
-        // e.g. select count(distinct a) from t group by b;
-        // requiredChildProperty: a
-        // but the child is already distributed by b
-        // ban this plan
-        PhysicalProperties originChildProperty = originChildrenProperties.get(0);
         PhysicalProperties requiredChildProperty = requiredProperties.get(0);
-        PhysicalProperties hashSpec = PhysicalProperties.createHash(agg.getGroupByExpressions(), ShuffleType.REQUIRE);
-        GroupExpression child = children.get(0);
-        if (child.getPlan() instanceof PhysicalDistribute) {
-            PhysicalProperties properties = new PhysicalProperties(
-                    DistributionSpecAny.INSTANCE, originChildProperty.getOrderSpec());
-            Optional<Pair<Cost, GroupExpression>> pair = child.getOwnerGroup().getLowestCostPlan(properties);
-            // add null check
-            if (!pair.isPresent()) {
-                return ImmutableList.of();
-            }
-            GroupExpression distributeChild = pair.get().second;
-            PhysicalProperties distributeChildProperties = distributeChild.getOutputProperties(properties);
-            if (distributeChildProperties.satisfy(hashSpec)
-                    && !distributeChildProperties.satisfy(requiredChildProperty)) {
-                return ImmutableList.of();
-            }
-        }
-
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }
@@ -159,12 +136,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
      * */
     private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate,
             PhysicalProperties requiredChildProperty) {
-        if (banAggUnionAll(aggregate)) {
-            return true;
-        }
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
             return false;
+        }
+        if (ctx != null && AggregateUtils.isSingleExecutionInstance(ctx)) {
+            return false;
+        }
+        if (banAggUnionAll(aggregate)) {
+            return true;
         }
         if (!onePhaseAggWithDistribute(aggregate)) {
             return false;
@@ -177,7 +157,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             }
             // group by key is skew
             return skewOnShuffleExpr(aggregate);
-
         } else {
             return true;
         }
@@ -190,7 +169,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (aggStatistics == null || inputStatistics == null) {
             return false;
         }
-        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics)) {
+        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics, true)) {
             return false;
         }
         // There are two cases of skew:
@@ -208,10 +187,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         for (int i = 0; i < groupBy.size(); ++i) {
             Expression expr = groupBy.get(i);
             ColumnStatistic colStat = inputStatistics.findColumnStatistics(expr);
-            if (colStat == null) {
+            if (colStat == null || colStat.isUnKnown) {
                 continue;
             }
-            if (colStat.getHotValues() == null) {
+            if (StatisticsUtil.getHotValuesWithOriginalThreshold(colStat.getHotValues(), colStat.ndv) == null) {
                 continue;
             }
             List<Expression> otherExpr = excludeElement(groupBy, i);
@@ -254,9 +233,24 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     * no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
     * and hence we forbid one phase agg */
     private boolean banAggUnionAll(PhysicalHashAggregate<? extends Plan> aggregate) {
-        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
-                && children.get(0).getPlan() instanceof PhysicalUnion
-                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct();
+        if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalUnion
+                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
+            GroupExpression gExprUnion = children.get(0);
+            List<Group> groups = gExprUnion.children();
+            Pair<Cost, List<PhysicalProperties>> pair = gExprUnion.getLowestCostTable().get(requiredProperties.get(0));
+            int i = 0;
+            // If none of the union inputs have PhysicalDistribute, allow one-phase aggregation
+            for (Group group : groups) {
+                GroupExpression groupExpression = group.getBestPlan(pair.second.get(i));
+                i++;
+                if (groupExpression != null && groupExpression.getPlan() instanceof PhysicalDistribute) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        return false;
     }
 
     @Override
@@ -316,10 +310,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int prunedPartNum = candidate.getSelectedPartitionIds().size();
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
-                int backEndNum = Math.max(1, ConnectContext.get().getEnv().getClusterInfo()
-                        .getBackendsNumber(true));
-                int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
-                return totalBucketNum < backEndNum * paraNum * 0.8;
+                ConnectContext connectContext = ConnectContext.get();
+                return totalBucketNum < connectContext.getTotalInstanceNum() * 0.8;
             }
         }
     }
@@ -348,6 +340,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             DistributionSpecHash rightHashSpec) {
         boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
+                || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
                 || joinType == JoinType.FULL_OUTER_JOIN);
         boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
@@ -650,80 +643,83 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         } else if (requiredDistributionSpec instanceof DistributionSpecHash) {
             // TODO: should use the most common hash spec as basic
             DistributionSpecHash basic = (DistributionSpecHash) requiredDistributionSpec;
-            int bucketShuffleBasicIndex = -1;
-            double basicRowCount = -1;
+            // TODO: open comment when support `enable_local_shuffle_planner`
+            // int bucketShuffleBasicIndex = -1;
+            // double basicRowCount = -1;
 
             // find the bucket shuffle basic index
-            try {
-                ImmutableSet<ShuffleType> supportBucketShuffleTypes = ImmutableSet.of(
-                        ShuffleType.NATURAL,
-                        ShuffleType.STORAGE_BUCKETED
-                );
-                for (int i = 0; i < originChildrenProperties.size(); i++) {
-                    PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
-                    DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
-                    if (childDistribution instanceof DistributionSpecHash
-                            && supportBucketShuffleTypes.contains(
-                                    ((DistributionSpecHash) childDistribution).getShuffleType())
-                            && !(isBucketShuffleDownGrade(setOperation.child(i)))) {
-                        Statistics stats = setOperation.child(i).getStats();
-                        double rowCount = stats.getRowCount();
-                        if (rowCount > basicRowCount) {
-                            basicRowCount = rowCount;
-                            bucketShuffleBasicIndex = i;
-                        }
-                    }
-                }
-            } catch (Throwable t) {
-                // catch stats exception
-                LOG.warn("Can not find the most (bucket num, rowCount): " + t, t);
-                bucketShuffleBasicIndex = -1;
-            }
+            // try {
+            //     ImmutableSet<ShuffleType> supportBucketShuffleTypes = ImmutableSet.of(
+            //             ShuffleType.NATURAL,
+            //             ShuffleType.STORAGE_BUCKETED
+            //     );
+            //     for (int i = 0; i < originChildrenProperties.size(); i++) {
+            //         PhysicalProperties originChildrenProperty = originChildrenProperties.get(i);
+            //         DistributionSpec childDistribution = originChildrenProperty.getDistributionSpec();
+            //         if (childDistribution instanceof DistributionSpecHash
+            //                 && supportBucketShuffleTypes.contains(
+            //                         ((DistributionSpecHash) childDistribution).getShuffleType())
+            //                 && !(isBucketShuffleDownGrade(setOperation.child(i)))) {
+            //             Statistics stats = setOperation.child(i).getStats();
+            //             double rowCount = stats.getRowCount();
+            //             if (rowCount > basicRowCount) {
+            //                 basicRowCount = rowCount;
+            //                 bucketShuffleBasicIndex = i;
+            //             }
+            //         }
+            //     }
+            // } catch (Throwable t) {
+            //     // catch stats exception
+            //     LOG.warn("Can not find the most (bucket num, rowCount): " + t, t);
+            //     bucketShuffleBasicIndex = -1;
+            // }
 
             // use bucket shuffle
-            if (bucketShuffleBasicIndex >= 0) {
-                DistributionSpecHash notShuffleSideRequire
-                        = (DistributionSpecHash) requiredProperties.get(bucketShuffleBasicIndex).getDistributionSpec();
-
-                DistributionSpecHash notNeedShuffleOutput
-                        = (DistributionSpecHash) originChildrenProperties.get(bucketShuffleBasicIndex)
-                            .getDistributionSpec();
-
-                for (int i = 0; i < originChildrenProperties.size(); i++) {
-                    DistributionSpecHash current
-                            = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-                    if (i == bucketShuffleBasicIndex) {
-                        continue;
-                    }
-
-                    DistributionSpecHash currentRequire
-                            = (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec();
-
+            // if (bucketShuffleBasicIndex >= 0) {
+            //     DistributionSpecHash notShuffleSideRequire
+            //             = (DistributionSpecHash) requiredProperties.get(bucketShuffleBasicIndex)
+            //                   .getDistributionSpec();
+            //
+            //     DistributionSpecHash notNeedShuffleOutput
+            //             = (DistributionSpecHash) originChildrenProperties.get(bucketShuffleBasicIndex)
+            //                 .getDistributionSpec();
+            //
+            //     for (int i = 0; i < originChildrenProperties.size(); i++) {
+            //         DistributionSpecHash current
+            //                 = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
+            //         if (i == bucketShuffleBasicIndex) {
+            //             continue;
+            //         }
+            //
+            //         DistributionSpecHash currentRequire
+            //                 = (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec();
+            //
+            //         PhysicalProperties target = calAnotherSideRequired(
+            //                 ShuffleType.STORAGE_BUCKETED,
+            //                 notNeedShuffleOutput, current,
+            //                 notShuffleSideRequire,
+            //                 currentRequire);
+            //         updateChildEnforceAndCost(i, target);
+            //     }
+            //     setOperation.setMutableState(
+            //         PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, bucketShuffleBasicIndex);
+            // use partitioned shuffle
+            // } else {
+            for (int i = 0; i < originChildrenProperties.size(); i++) {
+                DistributionSpecHash current
+                        = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
+                if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
+                        || !bothSideShuffleKeysAreSameOrder(basic, current,
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
                     PhysicalProperties target = calAnotherSideRequired(
-                            ShuffleType.STORAGE_BUCKETED,
-                            notNeedShuffleOutput, current,
-                            notShuffleSideRequire,
-                            currentRequire);
+                            ShuffleType.EXECUTION_BUCKETED, basic, current,
+                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
                     updateChildEnforceAndCost(i, target);
                 }
-                setOperation.setMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX, bucketShuffleBasicIndex);
-            // use partitioned shuffle
-            } else {
-                for (int i = 0; i < originChildrenProperties.size(); i++) {
-                    DistributionSpecHash current
-                            = (DistributionSpecHash) originChildrenProperties.get(i).getDistributionSpec();
-                    if (current.getShuffleType() != ShuffleType.EXECUTION_BUCKETED
-                            || !bothSideShuffleKeysAreSameOrder(basic, current,
-                            (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                            (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec())) {
-                        PhysicalProperties target = calAnotherSideRequired(
-                                ShuffleType.EXECUTION_BUCKETED, basic, current,
-                                (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                                (DistributionSpecHash) requiredProperties.get(i).getDistributionSpec());
-                        updateChildEnforceAndCost(i, target);
-                    }
-                }
             }
+            // }
         }
         return ImmutableList.of(originChildrenProperties);
     }

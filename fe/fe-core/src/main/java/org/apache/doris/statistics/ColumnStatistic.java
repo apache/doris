@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -98,9 +99,9 @@ public class ColumnStatistic {
     public final String updatedTime;
 
     /**
-     * hotValues == null means no hot values.
-     * hotValues.isEmpty() means there are hotValues, but the values are unknown. for example, Column A has hot values,
-     * func(A) has hot values, but the values are unknown.
+     * hotValues == null: not collected (e.g. full analyze). Do NOT use for optimization.
+     * hotValues != null && hotValues.isEmpty(): collected but no hot values (not skewed).
+     * hotValues != null && !hotValues.isEmpty(): collected with hot values.
      */
     @SerializedName("hotValues")
     public final Map<Literal, Float> hotValues;
@@ -139,10 +140,8 @@ public class ColumnStatistic {
 
     /**
      * this function is used by analyze job and cbo job.
-     *
-     *
      */
-    public static ColumnStatistic fromResultRow(ResultRow row, boolean showAnalyzeResult) {
+    public static ColumnStatistic fromResultRow(ResultRow row) {
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
@@ -203,20 +202,8 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
-        if (showAnalyzeResult) {
-            columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(), 0));
-        } else {
-            if (ndv > 0) {
-                columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(),
-                        1.0 / ndv));
-            }
-        }
+        columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType()));
         return columnStatisticBuilder.build();
-    }
-
-    // TODO: use thrift
-    public static ColumnStatistic fromResultRow(ResultRow row) {
-        return fromResultRow(row, false);
     }
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
@@ -373,10 +360,10 @@ public class ColumnStatistic {
             stat.getDouble("DataSize"),
             minValue,
             maxValue,
-            LiteralExpr.create(stat.getString("MinExprValue"),
-                    GsonUtils.GSON.fromJson(stat.getString("MinExprType"), Type.class)),
-            LiteralExpr.create(stat.getString("MaxExprValue"),
-                    GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
+            LiteralExprUtils.createLiteral(stat.getString("MinExprValue"),
+                GsonUtils.GSON.fromJson(stat.getString("MinExprType"), Type.class)),
+            LiteralExprUtils.createLiteral(stat.getString("MaxExprValue"),
+                GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
             lastUpdatedTime,
             null
@@ -431,8 +418,11 @@ public class ColumnStatistic {
     }
 
     public String getStringHotValues() {
-        if (hotValues == null || hotValues.isEmpty()) {
+        if (hotValues == null) {
             return null;
+        }
+        if (hotValues.isEmpty()) {
+            return "''";
         }
         StringBuilder sb = new StringBuilder();
         hotValues.forEach((k, v) -> {
@@ -448,7 +438,8 @@ public class ColumnStatistic {
     }
 
     /**
-     * return null if there is no hot value
+     * Returns hot values map. null = not collected (e.g. full analyze);
+     * empty map = collected but no hot values; non-empty = collected with hot values.
      */
     public Map<Literal, Float> getHotValues() {
         return hotValues;

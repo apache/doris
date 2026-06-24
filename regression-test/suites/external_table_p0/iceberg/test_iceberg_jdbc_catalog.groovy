@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+suite("test_iceberg_jdbc_catalog", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("Iceberg test is not enabled, skip this test")
@@ -45,7 +45,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         return;
     }
 
-    String catalog_name = "test_iceberg_jdbc_catalog"
+    String catalog_name = "test_iceberg_jdbc_catalog_doris"
+    String iceberg_jdbc_catalog_name = "test_iceberg_jdbc_catalog"
     String db_name = "jdbc_test_db"
     String driver_name = "postgresql-42.5.0.jar"
     String driver_download_url = "${getS3Url()}/regression/jdbc_driver/${driver_name}"
@@ -116,6 +117,7 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
                 'iceberg.jdbc.driver_class' = 'org.postgresql.Driver',
                 'iceberg.jdbc.user' = 'postgres',
                 'iceberg.jdbc.password' = '123456',
+                'iceberg.jdbc.catalog_name' = '${iceberg_jdbc_catalog_name}',
                 'iceberg.jdbc.init-catalog-tables' = 'true',
                 'iceberg.jdbc.schema-version' = 'V1',
                 's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
@@ -237,7 +239,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
             String cleanupCmd = "mysql -h ${externalEnvIp} -P ${mysql_port} -u root -p123456 -e 'DROP DATABASE IF EXISTS iceberg_db; CREATE DATABASE iceberg_db;'"
             executeCommand(cleanupCmd, false)
 
-            String mysql_catalog_name = "iceberg_jdbc_mysql"
+            String mysql_catalog_name = "iceberg_jdbc_mysql_doris"
+            String iceberg_jdbc_mysql_catalog_name = "iceberg_jdbc_mysql"
             try {
                 sql """DROP CATALOG IF EXISTS ${mysql_catalog_name}"""
                 sql """
@@ -250,6 +253,7 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
                         'iceberg.jdbc.driver_class' = 'com.mysql.jdbc.Driver',
                         'iceberg.jdbc.user' = 'root',
                         'iceberg.jdbc.password' = '123456',
+                        'iceberg.jdbc.catalog_name' = '${iceberg_jdbc_mysql_catalog_name}',
                         'iceberg.jdbc.init-catalog-tables' = 'true',
                         'iceberg.jdbc.schema-version' = 'V1',
                         's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',

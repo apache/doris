@@ -65,6 +65,9 @@ struct TDescribeTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional bool show_hidden_columns = false
   7: optional string catalog
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  8: optional set<string> reserved_field_8
 }
 
 // Results of a call to describeTable()
@@ -95,6 +98,9 @@ struct TGetDbsParams {
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
   6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  7: optional set<string> reserved_field_7
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -119,6 +125,9 @@ struct TGetTablesParams {
   6: optional string type
   7: optional string catalog
   8: optional string table
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  9: optional set<string> reserved_field_9
 }
 
 struct TTableStatus {
@@ -202,6 +211,9 @@ struct TQueryStatistics {
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
     14: optional i64 bytes_write_into_cache
+    15: optional i64 process_rows
+    16: optional i32 finished_tasks_num
+    17: optional i32 total_tasks_num
 }
 
 struct TQueryStatisticsResult {
@@ -315,6 +327,8 @@ struct TReportExecStatusParams {
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 
+  32: optional list<DataSinks.TMCCommitData> mc_commit_datas
+
   33: optional string first_error_msg
 }
 
@@ -393,6 +407,12 @@ struct TMasterOpRequest {
     30: optional TGroupCommitInfo groupCommitInfo
     31: optional binary prepareExecuteBuffer
     32: optional bool moreResultExists // Server has more result to send
+    33: optional map<string, string> connect_attributes
+
+    // Reserved for downstream fields `current_roles` and `is_su_user` to keep
+    // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
+    34: optional set<string> reserved_field_34
+    35: optional bool reserved_field_35
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -400,6 +420,8 @@ struct TMasterOpRequest {
 
     // temporary table
     1002: optional string sessionId
+    // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
+    1003: optional bool clientDeprecatedEOF
 }
 
 struct TColumnDefinition {
@@ -433,6 +455,17 @@ struct TMasterOpResult {
     11: optional i64 affectedRows;
 }
 
+// Certificate-based authentication info forwarded from BE to FE
+struct TCertBasedAuth {
+    1: optional string cert_pem            // Client certificate in PEM format (for debugging)
+    2: optional string subject             // Certificate Subject DN
+    3: optional string san                 // Subject Alternative Names (formatted string)
+    4: optional string issuer              // Issuer DN
+    5: optional string cipher              // SSL cipher suite used
+    6: optional string validity_not_before // Certificate validity start time
+    7: optional string validity_not_after  // Certificate validity end time
+}
+
 struct TLoadTxnBeginRequest {
     1: optional string cluster
     2: required string user
@@ -450,6 +483,9 @@ struct TLoadTxnBeginRequest {
     13: optional string auth_code_uuid // deprecated, use token instead
     14: optional i64 table_id
     15: optional i64 backend_id
+    16: optional TCertBasedAuth cert_based_auth
+    // If set to true: use table group_commit_mode property
+    17: optional bool use_table_group_commit_mode
 }
 
 struct TLoadTxnBeginResult {
@@ -457,6 +493,9 @@ struct TLoadTxnBeginResult {
     2: optional i64 txnId
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    // If use_table_group_commit_mode is true in TLoadTxnBeginRequest, and table group_commit_mode property is
+    // async_mode or sync_mode, return table group_commit_mode (begin_txn is skipped)
+    5: optional string table_group_commit_mode
 }
 
 struct TBeginTxnRequest {
@@ -561,6 +600,7 @@ struct TStreamLoadPutRequest {
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
     59: optional bool empty_field_as_null
+    60: optional TCertBasedAuth cert_based_auth
 
     // For cloud
     1000: optional string cloud_cluster
@@ -601,6 +641,19 @@ struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
 
+// Kinesis routine load task progress
+// Maps shard ID to the last committed sequence number
+struct TKinesisRLTaskProgress {
+    1: required map<string,string> shardCmtSeqNum
+    // MillisBehindLatest per shard, returned by GetRecords API.
+    // Indicates how far behind the consumer is from the tip of the stream.
+    // 0 means the consumer has caught up; absent means unknown.
+    2: optional map<string,i64> shardMillsBehindLatest
+    // Set of shard IDs that have been closed (split/merge) during consumption.
+    // FE should remove these shards from tracking.
+    3: optional set<string> closedShardIds
+}
+
 struct TRLTaskTxnCommitAttachment {
     1: required Types.TLoadSourceType loadSourceType
     2: required Types.TUniqueId id
@@ -613,6 +666,7 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
+    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
@@ -641,7 +695,8 @@ struct TLoadTxnCommitRequest {
     17: optional string auth_code_uuid // deprecated, use token instead
     18: optional bool groupCommit
     19: optional i64 receiveBytes
-    20: optional i64 backendId 
+    20: optional i64 backendId
+    21: optional TCertBasedAuth cert_based_auth
 }
 
 struct TLoadTxnCommitResult {
@@ -684,6 +739,7 @@ struct TLoadTxn2PCRequest {
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string label
+    12: optional TCertBasedAuth cert_based_auth
 
     // For cloud
     1000: optional string auth_code_uuid // deprecated, use token instead
@@ -751,6 +807,19 @@ struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
    3: optional string deployMode
+}
+
+struct TCloudVersionInfo {
+   1: optional i64 tableId
+   2: optional i64 partitionId
+   3: optional i64 version
+   4: optional i64 versionUpdateTime
+}
+
+struct TFrontendSyncCloudVersionRequest {
+   1: optional i64 dbId
+   2: optional list<TCloudVersionInfo> tableVersionInfos
+   3: optional list<TCloudVersionInfo> partitionVersionInfos
 }
 
 struct TFrontendReportAliveSessionRequest {
@@ -833,6 +902,10 @@ enum TSchemaTableName {
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
   DATABASE_PROPERTIES = 13,
+  AUTHENTICATION_INTEGRATIONS = 14,
+  TABLE_STREAMS = 15,
+  TABLE_STREAM_CONSUMPTION = 16,
+  ROLE_MAPPINGS = 17,
 }
 
 struct TMetadataTableRequestParams {
@@ -850,6 +923,9 @@ struct TMetadataTableRequestParams {
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
   14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
+  // Reserved for downstream field `current_roles` to keep thrift field ids
+  // wire-compatible across maintained branches. Do not reuse this id.
+  15: optional set<string> reserved_field_15
 }
 
 struct TSchemaTableRequestParams {
@@ -860,6 +936,10 @@ struct TSchemaTableRequestParams {
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
     7: optional string frontend_conjuncts
+    8: optional i64 thread_id // mysql connection id for fetching ConnectContext if needed
+    // Reserved for downstream field `current_roles` to keep thrift field ids
+    // wire-compatible across maintained branches. Do not reuse this id.
+    9: optional set<string> reserved_field_9
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1301,6 +1381,19 @@ struct TAutoIncrementRangeResult {
     4: optional Types.TNetworkAddress master_address
 }
 
+struct TMaxComputeBlockIdRequest {
+    1: optional i64 txn_id
+    2: optional string write_session_id
+    3: optional i64 length
+}
+
+struct TMaxComputeBlockIdResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
+}
+
 struct TCreatePartitionRequest {
     1: optional i64 txn_id
     2: optional i64 db_id
@@ -1312,6 +1405,8 @@ struct TCreatePartitionRequest {
     6: optional bool write_single_replica = false
     // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using load_to_single_tablet mode.
+    8: optional bool load_to_single_tablet = false
 }
 
 struct TCreatePartitionResult {
@@ -1332,6 +1427,8 @@ struct TReplacePartitionRequest {
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using load_to_single_tablet mode.
+    8: optional bool load_to_single_tablet = false
 }
 
 struct TReplacePartitionResult {
@@ -1477,6 +1574,9 @@ struct TShowProcessListRequest {
     1: optional bool show_full_sql
     2: optional Types.TUserIdentity current_user_ident
     3: optional string time_zone
+    // Reserved for downstream field `current_roles` to keep thrift field ids
+    // wire-compatible across maintained branches. Do not reuse this id.
+    4: optional set<string> reserved_field_4
 }
 
 struct TShowProcessListResult {
@@ -1495,6 +1595,8 @@ struct TReportCommitTxnResultRequest {
     2: optional i64 txnId
     3: optional string label
     4: optional binary payload
+    // tablets which need to update stats
+    5: optional list<i64> tabletIds
 }
 
 struct TQueryColumn {
@@ -1636,6 +1738,7 @@ struct TPartitionMeta {
     1: optional i64 id
     2: optional i64 visible_version
     3: optional i64 visible_version_time
+    4: optional string meta_checksum
 }
 
 struct TGetOlapTableMetaRequest {
@@ -1646,6 +1749,7 @@ struct TGetOlapTableMetaRequest {
     5: required i64 table_id
     6: optional i32 version // todo serialize according to the version
     7: optional list<TPartitionMeta> partitions // client owned partition meta
+    8: optional list<TPartitionMeta> temp_partitions // client owned partition meta
 }
 
 struct TGetOlapTableMetaResult {
@@ -1653,6 +1757,186 @@ struct TGetOlapTableMetaResult {
     2: required binary table_meta
     3: optional list<binary> updated_partitions
     4: optional list<i64> removed_partitions
+    5: optional list<binary> updated_temp_partitions
+    6: optional list<i64> removed_temp_partitions
+    7: optional list<string> updated_partition_checksums
+    8: optional list<string> updated_temp_partition_checksums
+}
+
+// Remote transaction request and Result definitions for cross-cluster export.
+// These structs are used by beginRemoteTxn/commitRemoteTxn/abortRemoteTxn RPCs.
+struct TBeginRemoteTxnRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional string label
+    8: optional i64 timeout_ms
+}
+
+struct TBeginRemoteTxnResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TCommitRemoteTxnRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional i64 txn_id
+    8: optional list<Types.TTabletCommitInfo> commit_infos
+    9: optional i64 insert_visible_timeout_ms
+}
+
+struct TCommitRemoteTxnResult {
+    1: optional Status.TStatus status
+    2: optional bool txn_status
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TAbortRemoteTxnRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional i64 txn_id
+    7: optional string reason
+    8: optional Types.TNetworkAddress master_address
+}
+
+struct TAbortRemoteTxnResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TAddOrDropPartitionsRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional list<string> partition_names
+    8: optional list<string> temp_partition_names
+    9: optional bool is_drop
+    10: optional bool is_temp
+    11: optional bool is_force
+}
+
+struct TAddOrDropPartitionsResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TReplacePartitionsRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional list<string> partition_names
+    8: optional list<string> temp_partition_names
+    9: optional bool is_force
+}
+
+struct TReplacePartitionsResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TInsertOverwriteRegisterRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional i64 group_id
+    8: optional i64 task_id
+    9: optional list<string> partition_names
+}
+
+struct TInsertOverwriteRegisterResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+    3: optional i64 task_id
+    4: optional i64 group_id
+}
+
+struct TInsertOverwriteTaskRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional i64 group_id
+    8: optional i64 task_id
+    9: optional bool is_success
+    10: optional bool force_drop_partition
+}
+
+struct TInsertOverwriteTaskResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TInsertOverwriteRecordRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional bool is_add
+}
+
+struct TInsertOverwriteRecordResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TRecordFinishedLoadJobRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional string label
+    8: optional i64 txn_id
+    9: optional i64 create_ts
+    10: optional string fail_msg
+    11: optional string first_err_msg
+    12: optional string tracking_url
+    13: optional i64 job_id
+}
+struct TRecordFinishedLoadJobResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TMasterAddressRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+}
+
+struct TMasterAddressResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TSyncCloudTabletStatsRequest {
+    1: optional binary tablet_stats_pb
 }
 
 service FrontendService {
@@ -1684,6 +1968,12 @@ service FrontendService {
     TBeginTxnResult beginTxn(1: TBeginTxnRequest request)
     TCommitTxnResult commitTxn(1: TCommitTxnRequest request)
     TRollbackTxnResult rollbackTxn(1: TRollbackTxnRequest request)
+
+    // Remote transaction RPCs for cross-cluster export.
+    TBeginRemoteTxnResult beginRemoteTxn(1: TBeginRemoteTxnRequest request)
+    TCommitRemoteTxnResult commitRemoteTxn(1: TCommitRemoteTxnRequest request)
+    TAbortRemoteTxnResult abortRemoteTxn(1: TAbortRemoteTxnRequest request)
+
     TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
     TGetSnapshotResult getSnapshot(1: TGetSnapshotRequest request)
     TRestoreSnapshotResult restoreSnapshot(1: TRestoreSnapshotRequest request)
@@ -1700,6 +1990,8 @@ service FrontendService {
     TFrontendReportAliveSessionResult getAliveSessions(1: TFrontendReportAliveSessionRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
+
+    Status.TStatus syncCloudVersion(1: TFrontendSyncCloudVersionRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
@@ -1726,6 +2018,7 @@ service FrontendService {
     Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+    TMaxComputeBlockIdResult getMaxComputeBlockIdRange(1: TMaxComputeBlockIdRequest request)
 
     TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
     // insert overwrite partition(*)
@@ -1758,4 +2051,17 @@ service FrontendService {
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 
     TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
+
+    TMasterAddressResult getMasterAddress(1: TMasterAddressRequest request)
+
+    TAddOrDropPartitionsResult addOrDropPartitions(1: TAddOrDropPartitionsRequest request)
+    TReplacePartitionsResult replacePartitions(1: TReplacePartitionsRequest request)
+
+    TInsertOverwriteRegisterResult registerInsertOverwriteTask(1: TInsertOverwriteRegisterRequest request)
+    TInsertOverwriteTaskResult insertOverwriteTaskAction(1: TInsertOverwriteTaskRequest request)
+    TInsertOverwriteRecordResult addOrDropInsertOverwriteRecord(1: TInsertOverwriteRecordRequest request)
+
+    TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(1: TRecordFinishedLoadJobRequest request)
+
+    Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
 }

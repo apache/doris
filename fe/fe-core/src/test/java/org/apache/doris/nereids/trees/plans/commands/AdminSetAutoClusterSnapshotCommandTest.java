@@ -17,58 +17,55 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AdminSetAutoClusterSnapshotCommandTest {
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
+public class AdminSetAutoClusterSnapshotCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
 
-    private void runBefore() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    private String originalMinPrivilege;
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+    @BeforeEach
+    public void setUp() {
+        originalMinPrivilege = Config.cluster_snapshot_min_privilege;
+    }
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+    @AfterEach
+    public void tearDown() {
+        Config.cluster_snapshot_min_privilege = originalMinPrivilege;
+    }
 
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
     }
 
     @Test
     public void testValidateNormal() throws Exception {
         runBefore();
+        connectContext.setSkipAuth(true);
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+
         Config.deploy_mode = "";
         Map<String, String> properties = new HashMap<>();
         properties.put("max_reserved_snapshots", "10");
@@ -117,22 +114,62 @@ public class AdminSetAutoClusterSnapshotCommandTest {
     }
 
     @Test
-    public void testValidateNoPriviledge() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    public void testValidateNoPrivilegeRootMode() throws Exception {
+        // Test root mode (default): admin user should be denied
+        runBefore();
+        Config.cluster_snapshot_min_privilege = "root";
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        UserIdentity nonRootUser = new UserIdentity("admin", "%");
+        nonRootUser.setIsAnalyzed();
+        connectContext.setCurrentUserIdentity(nonRootUser);
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Config.deploy_mode = "cloud";
+
+        Map<String, String> properties = new HashMap<>();
+        AdminSetAutoClusterSnapshotCommand command = new AdminSetAutoClusterSnapshotCommand(properties);
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
+                "Access denied; you need (at least one of) the (root privilege) privilege(s) for this operation");
+    }
+
+    @Test
+    public void testValidateAdminModeWithAdminUser() throws Exception {
+        // Test admin mode: admin user with ADMIN privilege should be allowed
+        runBefore();
+        Config.cluster_snapshot_min_privilege = "admin";
+
+        UserIdentity adminUser = new UserIdentity("admin", "%");
+        adminUser.setIsAnalyzed();
+        connectContext.setCurrentUserIdentity(adminUser);
+
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+
+        Config.deploy_mode = "cloud";
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put("max_reserved_snapshots", "10");
+        properties.put("snapshot_interval_seconds", "3600");
+        AdminSetAutoClusterSnapshotCommand command = new AdminSetAutoClusterSnapshotCommand(properties);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateAdminModeWithNormalUser() throws Exception {
+        // Test admin mode: normal user without ADMIN privilege should be denied
+        runBefore();
+        Config.cluster_snapshot_min_privilege = "admin";
+
+        UserIdentity normalUser = new UserIdentity("normal_user", "%");
+        normalUser.setIsAnalyzed();
+        connectContext.setCurrentUserIdentity(normalUser);
+
+        AccessControllerManager spyAcm = Mockito.spy(accessControllerManager);
+        Mockito.doReturn(false).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+
         Config.deploy_mode = "cloud";
 
         Map<String, String> properties = new HashMap<>();

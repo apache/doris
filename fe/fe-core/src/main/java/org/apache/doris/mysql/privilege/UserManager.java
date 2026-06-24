@@ -19,7 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -30,7 +29,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.mysql.MysqlPassword;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -56,7 +54,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
 
-public class UserManager implements Writable, GsonPostProcessable {
+public class UserManager implements Writable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
 
@@ -112,6 +110,16 @@ public class UserManager implements Writable, GsonPostProcessable {
         checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true);
     }
 
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternalForUser(userIdentity, remotePasswd, randomString, null, currentUser, false);
+    }
+
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternalForUser(userIdentity, null, null, remotePasswd, currentUser, true);
+    }
+
     private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
@@ -155,6 +163,27 @@ public class UserManager implements Writable, GsonPostProcessable {
             }
         }
         throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                hasRemotePasswd(plain, remotePasswd));
+    }
+
+    private void checkPasswordInternalForUser(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+        User user = getUserByUserIdentity(userIdentity);
+        if (user == null) {
+            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
+                    hasRemotePasswd(plain, remotePasswd));
+        }
+        UserIdentity currentIdentity = user.getDomainUserIdentity();
+        if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
+            passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(currentIdentity);
+            if (currentUser != null) {
+                currentUser.add(currentIdentity);
+            }
+            return;
+        }
+        passwdPolicyMgr.onFailedLogin(currentIdentity);
+        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
                 hasRemotePasswd(plain, remotePasswd));
     }
 
@@ -245,6 +274,7 @@ public class UserManager implements Writable, GsonPostProcessable {
             userByUserIdentity.setPassword(pwd);
             userByUserIdentity.setComment(comment);
             userByUserIdentity.setSetByDomainResolver(setByResolver);
+            userByUserIdentity.setUserIdentity(userIdent);
             return userByUserIdentity;
         }
 
@@ -362,6 +392,11 @@ public class UserManager implements Writable, GsonPostProcessable {
                     // password, this "domain" user ident will be returned as "current user".
                     for (String newIP : entry.getValue()) {
                         UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(userEntry.getKey(), newIP);
+                        UserIdentity domainUserIdent = domainUser.getUserIdentity();
+                        userIdent.setSan(domainUserIdent.getSan());
+                        userIdent.setIssuer(domainUserIdent.getIssuer());
+                        userIdent.setCipher(domainUserIdent.getCipher());
+                        userIdent.setSubject(domainUserIdent.getSubject());
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {
@@ -405,26 +440,6 @@ public class UserManager implements Writable, GsonPostProcessable {
         String json = Text.readString(in);
         UserManager um = GsonUtils.GSON.fromJson(json, UserManager.class);
         return um;
-    }
-
-    // should be removed after version 3.0
-    private void removeClusterPrefix() {
-        Map<String, List<User>> newNameToUsers = Maps.newHashMap();
-        wlock.lock();
-        try {
-            for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
-                String user = entry.getKey();
-                newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
-            }
-            this.nameToUsers = newNameToUsers;
-        } finally {
-            wlock.unlock();
-        }
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        removeClusterPrefix();
     }
 
     // ====== CLOUD ======

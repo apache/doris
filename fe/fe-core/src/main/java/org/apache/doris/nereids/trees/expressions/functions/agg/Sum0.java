@@ -53,7 +53,7 @@ import java.util.List;
 
 /**
  * AggregateFunction 'sum0'. sum0 returns the sum of the values which go into it like sum.
- * It differs in that when no non null values are applied zero is returned instead of null.
+ * when all input values are null, it returns zero instead of null.
  */
 public class Sum0 extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
@@ -102,7 +102,7 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (!argType.isNumericType() && !argType.isBooleanType()
                 && !argType.isNullType() && !argType.isStringLikeType()) {
             throw new AnalysisException("sum0 requires a numeric, boolean or string parameter: " + this.toSql());

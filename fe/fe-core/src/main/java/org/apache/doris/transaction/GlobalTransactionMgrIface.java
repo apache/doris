@@ -129,6 +129,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public List<TransactionState> getReadyToPublishTransactions();
 
+    public List<TransactionState> getCommittedTransactions(long dbId) throws AnalysisException;
+
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId);
 
     public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
@@ -210,7 +212,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public void replayBatchRemoveTransactionV2(BatchRemoveTransactionsOperationV2 operation) throws Exception;
 
-    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse);
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse, List<TabletCommitInfo> tabletCommitInfos,
+            List<Long> tabletIds);
 
     public void addSubTransaction(long dbId, long transactionId, long subTransactionId);
 

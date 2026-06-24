@@ -19,20 +19,29 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -40,12 +49,16 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageInfoExtractor;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -55,42 +68,52 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.LocalExchangeNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * insert into select command implementation
@@ -109,6 +132,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private Optional<String> labelName;
     private Optional<String> branchName;
     private Optional<Plan> parsedPlan;
+    private Optional<Plan> lineagePlan = Optional.empty();
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -175,6 +199,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public Optional<Plan> getParsedPlan() {
         return parsedPlan;
+    }
+
+    public Optional<Plan> getLineagePlan() {
+        return lineagePlan;
     }
 
     protected void setLogicalQuery(LogicalPlan logicalQuery) {
@@ -263,8 +291,63 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             insertExecutor = buildResult.executor;
             parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
+            Plan analyzedPlan = buildResult.planner.getAnalyzedPlan();
+            lineagePlan = Optional.ofNullable(analyzedPlan);
             if (!needBeginTransaction) {
                 return insertExecutor;
+            }
+
+            List<ScanNode> tableStreamScanNodes =
+                    buildResult.planner.getScanNodes().stream()
+                            .filter((s -> (s.getTableIf() instanceof OlapTableStreamWrapper
+                                    || s instanceof OlapScanNode && ((OlapScanNode) s).isIncrementalScan())))
+                            .collect(Collectors.toList());
+
+            if (!tableStreamScanNodes.isEmpty()) {
+                if (!Config.enable_feature_binlog) {
+                    throw new AnalysisException("Insert plan with Table stream failed."
+                            + " should enable binlog feature in FE config.");
+                }
+                // stream id -> <partition id, offset>
+                Map<Pair<Long, Long>, AbstractTableStreamUpdate> distinctUpdate =
+                        new HashMap<>(tableStreamScanNodes.size());
+                for (ScanNode scanNode : tableStreamScanNodes) {
+                    // only support OlapScanNode currently
+                    Preconditions.checkArgument(scanNode instanceof OlapScanNode);
+                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                    OlapTableStreamWrapper wrapper;
+                    if (scanNode.getTableIf() instanceof OlapTableStreamWrapper) {
+                        wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
+                    } else {
+                        Preconditions.checkArgument(scanNode.getTableIf() instanceof RowBinlogTableWrapper,
+                                "RowBinlogTableWrapper expected");
+                        Preconditions.checkArgument(((RowBinlogTableWrapper) scanNode.getTableIf())
+                                .getParent().isPresent(), "RowBinlogTableWrapper parent expected");
+                        wrapper = ((RowBinlogTableWrapper) scanNode.getTableIf()).getParent().get();
+                    }
+                    if (!distinctUpdate.containsKey(
+                            Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))) {
+                        distinctUpdate.put(Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()),
+                                new OlapTableStreamUpdate());
+                    }
+                    distinctUpdate.get(Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))
+                                    .merge(olapScanNode.getStreamUpdate());
+                }
+                List<TableStreamUpdateInfo> infos = new ArrayList<>(distinctUpdate.size());
+                distinctUpdate.forEach((key, value) -> infos.add(new TableStreamUpdateInfo(key.first,
+                        key.second, value)));
+                // put offset into executor
+                insertExecutor.setStreamUpdateInfos(infos);
+                insertExecutor.registerListener(new InsertExecutorListener() {
+                    @Override
+                    public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor,
+                                               long jobId) throws Exception {
+                        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                                .getTransactionState(insertExecutor.getDatabase().getId(),
+                                        insertExecutor.getTxnId());
+                        transactionState.setStreamUpdateInfos(insertExecutor.getStreamUpdateInfos());
+                    }
+                });
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
@@ -345,18 +428,19 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(
                     ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
+
+            LogicalPlanAdapter logicalPlanAdapter
+                    = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
+            return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
         } finally {
             targetTableIf.readUnlock();
         }
-
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
-        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
     }
 
     // we should select the factory type first, but we can not initial InsertExecutor at this time,
     // because Nereids's DistributePlan are not gernerated, so we return factory and after the
     // DistributePlan have been generated, we can create InsertExecutor
-    private ExecutorFactory selectInsertExecutorFactory(
+    ExecutorFactory selectInsertExecutorFactory(
             NereidsPlanner planner, ConnectContext ctx, StmtExecutor stmtExecutor, TableIf targetTableIf) {
         try {
             stmtExecutor.setPlanner(planner);
@@ -372,7 +456,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             DataSink dataSink = planner.getFragments().get(0).getSink();
             // Transaction insert should reuse the label in the transaction.
             String label = this.labelName.orElse(
-                    ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
+                    ctx.isTxnModel() ? null : String.format("label%s_%x_%x",
+                            (targetTableIf instanceof RemoteDorisExternalTable) ? "_remote_"
+                                    + Env.getCurrentEnv().getClusterId() : "", ctx.queryId().hi, ctx.queryId().lo));
 
             // check branch
             if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
@@ -380,12 +466,23 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
+                OlapTable olapTable;
+                if (targetTableIf instanceof RemoteDorisExternalTable) {
+                    if (((RemoteDorisExternalTable) targetTableIf).useArrowFlight()) {
+                        throw new AnalysisException("insert remote doris only support"
+                                + " when catalog use_arrow_flight is false");
+                    }
+                    olapTable = ((RemoteDorisExternalTable) targetTableIf).getOlapTable();
+                } else {
+                    olapTable = (OlapTable) targetTableIf;
+                }
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                OlapTable olapTable = (OlapTable) targetTableIf;
-
                 ExecutorFactory executorFactory;
                 // the insertCtx contains some variables to adjust SinkNode
                 if (ctx.isTxnModel()) {
+                    if (targetTableIf instanceof RemoteDorisExternalTable) {
+                        throw new AnalysisException("remote olap table do not support txn model");
+                    }
                     executorFactory = ExecutorFactory.from(
                             planner,
                             dataSink,
@@ -394,6 +491,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                     ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
                     );
                 } else if (ctx.isGroupCommit()) {
+                    if (targetTableIf instanceof RemoteDorisExternalTable) {
+                        throw new AnalysisException("remote olap table do not support group commit");
+                    }
                     Backend groupCommitBackend = Env.getCurrentEnv()
                             .getGroupCommitManager()
                             .selectBackendForGroupCommit(targetTableIf.getId(), ctx);
@@ -412,12 +512,32 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     if (getLogicalQuery().containsType(InlineTable.class)) {
                         jobId = -1;
                     }
-                    executorFactory = ExecutorFactory.from(
-                            planner,
-                            dataSink,
-                            physicalSink,
-                            () -> new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
-                    );
+                    // Do not register internal group commit loads to LoadManager.
+                    // Internal group commit is identified by DMLCommandType.GROUP_COMMIT, which is set
+                    // by the parser when the target table is specified via tableId (doris_internal_table_id).
+                    // The actual commit is managed by BE group commit mechanism, so these jobs will
+                    // never transition to a completed state through FE, causing a memory leak if registered.
+                    if (((PhysicalOlapTableSink<?>) physicalSink).getDmlCommandType() == DMLCommandType.GROUP_COMMIT) {
+                        jobId = -1;
+                    }
+                    if (targetTableIf instanceof RemoteDorisExternalTable) {
+                        executorFactory = ExecutorFactory.from(
+                                planner,
+                                dataSink,
+                                physicalSink,
+                                () -> new RemoteOlapInsertExecutor(
+                                        ctx, (RemoteOlapTable) olapTable, label, planner, insertCtx, emptyInsert,
+                                        jobId)
+                        );
+                    } else {
+                        executorFactory = ExecutorFactory.from(
+                                planner,
+                                dataSink,
+                                physicalSink,
+                                () -> new OlapInsertExecutor(
+                                        ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId, jobId != -1)
+                        );
+                    }
                 }
 
                 return executorFactory.onCreate(executor -> {
@@ -457,28 +577,45 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                 emptyInsert, jobId
                         )
                 );
-            } else if (physicalSink instanceof PhysicalJdbcTableSink) {
+            } else if (physicalSink instanceof PhysicalMaxComputeTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                List<Column> cols = ((PhysicalJdbcTableSink<?>) physicalSink).getCols();
-                List<Slot> slots = physicalSink.getOutput();
-                if (physicalSink.children().size() == 1) {
-                    if (physicalSink.child(0) instanceof PhysicalOneRowRelation
-                            || physicalSink.child(0) instanceof PhysicalUnion) {
-                        for (int i = 0; i < cols.size(); i++) {
-                            if (!(cols.get(i).isAllowNull()) && slots.get(i).nullable()) {
-                                throw new AnalysisException("Column `" + cols.get(i).getName()
-                                        + "` is not nullable, but the inserted value is nullable.");
+                MaxComputeExternalTable mcExternalTable = (MaxComputeExternalTable) targetTableIf;
+                MCInsertCommandContext mcInsertCtx = insertCtx
+                        .map(insertCommandContext -> (MCInsertCommandContext) insertCommandContext)
+                        .orElseGet(MCInsertCommandContext::new);
+                if (mcInsertCtx.getStaticPartitionSpec() == null
+                        && originLogicalQuery instanceof UnboundMaxComputeTableSink) {
+                    UnboundMaxComputeTableSink<?> mcSink =
+                            (UnboundMaxComputeTableSink<?>) originLogicalQuery;
+                    if (mcSink.hasStaticPartition()) {
+                        Map<String, String> staticSpec = Maps.newHashMap();
+                        for (Map.Entry<String, Expression> e
+                                : mcSink.getStaticPartitionKeyValues().entrySet()) {
+                            if (e.getValue() instanceof Literal) {
+                                staticSpec.put(e.getKey(),
+                                        ((Literal) e.getValue()).getStringValue());
                             }
                         }
+                        mcInsertCtx.setStaticPartitionSpec(staticSpec);
                     }
                 }
-                JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) targetTableIf;
                 return ExecutorFactory.from(
                         planner,
                         dataSink,
                         physicalSink,
-                        () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert, jobId)
+                        () -> new MCInsertExecutor(ctx, mcExternalTable, label, planner,
+                                Optional.of(mcInsertCtx),
+                                emptyInsert, jobId
+                        )
+                );
+            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                ExternalTable externalTable = (ExternalTable) targetTableIf;
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new PluginDrivenInsertExecutor(ctx, externalTable, label, planner,
+                                Optional.of(insertCtx.orElse(
+                                        new PluginDrivenInsertCommandContext())),
+                                emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
@@ -496,7 +633,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
-                        "insert into command only support [olap, dictionary, hive, iceberg, jdbc] table");
+                        "insert into command only support [olap, remoteOlap, dictionary, hive, iceberg, jdbc] table");
             }
         } catch (Throwable t) {
             Throwables.propagateIfInstanceOf(t, RuntimeException.class);
@@ -536,6 +673,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
         };
 
+        LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
         // step 1, 2, 3
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         if (LOG.isDebugEnabled()) {
@@ -557,10 +695,24 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return;
         }
         for (PlanFragment fragment : planner.getFragments()) {
-            if (fragment.getPlanRoot() instanceof FileScanNode) {
-                FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+            // The FE local-shuffle planner may wrap the fragment root with one or more
+            // LocalExchangeNodes (e.g. a PASSTHROUGH fan-out above a serial FileScanNode).
+            // Peel those off before checking the actual operator, otherwise streaming /
+            // S3 INSERTs leave LoadStatistic.fileNum and totalFileSizeB at 0 and tests
+            // like job_p0.streaming_job.test_streaming_insert_job that inspect
+            // loadStatistic.fileNumber / fileSize fail.
+            PlanNode root = fragment.getPlanRoot();
+            while (root instanceof LocalExchangeNode && !root.getChildren().isEmpty()) {
+                root = root.getChild(0);
+            }
+            if (root instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) root;
+                // Prefer distinct file count; fall back to split count for batch-mode scans.
+                int fileNum = fileScanNode.getSelectedFileNum() >= 0
+                        ? fileScanNode.getSelectedFileNum()
+                        : (int) fileScanNode.getSelectedSplitNum();
                 Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId())
-                        .addLoadFileInfo((int) fileScanNode.getSelectedSplitNum(), fileScanNode.getTotalFileSize());
+                        .addLoadFileInfo(fileNum, fileScanNode.getTotalFileSize());
             }
         }
     }
@@ -575,6 +727,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             insertExecutor.registerListener(insertExecutorListener);
         }
         insertExecutor.executeSingleInsert(executor);
+        LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
     }
 
     public boolean isExternalTableSink() {

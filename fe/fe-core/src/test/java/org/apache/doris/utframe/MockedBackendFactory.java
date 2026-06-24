@@ -55,6 +55,8 @@ import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TPublishTopicResult;
+import org.apache.doris.thrift.TPythonEnvInfo;
+import org.apache.doris.thrift.TPythonPackageInfo;
 import org.apache.doris.thrift.TQueryIngestBinlogRequest;
 import org.apache.doris.thrift.TQueryIngestBinlogResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
@@ -477,6 +479,16 @@ public class MockedBackendFactory {
                     new org.apache.doris.thrift.TTestStorageConnectivityResponse();
             response.setStatus(new TStatus(TStatusCode.OK));
             return response;
+        }
+
+        @Override
+        public java.util.List<TPythonEnvInfo> getPythonEnvs() throws TException {
+            return java.util.Collections.emptyList();
+        }
+
+        @Override
+        public java.util.List<TPythonPackageInfo> getPythonPackages(String pythonVersion) throws TException {
+            return java.util.Collections.emptyList();
         }
     }
 

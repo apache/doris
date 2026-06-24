@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_varbinary", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -161,4 +161,15 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
     qt_select23 """
         select * from binary_partitioned_table where from_hex(partition_bin)="0FF102FDFEFF";
     """
+
+    sql """ use test_db; """
+    qt_select23 """
+        select id from test_variant_repro;
+    """
+    test {
+        sql """
+            select * from test_variant_repro;
+        """
+        exception "UNSUPPORTED"
+    }
 }

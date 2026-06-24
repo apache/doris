@@ -22,6 +22,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -34,12 +35,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -51,6 +54,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -59,7 +63,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -74,7 +78,9 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    private final AtomicLong refreshVersion = new AtomicLong(1);
+    // The key is the query tableId, the value is the refresh version when last refresh, this is needed
+    // because struct info refresh base on target tableId.
+    private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
@@ -128,12 +134,28 @@ public class Memo {
         return groupExpressions.size();
     }
 
-    public long getRefreshVersion() {
-        return refreshVersion.get();
+    /** get the refresh version map*/
+    public Map<Integer, AtomicInteger> getRefreshVersion() {
+        return refreshVersion;
     }
 
-    public long incrementAndGetRefreshVersion() {
-        return refreshVersion.incrementAndGet();
+    /** return the incremented refresh version for the given commonTableId*/
+    public long incrementAndGetRefreshVersion(int commonTableId) {
+        return refreshVersion.compute(commonTableId, (k, v) -> {
+            if (v == null) {
+                return new AtomicInteger(1);
+            }
+            v.incrementAndGet();
+            return v;
+        }).get();
+    }
+
+    /** return the incremented refresh version for the given relationId set*/
+    public void incrementAndGetRefreshVersion(BitSet commonTableIdSet) {
+        for (int i = commonTableIdSet.nextSetBit(0); i >= 0;
+                i = commonTableIdSet.nextSetBit(i + 1)) {
+            incrementAndGetRefreshVersion(i);
+        }
     }
 
     /**
@@ -244,8 +266,17 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target, planTable);
+            result = doCopyIn(plan, target, planTable, false);
         }
+        maybeAddStateId(result);
+        return result;
+    }
+
+    /**
+     * Add plan to Memo for dphyper.
+     */
+    public CopyInResult copyIn(Plan plan, @Nullable Group target, HashMap<Long, Group> planTable) {
+        CopyInResult result = doCopyIn(plan, target, planTable, true);
         maybeAddStateId(result);
         return result;
     }
@@ -265,7 +296,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target, null);
+            result = doCopyIn(plan, target, null, false);
         }
         maybeAddStateId(result);
         return result;
@@ -350,6 +381,66 @@ public class Memo {
                 : Optional.empty();
 
         return planWithChildren.withGroupExpression(groupExpression);
+    }
+
+    public Plan copyOutBestLogicalPlan() {
+        return copyOutBestLogicalPlan(root, PhysicalProperties.ANY);
+    }
+
+    private Plan copyOutBestLogicalPlan(Group rootGroup, PhysicalProperties physicalProperties) {
+        try {
+            GroupExpression groupExpression = rootGroup.getBestPlan(physicalProperties);
+            if (groupExpression != null) {
+                if ((groupExpression.getPlan() instanceof PhysicalDistribute
+                        && rootGroup.getEnforcerSpecs().containsKey(
+                        ((PhysicalDistribute<?>) groupExpression.getPlan()).getDistributionSpec()))
+                        || rootGroup.getEnforcers().containsKey(groupExpression)) {
+                    rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
+                    rootGroup.addChosenEnforcerProperties(physicalProperties);
+                } else {
+                    rootGroup.setChosenProperties(physicalProperties);
+                    rootGroup.setChosenGroupExpressionId(groupExpression.getId().asInt());
+                }
+                List<PhysicalProperties> inputPropertiesList =
+                        groupExpression.getInputPropertiesList(physicalProperties);
+                List<Plan> planChildren = Lists.newArrayList();
+                for (int i = 0; i < groupExpression.arity(); i++) {
+                    planChildren.add(copyOutBestLogicalPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+                }
+                Plan bestLogicalPlan = rootGroup.getBestLogicalPlan(groupExpression);
+                if (bestLogicalPlan != null) {
+                    if (bestLogicalPlan instanceof LogicalJoin) {
+                        ((LogicalJoin) bestLogicalPlan).getJoinReorderContext().clear();
+                    }
+                    return bestLogicalPlan.withChildren(planChildren);
+                } else {
+                    Preconditions.checkState(planChildren.size() == 1,
+                            "plan must have only 1 child, plan -> " + planChildren);
+                    if (planChildren.get(0) instanceof LogicalJoin) {
+                        ((LogicalJoin) planChildren.get(0)).getJoinReorderContext().clear();
+                    }
+                    return planChildren.get(0);
+                }
+            } else {
+                Preconditions.checkArgument(!rootGroup.getLogicalExpressions().isEmpty(),
+                        "There should be more than one Logical Expression in Group");
+                groupExpression = rootGroup.getLogicalExpression();
+                int arity = groupExpression.arity();
+                List<Plan> planChildren = new ArrayList<>(arity);
+                for (int i = 0; i < arity; i++) {
+                    planChildren.add(copyOutBestLogicalPlan(groupExpression.child(i), physicalProperties));
+                }
+                if (groupExpression.getPlan() instanceof LogicalJoin) {
+                    ((LogicalJoin) groupExpression.getPlan()).getJoinReorderContext().clear();
+                }
+                return groupExpression.getPlan().withChildren(planChildren);
+            }
+        } catch (Exception e) {
+            if (e instanceof AnalysisException && e.getMessage().contains("Failed to choose best plan")) {
+                throw e;
+            }
+            throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -452,22 +543,26 @@ public class Memo {
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
-    private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup, @Nullable HashMap<Long, Group> planTable) {
+    private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup, @Nullable HashMap<Long, Group> planTable,
+            boolean isInDpHyper) {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
-        if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+        if (targetGroup != null
+                && (isInDpHyper ? !plan.getLogicalProperties().equalsForDpHyper(targetGroup.getLogicalProperties())
+                        : !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties()))) {
             LOG.info("Insert a plan into targetGroup but differ in logicalproperties."
-                            + "\nPlan logicalproperties: {}\n targetGroup logicalproperties: {}",
+                    + "\nPlan logicalproperties: {}\n targetGroup logicalproperties: {}",
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
-        // TODO Support sync materialized view in the future
         if (connectContext != null
                 && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            incrementAndGetRefreshVersion();
+            TableId mvCommonTableId
+                    = this.connectContext.getStatementContext().getTableId(((CatalogRelation) plan).getTable());
+            incrementAndGetRefreshVersion(mvCommonTableId.asInt());
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
@@ -483,7 +578,8 @@ public class Memo {
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(doCopyIn(child, null, planTable).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null, planTable, isInDpHyper)
+                        .correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
@@ -818,9 +914,18 @@ public class Memo {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("root:").append(getRoot()).append("\n");
+        boolean first = true;
+        Group rootGroup = getRoot();
         for (Group group : groups.values()) {
-            builder.append("\n\n").append(group).append("\n");
+            if (!first) {
+                builder.append("\n").append("═══════════════════════════════════════════════════════════").append("\n");
+            }
+            if (group.equals(rootGroup)) {
+                builder.append("\n").append("ROOT ").append(group);
+            } else {
+                builder.append("\n").append(group);
+            }
+            first = false;
         }
         return builder.toString();
     }

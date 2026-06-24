@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS `customer` (
   `c_mktsegment` varchar(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`c_custkey`)
-CLUSTER BY (`c_mktsegment`, `c_city`, `c_region`, `c_nation`)
+ORDER BY (`c_mktsegment`, `c_city`, `c_region`, `c_nation`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
 PROPERTIES (
 "enable_mow_light_delete" = "true",

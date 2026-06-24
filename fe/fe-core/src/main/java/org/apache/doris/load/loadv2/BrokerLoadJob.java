@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
@@ -307,6 +308,22 @@ public class BrokerLoadJob extends BulkLoadJob {
                 }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
+                boolean hasInvertedIndexV1 = false;
+                if (table.getIndexes() != null) {
+                    for (org.apache.doris.catalog.Index index : table.getIndexes()) {
+                        if (index.getIndexType() == IndexType.INVERTED) {
+                            if (table.getInvertedIndexFileStorageFormat()
+                                    == org.apache.doris.thrift.TInvertedIndexFileStorageFormat.V1) {
+                                hasInvertedIndexV1 = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (isPartialUpdate() || hasInvertedIndexV1 || Config.isCloudMode()) {
+                    isEnableMemtableOnSinkNode = false;
+                }
+
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
                         isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);

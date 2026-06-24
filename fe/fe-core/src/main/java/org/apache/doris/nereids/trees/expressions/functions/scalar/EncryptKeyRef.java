@@ -65,7 +65,7 @@ public class EncryptKeyRef extends ScalarFunction
 
     public String getEncryptKeyName() {
         Preconditions.checkArgument(children.get(1) instanceof StringLikeLiteral);
-        return ((StringLikeLiteral) children.get(1)).value;
+        return ((StringLikeLiteral) children.get(1)).value.toLowerCase();
     }
 
     /**

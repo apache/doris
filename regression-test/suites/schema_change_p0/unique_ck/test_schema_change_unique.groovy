@@ -102,7 +102,7 @@ suite("test_schema_change_unique", "p0") {
       `k13` datetime NULL
     ) ENGINE=OLAP
     unique KEY(k1, k2, k3)
-    CLUSTER BY (`k13`)
+    ORDER BY (`k13`)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 1
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"

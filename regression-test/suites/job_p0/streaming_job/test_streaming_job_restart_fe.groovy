@@ -27,6 +27,7 @@ suite("test_streaming_job_restart_fe", "docker") {
 
     def options = new ClusterOptions()
     options.setFeNum(1)
+    options.cloudMode = null
     
     docker(options) {
         sql """drop table if exists `${tableName}` force"""
@@ -85,6 +86,13 @@ suite("test_streaming_job_restart_fe", "docker") {
             throw ex;
         }
 
+        // Capture LastTaskSuccessTime before restart to verify it survives editlog replay.
+        def lastSuccessBefore = sql """
+            select LastTaskSuccessTime from jobs("type"="insert") where Name='${jobName}'
+        """
+        assert lastSuccessBefore.get(0).get(0) != null && lastSuccessBefore.get(0).get(0) != "",
+                "LastTaskSuccessTime should be set before restart"
+
         sql """
             PAUSE JOB where jobname =  '${jobName}'
         """
@@ -96,8 +104,11 @@ suite("test_streaming_job_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
+        def loadStat = parseJson(jobInfo.get(0).get(2))
+        assert loadStat.scannedRows == 20
+        assert loadStat.loadBytes == 425
+        assert loadStat.fileNumber == 2
+        assert loadStat.fileSize == 256
 
         // Restart FE
         cluster.restartFrontends()
@@ -114,8 +125,18 @@ suite("test_streaming_job_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":2,\"fileSize\":256}"
+        def loadStatAfter = parseJson(jobInfo.get(0).get(2))
+        assert loadStatAfter.scannedRows == 20
+        assert loadStatAfter.loadBytes == 425
+        assert loadStatAfter.fileNumber == 2
+        assert loadStatAfter.fileSize == 256
+
+        // Verify LastTaskSuccessTime survived the FE restart (replayOnUpdated must copy it).
+        def lastSuccessAfter = sql """
+            select LastTaskSuccessTime from jobs("type"="insert") where Name='${jobName}'
+        """
+        assert lastSuccessAfter.get(0).get(0) != null && lastSuccessAfter.get(0).get(0) != "",
+                "LastTaskSuccessTime should survive FE restart, got: " + lastSuccessAfter.get(0).get(0)
 
         sql """ DROP JOB IF EXISTS where jobname =  '${jobName}' """
         sql """drop table if exists `${tableName}` force"""

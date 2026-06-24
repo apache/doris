@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `date` (
   `d_weekdayfl` int(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`d_datekey`)
-CLUSTER BY (`d_sellingseason`, `d_holidayfl`)
+ORDER BY (`d_sellingseason`, `d_holidayfl`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
 "enable_mow_light_delete" = "true",

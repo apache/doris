@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_information_schema_external", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_information_schema_external", "p0,external") {
     // test  schemata 、columns、files、metadata_name_ids、partitions、tables、views
     //files  partitions no imp 
 

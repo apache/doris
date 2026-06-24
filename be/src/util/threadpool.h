@@ -39,8 +39,8 @@
 #include <unordered_set>
 
 #include "agent/cgroup_cpu_ctl.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "util/metrics.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
 

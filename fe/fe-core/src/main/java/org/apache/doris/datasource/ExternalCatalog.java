@@ -17,15 +17,19 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -34,17 +38,15 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
-import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
@@ -53,20 +55,14 @@ import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.base.Objects;
@@ -81,6 +77,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -113,7 +110,11 @@ public abstract class ExternalCatalog
     public static final boolean DEFAULT_USE_META_CACHE = true;
 
     public static final String FOUND_CONFLICTING = "Found conflicting";
+    @Deprecated
+    // use LOWER_CASE_TABLE_NAMES instead
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
+    public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
+    public static final String LOWER_CASE_DATABASE_NAMES = "lower_case_database_names";
 
     // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
     public static final String OOS_ROOT_POLICY = "oss.root_policy";
@@ -134,6 +135,13 @@ public abstract class ExternalCatalog
 
     public static final String TEST_CONNECTION = "test_connection";
     public static final boolean DEFAULT_TEST_CONNECTION = false;
+
+    public static final String INCLUDE_DATABASE_LIST = "include_database_list";
+    public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
+    public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
+    public static final String META_NAMES_MAPPING = "meta_names_mapping";
+    // db1.tbl1,db2.tbl2,...
+    public static final String INCLUDE_TABLE_LIST = "include_table_list";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -170,6 +178,8 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
+    // Map lowercase database names to actual remote database names for case-insensitive lookup
+    private Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -197,6 +207,24 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Returns Hadoop-related properties as a plain Map.
+     * Connector plugins should use this instead of getConfiguration()
+     * and build their own Configuration internally when needed.
+     */
+    public Map<String, String> getHadoopProperties() {
+        Map<String, String> props = new java.util.HashMap<>(catalogProperty.getHadoopProperties());
+        if (ifNotSetFallbackToSimpleAuth()) {
+            props.putIfAbsent("ipc.client.fallback-to-simple-auth-allowed", "true");
+        }
+        return props;
+    }
+
+    /**
+     * @deprecated Use {@link #getHadoopProperties()} and build Configuration locally.
+     *             This method will be removed when connector SPI extraction is complete.
+     */
+    @Deprecated
     public Configuration getConfiguration() {
         // build configuration is costly, so we cache it.
         if (cachedConf != null) {
@@ -211,8 +239,23 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Builds a Hadoop Configuration from a properties map.
+     * Use this when you need a Configuration object from catalog properties.
+     */
+    public static Configuration buildHadoopConfiguration(Map<String, String> properties) {
+        Configuration conf = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
+
     private Configuration buildConf() {
-        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+        Configuration conf = new HdfsConfiguration();
+        if (ifNotSetFallbackToSimpleAuth()) {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
+        }
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
@@ -229,6 +272,20 @@ public abstract class ExternalCatalog
         if (metadataOps == null) {
             throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
         } else {
+            // Allow manual regression to isolate catalog-level metadata enumeration cost during collect.
+            if (DebugPointUtil.isEnable("ExternalCatalog.listDatabaseNames.sleep")) {
+                long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                        "ExternalCatalog.listDatabaseNames.sleep", "sleepMs", 0L);
+                if (sleepMs > 0) {
+                    LOG.info("debug point ExternalCatalog.listDatabaseNames.sleep hit for {}, sleep {}ms",
+                            getName(), sleepMs);
+                    try {
+                        Thread.sleep(sleepMs);
+                    } catch (InterruptedException ignore) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
             return metadataOps.listDatabaseNames();
         }
     }
@@ -262,7 +319,7 @@ public abstract class ExternalCatalog
 
     // we need check auth fallback for kerberos or simple
     public boolean ifNotSetFallbackToSimpleAuth() {
-        return catalogProperty.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
+        return catalogProperty.getOrDefault("ipc.client.fallback-to-simple-auth-allowed", "").isEmpty();
     }
 
     // Will be called when creating catalog(not replaying).
@@ -283,9 +340,29 @@ public abstract class ExternalCatalog
 
     /**
      * @param dbName
-     * @return names of tables in specified database
+     * @return names of tables in specified database, filtered by include_table_list if configured
      */
-    public abstract List<String> listTableNames(SessionContext ctx, String dbName);
+    public final List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
+        Map<String, List<String>> includeTableMap = getIncludeTableMap();
+        if (includeTableMap.containsKey(dbName) && !includeTableMap.get(dbName).isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get table list from include map. catalog: {}, db: {}, tables: {}",
+                        name, dbName, includeTableMap.get(dbName));
+            }
+            return includeTableMap.get(dbName);
+        }
+        return listTableNamesFromRemote(ctx, dbName);
+    }
+
+    /**
+     * Subclasses implement this method to list table names from the remote data source.
+     *
+     * @param ctx session context
+     * @param dbName database name
+     * @return names of tables in the specified database from the remote source
+     */
+    protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
 
     /**
      * check if the specified table exist.
@@ -364,7 +441,7 @@ public abstract class ExternalCatalog
             if (LOG.isDebugEnabled()) {
                 LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
             }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
@@ -468,6 +545,7 @@ public abstract class ExternalCatalog
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
 
+        lowerCaseToDatabaseName.clear();
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
         allDatabases = allDatabases.stream().filter(dbName -> {
@@ -485,11 +563,21 @@ public abstract class ExternalCatalog
 
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
+            // Populate lowercase mapping for case-insensitive lookups
+            lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
+            // Apply lower_case_database_names mode to local name
+            int dbNameMode = getLowerCaseDatabaseNames();
+            if (dbNameMode == 1) {
+                localDbName = localDbName.toLowerCase();
+            } else if (dbNameMode == 2) {
+                // Mode 2: preserve original remote case for display
+                localDbName = remoteDbName;
+            }
             remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
         }
 
-        // Check for conflicts when lower_case_meta_names = true
-        if (Boolean.parseBoolean(getLowerCaseMetaNames())) {
+        // Check for conflicts when lower_case_meta_names = true or lower_case_database_names = 2
+        if (Boolean.parseBoolean(getLowerCaseMetaNames()) || getLowerCaseDatabaseNames() == 2) {
             // Map to track lowercase local names and their corresponding remote names
             Map<String, List<String>> lowerCaseToRemoteNames = Maps.newHashMap();
 
@@ -534,13 +622,16 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        synchronized (this.confLock) {
-            this.cachedConf = null;
+    public void resetToUninitialized(boolean invalidCache) {
+        synchronized (this) {
+            this.objectCreated = false;
+            this.initialized = false;
+            synchronized (this.confLock) {
+                this.cachedConf = null;
+            }
+            this.lowerCaseToDatabaseName.clear();
+            onClose();
         }
-        onClose();
         onRefreshCache(invalidCache);
     }
 
@@ -553,7 +644,7 @@ public abstract class ExternalCatalog
         setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
     }
 
@@ -635,7 +726,7 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public TableNameInfo getTableNameByTableId(Long tableId) {
+    public List<String> getTableNameByTableId(long tableId) {
         throw new UnsupportedOperationException("External catalog does not support getTableNameByTableId() method."
                 + ", table id: " + tableId);
     }
@@ -652,19 +743,24 @@ public abstract class ExternalCatalog
             LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
             return null;
         }
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
 
         // information_schema db name is case-insensitive.
         // So, we first convert it to standard database name.
-        if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-            realDbName = InfoSchemaDb.DATABASE_NAME;
-        } else if (realDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
-            realDbName = MysqlDb.DATABASE_NAME;
+        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            dbName = InfoSchemaDb.DATABASE_NAME;
+        } else if (dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+            dbName = MysqlDb.DATABASE_NAME;
+        } else {
+            // Apply case-insensitive lookup for non-system databases
+            String localDbName = getLocalDatabaseName(dbName, false);
+            if (localDbName != null) {
+                dbName = localDbName;
+            }
         }
 
         // must use full qualified name to generate id.
         // otherwise, if 2 catalogs have the same db name, the id will be the same.
-        return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
+        return metaCache.getMetaObj(dbName, Util.genIdByName(name, dbName)).orElse(null);
     }
 
     @Nullable
@@ -767,7 +863,14 @@ public abstract class ExternalCatalog
         if (!isInitialized()) {
             return Optional.empty();
         }
-        return metaCache.tryGetMetaObj(dbName);
+
+        // Apply case-insensitive lookup with isReplay=true (no remote calls)
+        String localDbName = getLocalDatabaseName(dbName, true);
+        if (localDbName == null) {
+            localDbName = dbName;  // Fallback to original name
+        }
+
+        return metaCache.tryGetMetaObj(localDbName);
     }
 
     /**
@@ -844,10 +947,8 @@ public abstract class ExternalCatalog
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, localDbName, remoteDbName);
-            case ES:
-                return new EsExternalDatabase(this, dbId, localDbName, remoteDbName);
             case JDBC:
-                return new JdbcExternalDatabase(this, dbId, localDbName, remoteDbName);
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
                 return new IcebergExternalDatabase(this, dbId, localDbName, remoteDbName);
             case MAX_COMPUTE:
@@ -862,6 +963,8 @@ public abstract class ExternalCatalog
                 return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
             case REMOTE_DORIS:
                 return new RemoteDorisExternalDatabase(this, dbId, localDbName, remoteDbName);
+            case PLUGIN:
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }
@@ -889,6 +992,9 @@ public abstract class ExternalCatalog
         setDefaultPropsIfMissing(true);
         if (tableAutoAnalyzePolicy == null) {
             tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
+        if (this.lowerCaseToDatabaseName == null) {
+            this.lowerCaseToDatabaseName = Maps.newConcurrentMap();
         }
     }
 
@@ -996,6 +1102,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.renameTable(dbName, oldTableName, newTableName);
+            Env.getCurrentEnv().getConstraintManager().renameTable(
+                    new TableNameInfo(getName(), dbName, oldTableName),
+                    new TableNameInfo(getName(), dbName, newTableName));
             Env.getCurrentEnv().getEditLog()
                     .logRefreshExternalTable(
                             ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
@@ -1006,8 +1115,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean mustTemporary, boolean force) throws DdlException {
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());
@@ -1053,7 +1162,7 @@ public abstract class ExternalCatalog
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1061,11 +1170,38 @@ public abstract class ExternalCatalog
     }
 
     protected Map<String, Boolean> getIncludeDatabaseMap() {
-        return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
+        return getSpecifiedDatabaseMap(ExternalCatalog.INCLUDE_DATABASE_LIST);
     }
 
     protected Map<String, Boolean> getExcludeDatabaseMap() {
-        return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
+        return getSpecifiedDatabaseMap(ExternalCatalog.EXCLUDE_DATABASE_LIST);
+    }
+
+    protected Map<String, List<String>> getIncludeTableMap() {
+        Map<String, List<String>> includeTableMap = Maps.newHashMap();
+        String tableList = catalogProperty.getOrDefault(ExternalCatalog.INCLUDE_TABLE_LIST, "");
+        if (Strings.isNullOrEmpty(tableList)) {
+            return includeTableMap;
+        }
+        String[] parts = tableList.split(",");
+        for (String part : parts) {
+            String dbTbl = part.trim();
+            String[] splits = dbTbl.split("\\.");
+            if (splits.length != 2) {
+                LOG.warn("debug invalid include table list: {}, ignore", part);
+                continue;
+            }
+            String db = splits[0];
+            String tbl = splits[1];
+            List<String> tbls = includeTableMap.get(db);
+            if (tbls == null) {
+                includeTableMap.put(db, Lists.newArrayList());
+                tbls = includeTableMap.get(db);
+            }
+            tbls.add(tbl);
+        }
+        LOG.info("debug get include table map: {}", includeTableMap);
+        return includeTableMap;
     }
 
     private Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
@@ -1085,17 +1221,64 @@ public abstract class ExternalCatalog
         return specifiedDatabaseMap;
     }
 
-
     public String getLowerCaseMetaNames() {
-        return catalogProperty.getOrDefault(Resource.LOWER_CASE_META_NAMES, "false");
+        return catalogProperty.getOrDefault(LOWER_CASE_META_NAMES, "false");
     }
 
-    public int getOnlyTestLowerCaseTableNames() {
-        return Integer.parseInt(catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES, "0"));
+    @Override
+    public int getLowerCaseTableNames() {
+        return Integer.parseInt(catalogProperty.getOrDefault(LOWER_CASE_TABLE_NAMES,
+                catalogProperty.getOrDefault(ONLY_TEST_LOWER_CASE_TABLE_NAMES,
+                        String.valueOf(GlobalVariable.lowerCaseTableNames))));
+    }
+
+    /**
+     * Get the lower_case_database_names configuration value.
+     * Returns the mode for database name case handling:
+     * - 0: Case-sensitive (default)
+     * - 1: Database names are stored as lowercase
+     * - 2: Database name comparison is case-insensitive
+     */
+    @Override
+    public int getLowerCaseDatabaseNames() {
+        return Integer.parseInt(catalogProperty.getOrDefault(LOWER_CASE_DATABASE_NAMES, "0"));
     }
 
     public String getMetaNamesMapping() {
-        return catalogProperty.getOrDefault(Resource.META_NAMES_MAPPING, "");
+        return catalogProperty.getOrDefault(ExternalCatalog.META_NAMES_MAPPING, "");
+    }
+
+    /**
+     * Get the local database name based on the lower_case_database_names mode.
+     * Handles case-insensitive database lookup similar to ExternalDatabase.getLocalTableName().
+     */
+    @Nullable
+    private String getLocalDatabaseName(String dbName, boolean isReplay) {
+        String finalName = dbName;
+        int mode = getLowerCaseDatabaseNames();
+
+        if (mode == 1) {
+            // Mode 1: Store as lowercase
+            finalName = dbName.toLowerCase();
+        } else if (mode == 2) {
+            // Mode 2: Case-insensitive comparison
+            finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+            if (finalName == null && !isReplay) {
+                // Refresh database list and try again
+                try {
+                    getFilteredDatabaseNames();
+                    finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+                } catch (Exception e) {
+                    LOG.warn("Failed to refresh database list for catalog {}", getName(), e);
+                }
+            }
+            if (finalName == null && LOG.isDebugEnabled()) {
+                LOG.debug("Failed to get database name from: {}.{}, isReplay={}",
+                        getName(), dbName, isReplay);
+            }
+        }
+
+        return finalName;
     }
 
     public String bindBrokerName() {
@@ -1197,9 +1380,11 @@ public abstract class ExternalCatalog
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        resetToUninitialized(false);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            extMetaCacheMgr.removeCatalog(id);
         }
     }
 
@@ -1450,4 +1635,3 @@ public abstract class ExternalCatalog
         }
     }
 }
-

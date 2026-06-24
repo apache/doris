@@ -24,27 +24,23 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Cached manifest payload containing parsed files and an estimated weight.
+ * Cached manifest payload containing parsed files.
  */
 public class ManifestCacheValue {
     private final List<DataFile> dataFiles;
     private final List<DeleteFile> deleteFiles;
-    private final long weightBytes;
 
-    private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles, long weightBytes) {
+    private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
         this.dataFiles = dataFiles == null ? Collections.emptyList() : dataFiles;
         this.deleteFiles = deleteFiles == null ? Collections.emptyList() : deleteFiles;
-        this.weightBytes = weightBytes;
     }
 
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
-        return new ManifestCacheValue(dataFiles, Collections.emptyList(),
-                estimateWeight(dataFiles, Collections.emptyList()));
+        return new ManifestCacheValue(dataFiles, Collections.emptyList());
     }
 
     public static ManifestCacheValue forDeleteFiles(List<DeleteFile> deleteFiles) {
-        return new ManifestCacheValue(Collections.emptyList(), deleteFiles,
-                estimateWeight(Collections.emptyList(), deleteFiles));
+        return new ManifestCacheValue(Collections.emptyList(), deleteFiles);
     }
 
     public List<DataFile> getDataFiles() {
@@ -53,13 +49,5 @@ public class ManifestCacheValue {
 
     public List<DeleteFile> getDeleteFiles() {
         return deleteFiles;
-    }
-
-    public long getWeightBytes() {
-        return weightBytes;
-    }
-
-    private static long estimateWeight(List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
-        return ContentFileEstimator.estimate(dataFiles) + ContentFileEstimator.estimate(deleteFiles);
     }
 }

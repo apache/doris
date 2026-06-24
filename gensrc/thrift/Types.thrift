@@ -145,6 +145,7 @@ struct TScalarType {
 
     // Only set for VARIANT
     5: optional i32 variant_max_subcolumns_count = 0;
+    6: optional bool variant_enable_doc_mode = false;
 }
 
 // Represents a field in a STRUCT type.
@@ -249,7 +250,8 @@ enum TTaskType {
     PUSH_INDEX_POLICY = 35,
 
     // CLOUD
-    CALCULATE_DELETE_BITMAP = 1000
+    CALCULATE_DELETE_BITMAP = 1000,
+    MAKE_CLOUD_COMMITTED_RS_VISIBLE = 1001
 }
 
 // level of verboseness for "explain" output
@@ -283,6 +285,7 @@ struct TColumnType {
   4: optional i32 precision
   5: optional i32 scale
   6: optional i32 variant_max_subcolumns_count = 0;
+  7: optional bool variant_enable_doc_mode = false;
 }
 
 // A TNetworkAddress is the standard host, port representation of a
@@ -332,7 +335,9 @@ enum TFunctionBinaryType {
 
   JAVA_UDF = 5,
 
-  AGG_STATE = 6
+  AGG_STATE = 6,
+
+  PYTHON_UDF = 7
 }
 
 // Represents a fully qualified function name.
@@ -408,6 +413,8 @@ struct TFunction {
   15: optional bool is_static_load = false
   16: optional i64 expiration_time //minutes
   17: optional TDictFunction dict_function
+  18: optional string runtime_version
+  19: optional string function_code
 }
 
 enum TJdbcOperation {
@@ -680,6 +687,7 @@ struct TReplicaInfo {
     5: required TReplicaId replica_id
     6: optional bool is_alive
     7: optional i64 backend_id
+    8: optional string cloud_compute_group_id
 }
 
 struct TResourceInfo {
@@ -720,6 +728,7 @@ enum TLoadSourceType {
     RAW = 0,
     KAFKA = 1,
     MULTI_TABLE = 2,
+    KINESIS = 3,
 }
 
 enum TMergeType {
@@ -754,6 +763,7 @@ enum TMetadataType {
   HUDI = 11,
   PAIMON = 12,
   PARQUET = 13,
+  STREAMS = 14,
 }
 
 // deprecated

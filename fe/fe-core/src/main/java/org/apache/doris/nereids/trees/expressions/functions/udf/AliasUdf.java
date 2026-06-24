@@ -17,10 +17,11 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -42,23 +43,15 @@ import java.util.stream.Collectors;
  * alias function
  */
 public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignature {
-    private final UnboundFunction unboundFunction;
+    private final Expression unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
     private final Map<String, String> sessionVariables;
 
     /**
-     * constructor
-     */
-    public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
-            List<String> parameters, Expression... arguments) {
-        this(name, argTypes, unboundFunction, parameters, null, arguments);
-    }
-
-    /**
      * constructor with session variables
      */
-    public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
+    public AliasUdf(String name, List<DataType> argTypes, Expression unboundFunction,
             List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
         super(name, arguments);
         this.argTypes = argTypes;
@@ -76,7 +69,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return parameters;
     }
 
-    public UnboundFunction getUnboundFunction() {
+    public Expression getUnboundFunction() {
         return unboundFunction;
     }
 
@@ -97,7 +90,8 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
      * translate catalog alias function to nereids alias function
      */
     public static void translateToNereidsFunction(String dbName, AliasFunction function) {
-        String functionSql = function.getOriginFunction().toSqlWithoutTbl();
+        String functionSql = function.getOriginFunction().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
         Map<String, String> sessionVariables = function.getSessionVariables();
         Expression parsedFunction;
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ConnectContext.get(),
@@ -107,7 +101,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
-                ((UnboundFunction) parsedFunction),
+                parsedFunction,
                 function.getParameters(),
                 sessionVariables);
 

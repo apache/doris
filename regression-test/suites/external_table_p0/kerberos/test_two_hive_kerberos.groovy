@@ -20,7 +20,7 @@ import groovyjarjarantlr4.v4.codegen.model.ExceptionClause
 import org.junit.Assert;
 import java.util.concurrent.*
 
-suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+suite("test_two_hive_kerberos", "p0,external") {
     def command = "sudo docker ps"
     def process = command.execute() 
     process.waitFor()               

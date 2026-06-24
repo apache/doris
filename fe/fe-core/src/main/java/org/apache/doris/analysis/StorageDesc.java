@@ -19,10 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 
@@ -35,7 +38,7 @@ import java.util.Map;
  *        |
  *  The broker's StorageBackend.StorageType desc
  */
-public class StorageDesc extends ResourceDesc {
+public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
 
     @Deprecated
     @SerializedName("st")
@@ -54,10 +57,18 @@ public class StorageDesc extends ResourceDesc {
         initStorageProperties();
     }
 
-    private void initStorageProperties() {
+    protected void initStorageProperties() {
+        if (storageProperties != null) {
+            return;
+        }
+        if (properties == null) {
+            properties = new HashMap<>();
+        }
         if (null != storageType && storageType.equals(StorageBackend.StorageType.BROKER)) {
             this.storageProperties = BrokerProperties.of(name, properties);
-        } else {
+            return;
+        }
+        if (!properties.isEmpty()) {
             this.storageProperties = StorageProperties.createPrimary(properties);
         }
     }
@@ -87,6 +98,7 @@ public class StorageDesc extends ResourceDesc {
     }
 
     public Map<String, String> getBackendConfigProperties() {
+        initStorageProperties();
         if (null == storageProperties) {
             return properties;
         }
@@ -94,6 +106,12 @@ public class StorageDesc extends ResourceDesc {
     }
 
     public StorageProperties getStorageProperties() {
+        initStorageProperties();
         return storageProperties;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        initStorageProperties();
     }
 }

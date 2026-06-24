@@ -38,8 +38,6 @@ suite("test_row_policy") {
     }
 
     connect(user, '123456', url) {
-        sql "set enable_nereids_planner = true"
-        sql "set enable_fallback_to_original_planner = false"
         sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"
     }
 

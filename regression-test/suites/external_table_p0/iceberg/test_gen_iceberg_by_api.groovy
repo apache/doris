@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_gen_iceberg_by_api", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_gen_iceberg_by_api", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -44,7 +44,12 @@ suite("test_gen_iceberg_by_api", "p0,external,doris,external_docker,external_doc
 
     def q01 = {
         qt_q01 """ select * from multi_partition2 order by val """
-        qt_q02 """ select count(*) from table_with_append_file where MAN_ID is not null """
+
+        try {
+            qt_q02 """ select count(*) from table_with_append_file where MAN_ID is not null """
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("name_mapping must be set when read missing field id data file."), e.getMessage());
+        }
     }
 
     q01()

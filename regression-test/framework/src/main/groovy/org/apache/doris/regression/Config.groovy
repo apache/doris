@@ -1148,18 +1148,18 @@ class Config {
 
     boolean isClusterKeyEnabled() {
         try {
-            def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'random_add_cluster_keys_for_mow'")
-            log.info("show random_add_cluster_keys_for_mow config: ${result}".toString())
+            def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'random_add_order_by_keys_for_mow'")
+            log.info("show random_add_order_by_keys_for_mow config: ${result}".toString())
             return result[0].Value.toString().equalsIgnoreCase("true")
         } catch (Throwable t) {
-            log.warn("Fetch server config 'random_add_cluster_keys_for_mow' failed, jdbcUrl: ${jdbcUrl}".toString(), t)
+            log.warn("Fetch server config 'random_add_order_by_keys_for_mow' failed, jdbcUrl: ${jdbcUrl}".toString(), t)
             return false
         }
     }
 
     void excludeUnsupportedCase() {
         boolean isCKEnabled = isClusterKeyEnabled()
-        log.info("random_add_cluster_keys_for_mow in fe.conf: ${isCKEnabled}".toString())
+        log.info("random_add_order_by_keys_for_mow in fe.conf: ${isCKEnabled}".toString())
         if (isCKEnabled) {
             excludeDirectorySet.add("unique_with_mow_p0/partial_update")
             excludeDirectorySet.add("unique_with_mow_p0/flexible")

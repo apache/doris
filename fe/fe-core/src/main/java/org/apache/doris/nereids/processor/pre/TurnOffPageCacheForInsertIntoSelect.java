@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -69,8 +69,8 @@ public class TurnOffPageCacheForInsertIntoSelect extends PlanPreprocessor {
     }
 
     @Override
-    public Plan visitLogicalJdbcTableSink(
-            LogicalJdbcTableSink<? extends Plan> tableSink, StatementContext context) {
+    public Plan visitLogicalMaxComputeTableSink(
+            LogicalMaxComputeTableSink<? extends Plan> tableSink, StatementContext context) {
         turnOffPageCache(context);
         return tableSink;
     }

@@ -60,7 +60,7 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
             `v1` variant<properties("variant_enable_doc_mode" = "false")> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "deprecated_variant_enable_flatten_nested" = "true");
     """ 
     sql """insert into test_predefine1 values(1, '{"predefine_col1" : 1024}')"""
     sql """insert into test_predefine1 values(2, '{"predefine_col2" : 1.11111}')"""
@@ -219,7 +219,7 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
             `id` bigint NOT NULL,
             `v` variant<'nested.a':string> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");"""
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "deprecated_variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");"""
 
     // test alter nested no effect at present
     sql "truncate table test_predefine3"
@@ -268,7 +268,6 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
     "store_row_column" = "true",
     "row_store_page_size" = "16384",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
     "group_commit_data_bytes" = "134217728"
     );

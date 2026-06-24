@@ -17,7 +17,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## 🌍 Read this in other languages
+## 🌍 Read this in other language
 
 [English](README.md) • [العربية](docs/ar-SA/README.md) • [বাংলা](docs/bn-BD/README.md) • [Deutsch](docs/de-DE/README.md) • [Español](docs/es-ES/README.md) • [فارسی](docs/fa-IR/README.md) • [Français](docs/fr-FR/README.md) • [हिन्दी](docs/hi-IN/README.md) • [Bahasa Indonesia](docs/id-ID/README.md) • [Italiano](docs/it-IT/README.md) • [日本語](docs/ja-JP/README.md) • [한국어](docs/ko-KR/README.md) • [Polski](docs/pl-PL/README.md) • [Português](docs/pt-BR/README.md) • [Română](docs/ro-RO/README.md) • [Русский](docs/ru-RU/README.md) • [Slovenščina](docs/sl-SI/README.md) • [ไทย](docs/th-TH/README.md) • [Türkçe](docs/tr-TR/README.md) • [Українська](docs/uk-UA/README.md) • [Tiếng Việt](docs/vi-VN/README.md) • [简体中文](docs/zh-CN/README.md) • [繁體中文](docs/zh-TW/README.md)
 
@@ -237,19 +237,19 @@ Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://gi
 
 ### 📚 Docs
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
+All Documentation: 🔗[Docs](https://doris.apache.org/docs/gettingStarted/what-is-apache-doris)  
 
 ### ⬇️ Download 
 
-All release and binary version 🔗[Download](https://doris.apache.org/download) 
+All release and binary versions: 🔗[Download](https://doris.apache.org/download) 
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker))
+See how to compile: 🔗[Compilation](https://doris.apache.org/community/source-install/compilation-with-docker)
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/preparation/env-checking) 
+See how to install and deploy: 🔗[Installation and deployment](https://doris.apache.org/docs/install/preparation/env-checking) 
 
 ## 🧩 Components
 
@@ -274,7 +274,7 @@ If you meet any questions, feel free to file a 🔗[GitHub Issue](https://github
 
 ### 🍻 How to Contribute
 
-We welcome your suggestions, comments (including criticisms), comments and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
+We welcome your suggestions, comments (including criticisms) and contributions. See 🔗[How to Contribute](https://doris.apache.org/community/how-to-contribute/) and 🔗[Code Submission Guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
 
 ### ⌨️ Doris Improvement Proposals (DSIP)
 
@@ -305,7 +305,6 @@ Contact us through the following mailing list.
 
 > **Note**
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
-some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
-
+some Doris features to comply with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
 
 

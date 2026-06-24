@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
+suite("test_hdfs_parquet_group0", "p0,external") {
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -171,7 +171,7 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                 sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet"); """
                 exception "[IO_ERROR]Out-of-bounds Access"
             }
 
@@ -328,7 +328,7 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                 sql """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
+                        "format" = "parquet"); """
                 exception "Out-of-bounds access in parquet data decoder"
             }
 

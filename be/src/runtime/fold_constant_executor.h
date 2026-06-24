@@ -25,12 +25,11 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "exprs/aggregate/aggregate_function.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -54,10 +53,9 @@ private:
     template <typename Context>
     Status _prepare_and_open(Context* ctx);
 
-    Status _get_result(void* src, size_t size, const vectorized::DataTypePtr& type,
-                       vectorized::ColumnPtr column_ptr, vectorized::DataTypePtr column_type,
-                       std::string& result,
-                       const vectorized::DataTypeSerDe::FormatOptions& options);
+    Status _get_result(void* src, size_t size, const DataTypePtr& type, ColumnPtr column_ptr,
+                       DataTypePtr column_type, std::string& result,
+                       const DataTypeSerDe::FormatOptions& options);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

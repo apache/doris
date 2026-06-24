@@ -93,8 +93,10 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
         } else {
-            doBeforeCommit();
             summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
+            long t0 = System.currentTimeMillis();
+            doBeforeCommit();
+            long t1 = System.currentTimeMillis();
             if (table instanceof ExternalTable) {
                 try {
                     ExternalTable externalTable = (ExternalTable) table;
@@ -111,11 +113,15 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             } else {
                 transactionManager.commit(txnId);
             }
-            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
+            long t2 = System.currentTimeMillis();
 
             // Handle post-commit operations (e.g., cache refresh)
             doAfterCommit();
+            long t3 = System.currentTimeMillis();
+            LOG.info("Transaction commit breakdown: doBeforeCommit={}ms, commit={}ms, doAfterCommit={}ms, total={}ms",
+                    t1 - t0, t2 - t1, t3 - t2, t3 - t0);
+            summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
         }
     }
 

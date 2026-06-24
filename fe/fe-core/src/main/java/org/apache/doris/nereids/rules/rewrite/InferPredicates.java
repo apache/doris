@@ -97,23 +97,32 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         }
         Plan left = join.left();
         Plan right = join.right();
-        Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
+        Set<Expression> expressions;
+        if (join.getJoinType().isAsofJoin()) {
+            expressions = getAllExpressions(left, right, ExpressionUtils.optionalAnd(join.getHashJoinConjuncts()));
+        } else {
+            expressions = getAllExpressions(left, right, join.getOnClauseCondition());
+        }
         switch (join.getJoinType()) {
             case CROSS_JOIN:
                 left = inferNewPredicate(left, expressions);
                 right = inferNewPredicate(right, expressions);
                 break;
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case LEFT_SEMI_JOIN:
             case RIGHT_SEMI_JOIN:
                 left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
                 right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
                 break;
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
                 right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
             case RIGHT_ANTI_JOIN:
                 left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
                 break;
@@ -209,6 +218,14 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
+            if (expr.containsVolatileExpression()) {
+                // Volatile expressions (e.g. rand(), uuid()) must not be cloned into
+                // subtrees that did not already evaluate them. Otherwise, callers that perform
+                // slot substitution (e.g. SetOp visitors below) would introduce a fresh
+                // per-row evaluation of the volatile expression on a sibling branch, changing
+                // query semantics (see EXCEPT/INTERSECT regression cases).
+                continue;
+            }
             Set<Slot> slots = expr.getInputSlots();
             if (!slots.isEmpty() && planOutputs.containsAll(slots)) {
                 predicates.add(expr);
@@ -233,6 +250,11 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
+            if (expr.containsVolatileExpression()) {
+                // See inferNewPredicate for rationale: never clone volatile
+                // predicates into a subtree that did not already evaluate them.
+                continue;
+            }
             Set<Slot> slots = expr.getInputSlots();
             if (slots.isEmpty() || !planOutputs.containsAll(slots)) {
                 continue;

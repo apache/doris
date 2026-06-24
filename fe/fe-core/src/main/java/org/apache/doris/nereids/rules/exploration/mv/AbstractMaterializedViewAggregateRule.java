@@ -23,7 +23,6 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.rules.exploration.mv.rollup.ContainDistinctFunct
 import org.apache.doris.nereids.rules.exploration.mv.rollup.DirectRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.MappingRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.SingleCombinatorRollupHandler;
-import org.apache.doris.nereids.rules.rewrite.EliminateGroupByKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -59,7 +57,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -124,7 +121,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryTopPlan,
                     materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
-                    queryStructInfo.getTableBitSet(),
                     ImmutableMap.of(), cascadesContext);
             boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {
@@ -264,7 +260,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
             }
             LogicalRepeat<Plan> repeat = new LogicalRepeat<>(rewrittenGroupSetsExpressions,
-                    finalOutputExpressions, queryStructInfo.getGroupingId().get(), tempRewritedPlan);
+                    finalOutputExpressions, queryStructInfo.getGroupingId().get(),
+                    queryAggregate.getSourceRepeat().get().getRepeatType(), tempRewritedPlan);
             return NormalizeRepeat.doNormalize(repeat);
         }
         return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
@@ -314,11 +311,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             MaterializationContext materializationContext, String summaryIfFail, Supplier<String> detailIfFail) {
         Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                 queryExpression,
-                queryStructInfo.getTopPlan(),
-                queryStructInfo.getTableBitSet());
+                queryStructInfo.getTopPlan());
         AggregateExpressionRewriteContext expressionRewriteContext = new AggregateExpressionRewriteContext(
                 rewriteMode, mvShuttledExprToMvScanExprQueryBased, queryStructInfo.getTopPlan(),
-                queryStructInfo.getTableBitSet(), queryStructInfo.getGroupingId());
+                queryStructInfo.getGroupingId());
         Expression rewrittenExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
                 expressionRewriteContext);
         if (!expressionRewriteContext.isValid()) {
@@ -358,7 +354,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         boolean canUnionRewrite = false;
         // Check the query plan group by expression contains partition col or not
         List<? extends Expression> groupByShuttledExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan, new BitSet());
+                ExpressionUtils.shuttleExpressionWithLineage(groupByExpressions, queryPlan);
         for (Expression expression : groupByShuttledExpressions) {
             canUnionRewrite = !expression.collectToSet(expr -> {
                 if (!(expr instanceof SlotReference) || !((SlotReference) expr).isColumnFromTable()) {
@@ -431,13 +427,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         LogicalAggregate<Plan> viewAggregate = viewTopPlanAndAggPair.value();
 
         Set<Expression> queryGroupByShuttledExpression = new HashSet<>(ExpressionUtils.shuttleExpressionWithLineage(
-                queryAggregate.getGroupByExpressions(), queryTopPlan, queryStructInfo.getTableBitSet()));
+                queryAggregate.getGroupByExpressions(), queryTopPlan));
 
         // try to eliminate group by dimension by function dependency if group by expression is not in query
         Map<Expression, Expression> viewShuttledExpressionQueryBasedToGroupByExpressionMap = new HashMap<>();
         List<Expression> viewGroupByExpressions = viewAggregate.getGroupByExpressions();
         List<? extends Expression> viewGroupByShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                viewGroupByExpressions, viewTopPlan, viewStructInfo.getTableBitSet());
+                viewGroupByExpressions, viewTopPlan);
 
         for (int index = 0; index < viewGroupByExpressions.size(); index++) {
             Expression viewExpression = viewGroupByExpressions.get(index);
@@ -527,74 +523,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             }
         }
         return true;
-    }
-
-    /**
-     * Check group by is equal or not after group by eliminate by functional dependency
-     * Such as query is select l_orderdate, l_supperkey, count(*) from table group by l_orderdate, l_supperkey;
-     * materialized view is select l_orderdate, l_supperkey, l_partkey count(*) from table
-     * group by l_orderdate, l_supperkey, l_partkey;
-     * Would check the extra l_partkey is can be eliminated by functional dependency.
-     * The process step and  data is as following:
-     * group by expression is (l_orderdate#1, l_supperkey#2)
-     * materialized view is group by expression is (l_orderdate#4, l_supperkey#5, l_partkey#6)
-     * materialized view expression mapping is
-     * {l_orderdate#4:l_orderdate#10, l_supperkey#5:l_supperkey#11, l_partkey#6:l_partkey#12}
-     * 1. viewShuttledExpressionQueryBasedToGroupByExpressionMap
-     * is {l_orderdate#1:l_orderdate#10,  l_supperkey#2:l_supperkey#11}
-     * groupByExpressionToViewShuttledExpressionQueryBasedMap
-     * is {l_orderdate#10:l_orderdate#1,  l_supperkey#11:l_supperkey#2:}
-     * 2. construct projects query used by view group expressions
-     * projects (l_orderdate#10, l_supperkey#11)
-     * 3. try to eliminate materialized view group expression
-     * projects (l_orderdate#10, l_supperkey#11)
-     * viewAggregate
-     * 4. check the viewAggregate group by expression is equals queryAggregate expression or not
-     */
-    private static boolean isGroupByEqualsAfterGroupByEliminate(Set<Expression> queryGroupByShuttledExpression,
-            Map<Expression, Expression> viewShuttledExpressionQueryBasedToGroupByExpressionMap,
-            Map<Expression, Expression> groupByExpressionToViewShuttledExpressionQueryBasedMap,
-            LogicalAggregate<Plan> viewAggregate,
-            CascadesContext cascadesContext) {
-        List<NamedExpression> viewProjects = new ArrayList<>();
-        // construct viewProjects query used by view group expressions
-        for (Expression expression : queryGroupByShuttledExpression) {
-            Expression chosenExpression = viewShuttledExpressionQueryBasedToGroupByExpressionMap.get(expression);
-            if (chosenExpression == null) {
-                return false;
-            }
-            viewProjects.add(chosenExpression instanceof NamedExpression
-                    ? (NamedExpression) chosenExpression : new Alias(chosenExpression));
-        }
-        LogicalProject<LogicalAggregate<Plan>> viewProject = new LogicalProject<>(viewProjects, viewAggregate);
-        // try to eliminate view group by expression which is not in query group by expression
-        Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                childContext -> {
-                    Rewriter.getCteChildrenRewriter(childContext,
-                            ImmutableList.of(Rewriter.topDown(new EliminateGroupByKey()))).execute();
-                    return childContext.getRewritePlan();
-                }, viewProject, viewProject, false);
-
-        Optional<LogicalAggregate<Plan>> viewAggreagateOptional =
-                rewrittenPlan.collectFirst(LogicalAggregate.class::isInstance);
-        if (!viewAggreagateOptional.isPresent()) {
-            return false;
-        }
-        // check result after view group by eliminate by functional dependency
-        List<Expression> viewEliminatedGroupByExpressions = viewAggreagateOptional.get().getGroupByExpressions();
-        if (viewEliminatedGroupByExpressions.size() != queryGroupByShuttledExpression.size()) {
-            return false;
-        }
-        Set<Expression> viewGroupShuttledExpressionQueryBased = new HashSet<>();
-        for (Expression viewExpression : viewAggreagateOptional.get().getGroupByExpressions()) {
-            Expression viewExpressionQueryBased =
-                    groupByExpressionToViewShuttledExpressionQueryBasedMap.get(viewExpression);
-            if (viewExpressionQueryBased == null) {
-                return false;
-            }
-            viewGroupShuttledExpressionQueryBased.add(viewExpressionQueryBased);
-        }
-        return queryGroupByShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
     }
 
     /**
@@ -712,8 +640,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             if (ExpressionRewriteMode.EXPRESSION_ROLL_UP.equals(rewriteContext.getExpressionRewriteMode())) {
                 Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                         aggregateFunction,
-                        rewriteContext.getQueryTopPlan(),
-                        rewriteContext.getQueryTableBitSet());
+                        rewriteContext.getQueryTopPlan());
                 rewrittenFunction = rollup(aggregateFunction, queryFunctionShuttled,
                         rewriteContext.getMvExprToMvScanExprQueryBasedMapping());
                 if (rewrittenFunction == null) {
@@ -788,16 +715,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         private final ExpressionRewriteMode expressionRewriteMode;
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
-        private final BitSet queryTableBitSet;
         private final Optional<SlotReference> groupingId;
 
         public AggregateExpressionRewriteContext(ExpressionRewriteMode expressionRewriteMode,
                 Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan,
-                BitSet queryTableBitSet, Optional<SlotReference> groupingId) {
+                                                 Optional<SlotReference> groupingId) {
             this.expressionRewriteMode = expressionRewriteMode;
             this.mvExprToMvScanExprQueryBasedMapping = mvExprToMvScanExprQueryBasedMapping;
             this.queryTopPlan = queryTopPlan;
-            this.queryTableBitSet = queryTableBitSet;
             this.groupingId = groupingId;
         }
 
@@ -819,10 +744,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         public Plan getQueryTopPlan() {
             return queryTopPlan;
-        }
-
-        public BitSet getQueryTableBitSet() {
-            return queryTableBitSet;
         }
 
         public Optional<SlotReference> getGroupingId() {

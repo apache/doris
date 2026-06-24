@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
@@ -59,6 +60,7 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getVirtualColumns(),
                 physicalOlapScan.getScoreOrderKeys(),
                 physicalOlapScan.getScoreLimit(),
+                physicalOlapScan.getScoreRangeInfo(),
                 physicalOlapScan.getAnnOrderKeys(),
                 physicalOlapScan.getAnnLimit()
         );
@@ -74,9 +76,13 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.<Slot>builder()
-                .addAll(scan.getOperativeSlots())
-                .add(rowId).build();
+        ImmutableList.Builder<Slot> output = ImmutableList.builder();
+        for (Slot slot : scan.getOutput()) {
+            if (!lazySlots.contains(slot)) {
+                output.add(slot);
+            }
+        }
+        return output.add(rowId).build();
     }
 
     public PhysicalOlapScan getScan() {
@@ -113,7 +119,7 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
     @Override
     public PhysicalLazyMaterializeOlapScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalLazyMaterializeOlapScan(scan, rowId, lazySlots);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterializeOlapScan(scan, rowId, lazySlots));
     }
 
     public SlotReference getRowId() {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_tvf_parquet_compress", "p0,external,external_docker") {
+suite("test_s3_tvf_parquet_compress", "p0,external") {
 //parquet data page v2 test 
 
 

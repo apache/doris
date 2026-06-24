@@ -69,6 +69,7 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SALT_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PULL_UP_PROJECT_EXPR_UNDER_TOPN.ordinal());
     }
 
     /**
@@ -88,11 +89,9 @@ public class PreMaterializedViewRewriter {
         Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());
-        // Calc the table id set which is used by physical plan
-        cascadesContext.getMemo().incrementAndGetRefreshVersion();
         // Extract logical plan by table id set by the corresponding best physical plan
         StructInfo structInfo = root.getStructInfoMap().getStructInfo(cascadesContext,
-                chosenMaterializationAndUsedTable.value(), root, null, true);
+                chosenMaterializationAndUsedTable.value(), root, null, true, false);
         if (structInfo == null) {
             LOG.error("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());

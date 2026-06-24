@@ -51,9 +51,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     // For ReportHandler
     private List<TTabletMetaInfo> tabletMetaInfos;
     // < 0 means not to update property, > 0 means true, == 0 means false
-    private int enableSingleReplicaCompaction = -1;
     private int skipWriteIndexOnLoad = -1;
     private int disableAutoCompaction = -1;
+    private int verticalCompactionNumColumnsPerGroup = -1;
 
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
@@ -87,15 +87,15 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch,
                                     String compactionPolicy,
                                     Map<String, Long> timeSeriesCompactionConfig,
-                                    int enableSingleReplicaCompaction,
                                     int skipWriteIndexOnLoad,
-                                    int disableAutoCompaction) {
+                                    int disableAutoCompaction,
+                                    int verticalCompactionNumColumnsPerGroup) {
         this(backendId, tableIdWithSchemaHash, inMemory, storagePolicyId, binlogConfig, latch);
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionConfig = timeSeriesCompactionConfig;
-        this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
         this.disableAutoCompaction = disableAutoCompaction;
+        this.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
     }
 
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
@@ -170,14 +170,14 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
                     }
                 }
-                if (enableSingleReplicaCompaction >= 0) {
-                    metaInfo.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction > 0);
-                }
                 if (skipWriteIndexOnLoad >= 0) {
                     metaInfo.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad > 0);
                 }
                 if (disableAutoCompaction >= 0) {
                     metaInfo.setDisableAutoCompaction(disableAutoCompaction > 0);
+                }
+                if (verticalCompactionNumColumnsPerGroup >= 0) {
+                    metaInfo.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

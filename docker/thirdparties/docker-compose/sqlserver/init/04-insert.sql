@@ -123,3 +123,12 @@ insert into dbo.extreme_test_multi_block select * from dbo.extreme_test_multi_bl
 insert into dbo.extreme_test_multi_block select * from dbo.extreme_test;
 
 INSERT INTO dbo.test_identity_decimal(col) select 1;
+
+-- Data for testing handleSQLServerDateFormat predicate pushdown
+-- Rows have different date and datetime values to verify filter correctness
+Insert into dbo.test_date_filter values
+(1, '2023-01-17', '2023-01-17 10:30:00', '2023-01-17 10:30:00.123'),
+(2, '2023-06-25', '2023-06-25 14:30:45', '2023-06-25 14:30:45.456789'),
+(3, '2024-12-31', '2024-12-31 23:59:59', '2024-12-31 23:59:59.999'),
+(4, '2023-01-17', '2023-01-17 08:00:00', '2023-01-17 08:00:00'),
+(5, '2025-03-15', '2025-03-15 12:00:00', '2025-03-15 12:00:00.500');

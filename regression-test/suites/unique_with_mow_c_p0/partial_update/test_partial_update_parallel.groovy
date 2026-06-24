@@ -28,7 +28,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`)
-                CLUSTER BY(`name`, `score`) 
+                ORDER BY(`name`, `score`) 
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """
@@ -137,7 +137,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`)
-                CLUSTER BY(`score`, `name`) 
+                ORDER BY(`score`, `name`) 
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "store_row_column" = "true")
     """
@@ -248,7 +248,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`)
-                CLUSTER BY(`test`, `score`) 
+                ORDER BY(`test`, `score`) 
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1", 
@@ -366,7 +366,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`)
-                CLUSTER BY(`score`) 
+                ORDER BY(`score`) 
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1", 
@@ -483,7 +483,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`)
-                CLUSTER BY(`test`, `score`, `dft`) 
+                ORDER BY(`test`, `score`, `dft`) 
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """

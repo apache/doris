@@ -25,4 +25,8 @@ public class QuotaExceedException extends UserException {
         super("Database[" + databaseName + "] data size exceeds quota["
                 + DebugUtil.printByteWithUnit(dataQuotaBytes) + "]");
     }
+
+    public QuotaExceedException(String msg) {
+        super(msg);
+    }
 }

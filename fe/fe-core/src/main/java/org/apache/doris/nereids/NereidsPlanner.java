@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -33,6 +32,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
@@ -85,6 +86,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
 
@@ -99,9 +101,12 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -127,6 +132,7 @@ public class NereidsPlanner extends Planner {
     private DescriptorTable descTable;
 
     private FragmentIdMapping<DistributedPlan> distributedPlans;
+    private PlanTranslatorContext planTranslatorContext;
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
@@ -175,6 +181,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.info(getExplainString(new ExplainOptions(ExplainLevel.SHAPE_PLAN, false)));
             LOG.info(getExplainString(new ExplainOptions(ExplainLevel.DISTRIBUTED_PLAN, false)));
+        }
+        if (physicalPlan != null) {
+            QueryStatsRecorder.record(physicalPlan, statementContext);
         }
     }
 
@@ -316,8 +325,25 @@ public class NereidsPlanner extends Planner {
                 LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
             }
         }
-        int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-        PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
+                .getSessionVariable().getRequiredGroupIds();
+        PhysicalPlan physicalPlan;
+        if (!requiredGroupIds.isEmpty()) {
+            Map<Group, Set<Integer>> reachableCache = new HashMap<>();
+            computeReachableGroupIds(getRoot(), reachableCache);
+            // Validate all required groups are reachable from root
+            Set<Integer> rootReachable = reachableCache.get(getRoot());
+            Set<Integer> unreachable = new HashSet<>(requiredGroupIds);
+            unreachable.removeAll(rootReachable);
+            if (!unreachable.isEmpty()) {
+                throw new AnalysisException("Required group IDs not found in memo: " + unreachable);
+            }
+            physicalPlan = chooseBestPlanWithRequiredGroups(
+                    getRoot(), requireProperties, requiredGroupIds, reachableCache);
+        } else {
+            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
+            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        }
 
         physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -395,7 +421,35 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true).collect());
+        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
+        // Read the preload result produced by the collect-phase rule before taking internal table locks.
+        ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()
+                .orElse(ExternalMetadataPreloadResult.skipped(
+                        statementContext.getExternalTablePreloadCandidateCount(), "preload rule did not run"));
+        // Record preload timing in the query profile as a dedicated planner sub-stage.
+        if (statementContext.getConnectContext().getExecutor() != null && preloadResult.isExecuted()) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .addNereidsPreloadExternalMetadataTime(preloadResult.getElapsedTimeMs());
+        }
+        // Keep a concise debug summary for the entire preload phase.
+        if (LOG.isDebugEnabled()) {
+            if (preloadResult.isExecuted()) {
+                LOG.debug("{} preloaded external metadata for {} of {} candidate tables in {} ms",
+                        statementContext.getConnectContext().getQueryIdentifier(),
+                        preloadResult.getPreloadedTableCount(),
+                        preloadResult.getCandidateTableCount(),
+                        preloadResult.getElapsedTimeMs());
+            } else {
+                LOG.debug("{} skip external metadata preload before lock: {} [candidateTableCount={}]",
+                        statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getSkipReason(),
+                        preloadResult.getCandidateTableCount());
+            }
+        }
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            // Track only the actual lock() call here so the dedicated preload stage is not double counted.
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsLockTableStartTime(TimeUtils.getStartTimeMs());
+        }
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
         NereidsTracer.logImportantTime("EndCollectAndLockTables");
@@ -412,7 +466,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
+        statementContext.getPlannerHooks().forEach(hook -> hook.beforeAnalyze(this));
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
+        statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -580,7 +636,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
@@ -686,6 +742,19 @@ public class NereidsPlanner extends Planner {
 
         splitFragments(physicalPlan);
         doDistribute(canUseNereidsDistributePlanner, explainLevel);
+
+        addLocalExchangeAfterDistribute();
+    }
+
+    private void addLocalExchangeAfterDistribute() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        if (!sessionVariable.isEnableLocalShufflePlanner() || !sessionVariable.isEnableLocalShuffle()) {
+            return;
+        }
+        AddLocalExchange adder = new AddLocalExchange();
+        if (distributedPlans != null && !distributedPlans.isEmpty()) {
+            adder.addLocalExchange(distributedPlans, planTranslatorContext);
+        }
     }
 
     protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
@@ -795,6 +864,129 @@ public class NereidsPlanner extends Planner {
             LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
             throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Memoized bottom-up DFS: compute all group IDs reachable from this group's subtree
+     * through physical GroupExpressions (including enforcers).
+     */
+    private static Set<Integer> computeReachableGroupIds(Group group, Map<Group, Set<Integer>> cache) {
+        Set<Integer> cached = cache.get(group);
+        if (cached != null) {
+            return cached;
+        }
+        Set<Integer> reachable = new HashSet<>();
+        reachable.add(group.getGroupId().asInt());
+        // Put in cache BEFORE recursing to break cycles (enforcers reference the same group)
+        cache.put(group, reachable);
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            for (Group child : ge.children()) {
+                reachable.addAll(computeReachableGroupIds(child, cache));
+            }
+        }
+        for (GroupExpression enforcer : group.getEnforcers().values()) {
+            for (Group child : enforcer.children()) {
+                reachable.addAll(computeReachableGroupIds(child, cache));
+            }
+        }
+        return reachable;
+    }
+
+    /**
+     * Choose the cheapest physical plan that contains all required group IDs.
+     * At each group, picks the cheapest physical GroupExpression whose children's
+     * reachable sets collectively cover all remaining required groups, then distributes
+     * the remaining requirements among children and recurses.
+     */
+    private PhysicalPlan chooseBestPlanWithRequiredGroups(
+            Group group, PhysicalProperties properties,
+            Set<Integer> remaining, Map<Group, Set<Integer>> reachableCache) {
+        remaining = new HashSet<>(remaining);
+        remaining.remove(group.getGroupId().asInt());
+
+        if (remaining.isEmpty()) {
+            return chooseBestPlan(group, properties, cascadesContext);
+        }
+
+        GroupExpression chosenGE = null;
+        double chosenCost = Double.MAX_VALUE;
+
+        // Check all physical GEs in this group
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            if (!ge.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double geCost = ge.getCostByProperties(properties);
+            if (geCost >= chosenCost) {
+                continue;
+            }
+            Set<Integer> childReachable = new HashSet<>();
+            for (Group child : ge.children()) {
+                childReachable.addAll(reachableCache.getOrDefault(child, new HashSet()));
+            }
+            if (childReachable.containsAll(remaining)) {
+                chosenGE = ge;
+                chosenCost = geCost;
+            }
+        }
+
+        // Also check enforcers
+        for (GroupExpression enforcer : group.getEnforcers().values()) {
+            if (!enforcer.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double eCost = enforcer.getCostByProperties(properties);
+            if (eCost >= chosenCost) {
+                continue;
+            }
+            Set<Integer> childReachable = new HashSet<>();
+            for (Group child : enforcer.children()) {
+                childReachable.addAll(reachableCache.getOrDefault(child, new HashSet()));
+            }
+            if (childReachable.containsAll(remaining)) {
+                chosenGE = enforcer;
+                chosenCost = eCost;
+            }
+        }
+
+        if (chosenGE == null) {
+            throw new AnalysisException("Cannot find physical plan containing required group IDs: "
+                    + remaining + " at group " + group.getGroupId());
+        }
+
+        // Handle enforcer marking (same as chooseBestPlan)
+        if ((chosenGE.getPlan() instanceof PhysicalDistribute
+                && group.getEnforcerSpecs().containsKey(
+                        ((PhysicalDistribute<?>) chosenGE.getPlan()).getDistributionSpec()))
+                || group.getEnforcers().containsKey(chosenGE)) {
+            group.addChosenEnforcerId(chosenGE.getId().asInt());
+            group.addChosenEnforcerProperties(properties);
+        } else {
+            group.setChosenProperties(properties);
+            group.setChosenGroupExpressionId(chosenGE.getId().asInt());
+        }
+
+        // Distribute remaining among children and recurse
+        List<PhysicalProperties> inputProps = chosenGE.getInputPropertiesList(properties);
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < chosenGE.arity(); i++) {
+            Group child = chosenGE.child(i);
+            Set<Integer> childReachable = reachableCache.getOrDefault(child, new HashSet());
+            Set<Integer> childRemaining = new HashSet<>(remaining);
+            childRemaining.retainAll(childReachable);
+            planChildren.add(chooseBestPlanWithRequiredGroups(
+                    child, inputProps.get(i), childRemaining, reachableCache));
+        }
+
+        Plan plan = chosenGE.getPlan().withChildren(planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("Result plan must be PhysicalPlan");
+        }
+        plan = plan.withGroupExpression(Optional.of(chosenGE));
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                properties, group.getStatistics());
+        cost = chosenCost;
+        return physicalPlan;
     }
 
     private long getGarbageCollectionTime() {
@@ -963,10 +1155,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
-        ArrayList<RuntimeFilter> runtimeFilters = new ArrayList<>();
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterV2Context().getLegacyFilters());
-        return runtimeFilters;
+        return new ArrayList<>(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
     }
 
     @Override
@@ -1045,6 +1234,10 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public void setOptimizedPlan(Plan optimizedPlan) {
         this.optimizedPlan = optimizedPlan;
+    }
+
+    public void setAnalyzedPlan(Plan analyzedPlan) {
+        this.analyzedPlan = analyzedPlan;
     }
 
     @VisibleForTesting

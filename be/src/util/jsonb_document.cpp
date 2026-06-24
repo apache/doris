@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "jsonb_document.h"
+#include "util/jsonb_document.h"
 
 #include <memory>
 #include <string>
@@ -52,6 +52,11 @@ Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
     }
 
     const auto* val = (const JsonbValue*)doc_ptr->payload_;
+    // Keep this check lightweight. This API is used by JSONB scalar/table functions on every row,
+    // so recursively validating object/array payloads here would add an O(document size) scan before
+    // the real operation and can regress large JSONB queries. External INSERT/LOAD paths build JSONB
+    // through JsonBinaryValue/JsonbWriter before storage; any untrusted raw binary boundary should
+    // add explicit deep validation there instead of changing this hot-path helper.
     if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
         size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",

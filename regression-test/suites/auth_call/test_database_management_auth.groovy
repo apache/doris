@@ -68,11 +68,11 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN SET REPLICA VERSION PROPERTIES("tablet_id" = "0", "backend_id" = "0", "version" = "0");"""
-            exception "denied"
+            exception isCloudMode() ? "Unsupported operation" : "denied"
         }
         test {
             sql """ADMIN SET TABLE tb PARTITION VERSION PROPERTIES("partition_id" = "0", "visible_version" = "0");"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """admin set table tbl status properties("state" = "NORMAL");"""

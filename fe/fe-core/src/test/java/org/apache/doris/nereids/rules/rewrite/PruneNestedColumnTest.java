@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Triple;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
@@ -31,13 +34,14 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
@@ -45,10 +49,6 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TDataAccessPath;
-import org.apache.doris.thrift.TMetaAccessPath;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -62,6 +62,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.function.Consumer;
 
@@ -95,13 +96,51 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + ">)\n"
                 + "properties ('replication_num'='1')");
 
+        createTable("create table variant_tbl(\n"
+                + "  id int,\n"
+                + "  v variant\n"
+                + ") properties ('replication_num'='1')");
+
+        // Table for string-length offset-only optimization tests
+        createTable("create table str_tbl(\n"
+                + "  id int,\n"
+                + "  str_col string,\n"
+                + "  c_struct struct<f1: int, f3: string>,\n"
+                + "  map_col map<string, string>\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table nested_container_tbl(\n"
+                + "  id int,\n"
+                + "  s struct<\n"
+                + "    arr: array<struct<str_field: string, int_field: int>>,\n"
+                + "    m: map<string, string>\n"
+                + "  >\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table nested_array_tbl(\n"
+                + "  id int,\n"
+                + "  a array<array<int>>\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table map_array_tbl(\n"
+                + "  id int,\n"
+                + "  map_arr_col map<string, array<int>>\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table map_array_value_tbl(\n"
+                + "  id int,\n"
+                + "  s struct<\n"
+                + "    m: map<string, array<struct<verified: boolean, value: int>>>\n"
+                + "  >\n"
+                + ") properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
 
     @Test
     public void testCaseInsensitive() throws Exception {
-        assertColumn("select struct_element(MAP_VALUES(struct_element(S, 'DATA')[1])[1], 'B') from tbl",
+        assertColumn("select element_at(MAP_VALUES(element_at(S, 'DATA')[1])[1], 'B') from tbl",
                 "struct<data:array<map<int,struct<b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "b")),
                 ImmutableList.of()
@@ -110,13 +149,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testMap() throws Exception {
-        assertColumn("select MAP_KEYS(struct_element(s, 'data')[0])[1] from tbl",
+        assertColumn("select MAP_KEYS(element_at(s, 'data')[0])[1] from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "KEYS")),
                 ImmutableList.of()
         );
 
-        assertColumn("select MAP_VALUES(struct_element(s, 'data')[0])[1] from tbl",
+        assertColumn("select MAP_VALUES(element_at(s, 'data')[0])[1] from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES")),
                 ImmutableList.of()
@@ -124,14 +163,372 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testMapElementLengthWithMapValuesKeepsKeysPath() throws Exception {
+        assertColumn("select length(map_col['a']), map_values(map_col)[1] from str_tbl",
+                "map<text,text>",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testStructRootArrayMixedAccessSuppressesOffsetPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(element_at(s, 'arr')), "
+                        + "element_at(element_at(element_at(s, 'arr'), 1), 'int_field') "
+                        + "from nested_container_tbl",
+                ImmutableList.of(path("s", "arr", "*", "int_field")),
+                ImmutableList.of(path("s", "arr", "OFFSET")));
+    }
+
+    @Test
+    public void testStructRootMapMixedAccessKeepsKeysPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select length(element_at(element_at(s, 'm'), 'a')), "
+                        + "element_at(map_values(element_at(s, 'm')), 1) "
+                        + "from nested_container_tbl",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES")),
+                ImmutableList.of(path("s", "m", "*", "OFFSET"), path("s", "m", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testCardinalityArrayElementKeepsOffsetPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(element_at(a, 1)) from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "*")));
+    }
+
+    @Test
+    public void testDeeperOffsetPathCoversShallowerOffsetPath() throws Exception {
+        // cardinality(a) on ARRAY<ARRAY<INT>> generates [a, OFFSET]
+        // cardinality(element_at(a, 1)) generates [a, *, OFFSET]
+        // [a, *, OFFSET] traverses into the outer array's items, so it must read
+        // through the outer array structure. The shallower [a, OFFSET] is therefore
+        // redundant and should be stripped.
+        assertAllAccessPathsContain(
+                "select cardinality(a), cardinality(element_at(a, 1)) from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "OFFSET")));
+    }
+
+    @Test
+    public void testOffsetPathCoversNullPathWithSamePrefix() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(a), a is null from nested_array_tbl",
+                ImmutableList.of(path("a", "OFFSET")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
+    public void testDeeperNullPathCoversShallowerNullPath() throws Exception {
+        // a IS NULL on ARRAY<ARRAY<INT>> generates [a, NULL]
+        // element_at(a, 1) IS NULL generates [a, *, NULL]
+        // [a, *, NULL] traverses into the outer array's items, which requires
+        // reading the outer array's null bitmap. Therefore [a, NULL] is redundant
+        // and should be stripped.
+        assertAllAccessPathsContain(
+                "select a is null, element_at(a, 1) is null from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "NULL")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
+    public void testDeeperOffsetPathCoversShallowerNullPathForArray() throws Exception {
+        // cardinality(element_at(a, 1)) on ARRAY<ARRAY<INT>> generates [a, *, OFFSET]
+        // a IS NULL generates [a, NULL]
+        // [a, *, OFFSET] reads the offset of inner-array elements, which requires
+        // reading through the outer array's null bitmap. Therefore [a, NULL] is
+        // redundant and should be stripped.
+        assertAllAccessPathsContain(
+                "select cardinality(element_at(a, 1)), a is null from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
+    public void testCardinalityMapElementKeepsValueOffsetPath() throws Exception {
+        assertColumn("select cardinality(map_arr_col['a']) from map_array_tbl",
+                "map<text,array<int>>",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testDeeperNullCoversValueOffsetForMapArray() throws Exception {
+        // cardinality(map_arr_col['a']) -> normalized to KEYS + VALUES.OFFSET
+        // element_at(map_arr_col['a'], 1) IS NULL -> *.*.NULL
+        // *.*.NULL goes deeper into the value-side array, so VALUES.OFFSET
+        // at the map value level is redundant. Without type-aware comparison
+        // * is not lexically equal to VALUES, so VALUES.OFFSET would survive
+        // and cause BE to skip the item iterator.
+        assertAllAccessPathsContain(
+                "select cardinality(map_arr_col['a']), "
+                        + "element_at(map_arr_col['a'], 1) is null from map_array_tbl",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES", "*", "NULL")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testDataPathCoversNullPathWithMapAwareComparison() throws Exception {
+        // element_at(map_col, 'a')                       -> [map_col, KEYS] + [map_col, VALUES]
+        // element_at(map_values(map_col), 1) IS NULL     -> [map_col, VALUES, NULL]
+        // Level 1 strips [map_col, VALUES, NULL] because [map_col, VALUES] covers it.
+        //
+        // NOT: map_values(map_col) IS NULL — visitMapValues special-cases a lone NULL
+        // suffix as a parent-map null check (isFunctionNullCheckPath), producing
+        // [map_col, NULL] instead of [map_col, VALUES, NULL].
+        assertAllAccessPathsContain(
+                "select element_at(map_col, 'a') from str_tbl"
+                        + " where element_at(map_values(map_col), 1) is null",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "VALUES", "NULL")));
+    }
+
+    @Test
+    public void testDataPathCoversOffsetPathWithMapAwareComparison() throws Exception {
+        // element_at(map_col, 'a')                           -> [map_col, KEYS] + [map_col, VALUES]
+        // length(element_at(map_values(map_col), 1)) > 0     -> [map_col, VALUES, OFFSET]
+        // Level 2 strips [map_col, VALUES, OFFSET] because [map_col, VALUES] covers it.
+        //
+        // NOT: cardinality(map_values(map_col)) — visitCardinality unwraps MapValues
+        // and produces [map_col, OFFSET] instead of [map_col, VALUES, OFFSET].
+        assertAllAccessPathsContain(
+                "select element_at(map_col, 'a') from str_tbl"
+                        + " where length(element_at(map_values(map_col), 1)) > 0",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testMapValuesCoversStarNullPreservesKeysPath() throws Exception {
+        // After map-* normalization:
+        //   element_at(map_col, 'a')          -> [map_col, KEYS] + [map_col, VALUES]
+        //   element_at(map_col, 'a') IS NULL  -> [map_col, VALUES, NULL] + [map_col, KEYS]
+        //   element_at(map_values(map_col), 1) -> [map_col, VALUES]
+        // Level 1 strips [map_col, VALUES, NULL] because [map_col, VALUES] covers it.
+        // The KEYS path is preserved for key lookup.
+        assertAllAccessPathsContain(
+                "select element_at(map_values(map_col), 1) from str_tbl"
+                        + " where element_at(map_col, 'a') is null",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "VALUES", "NULL")));
+    }
+
+    @Test
+    public void testSupplementalKeyPathShouldStripExistingKeyNullPath() throws Exception {
+        // After map-* normalization:
+        //   projection: [map_arr_col, VALUES]
+        //   filter:     [map_arr_col, KEYS, NULL]
+        //            OR [map_arr_col, *, *, NULL] → [map_arr_col, VALUES, *, NULL]
+        //                                         + [map_arr_col, KEYS]
+        // Level 1 strips [map_arr_col, KEYS, NULL] because [map_arr_col, KEYS] now
+        // exists before the strip phase (produced by normalization, not supplemental).
+        // Level 2 strips [map_arr_col, VALUES, *, NULL] because [map_arr_col, VALUES]
+        // covers the value-side prefix.
+        assertAllAccessPathsContain(
+                "select element_at(map_values(map_arr_col), 1) from map_array_tbl"
+                        + " where element_at(map_keys(map_arr_col), 1) is null"
+                        + " or element_at(element_at(map_arr_col, 'a'), 1) is null",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "*", "NULL"),
+                        path("map_arr_col", "KEYS", "NULL")));
+    }
+
+    @Test
+    public void testNestedMapElementLengthKeepsValueOffsetPath() throws Exception {
+        assertColumn("select length(element_at(element_at(s, 'm'), 'a')) from nested_container_tbl",
+                "struct<m:map<text,text>>",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testNestedMapElementIsNullKeepsValueIsNullPath() throws Exception {
+        assertColumn("select (element_at(element_at(s, 'm'), 'a')) is null from nested_container_tbl",
+                "struct<m:map<text,text>>",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES", "NULL")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testFullFieldAccessStripsExactDataSkippingPath() throws Exception {
+        assertColumn("select element_at(s, 'city') from tbl "
+                        + "where element_at(s, 'city') is null",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(element_at(s, 'data')), element_at(s, 'data') from tbl",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(a), a from nested_array_tbl",
+                "array<array<int>>",
+                ImmutableList.of(path("a")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(map_arr_col['a']), map_arr_col['a'] from map_array_tbl",
+                "map<text,array<int>>",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testCardinalityMapElementOffsetCoveredByValueFieldAccess() throws Exception {
+        // [s, m, *, *, verified] strips [s, m, *, OFFSET] (pure string prefix).
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select element_at(element_at(element_at(element_at(s, 'm'), 'null'), 1), 'verified') "
+                        + "from map_array_value_tbl "
+                        + "where cardinality(element_at(element_at(s, 'm'), 'null')) > 0");
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<ColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "*", "verified")));
+        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "VALUES", "OFFSET")));
+        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testMapElementArrayNullPathCoveredByValueFieldAccess() throws Exception {
+        // [s, m, *, *, verified] strips [s, m, *, NULL] (pure string prefix).
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select element_at(element_at(element_at(element_at(s, 'm'), 'null'), 1), 'verified') "
+                        + "from map_array_value_tbl "
+                        + "where element_at(element_at(s, 'm'), 'null') is null");
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<ColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "*", "verified")));
+        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "VALUES", "NULL")));
+        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "VALUES", "NULL")));
+    }
+
+    @Test
+    public void testVariantAccessPath() throws Exception {
+        assertColumn("select v['a']['B'] from variant_tbl",
+                "variant",
+                ImmutableList.of(path("v", "a", "B")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantMultiProjectionAccessPaths() throws Exception {
+        assertVariantSubColumnSlots("select v['a'], v['b']['c'] from variant_tbl",
+                ImmutableList.of(
+                        ImmutableList.of("a"),
+                        ImmutableList.of("b", "c")
+                ));
+    }
+
+    @Test
+    public void testVariantPredicateAccessPath() throws Exception {
+        assertColumn("select 1 from variant_tbl where v['k'] is not null",
+                "variant",
+                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v", "k"))
+        );
+    }
+
+    @Test
+    public void testVariantProjectAndPredicateAccessPaths() throws Exception {
+        assertVariantSubColumnSlots("select v['a'] from variant_tbl where v['b']['c'] = 1",
+                ImmutableList.of(
+                        ImmutableList.of("a"),
+                        ImmutableList.of("b", "c")
+                ));
+    }
+
+    @Test
+    public void testVariantAliasAccessPathPropagation() throws Exception {
+        assertColumn("select x['b'] from (select v['a'] as x from variant_tbl) t",
+                "variant",
+                ImmutableList.of(path("v", "a", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantCteAccessPathPropagation() throws Exception {
+        assertColumn("with t as (select id, v from variant_tbl) select t.v['k'] from t",
+                "variant",
+                ImmutableList.of(path("v", "k")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantJoinAccessPathPropagation() throws Exception {
+        assertVariantSubColumnSlotCount(
+                "select 1 from variant_tbl t1 join variant_tbl t2 on t1.id=t2.id "
+                        + "where t1.v['k'] is not null and t2.v['k'] is not null",
+                ImmutableList.of("k"),
+                2
+        );
+    }
+
+    @Test
+    public void testExplodeVariantAccessPath() throws Exception {
+        assertColumn("select x['k'] from variant_tbl lateral view explode(v) tmp as x",
+                "variant",
+                ImmutableList.of(path("v", "k")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantProjectAndFilterAccessPath() throws Exception {
+        assertColumn("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x where x['y'] is not null",
+                "variant",
+                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantMultiLevelFieldAccessPath() throws Exception {
+        assertColumn("select x['a']['b'] from variant_tbl lateral view explode(v['arr']) tmp as x",
+                "variant",
+                ImmutableList.of(path("v", "arr", "a", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantWithOuterPredicateAccessPath() throws Exception {
+        assertAllAccessPathsContain("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
+                        + "where v['filter']['k'] = 1 and x['y'] is not null",
+                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y"), path("v", "filter", "k")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testExplodeVariantAliasPropagationAccessPath() throws Exception {
+        assertColumn("select x['m'] from (select v as a from variant_tbl) t lateral view explode(a['arr']) tmp as x "
+                        + "where x['n'] is not null",
+                "variant",
+                ImmutableList.of(path("v", "arr", "m"), path("v", "arr", "n")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
     public void testStruct() throws Throwable {
-        assertColumn("select struct_element(s, 1) from tbl",
+        assertColumn("select element_at(s, 1) from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select struct_element(map_values(struct_element(s, 'data')[0])[0], 1) from tbl",
+        assertColumn("select element_at(map_values(element_at(s, 'data')[0])[0], 1) from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
@@ -141,25 +538,25 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPruneCast() throws Exception {
         // the map type is changed, so we can not prune type
-        assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:int>>>>), 'k') from tbl",
+        assertColumn("select element_at(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:int>>>>), 'k') from tbl",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s")),
                 ImmutableList.of()
         );
 
-        assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'k') from tbl",
+        assertColumn("select element_at(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'k') from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'l')[0])[0], 'x') from tbl",
+        assertColumn("select element_at(map_values(element_at(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'l')[0])[0], 'x') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
         );
 
-        assertColumns("select struct_element(s, 'city') from (select * from tbl union all select * from tbl2)t",
+        assertColumns("select element_at(s, 'city') from (select * from tbl union all select * from tbl2)t",
                 ImmutableList.of(
                         Triple.of(
                                 "struct<city2:text>",
@@ -174,7 +571,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 )
         );
 
-        assertColumns("select struct_element(s, 'city'), struct_element(map_values(struct_element(s, 'data')[0])[0], 'b') from (select * from tbl union all select * from tbl2)t",
+        assertColumns("select element_at(s, 'city'), element_at(map_values(element_at(s, 'data')[0])[0], 'b') from (select * from tbl union all select * from tbl2)t",
                 ImmutableList.of(
                         Triple.of(
                                 "struct<city2:text,data2:array<map<int,struct<b2:double>>>>",
@@ -192,14 +589,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testPruneArrayLambda() throws Exception {
-        // map_values(struct_element(s, 'data').*)[0].a
-        assertColumn("select struct_element(array_map(x -> map_values(x)[0], struct_element(s, 'data'))[0], 'a') from tbl",
+        // map_values(element_at(s, 'data').*)[0].a
+        assertColumn("select element_at(array_map(x -> map_values(x)[0], element_at(s, 'data'))[0], 'a') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
         );
 
-        assertColumn("select array_map((x, y) -> struct_element(map_values(x)[0], 'a') + struct_element(map_values(y)[0], 'b'), struct_element(s, 'data'), struct_element(s, 'data')) from tbl",
+        assertColumn("select array_map((x, y) -> element_at(map_values(x)[0], 'a') + element_at(map_values(y)[0], 'b'), element_at(s, 'data'), element_at(s, 'data')) from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a"), path("s", "data", "*", "VALUES", "b")),
                 ImmutableList.of()
@@ -234,54 +631,78 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(s, 'city'), s from tbl",
+        assertColumn("select element_at(s, 'city'), s from tbl",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(s, 'city') from tbl",
+        assertColumn("select element_at(s, 'city') from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(s, 'data') from tbl",
+        assertColumn("select element_at(s, 'data') from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(s, 'data')[1] from tbl",
+        assertColumn("select element_at(s, 'data')[1] from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*")),
                 ImmutableList.of()
         );
-        assertColumn("select map_keys(struct_element(s, 'data')[1]) from tbl",
+        assertColumn("select map_keys(element_at(s, 'data')[1]) from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "KEYS")),
                 ImmutableList.of()
         );
-        assertColumn("select map_values(struct_element(s, 'data')[1]) from tbl",
+        assertColumn("select map_values(element_at(s, 'data')[1]) from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(map_values(struct_element(s, 'data')[1])[1], 'a') from tbl",
+        assertColumn("select element_at(map_values(element_at(s, 'data')[1])[1], 'a') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(s, 'data')[1][1] from tbl",
+        assertColumn("select element_at(s, 'data')[1][1] from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "*")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(struct_element(s, 'data')[1][1], 'a') from tbl",
+        assertColumn("select element_at(element_at(s, 'data')[1][1], 'a') from tbl",
                 "struct<data:array<map<int,struct<a:int>>>>",
                 ImmutableList.of(path("s", "data", "*", "*", "a")),
                 ImmutableList.of()
         );
-        assertColumn("select struct_element(struct_element(s, 'data')[1][1], 'b') from tbl",
+        assertColumn("select element_at(element_at(s, 'data')[1][1], 'b') from tbl",
                 "struct<data:array<map<int,struct<b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "*", "b")),
+                ImmutableList.of()
+        );
+
+        createTable(
+                "CREATE TABLE `view_baseall_drop_nereids` (\n"
+                        + "            `k1` int(11) NULL,\n"
+                        + "            `k3` array<int> NULL\n"
+                        + "        ) ENGINE=OLAP\n"
+                        + "        DUPLICATE KEY(`k1`)\n"
+                        + "        COMMENT 'OLAP'\n"
+                        + "        DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n"
+                        + "        PROPERTIES (\n"
+                        + "        \"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "        \"is_being_synced\" = \"false\",\n"
+                        + "        \"storage_format\" = \"V2\",\n"
+                        + "        \"light_schema_change\" = \"true\",\n"
+                        + "        \"disable_auto_compaction\" = \"false\"\n"
+                        + "        )"
+        );
+        createView("create view IF NOT EXISTS test_view7_drop_nereids (k1,k2,k3,k4) as\n"
+                + "            select *, array_filter(x->x>0,k3),array_filter(`k3`, array_map(x -> x > 0, `k3`)) from view_baseall_drop_nereids order by k1");
+        assertColumn("select * from test_view7_drop_nereids order by k1",
+                "array<int>",
+                ImmutableList.of(path("k3")),
                 ImmutableList.of()
         );
     }
@@ -290,94 +711,129 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testFilter() throws Throwable {
         assertColumn("select 100 from tbl where s is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s")),
-                ImmutableList.of(path("s"))
+                ImmutableList.of(path("s", "NULL")),
+                ImmutableList.of(path("s", "NULL"))
         );
 
-        assertColumn("select 100 from tbl where if(id = 1, null, s) is not null or struct_element(s, 'city') = 'beijing'",
-                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s")),
-                ImmutableList.of(path("s"))
-        );
-
-        assertColumn("select 100 from tbl where struct_element(s, 'city') is not null",
+        // The IF expression itself is not collected as a null-only parent access here; the
+        // struct_element predicate still lets NCP prune the scan slot to the city field.
+        assertColumn("select 100 from tbl where if(id = 1, null, s) is not null or element_at(s, 'city') = 'beijing'",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of(path("s", "city"))
         );
 
-        assertColumn("select 100 from tbl where struct_element(s, 'data') is not null",
-                "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data")),
-                ImmutableList.of(path("s", "data"))
+        assertColumn("select 100 from tbl where element_at(s, 'city') is not null",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city", "NULL")),
+                ImmutableList.of(path("s", "city", "NULL"))
         );
-        assertColumn("select 100 from tbl where struct_element(s, 'data')[1] is not null",
+
+        assertColumn("select 100 from tbl where element_at(s, 'data') is not null",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data", "*")),
-                ImmutableList.of(path("s", "data", "*"))
+                ImmutableList.of(path("s", "data", "NULL")),
+                ImmutableList.of(path("s", "data", "NULL"))
         );
-        assertColumn("select 100 from tbl where map_keys(struct_element(s, 'data')[1]) is not null",
+        assertColumn("select 100 from tbl where element_at(s, 'data')[1] is not null",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "KEYS")),
-                ImmutableList.of(path("s", "data", "*", "KEYS"))
+                ImmutableList.of(path("s", "data", "*", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "NULL"))
         );
-        assertColumn("select 100 from tbl where map_values(struct_element(s, 'data')[1]) is not null",
+        assertColumn("select 100 from tbl where map_keys(element_at(s, 'data')[1]) is not null",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "VALUES")),
-                ImmutableList.of(path("s", "data", "*", "VALUES"))
+                ImmutableList.of(path("s", "data", "*", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "NULL"))
         );
-        assertColumn("select 100 from tbl where struct_element(map_values(struct_element(s, 'data')[1])[1], 'a') is not null",
+        assertColumn("select 100 from tbl where map_values(element_at(s, 'data')[1]) is not null",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "NULL"))
+        );
+        assertColumn("select 100 from tbl where element_at(map_values(element_at(s, 'data')[1])[1], 'a') is not null",
                 "struct<data:array<map<int,struct<a:int>>>>",
-                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
-                ImmutableList.of(path("s", "data", "*", "VALUES", "a"))
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a", "NULL"))
         );
-        assertColumn("select 100 from tbl where struct_element(s, 'data')[1][1] is not null",
+        assertColumn("select 100 from tbl where element_at(s, 'data')[1][1] is not null",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "*")),
-                ImmutableList.of(path("s", "data", "*", "*"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "NULL"))
         );
-        assertColumn("select 100 from tbl where struct_element(struct_element(s, 'data')[1][1], 'a') is not null",
+        assertColumn("select 100 from tbl where element_at(element_at(s, 'data')[1][1], 'a') is not null",
                 "struct<data:array<map<int,struct<a:int>>>>",
-                ImmutableList.of(path("s", "data", "*", "*", "a")),
-                ImmutableList.of(path("s", "data", "*", "*", "a"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "a", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "a", "NULL"))
         );
-        assertColumn("select 100 from tbl where struct_element(struct_element(s, 'data')[1][1], 'b') is not null",
+        assertColumn("select 100 from tbl where element_at(element_at(s, 'data')[1][1], 'b') is not null",
                 "struct<data:array<map<int,struct<b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "*", "b")),
-                ImmutableList.of(path("s", "data", "*", "*", "b"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b", "NULL"))
+        );
+    }
+
+    @Test
+    public void testMapKeysAndValuesFunctionNullCheckUseParentMapNullPath() throws Exception {
+        // map_keys/map_values are PropagateNullable functions: the returned array is NULL only
+        // when the input map is NULL. Their function-level IS NULL predicates must therefore
+        // read the parent map null map, not the KEYS/VALUES child null maps.
+        assertColumn("select 100 from str_tbl where map_keys(map_col) is null",
+                "map<text,text>",
+                ImmutableList.of(path("map_col", "NULL")),
+                ImmutableList.of(path("map_col", "NULL"))
+        );
+        assertColumn("select 100 from str_tbl where map_values(map_col) is null",
+                "map<text,text>",
+                ImmutableList.of(path("map_col", "NULL")),
+                ImmutableList.of(path("map_col", "NULL"))
+        );
+
+        assertColumn("select map_keys(map_col) from str_tbl where map_keys(map_col) is null",
+                "map<text,text>",
+                ImmutableList.of(path("map_col", "KEYS")),
+                ImmutableList.of()
+        );
+        assertColumn("select map_values(map_col) from str_tbl where map_values(map_col) is null",
+                "map<text,text>",
+                ImmutableList.of(path("map_col", "VALUES")),
+                ImmutableList.of()
         );
     }
 
     @Test
     public void testProjectFilter() throws Throwable {
-        assertColumn("select s from tbl where struct_element(s, 'city') is not null",
+        assertColumn("select s from tbl where element_at(s, 'city') is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s")),
-                ImmutableList.of(path("s", "city"))
+                ImmutableList.of()
+        );
+        assertColumn("select s from tbl where element_at(s, 'city') is null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
         );
 
-        assertColumn("select struct_element(s, 'data') from tbl where struct_element(s, 'city') is not null",
+        assertColumn("select element_at(s, 'data') from tbl where element_at(s, 'city') is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data"), path("s", "city")),
-                ImmutableList.of(path("s", "city"))
+                ImmutableList.of(path("s", "city", "NULL"), path("s", "data")),
+                ImmutableList.of(path("s", "city", "NULL"))
         );
 
-        assertColumn("select struct_element(s, 'data') from tbl where struct_element(s, 'city') is not null and struct_element(s, 'data') is not null",
+        assertColumn("select element_at(s, 'data') from tbl where element_at(s, 'city') is not null and element_at(s, 'data') is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data"), path("s", "city")),
-                ImmutableList.of(path("s", "data"), path("s", "city"))
+                ImmutableList.of(path("s", "city", "NULL"), path("s", "data")),
+                ImmutableList.of(path("s", "city", "NULL"))
         );
     }
 
     @Test
     public void testCte() throws Throwable {
-        assertColumn("with t as (select id, s from tbl) select struct_element(t1.s, 'city') from t t1 join t t2 on t1.id = t2.id",
+        assertColumn("with t as (select id, s from tbl) select element_at(t1.s, 'city') from t t1 join t t2 on t1.id = t2.id",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("with t as (select id, struct_element(s, 'city') as c from tbl) select t1.c from t t1 join t t2 on t1.id = t2.id",
+        assertColumn("with t as (select id, element_at(s, 'city') as c from tbl) select t1.c from t t1 join t t2 on t1.id = t2.id",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
@@ -527,13 +983,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testUnion() throws Throwable {
-        assertColumn("select coalesce(struct_element(s, 'city'), 'abc') from (select s from tbl union all select null)a",
+        assertColumn("select coalesce(element_at(s, 'city'), 'abc') from (select s from tbl union all select null)a",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("select * from (select coalesce(struct_element(s, 'city'), 'abc') from tbl union all select null)a",
+        assertColumn("select * from (select coalesce(element_at(s, 'city'), 'abc') from tbl union all select null)a",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
@@ -542,13 +998,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testCteAndUnion() throws Throwable {
-        assertColumn("with t as (select id, s from tbl) select struct_element(s, 'city') from (select * from t union all select 1, null) tmp",
+        assertColumn("with t as (select id, s from tbl) select element_at(s, 'city') from (select * from t union all select 1, null) tmp",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
-        assertColumn("with t as (select id, s from tbl) select * from (select struct_element(s, 'city') from t union all select null) tmp",
+        assertColumn("with t as (select id, s from tbl) select * from (select element_at(s, 'city') from t union all select null) tmp",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
@@ -567,7 +1023,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPushDownThroughJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select coalesce(struct_element(s, 'city'), 'abc') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
+                .analyze("select coalesce(element_at(s, 'city'), 'abc') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
                 .rewrite()
                 .matches(
                     logicalResultSink(
@@ -580,7 +1036,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 ).when(p -> {
                                     Assertions.assertEquals(2, p.getProjects().size());
                                     Assertions.assertTrue(p.getProjects().stream()
-                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                     return true;
                                 }),
                                 logicalOneRowRelation()
@@ -597,7 +1053,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testAggregate() throws Exception {
-        assertColumn("select count(struct_element(s, 'city')) from tbl",
+        assertColumn("select count(element_at(s, 'city')) from tbl",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
@@ -606,7 +1062,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testJoin() throws Exception {
-        assertColumns("select 100 from tbl t1 join tbl t2 on struct_element(t1.s, 'city')=struct_element(t2.s, 'city')",
+        assertColumns("select 100 from tbl t1 join tbl t2 on element_at(t1.s, 'city')=element_at(t2.s, 'city')",
                 ImmutableList.of(
                         Triple.of(
                                 "struct<city:text>",
@@ -625,7 +1081,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPushDownThroughWindow() {
         PlanChecker.from(connectContext)
-                .analyze("select struct_element(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t)a")
+                .analyze("select element_at(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t)a")
                 .rewrite()
                 .matches(
                     logicalResultSink(
@@ -636,7 +1092,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 ).when(p -> {
                                     Assertions.assertEquals(2, p.getProjects().size());
                                     Assertions.assertTrue(p.getProjects().stream()
-                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                     return true;
                                 })
                             )
@@ -653,7 +1109,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPushDownThroughPartitionTopN() {
         PlanChecker.from(connectContext)
-                .analyze("select struct_element(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t limit 10)a")
+                .analyze("select element_at(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t limit 10)a")
                 .rewrite()
                 .matches(
                     logicalResultSink(
@@ -667,7 +1123,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                             ).when(p -> {
                                                 Assertions.assertEquals(2, p.getProjects().size());
                                                 Assertions.assertTrue(p.getProjects().stream()
-                                                        .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                                        .anyMatch(o -> o instanceof Alias && o.child(0) instanceof ElementAt));
                                                 return true;
                                             })
                                         )
@@ -687,7 +1143,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testPushDownThroughUnion() {
         PlanChecker.from(connectContext)
-                .analyze("select struct_element(s, 'city') from (select id, s from tbl union all select 1, null) tmp")
+                .analyze("select element_at(s, 'city') from (select id, s from tbl union all select 1, null) tmp")
                 .rewrite()
                 .matches(
                     logicalResultSink(
@@ -696,7 +1152,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                                 logicalOlapScan()
                             ).when(p -> {
                                 Assertions.assertEquals(1, p.getProjects().size());
-                                Assertions.assertInstanceOf(StructElement.class, p.getProjects().get(0).child(0));
+                                Assertions.assertInstanceOf(ElementAt.class, p.getProjects().get(0).child(0));
                                 return true;
                             })
                         ).when(u -> {
@@ -711,7 +1167,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testDataTypeAccessTree() {
         List<Pair<SlotReference, DataTypeAccessTree>> trees = getDataTypeAccessTrees(
-                "select struct_element(s, 'city') from (select id, s from tbl union all select 1, null) tmp");
+                "select element_at(s, 'city') from (select id, s from tbl union all select 1, null) tmp");
 
         Assertions.assertEquals(1, trees.size());
         DataTypeAccessTree tree = trees.get(0).second;
@@ -911,9 +1367,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     private void setAccessPathsAndAssertType(SlotReference slot, List<List<String>> paths, String expectedType) {
         DataType columnType = DataType.fromCatalogType(slot.getOriginalColumn().get().getType());
         SlotReference originColumnTypeSlot = new SlotReference(slot.getName(), columnType);
-        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(originColumnTypeSlot, TAccessPathType.DATA);
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(originColumnTypeSlot, ColumnAccessPathType.DATA);
         for (List<String> path : paths) {
-            tree.setAccessByPath(path, 0, TAccessPathType.DATA);
+            tree.setAccessByPath(path, 0, ColumnAccessPathType.DATA);
         }
         DataType dataType = tree.pruneDataType().get();
         Assertions.assertEquals(expectedType, dataType.toSql());
@@ -933,7 +1389,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         List<Pair<SlotReference, DataTypeAccessTree>> trees = new ArrayList<>();
         for (Slot slot : output) {
             if (slot.getDataType() instanceof NestedColumnPrunable) {
-                DataTypeAccessTree dataTypeAccessTree = DataTypeAccessTree.ofRoot(slot, TAccessPathType.DATA);
+                DataTypeAccessTree dataTypeAccessTree = DataTypeAccessTree.ofRoot(slot, ColumnAccessPathType.DATA);
                 trees.add(Pair.of((SlotReference) slot, dataTypeAccessTree));
             }
         }
@@ -941,13 +1397,30 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     private void assertColumn(String sql, String expectType,
-            List<TColumnAccessPath> expectAllAccessPaths,
-            List<TColumnAccessPath> expectPredicateAccessPaths) throws Exception {
+            List<ColumnAccessPath> expectAllAccessPaths,
+            List<ColumnAccessPath> expectPredicateAccessPaths) throws Exception {
         assertColumns(sql, expectType == null ? null : ImmutableList.of(Triple.of(expectType, expectAllAccessPaths, expectPredicateAccessPaths)));
     }
 
+    private void assertAllAccessPathsContain(String sql, List<ColumnAccessPath> expectContainAllAccessPaths,
+            List<ColumnAccessPath> expectNotContainAllAccessPaths) throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+        }
+        for (ColumnAccessPath accessPath : expectContainAllAccessPaths) {
+            Assertions.assertTrue(allAccessPaths.contains(accessPath),
+                    "expected " + accessPath + " but allAccessPaths=" + allAccessPaths);
+        }
+        for (ColumnAccessPath accessPath : expectNotContainAllAccessPaths) {
+            Assertions.assertFalse(allAccessPaths.contains(accessPath),
+                    "expected NOT " + accessPath + " but allAccessPaths=" + allAccessPaths);
+        }
+    }
+
     private void assertColumns(String sql,
-            List<Triple<String, List<TColumnAccessPath>, List<TColumnAccessPath>>> expectResults) throws Exception {
+            List<Triple<String, List<ColumnAccessPath>, List<ColumnAccessPath>>> expectResults) throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
         PhysicalPlan physicalPlan = result.first;
         List<SlotDescriptor> slotDescriptors = result.second;
@@ -958,22 +1431,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         Assertions.assertEquals(expectResults.size(), slotDescriptors.size());
         int slotIndex = 0;
-        for (Triple<String, List<TColumnAccessPath>, List<TColumnAccessPath>> expectResult : expectResults) {
+        for (Triple<String, List<ColumnAccessPath>, List<ColumnAccessPath>> expectResult : expectResults) {
             String expectType = expectResult.left;
-            List<TColumnAccessPath> expectAllAccessPaths = expectResult.middle;
-            List<TColumnAccessPath> expectPredicateAccessPaths = expectResult.right;
+            List<ColumnAccessPath> expectAllAccessPaths = expectResult.middle;
+            List<ColumnAccessPath> expectPredicateAccessPaths = expectResult.right;
             SlotDescriptor slotDescriptor = slotDescriptors.get(slotIndex++);
             Assertions.assertEquals(expectType, slotDescriptor.getType().toString());
 
-            TreeSet<TColumnAccessPath> expectAllAccessPathSet = new TreeSet<>(expectAllAccessPaths);
-            TreeSet<TColumnAccessPath> actualAllAccessPaths
+            TreeSet<ColumnAccessPath> expectAllAccessPathSet = new TreeSet<>(expectAllAccessPaths);
+            TreeSet<ColumnAccessPath> actualAllAccessPaths
                     = new TreeSet<>(slotDescriptor.getAllAccessPaths());
             Assertions.assertEquals(expectAllAccessPathSet, actualAllAccessPaths);
 
-            TreeSet<TColumnAccessPath> expectPredicateAccessPathSet = new TreeSet<>(expectPredicateAccessPaths);
-            TreeSet<TColumnAccessPath> actualPredicateAccessPaths
+            TreeSet<ColumnAccessPath> expectPredicateAccessPathSet = new TreeSet<>(expectPredicateAccessPaths);
+            TreeSet<ColumnAccessPath> actualPredicateAccessPaths
                     = new TreeSet<>(slotDescriptor.getPredicateAccessPaths());
             Assertions.assertEquals(expectPredicateAccessPathSet, actualPredicateAccessPaths);
+            Assertions.assertTrue(actualAllAccessPaths.containsAll(actualPredicateAccessPaths));
 
             Map<Integer, DataType> slotIdToDataTypes = new LinkedHashMap<>();
             Consumer<Expression> assertHasSameType = e -> {
@@ -1022,6 +1496,257 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         }
     }
 
+    // @Test
+    // public void testStringLengthPruning() {
+
+    @Test
+    public void testStructIsNullPruning() throws Exception {
+        // struct column IS NULL → null-only access, emit [s, NULL] path, type stays struct
+        assertColumn("select 1 from tbl where s is null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "NULL")),
+                ImmutableList.of(path("s", "NULL")));
+    }
+
+    @Test
+    public void testStructIsNotNullPruning() throws Exception {
+        // struct column IS NOT NULL → same null-only access pattern
+        assertColumn("select 1 from tbl where s is not null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "NULL")),
+                ImmutableList.of(path("s", "NULL")));
+    }
+
+    @Test
+    public void testStructIsNullMixedAccess() throws Exception {
+        // Parent NULL path must be stripped from allPaths when a child path is also required.
+        // Otherwise BE StructFileColumnIterator sees the parent NULL sub-path first, switches
+        // the whole struct iterator to NULL_MAP_ONLY, and skips the child iterator.
+        // predicateAccessPaths drops [s, NULL] too, keeping it a subset of allAccessPaths.
+        assertColumn("select element_at(s, 'city') from tbl where s is null",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of());
+
+        // This shape is closer to the production bug: one predicate needs the parent
+        // null map, another predicate needs a child null map, and the projection needs
+        // a different child data path. The parent [s.NULL] cannot remain in allPaths
+        // with [s.data], so it is also removed from predicate paths; [s.city.NULL] stays
+        // because it is still present in allPaths.
+        assertColumn("select element_at(s, 'data') from tbl "
+                        + "where s is null or element_at(s, 'city') is null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "city", "NULL"), path("s", "data")),
+                ImmutableList.of(path("s", "city", "NULL")));
+    }
+
+    @Test
+    public void testStringLengthPruning() throws Exception {
+        // ── Case 1: length(str_col) only ─ offset-only optimization applied ──────────
+        assertStringColumn(
+                "select length(str_col) from str_tbl",
+                "str_col",
+                true,
+                ImmutableList.of(path("str_col", "OFFSET")));
+
+        // ── Case 2: length(str_col) + direct projection of str_col ─ suppressed ─────
+        assertStringColumn(
+                "select length(str_col), str_col from str_tbl",
+                "str_col",
+                false,
+                ImmutableList.of());
+
+        // ── Case 3: length(str_col) + substr(str_col, …) ─ suppressed ───────────────
+        assertStringColumn(
+                "select length(str_col), substr(str_col, 2) from str_tbl",
+                "str_col",
+                false,
+                ImmutableList.of());
+
+        // ── Case 4: length applied to a struct field ─ struct pruned to bigint field ─
+        // c_struct has {f1:int, f3:string}; only f3 accessed offset-only →
+        // pruned type is struct<f3:bigint>, access path is DATA(["c_struct","f3","offset"])
+        assertColumn(
+                "select length(element_at(c_struct, 'f3')) from str_tbl",
+                "struct<f3:text>",
+                ImmutableList.of(path("c_struct", "f3", "OFFSET")),
+                ImmutableList.of());
+
+        // ── Case 5: length(struct field) + direct read of same field ─ suppressed ───
+        // Both the full-data path ["c_struct","f3"] and offset path ["c_struct","f3","offset"]
+        // are recorded; f3 pruneDataType() sees accessAll=true → returns text (not bigint).
+        assertColumn(
+                "select length(element_at(c_struct, 'f3')), element_at(c_struct, 'f3') from str_tbl",
+                "struct<f3:text>",
+                ImmutableList.of(path("c_struct", "f3")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testNonOlapDataSkippingOnlyAccessPathFallback() {
+        List<CollectAccessPathResult> normalizedAccessPaths =
+                AccessPathPlanCollector.normalizeDataSkippingOnlyAccessPaths(ImmutableList.of(
+                        new CollectAccessPathResult(
+                                ImmutableList.of("s", "city", "NULL"), true, ColumnAccessPathType.DATA),
+                        new CollectAccessPathResult(
+                                ImmutableList.of("array_column", "OFFSET"), false, ColumnAccessPathType.DATA),
+                        new CollectAccessPathResult(
+                                ImmutableList.of("s", "city"), false, ColumnAccessPathType.DATA)));
+
+        Assertions.assertEquals(3, normalizedAccessPaths.size());
+        Assertions.assertEquals(ImmutableList.of("s", "city"), normalizedAccessPaths.get(0).getPath());
+        Assertions.assertTrue(normalizedAccessPaths.get(0).isPredicate());
+        Assertions.assertEquals(ColumnAccessPathType.DATA, normalizedAccessPaths.get(0).getType());
+        Assertions.assertEquals(ImmutableList.of("array_column"), normalizedAccessPaths.get(1).getPath());
+        Assertions.assertFalse(normalizedAccessPaths.get(1).isPredicate());
+        Assertions.assertEquals(ColumnAccessPathType.DATA, normalizedAccessPaths.get(1).getType());
+        Assertions.assertEquals(ImmutableList.of("s", "city"), normalizedAccessPaths.get(2).getPath());
+    }
+
+    @Test
+    public void testMvRewritePlanFragmentSkipsNullOnlyAccessPath() {
+        SlotReference normalSlot = rewriteAndFindScanSlot(
+                "select 1 from str_tbl where str_col is not null", "str_col", false);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("str_col", "NULL"))),
+                new TreeSet<>(normalSlot.getAllAccessPaths().get()));
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("str_col", "NULL"))),
+                new TreeSet<>(normalSlot.getPredicateAccessPaths().get()));
+
+        // MV fragment: IS NULL degrades to full column read via default visitor.
+        // [str_col] full-access path passes shouldSkipAccessInfo → no pruning.
+        SlotReference fragmentSlot = rewriteAndFindScanSlot(
+                "select 1 from str_tbl where str_col is not null", "str_col", true);
+        assertNoAccessPaths(fragmentSlot);
+
+        SlotReference nestedNormalSlot = rewriteAndFindScanSlot(
+                "select 1 from tbl where element_at(s, 'city') is not null", "s", false);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("s", "city", "NULL"))),
+                new TreeSet<>(nestedNormalSlot.getAllAccessPaths().get()));
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("s", "city", "NULL"))),
+                new TreeSet<>(nestedNormalSlot.getPredicateAccessPaths().get()));
+
+        // MV fragment: IS NULL degrades to element_at via default visitor,
+        // producing [s, city] data path. struct is NestedColumnPrunable so
+        // pruning to struct<city:text> is safe — no meta suffix remains.
+        SlotReference nestedFragmentSlot = rewriteAndFindScanSlot(
+                "select 1 from tbl where element_at(s, 'city') is not null", "s", true);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("s", "city"))),
+                new TreeSet<>(nestedFragmentSlot.getAllAccessPaths().get()));
+        Assertions.assertTrue(!nestedFragmentSlot.getPredicateAccessPaths().isPresent()
+                || nestedFragmentSlot.getPredicateAccessPaths().get().isEmpty());
+    }
+
+    @Test
+    public void testMvRewritePlanFragmentSkipsOffsetOnlyAccessPath() {
+        SlotReference normalSlot = rewriteAndFindScanSlot(
+                "select 1 from str_tbl where length(str_col) > 0", "str_col", false);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("str_col", "OFFSET"))),
+                new TreeSet<>(normalSlot.getAllAccessPaths().get()));
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("str_col", "OFFSET"))),
+                new TreeSet<>(normalSlot.getPredicateAccessPaths().get()));
+
+        SlotReference fragmentSlot = rewriteAndFindScanSlot(
+                "select 1 from str_tbl where length(str_col) > 0", "str_col", true);
+        assertNoAccessPaths(fragmentSlot);
+
+        SlotReference nestedNormalSlot = rewriteAndFindScanSlot(
+                "select 1 from str_tbl where length(element_at(c_struct, 'f3')) > 0",
+                "c_struct", false);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("c_struct", "f3", "OFFSET"))),
+                new TreeSet<>(nestedNormalSlot.getAllAccessPaths().get()));
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("c_struct", "f3", "OFFSET"))),
+                new TreeSet<>(nestedNormalSlot.getPredicateAccessPaths().get()));
+
+        // MV fragment: length() degrades to element_at via default visitor,
+        // producing [c_struct, f3] data path without OFFSET suffix.
+        SlotReference nestedFragmentSlot = rewriteAndFindScanSlot(
+                "select 1 from str_tbl where length(element_at(c_struct, 'f3')) > 0",
+                "c_struct", true);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("c_struct", "f3"))),
+                new TreeSet<>(nestedFragmentSlot.getAllAccessPaths().get()));
+        Assertions.assertTrue(!nestedFragmentSlot.getPredicateAccessPaths().isPresent()
+                || nestedFragmentSlot.getPredicateAccessPaths().get().isEmpty());
+    }
+
+    /**
+      * Verify that a specific string-typed column in the rewritten LogicalOlapScan either has
+      * BigIntType (offset-only optimization applied) or retains its original string type (suppressed).
+      *
+      * @param sql              query to analyze and rewrite
+      * @param columnName       name of the string column to inspect
+      * @param expectOptimized  true → expect BigIntType + access paths; false → expect string type
+      * @param expectAllPaths   expected access paths when {@code expectOptimized} is true
+      */
+    private void assertStringColumn(String sql, String columnName,
+            boolean expectOptimized, List<ColumnAccessPath> expectAllPaths) {
+        Plan rewritePlan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getCascadesContext()
+                .getRewritePlan();
+
+        LogicalOlapScan scan = rewritePlan.collect(LogicalOlapScan.class::isInstance)
+                .stream()
+                .map(p -> (LogicalOlapScan) p)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No LogicalOlapScan in plan for: " + sql));
+
+        for (Slot slot : scan.getOutput()) {
+            if (!slot.getName().equalsIgnoreCase(columnName)) {
+                continue;
+            }
+            SlotReference slotRef = (SlotReference) slot;
+            if (expectOptimized) {
+                Optional<List<ColumnAccessPath>> allPaths = slotRef.getAllAccessPaths();
+                Assertions.assertTrue(allPaths.isPresent() && !allPaths.get().isEmpty(),
+                        "Slot '" + columnName + "' should have access paths set");
+                Assertions.assertEquals(
+                        new TreeSet<>(expectAllPaths),
+                        new TreeSet<>(allPaths.get()),
+                        "Unexpected access paths for slot '" + columnName + "'");
+            } else {
+                Assertions.assertNotEquals(BigIntType.INSTANCE, slotRef.getDataType(),
+                        "Slot '" + columnName + "' should NOT be BigIntType (optimization suppressed)");
+            }
+            return;
+        }
+        Assertions.fail("Column '" + columnName + "' not found in LogicalOlapScan output for: " + sql);
+    }
+
+    private SlotReference rewriteAndFindScanSlot(String sql, String columnName,
+            boolean materializedViewRewritePlanFragment) {
+        PlanChecker planChecker = PlanChecker.from(connectContext).analyze(sql);
+        planChecker.getCascadesContext().setMaterializedViewRewritePlanFragment(materializedViewRewritePlanFragment);
+        Plan rewritePlan = planChecker.rewrite().getCascadesContext().getRewritePlan();
+        LogicalOlapScan scan = rewritePlan.collect(LogicalOlapScan.class::isInstance)
+                .stream()
+                .map(p -> (LogicalOlapScan) p)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No LogicalOlapScan in plan for: " + sql));
+        return scan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(columnName))
+                .map(slot -> (SlotReference) slot)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Column '" + columnName
+                        + "' not found in LogicalOlapScan output for: " + sql));
+    }
+
+    private void assertNoAccessPaths(SlotReference slot) {
+        Assertions.assertTrue(!slot.getAllAccessPaths().isPresent() || slot.getAllAccessPaths().get().isEmpty());
+        Assertions.assertTrue(!slot.getPredicateAccessPaths().isPresent()
+                || slot.getPredicateAccessPaths().get().isEmpty());
+    }
+
     private Pair<PhysicalPlan, List<SlotDescriptor>> collectComplexSlots(String sql) throws Exception {
         NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();
         List<SlotDescriptor> complexSlots = new ArrayList<>();
@@ -1041,15 +1766,58 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         return Pair.of(physicalPlan, complexSlots);
     }
 
-    private TColumnAccessPath path(String... path) {
-        TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
-        accessPath.data_access_path = new TDataAccessPath(ImmutableList.copyOf(path));
-        return accessPath;
+    private ColumnAccessPath path(String... path) {
+        return ColumnAccessPath.data(ImmutableList.copyOf(path));
     }
 
-    private TColumnAccessPath metaPath(String... path) {
-        TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
-        accessPath.meta_access_path = new TMetaAccessPath(ImmutableList.copyOf(path));
-        return accessPath;
+    private ColumnAccessPath metaPath(String... path) {
+        return ColumnAccessPath.meta(ImmutableList.copyOf(path));
+    }
+
+    private void assertVariantSubColumnSlots(String sql, List<List<String>> expectedSubColPaths) throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        List<SlotDescriptor> slotDescriptors = result.second;
+
+        TreeSet<String> actualSubColPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
+            if (!slotDescriptor.getType().isVariantType()) {
+                continue;
+            }
+            List<String> subColPath = slotDescriptor.getSubColLables();
+            if (subColPath == null || subColPath.isEmpty()) {
+                continue;
+            }
+            actualSubColPaths.add(String.join(".", subColPath));
+        }
+
+        TreeSet<String> expectedSubColPathSet = new TreeSet<>();
+        for (List<String> expected : expectedSubColPaths) {
+            expectedSubColPathSet.add(String.join(".", expected));
+        }
+
+        Assertions.assertEquals(expectedSubColPathSet, actualSubColPaths);
+    }
+
+    private void assertVariantSubColumnSlotCount(String sql, List<String> expectedSubColPath, int expectedCount)
+            throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        List<SlotDescriptor> slotDescriptors = result.second;
+
+        String expected = String.join(".", expectedSubColPath);
+        int actualCount = 0;
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
+            if (!slotDescriptor.getType().isVariantType()) {
+                continue;
+            }
+            List<String> subColPath = slotDescriptor.getSubColLables();
+            if (subColPath == null || subColPath.isEmpty()) {
+                continue;
+            }
+            if (expected.equals(String.join(".", subColPath))) {
+                actualCount++;
+            }
+        }
+
+        Assertions.assertEquals(expectedCount, actualCount);
     }
 }

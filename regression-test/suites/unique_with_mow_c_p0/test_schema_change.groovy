@@ -47,7 +47,7 @@ suite("test_schema_change") {
             `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
             `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
         UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-        CLUSTER BY(`cost`, `comment`)
+        ORDER BY(`cost`, `comment`)
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES ( "replication_num" = "1",
                      "enable_unique_key_merge_on_write" = "true"

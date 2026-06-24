@@ -18,6 +18,7 @@
 
 suite("test_from_unixtime") {
     sql "set enable_fold_constant_by_be=true"
+    sql "set enable_query_cache=false"
 
     sql "set time_zone='+08:00'"
 

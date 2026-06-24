@@ -64,6 +64,7 @@ import javax.annotation.Nullable;
 public class HyperGraphComparator {
     // This second join can be inferred to the first join by map value,
     // The map value means the child's should be no-nullable
+    // please aware ASOF OUTER JOIN can only be converted to ASOF INNER JOIN
     static Map<Pair<JoinType, JoinType>, Pair<Boolean, Boolean>> canInferredJoinTypeMap = ImmutableMap
             .<Pair<JoinType, JoinType>, Pair<Boolean, Boolean>>builder()
             .put(Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.INNER_JOIN), Pair.of(false, false))
@@ -71,6 +72,8 @@ public class HyperGraphComparator {
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN), Pair.of(false, true))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.RIGHT_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, true))
+            .put(Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN), Pair.of(false, true))
+            .put(Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.ASOF_RIGHT_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(false, true))
             .build();
@@ -162,7 +165,7 @@ public class HyperGraphComparator {
                 .forEach(e -> pullUpViewExprWithEdge.put(e, e.getExpressions()));
         Sets.difference(getViewFilterEdgeSet(), Sets.newHashSet(queryToViewFilterEdge.values()))
                 .stream()
-                .filter(e -> !LongBitmap.isOverlap(e.getReferenceNodes(), shouldEliminateViewNodesMap))
+                .filter(e -> !LongBitmap.isOverlap(e.getInputNodes(), shouldEliminateViewNodesMap))
                 .forEach(e -> pullUpViewExprWithEdge.put(e, e.getExpressions()));
 
         return buildComparisonRes();
@@ -194,6 +197,16 @@ public class HyperGraphComparator {
         return JoinUtils.canEliminateByFk(joinEdge.getJoin(), primary, foreign);
     }
 
+    private boolean canEliminateViewByLeft(JoinEdge joinEdge, Plan rightPlan) {
+        // MV comparison can validate residual predicates separately. Keep this relaxation local instead of
+        // changing JoinUtils.canEliminateByLeft(), which is shared by standalone rewrite rules.
+        Pair<Set<Slot>, Set<Slot>> njHashKeys = joinEdge.getJoin().extractNullRejectHashKeys();
+        if (njHashKeys == null) {
+            return false;
+        }
+        return rightPlan.getLogicalProperties().getTrait().isUnique(njHashKeys.second);
+    }
+
     private boolean canEliminateViewEdge(JoinEdge joinEdge) {
         // eliminate by unique
         if (joinEdge.getJoinType().isLeftOuterJoin() && joinEdge.isRightSimple()) {
@@ -202,12 +215,11 @@ public class HyperGraphComparator {
             if (LongBitmap.getCardinality(eliminatedRight) != 1) {
                 return false;
             }
-            Plan rigthPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
-            if (rigthPlan == null) {
+            Plan rightPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
+            if (rightPlan == null) {
                 return false;
             }
-            boolean couldEliminateByLeft = JoinUtils.canEliminateByLeft(joinEdge.getJoin(),
-                    rigthPlan.getLogicalProperties().getTrait());
+            boolean couldEliminateByLeft = canEliminateViewByLeft(joinEdge, rightPlan);
             // if eliminated successfully, should refresh the eliminateViewNodesMap
             if (couldEliminateByLeft) {
                 this.reservedShouldEliminatedViewNodes =
@@ -251,21 +263,31 @@ public class HyperGraphComparator {
     }
 
     private boolean tryEliminateNodesAndEdge() {
-        boolean hasFilterEdgeAbove = viewHyperGraph.getFilterEdges().stream()
-                .filter(e -> LongBitmap.getCardinality(e.getReferenceNodes()) == 1)
-                .anyMatch(e -> LongBitmap.isSubset(e.getReferenceNodes(), shouldEliminateViewNodesMap));
-        if (hasFilterEdgeAbove) {
-            // If there is some filter edge above the eliminated node, we should rebuild a plan
-            // Right now, just reject it.
-            return false;
-        }
         long allCanEliminateNodes = 0;
         for (JoinEdge joinEdge : viewHyperGraph.getJoinEdges()) {
             long canEliminateSideNodes = getCanEliminateSideNodes(joinEdge);
             allCanEliminateNodes = LongBitmap.or(allCanEliminateNodes, canEliminateSideNodes);
-            if (LongBitmap.isOverlap(canEliminateSideNodes, reservedShouldEliminatedViewNodes)
-                    && !canEliminateViewEdge(joinEdge)) {
-                return false;
+            long shouldEliminateNodesOnCurrentEdge =
+                    LongBitmap.newBitmapIntersect(canEliminateSideNodes, reservedShouldEliminatedViewNodes);
+            if (LongBitmap.isOverlap(canEliminateSideNodes, reservedShouldEliminatedViewNodes)) {
+                // For FilterEdge, leftChildEdges records join edges below the filter child. Non-empty means
+                // the filter is above a join result, e.g. WHERE after LEFT JOIN, and may filter preserved rows.
+                // Empty means the filter stays inside a base/nullable-side subtree, which is safe for LOJ.
+                boolean hasUnsafeFilterEdgeOnCurrentEliminatedNode =
+                        LongBitmap.getCardinality(shouldEliminateNodesOnCurrentEdge) > 0
+                        && viewHyperGraph.getFilterEdges().stream()
+                        .filter(e -> e.getExpressions().stream().anyMatch(expr -> !ExpressionUtils.isInferred(expr)))
+                        .filter(e -> LongBitmap.isOverlap(
+                                e.getInputNodes(), shouldEliminateNodesOnCurrentEdge))
+                        .anyMatch(e -> joinEdge.getJoinType().isInnerJoin() || !e.getLeftChildEdges().isEmpty());
+                // Inner join elimination is unsafe with any filter on the removed side. For left join,
+                // filters inside the nullable side are OK, but filters above the join can filter left rows.
+                if (hasUnsafeFilterEdgeOnCurrentEliminatedNode) {
+                    return false;
+                }
+                if (!canEliminateViewEdge(joinEdge)) {
+                    return false;
+                }
             }
         }
         // check all can eliminateNodes contains all should eliminate nodes, to avoid some nodes can not be eliminated

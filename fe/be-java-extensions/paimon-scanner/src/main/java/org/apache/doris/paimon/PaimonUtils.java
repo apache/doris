@@ -26,7 +26,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class PaimonUtils {
-    private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
+    private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
+    private static final Base64.Decoder STD_DECODER = Base64.getDecoder();
 
     public static List<String> getFieldNames(RowType rowType) {
         return rowType.getFields().stream()
@@ -37,9 +38,14 @@ public class PaimonUtils {
 
     public static <T> T deserialize(String encodedStr) {
         try {
-            return InstantiationUtil.deserializeObject(
-                    DECODER.decode(encodedStr.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
-                    PaimonUtils.class.getClassLoader());
+            byte[] decoded;
+            try {
+                decoded = URL_DECODER.decode(encodedStr.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (IllegalArgumentException e) {
+                // Fallback to standard Base64 for splits encoded by native Paimon serialization.
+                decoded = STD_DECODER.decode(encodedStr.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            return InstantiationUtil.deserializeObject(decoded, PaimonUtils.class.getClassLoader());
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }

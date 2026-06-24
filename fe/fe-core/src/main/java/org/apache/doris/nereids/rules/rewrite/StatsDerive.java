@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -182,14 +180,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     }
 
     @Override
-    public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan olapScan,
-            DeriveContext context) {
-        Statistics stats = context.calculator.computeOlapScan(olapScan);
-        olapScan.setStatistics(stats);
-        return stats;
-    }
-
-    @Override
     public Statistics visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeriveContext context) {
         Statistics stats = relation.getStats();
         if (stats == null || deepDerive) {
@@ -220,18 +210,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, DeriveContext context) {
         Statistics stats = topN.getStats();
         if (stats == null || deepDerive) {
-            Statistics childStats = topN.child().accept(this, context);
-            stats = context.calculator.computeTopN(topN, childStats);
-            topN.setStatistics(stats);
-        }
-        return stats;
-    }
-
-    @Override
-    public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
-            DeriveContext context) {
-        Statistics stats = topN.getStats();
-        if (stats == null && deepDerive) {
             Statistics childStats = topN.child().accept(this, context);
             stats = context.calculator.computeTopN(topN, childStats);
             topN.setStatistics(stats);
@@ -351,20 +329,29 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, DeriveContext context) {
+        // Fallback registration: ensure cteId -> producer mapping is always available
+        // even if some upstream rewrite path misses explicit registration.
+        ConnectContext.get().getStatementContext().setCteProducer(cteProducer.getCteId(), cteProducer);
         Statistics prodStats = cteProducer.child().accept(this, context);
         StatisticsBuilder builder = new StatisticsBuilder(prodStats);
         builder.setWidthInJoinCluster(1);
         Statistics stats = builder.build();
         cteProducer.setStatistics(stats);
-        ConnectContext.get().getStatementContext().setProducerStats(cteProducer.getCteId(), stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, DeriveContext context) {
         CTEId cteId = cteConsumer.getCteId();
-        Statistics prodStats = ConnectContext.get().getStatementContext().getProducerStatsByCteId(cteId);
-        Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
+        LogicalCTEProducer<? extends Plan> cteProducer = ConnectContext.get().getStatementContext()
+                .getCteProducerByCteId(cteId);
+        Preconditions.checkState(cteProducer != null,
+                String.format("CTE producer for CTE: %s not found", cteId));
+        Statistics prodStats = cteProducer.getStats();
+        if (prodStats == null || deepDerive) {
+            prodStats = cteProducer.accept(this, context);
+        }
+        Preconditions.checkState(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {
             Slot prodSlot = cteConsumer.getProducerSlot(slot);
@@ -404,8 +391,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         return stats;
     }
 }
-
-
 
 
 

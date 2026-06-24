@@ -17,63 +17,66 @@
 
 package org.apache.doris.datasource.systable;
 
-import org.apache.doris.info.TableValuedFunctionRefInfo;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.iceberg.MetadataTableType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
-import java.util.List;
+import java.util.Collections;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
-// table${sysTable}
-public class IcebergSysTable extends SysTable {
-    private static final Logger LOG = LogManager.getLogger(IcebergSysTable.class);
-    // iceberg system tables:
-    // see @{org.apache.iceberg.MetadataTableType}
-    private static final List<IcebergSysTable> SUPPORTED_ICEBERG_SYS_TABLES = Arrays
-            .stream(MetadataTableType.values())
-            .map(type -> new IcebergSysTable(type.name().toLowerCase()))
-            .collect(Collectors.toList());
+/**
+ * System table type for Iceberg metadata tables.
+ *
+ * <p>Iceberg system tables provide access to table metadata such as
+ * snapshots, history, manifests, files, partitions, etc.
+ *
+ * @see org.apache.iceberg.MetadataTableType for all supported system table types
+ */
+public class IcebergSysTable extends NativeSysTable {
+    public static final String POSITION_DELETES = MetadataTableType.POSITION_DELETES.name().toLowerCase(Locale.ROOT);
+
+    /**
+     * All supported Iceberg system tables.
+     * Key is the system table name (e.g., "snapshots", "history").
+     */
+    public static final Map<String, SysTable> SUPPORTED_SYS_TABLES = Collections.unmodifiableMap(
+            Arrays.stream(MetadataTableType.values())
+                    .filter(type -> type != MetadataTableType.POSITION_DELETES)
+                    .map(type -> new IcebergSysTable(type.name().toLowerCase(Locale.ROOT), true))
+                    .collect(Collectors.toMap(SysTable::getSysTableName, Function.identity())));
+    public static final SysTable UNSUPPORTED_POSITION_DELETES_TABLE =
+            new IcebergSysTable(POSITION_DELETES, false);
 
     private final String tableName;
+    private final boolean supported;
 
-    private IcebergSysTable(String tableName) {
-        super(tableName, "iceberg_meta");
+    private IcebergSysTable(String tableName, boolean supported) {
+        super(tableName);
         this.tableName = tableName;
-    }
-
-    public static List<IcebergSysTable> getSupportedIcebergSysTables() {
-        return SUPPORTED_ICEBERG_SYS_TABLES;
+        this.supported = supported;
     }
 
     @Override
-    public TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName) {
-        List<String> nameParts = Lists.newArrayList(ctlName, dbName,
-                getSourceTableName(sourceNameWithMetaName));
-        return IcebergMeta.createIcebergMeta(nameParts, tableName);
+    public String getSysTableName() {
+        return tableName;
     }
 
     @Override
-    public TableValuedFunctionRefInfo createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
-        List<String> nameParts = Lists.newArrayList(ctlName, dbName,
-                getSourceTableName(sourceNameWithMetaName));
-        Map<String, String> params = Maps.newHashMap();
-        params.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
-        params.put(IcebergTableValuedFunction.QUERY_TYPE, tableName);
-        try {
-            return new TableValuedFunctionRefInfo(tvfName, null, params);
-        } catch (org.apache.doris.common.AnalysisException e) {
-            LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, sourceNameWithMetaName, e);
-            return null;
+    public ExternalTable createSysExternalTable(ExternalTable sourceTable) {
+        if (!supported) {
+            throw new AnalysisException("SysTable " + tableName + " is not supported yet");
         }
+        if (!(sourceTable instanceof IcebergExternalTable)) {
+            throw new IllegalArgumentException(
+                    "Expected IcebergExternalTable but got " + sourceTable.getClass().getSimpleName());
+        }
+        return new IcebergSysExternalTable((IcebergExternalTable) sourceTable, getSysTableName());
     }
 }

@@ -67,8 +67,11 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_recycler_with_truncate_table," +
     "test_recycler_with_txn_label," +
     "test_recycler," +
+    "rec_cte_with_delete_test," +
     "test_recycler_cleanup_snapshot," +
     "test_recycler_clone_instance," +
+    "test_stream_consumption_schema," +
+    "test_stream_info_schema," + // table stream is not supported for cloud mode now
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
@@ -77,7 +80,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
     "shape_check," + // run only in p0 is enough
-    "nereids_p0/cache," + // run only in p0 is enough
+    "query_p0/cache," + // run only in p0 is enough
     "nereids_rules_p0/mv/increment_create," + // run only in p0 is enough
     "nereids_rules_p0/mv/genera_constant_sql," + // run only in p0 is enough
     "workload_manager_p1," +
@@ -93,6 +96,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_p0/nested/sql," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
     "restore_p0," + // 
+    "table_stream_p0," + // table stream is not supported for cloud mode now
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50
@@ -107,3 +111,4 @@ enableTrinoConnectorTest = false
 
 s3Source = "aliyun"
 s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
+recycleServiceHttpAddress = "127.0.0.1:6000"

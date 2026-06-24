@@ -125,6 +125,10 @@ public:
                                 const GetCurrentMaxTxnRequest* request,
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override;
+    void create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                const CreateMetaSyncPointRequest* request,
+                                CreateMetaSyncPointResponse* response,
+                                ::google::protobuf::Closure* done) override;
 
     void begin_sub_txn(::google::protobuf::RpcController* controller,
                        const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
@@ -420,6 +424,10 @@ public:
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -501,7 +509,8 @@ private:
             std::string_view instance_id, KVStats& stats);
 
     void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
-                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   const std::vector<int64_t>& partition_ids,
+                                   PartitionResponse* response, MetaServiceCode& code,
                                    std::string& msg, KVStats& stats);
 
     // Wait for all pending transactions before returning, and bump up the version to the latest.
@@ -568,6 +577,13 @@ public:
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_current_max_txn_id, controller, request, response, done);
+    }
+
+    void create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                const CreateMetaSyncPointRequest* request,
+                                CreateMetaSyncPointResponse* response,
+                                ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::create_meta_sync_point, controller, request, response, done);
     }
 
     void begin_sub_txn(::google::protobuf::RpcController* controller,
@@ -997,6 +1013,12 @@ public:
         call_impl(&cloud::MetaService::clone_instance, controller, request, response, done);
     }
 
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::compact_snapshot, controller, request, response, done);
+    }
+
 private:
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -1019,6 +1041,11 @@ private:
 
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
+            if (resp->status().code() == MetaServiceCode::KV_TXN_MAYBE_COMMITTED) {
+                // Keep maybe-committed as an internal retry signal only. Older proto2
+                // clients may treat unknown enum values as unset and fall back to OK.
+                resp->mutable_status()->set_code(MetaServiceCode::KV_TXN_COMMIT_ERR);
+            }
             if (DCHECK_IS_ON()) {
                 MetaServiceCode code = resp->status().code();
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE)
@@ -1027,16 +1054,21 @@ private:
                         << "KV_TXN_STORE_COMMIT_RETRYABLE should not be sent back to client";
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE)
                         << "KV_TXN_STORE_CREATE_RETRYABLE should not be sent back to client";
+                DCHECK_NE(code, MetaServiceCode::KV_TXN_MAYBE_COMMITTED)
+                        << "KV_TXN_MAYBE_COMMITTED should not be sent back to client";
             }
             return;
         }
 
         TEST_SYNC_POINT("MetaServiceProxy::call_impl:1");
 
+        std::string req_name = req->GetDescriptor()->name();
         int32_t retry_times = 0;
         uint64_t duration_ms = 0, retry_drift_ms = 0;
         while (true) {
             resp->Clear(); // reset the response message in case it is reused for retry
+            TEST_SYNC_POINT_RETURN_WITH_VOID("MetaServiceProxy::call_impl::inject_ms_too_busy",
+                                             &retry_times, resp->mutable_status(), &req_name);
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             MetaServiceCode code = resp->status().code();
             if (code != MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE &&
@@ -1066,8 +1098,7 @@ private:
                         code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
-                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED
-                                ? MetaServiceCode::KV_TXN_MAYBE_COMMITTED
+                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED        ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_CONFLICT
                                 ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
                                 : MetaServiceCode::KV_TXN_TOO_OLD);

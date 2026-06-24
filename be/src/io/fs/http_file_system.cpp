@@ -20,11 +20,11 @@
 #include <fstream>
 
 #include "common/status.h"
-#include "http/http_status.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/http_file_reader.h"
+#include "service/http/http_status.h"
 
 namespace doris::io {
 HttpFileSystem::HttpFileSystem(Path&& root_path, std::string id,

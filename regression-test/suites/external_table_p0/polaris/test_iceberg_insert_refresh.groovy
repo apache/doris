@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_insert_refresh", "p0,external,iceberg,polaris,external_docker,external_docker_polaris") {
+suite("test_iceberg_insert_refresh", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

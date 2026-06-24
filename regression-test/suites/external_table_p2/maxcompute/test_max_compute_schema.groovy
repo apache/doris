@@ -87,7 +87,7 @@ INSERT INTO employee_salary VALUES
 (3, 'Mike', 'HR', 9800.00, CAST('2024-06-20' AS DATE)),
 (4, 'Lucy', 'IT', 13500.00, CAST('2022-11-05' AS DATE));
  */
-suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_max_compute_schema", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("ak")
@@ -106,7 +106,8 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
-                "mc.enable.namespace.schema" = "true"
+                "mc.enable.namespace.schema" = "true",
+                "test_connection" = "true"
             );
         """
 

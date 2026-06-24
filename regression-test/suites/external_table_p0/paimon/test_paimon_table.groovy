@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_paimon_table", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_create_paimon_table", "p0,external") {
     String catalog_name = "paimon_hms_catalog_test01"
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")

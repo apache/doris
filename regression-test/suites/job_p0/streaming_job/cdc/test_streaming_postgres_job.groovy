@@ -74,6 +74,30 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             // mock snapshot data
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('A2', 1);"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('B2', 2);"""
+
+            // Decoy table whose name differs from table1 by a single char that JDBC LIKE
+            // matches via `_`. Different column shape (weight) so any schema leak surfaces
+            // as a Duplicate-column error on CREATE TABLE or a stray `weight` column.
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.userXinfo_pg_normal1"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.userXinfo_pg_normal1 (
+                  "name" varchar(200),
+                  "weight" float8,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.userXinfo_pg_normal1 (name, weight) VALUES ('decoy1', 1.5);"""
+
+            // Decoy schema whose name differs from pgSchema (cdc_test) by a single char that
+            // JDBC LIKE matches via `_`. A same-named table with a different column shape
+            // (height) lives inside, so any schema-level LIKE leak surfaces as a stray
+            // `height` column or a Duplicate-column error.
+            sql """DROP SCHEMA IF EXISTS cdcXtest CASCADE"""
+            sql """CREATE SCHEMA cdcXtest"""
+            sql """CREATE TABLE ${pgDB}.cdcXtest.${table1} (
+                  "name" varchar(200),
+                  "height" float8,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """INSERT INTO ${pgDB}.cdcXtest.${table1} (name, height) VALUES ('schema_decoy', 9.9);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -100,7 +124,6 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         assert showTables.size() == 1
         def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
         assert showTables2.size() == 1
-
         // check table schema correct
         def showTbl1 = sql """show create table ${currentDb}.${table1}"""
         def createTalInfo = showTbl1[0][1];
@@ -108,6 +131,10 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         assert createTalInfo.contains("`age` smallint");
         assert createTalInfo.contains("UNIQUE KEY(`name`)");
         assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
+        // Guard: decoy table userXinfo_pg_normal1 must not leak its `weight` column.
+        assert !createTalInfo.contains("`weight`");
+        // Guard: decoy schema cdcXtest must not leak its `height` column either.
+        assert !createTalInfo.contains("`height`");
 
         // check job running
         try {
@@ -135,11 +162,13 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         // mock incremental into
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Doris',18);"""
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Doris'; """
+            log.info("xminResult: " + xminResult)
             sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
             sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -148,15 +177,19 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"scannedRows\":7,\"loadBytes\":337,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat = parseJson(jobInfo.get(0).get(0))
+        assert loadStat.scannedRows == 7
+        assert loadStat.loadBytes == 341
         assert jobInfo.get(0).get(1) == "RUNNING"
 
         // mock incremental into again
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Apache',40);"""
+	    def xminResult1 = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Apache'; """
+            log.info("xminResult1: " + xminResult1)
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """

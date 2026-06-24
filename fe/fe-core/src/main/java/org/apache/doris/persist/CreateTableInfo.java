@@ -18,11 +18,9 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -35,7 +33,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
-public class CreateTableInfo implements Writable, GsonPostProcessable {
+public class CreateTableInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(CreateTableInfo.class);
 
     @SerializedName(value = "ctl")
@@ -128,10 +126,5 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
                 Strings.isNullOrEmpty(ctlName) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctlName,
                 dbName,
                 Strings.isNullOrEmpty(tblName) ? table.getName() : tblName);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        dbName = ClusterNamespace.getNameFromFullName(dbName);
     }
 }

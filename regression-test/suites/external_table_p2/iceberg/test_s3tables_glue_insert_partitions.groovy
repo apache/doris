@@ -17,7 +17,7 @@
 
 import java.util.concurrent.ThreadLocalRandom
 
-suite("test_s3tables_glue_insert_partitions", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+suite("test_s3tables_glue_insert_partitions", "p2,external") {
     def format_compressions = ["parquet_snappy", "orc_zlib"]
 
     def test_s3_columns_out_of_order = {  String format_compression, String catalog_name ->

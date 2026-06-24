@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_exact_lowercase") {
+suite("test_search_exact_lowercase", "p0") {
     def tableName = "exact_lowercase_test"
+
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -50,20 +53,20 @@ suite("test_search_exact_lowercase") {
     Thread.sleep(3000)
 
     // Test 1: EXACT on normal field (untokenized) - case sensitive
-    qt_normal_exact_lower "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_normal FROM ${tableName} WHERE search('text_normal:EXACT(hello world)') ORDER BY id"
-    qt_normal_exact_upper "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_normal FROM ${tableName} WHERE search('text_normal:EXACT(HELLO WORLD)') ORDER BY id"
-    qt_normal_exact_mixed "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_normal FROM ${tableName} WHERE search('text_normal:EXACT(Hello World)') ORDER BY id"
+    qt_normal_exact_lower "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_normal FROM ${tableName} WHERE search('text_normal:EXACT(hello world)') ORDER BY id"
+    qt_normal_exact_upper "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_normal FROM ${tableName} WHERE search('text_normal:EXACT(HELLO WORLD)') ORDER BY id"
+    qt_normal_exact_mixed "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_normal FROM ${tableName} WHERE search('text_normal:EXACT(Hello World)') ORDER BY id"
 
     // Test 2: EXACT on mixed index field
     // EXACT prefers untokenized index, so it's case sensitive (lowercase config is ignored)
-    qt_mixed_exact_lower "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:EXACT(hello world)') ORDER BY id"
-    qt_mixed_exact_upper "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:EXACT(HELLO WORLD)') ORDER BY id"
-    qt_mixed_exact_mixed "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:EXACT(Hello World)') ORDER BY id"
+    qt_mixed_exact_lower "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:EXACT(hello world)') ORDER BY id"
+    qt_mixed_exact_upper "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:EXACT(HELLO WORLD)') ORDER BY id"
+    qt_mixed_exact_mixed "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:EXACT(Hello World)') ORDER BY id"
 
     // Test 3: Verify that ANY on mixed index uses tokenized index with lowercase
-    qt_mixed_any_lowercase "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:ANY(hello world)') ORDER BY id"
+    qt_mixed_any_lowercase "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, text_mixed FROM ${tableName} WHERE search('text_mixed:ANY(hello world)') ORDER BY id"
 
     // Test 4: Compare EXACT (case-sensitive) vs ANY (with lowercase)
-    qt_exact_case_sensitive "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('text_mixed:EXACT(Test Case)') ORDER BY id"
-    qt_any_case_insensitive "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName} WHERE search('text_mixed:ANY(test case)') ORDER BY id"
+    qt_exact_case_sensitive "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('text_mixed:EXACT(Test Case)') ORDER BY id"
+    qt_any_case_insensitive "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('text_mixed:ANY(test case)') ORDER BY id"
 }

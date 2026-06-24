@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_remote_doris_table_stats", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_remote_doris_table_stats", "p0,external") {
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")

@@ -56,7 +56,7 @@ suite("test_pk_uk_case") {
         L_COMMENT      VARCHAR(60) NOT NULL
         )
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
-        CLUSTER BY (L_PARTKEY, L_SUPPKEY, L_SHIPDATE)
+        ORDER BY (L_PARTKEY, L_SUPPKEY, L_SHIPDATE)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
         "replication_num" = "1",

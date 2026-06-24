@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -252,14 +253,19 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                         predicates.addAll(join.getOtherJoinConjuncts());
                     }
                     break;
-                case INNER_JOIN: {
+                case INNER_JOIN:
+                case ASOF_LEFT_INNER_JOIN:
+                case ASOF_RIGHT_INNER_JOIN: {
                     predicates.addAll(leftPredicates.get());
                     predicates.addAll(rightPredicates.get());
                     predicates.addAll(join.getHashJoinConjuncts());
-                    predicates.addAll(join.getOtherJoinConjuncts());
+                    if (join.getJoinType() == JoinType.INNER_JOIN) {
+                        predicates.addAll(join.getOtherJoinConjuncts());
+                    }
                     break;
                 }
                 case LEFT_OUTER_JOIN:
+                case ASOF_LEFT_OUTER_JOIN:
                     predicates.addAll(leftPredicates.get());
                     predicates.addAll(
                             generateNullTolerantPredicates(rightPredicates.get(), join.right().getOutputSet()));
@@ -271,6 +277,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
                 case RIGHT_OUTER_JOIN:
+                case ASOF_RIGHT_OUTER_JOIN:
                     predicates.addAll(rightPredicates.get());
                     predicates.addAll(
                             generateNullTolerantPredicates(leftPredicates.get(), join.left().getOutputSet()));
@@ -457,11 +464,20 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     break;
                 }
             }
-            options.removeIf(option -> option instanceof NullLiteral);
+            boolean hasNull = options.removeIf(option -> option instanceof NullLiteral);
+            Expression predicate = null;
             if (options.size() > 1) {
-                filtersFromConstExprs.add(new InPredicate(compareExpr, options));
+                predicate = new InPredicate(compareExpr, options);
             } else if (options.size() == 1) {
-                filtersFromConstExprs.add(new EqualTo(compareExpr, options.iterator().next()));
+                predicate = new EqualTo(compareExpr, options.iterator().next());
+            }
+            if (hasNull && predicate != null) {
+                predicate = new Or(predicate, new IsNull(compareExpr));
+            } else if (hasNull) {
+                predicate = new IsNull(compareExpr);
+            }
+            if (predicate != null) {
+                filtersFromConstExprs.add(predicate);
             }
         }
         return ImmutableSet.copyOf(filtersFromConstExprs);

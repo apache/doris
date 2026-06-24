@@ -20,14 +20,11 @@
 #include "common/status.h"
 
 namespace doris::config {
-#include "common/compile_check_begin.h"
 
 DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
 DEFINE_mString(meta_service_endpoint, "");
 DEFINE_mBool(enable_meta_service_endpoint_consistency_check, "true");
-DEFINE_Bool(meta_service_use_load_balancer, "false");
-DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
 DEFINE_mInt64(meta_service_connection_pool_size, "20");
 DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
@@ -98,7 +95,7 @@ DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
 // to get the remaining rowsets' results.
 DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
 
-DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "true");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
 
@@ -108,15 +105,13 @@ DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "true");
 
-DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
-
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "100");
 
 DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "true");
 
 DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
 
@@ -128,14 +123,14 @@ DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
 DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
 
-DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "500");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
 DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
-DEFINE_mBool(enable_packed_file, "false");
+DEFINE_mBool(enable_packed_file, "true");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
@@ -148,12 +143,73 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load) is allowed to compact a tablet
+DEFINE_mBool(enable_compaction_rw_separation, "true");
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
+DEFINE_mInt64(compaction_cluster_takeover_timeout_ms, "300000");
+// Interval in seconds to refresh cluster status cache (default 1 min)
+DEFINE_mInt64(cluster_status_cache_refresh_interval_sec, "60");
+// When version count exceeds this ratio of max_tablet_version_num, force compaction
+// even on read-only clusters (safety valve)
+DEFINE_mDouble(compaction_rw_separation_version_threshold_ratio, "0.8");
+
 DEFINE_mBool(enable_cache_read_from_peer, "true");
+
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600");
 
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 
-#include "common/compile_check_end.h"
+DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
+DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
+
+// MS RPC rate limiting config
+DEFINE_mBool(enable_ms_rpc_host_level_rate_limit, "false");
+
+// Per-RPC QPS limit configs (per CPU core)
+// QPS limit = config_value * num_cores
+// Set to 0 to disable rate limiting for a specific RPC
+// Set to -1 to use ms_rpc_qps_default config value
+DEFINE_mInt32(ms_rpc_qps_default, "100");
+DEFINE_mInt32(ms_rpc_qps_get_tablet_meta, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_tmp_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_abort_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_precommit_txn, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_obj_store_info, "-1");
+DEFINE_mInt32(ms_rpc_qps_start_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_tablet_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_delete_bitmap, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_remove_delete_bitmap_update_lock, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_instance, "-1");
+DEFINE_mInt32(ms_rpc_qps_prepare_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_commit_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_finish_restore_job, "-1");
+DEFINE_mInt32(ms_rpc_qps_list_snapshots, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_cluster_status, "-1");
+DEFINE_mInt32(ms_rpc_qps_update_packed_file_info, "-1");
+
+// Table-level backpressure handling config
+DEFINE_mBool(enable_ms_backpressure_handling, "false");
+DEFINE_Int32(ms_rpc_table_qps_window_sec, "3");
+
+// Throttle upgrade config
+DEFINE_mInt32(ms_backpressure_upgrade_interval_ms, "3000");
+DEFINE_mInt32(ms_backpressure_upgrade_top_k, "1");
+DEFINE_mDouble(ms_backpressure_throttle_ratio, "0.75");
+DEFINE_mDouble(ms_rpc_table_qps_limit_floor, "1.0");
+
+// Throttle downgrade config
+DEFINE_mInt32(ms_backpressure_downgrade_interval_ms, "3000");
+
 } // namespace doris::config

@@ -40,6 +40,8 @@ struct TTabletStat {
     9: optional i64 local_segment_size = 0    // .dat
     10: optional i64 remote_index_size = 0    // .idx
     11: optional i64 remote_segment_size = 0  // .dat
+    12: optional i64 binlog_size = 0          // __row_binlog/xxx.dat
+    13: optional i64 binlog_file_num = 0
 }
 
 struct TTabletStatResult {
@@ -52,6 +54,17 @@ struct TKafkaLoadInfo {
     2: required string topic;
     3: required map<i32, i64> partition_begin_offset;
     4: optional map<string, string> properties;
+}
+
+// Kinesis load info for routine load from AWS Kinesis
+struct TKinesisLoadInfo {
+    1: required string region;
+    2: required string stream;
+    3: optional string endpoint;
+    // Map from shard ID to starting sequence number
+    4: required map<string, string> shard_begin_sequence_number;
+    // AWS credentials and other properties
+    5: optional map<string, string> properties;
 }
 
 struct TRoutineLoadTask {
@@ -74,6 +87,7 @@ struct TRoutineLoadTask {
     17: optional bool memtable_on_sink_node;
     18: optional string qualified_user
     19: optional string cloud_cluster
+    20: optional TKinesisLoadInfo kinesis_load_info
 }
 
 struct TKafkaMetaProxyRequest {
@@ -135,6 +149,7 @@ struct TWarmUpCacheAsyncRequest {
     1: required string host
     2: required i32 brpc_port
     3: required list<i64> tablet_ids
+    4: optional string cloud_compute_group_id
 }
 
 struct TWarmUpCacheAsyncResponse {
@@ -208,6 +223,7 @@ struct TWarmUpTabletsRequest {
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
     5: optional TWarmUpEventType event
+    6: optional list<i64> table_ids
 }
 
 struct TWarmUpTabletsResponse {
@@ -295,7 +311,8 @@ enum TWorkloadMetricType {
     QUERY_TIME = 0,
     BE_SCAN_ROWS = 1,
     BE_SCAN_BYTES = 2,
-    QUERY_BE_MEMORY_BYTES = 3
+    QUERY_BE_MEMORY_BYTES = 3,
+    USERNAME = 4
 }
 
 enum TCompareOperator {
@@ -378,6 +395,19 @@ struct TTestStorageConnectivityResponse {
     1: optional Status.TStatus status;
 }
 
+struct TPythonEnvInfo {
+    1: optional string env_name       // e.g. "myenv"
+    2: optional string full_version   // e.g. "3.9.16"
+    3: optional string env_type       // "conda" or "venv"
+    4: optional string base_path      // e.g. "/opt/miniconda3/envs/myenv"
+    5: optional string executable_path
+}
+
+struct TPythonPackageInfo {
+    1: optional string package_name
+    2: optional string version
+}
+
 service BackendService {
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
@@ -431,4 +461,10 @@ service BackendService {
 
     // Test storage connectivity (S3, HDFS, etc.)
     TTestStorageConnectivityResponse test_storage_connectivity(1:TTestStorageConnectivityRequest request);
+
+    // Get Python environments available on this BE
+    list<TPythonEnvInfo> get_python_envs();
+
+    // Get installed pip packages for a specific Python version
+    list<TPythonPackageInfo> get_python_packages(1:string python_version);
 }

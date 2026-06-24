@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `date` (
   `d_weekdayfl` int(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`d_datekey`)
-CLUSTER BY (`d_year`, `d_month`, `d_weeknuminyear`)
+ORDER BY (`d_year`, `d_month`, `d_weeknuminyear`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
 "compression"="zstd",

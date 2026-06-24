@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_path_partition_keys", "p0,external,tvf,external_docker,hive") {
+suite("test_path_partition_keys", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")

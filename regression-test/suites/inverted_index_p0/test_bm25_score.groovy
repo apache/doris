@@ -17,7 +17,7 @@
 
 suite("test_bm25_score", "p0") {
     sql "DROP TABLE IF EXISTS test_bm25_score"
-     
+
     sql """
       CREATE TABLE test_bm25_score (
       `@timestamp` int(11) NULL COMMENT "",
@@ -37,11 +37,11 @@ suite("test_bm25_score", "p0") {
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -76,7 +76,7 @@ suite("test_bm25_score", "p0") {
         load_httplogs_data.call('test_bm25_score', 'test_bm25_score', 'true', 'json', 'documents-1000.json')
         sql "sync"
 
-        sql """ set enable_common_expr_pushdown = true; """
+        sql """ set enable_segment_limit_pushdown = true; """
 
         def explain_result = sql """ explain verbose select *, score() as score from test_bm25_score where request match_any 'button.03.gif' order by score limit 10; """
         log.info("Explain verbose result: ${explain_result}")
@@ -93,7 +93,7 @@ suite("test_bm25_score", "p0") {
         qt_sql """ select *, score() as score from test_bm25_score where request match_all 'button.03.gif' order by score limit 10; """
         qt_sql """ select *, score() as score from test_bm25_score where request match_phrase 'button.03.gif' order by score limit 10; """
 
-        sql """ 
+        sql """
             (select *, score() as score from test_bm25_score where request match_any 'button.03.gif' order by score limit 5)
             union all
             (select *, score() as score from test_bm25_score where request match_any 'test' order by score limit 5);
@@ -139,7 +139,7 @@ suite("test_bm25_score", "p0") {
 
         test {
             sql """ select score() as score from test_bm25_score where request = 'button.03.gif' order by score() limit 10; """
-            exception "WHERE clause must contain at least one MATCH function for score() push down optimization"
+            exception "WHERE clause must contain at least one MATCH or SEARCH function for score() push down optimization"
         }
 
         test {
@@ -148,7 +148,7 @@ suite("test_bm25_score", "p0") {
         }
 
         test {
-            sql """ 
+            sql """
                 (select score() as score from test_bm25_score where request match_any 'button.03.gif')
                 union all
                 (select score() as score from test_bm25_score where request match_any 'test');
@@ -156,10 +156,8 @@ suite("test_bm25_score", "p0") {
             exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
         }
 
-        test {
-            sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
-            exception "score() function can only be used in SELECT clause, not in WHERE clause"
-        }
+        // score() > 0.5 with ORDER BY and LIMIT is now supported after score range filter pushdown feature
+        sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
 
         test {
             sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """
@@ -212,7 +210,7 @@ suite("test_bm25_score", "p0") {
         assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
         return "wait_timeout"
     }
-    
+
     if (!isCloudMode()) {
         try {
             sql "DROP TABLE IF EXISTS t1"
@@ -220,11 +218,58 @@ suite("test_bm25_score", "p0") {
             sql """ insert into t1 values(2, 2, '{"key": "abc hhh"}'); """
 
             sql """ sync """
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
 
             sql """ alter table t1  add index idx_v(v) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
             wait_for_latest_op_on_table_finish("t1", timeout)
             qt_sql """ select *, score() from t1 where cast(v["key"] as string) match_phrase "abc"  order by score() asc limit 11; """
+        } finally {
+        }
+
+        try {
+            sql """ set enable_segment_limit_pushdown = true; """
+            sql """ set enable_match_without_inverted_index = false; """
+            sql """ set default_variant_enable_typed_paths_to_sparse = false; """
+            sql """ set default_variant_enable_doc_mode = false; """
+
+            sql "DROP TABLE IF EXISTS test_variant_field_pattern_score"
+            sql """
+                CREATE TABLE test_variant_field_pattern_score (
+                    id INT,
+                    meta VARIANT<MATCH_NAME_GLOB 'user.*':text, PROPERTIES("variant_max_subcolumns_count"="0")>,
+                    INDEX idx_meta_user(meta) USING INVERTED PROPERTIES(
+                        "parser"="english",
+                        "support_phrase"="true",
+                        "field_pattern"="user.*"
+                    )
+                ) ENGINE=OLAP
+                DUPLICATE KEY(id)
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "disable_auto_compaction" = "true"
+                )
+            """
+
+            sql """ insert into test_variant_field_pattern_score values(3, '{"other": "alice"}'); """
+            sql """ sync """
+            sql """
+                insert into test_variant_field_pattern_score values
+                    (1, '{"user": {"name": "alice alpha"}}'),
+                    (2, '{"user": {"name": "bob beta"}}');
+            """
+            sql """ sync """
+
+            def res = sql """
+                select id, score() as score
+                from test_variant_field_pattern_score
+                where cast(meta["user"]["name"] as string) match_phrase "alice"
+                order by score() desc
+                limit 10;
+            """
+            assertEquals(1, res.size())
+            assertEquals(1, res[0][0] as int)
+            assertTrue(Double.parseDouble(res[0][1].toString()) > 0.0)
         } finally {
         }
 
@@ -235,7 +280,7 @@ suite("test_bm25_score", "p0") {
             sql """ insert into t2 values(4,4, "hello world"); """
 
             sql """ sync """
-            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
 
             sql """ alter table t2 add index idx_s(s) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
             wait_for_latest_op_on_table_finish("t2", timeout)

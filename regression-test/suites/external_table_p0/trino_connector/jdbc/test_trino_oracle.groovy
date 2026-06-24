@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_trino_oracle", "p0,external,oracle,external_docker,external_docker_oracle") {
+suite("test_trino_oracle", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

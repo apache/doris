@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,6 +52,13 @@ public class ColumnTest {
 
         FakeEnv.setEnv(env);
         FakeEnv.setMetaVersion(FeConstants.meta_version);
+    }
+
+    @After
+    public void tearDown() {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
     }
 
     @Test
@@ -151,10 +159,17 @@ public class ColumnTest {
         Assert.fail("No exception throws.");
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testSchemaChangeArrayToArray() throws DdlException {
         Column oldColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
         Column newColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeArrayToArrayDowngrade() throws DdlException {
+        Column oldColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");
+        Column newColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }

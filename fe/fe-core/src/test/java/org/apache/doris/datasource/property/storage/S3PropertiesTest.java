@@ -17,16 +17,20 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.catalog.S3StorageVault;
+import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
@@ -46,8 +50,7 @@ public class S3PropertiesTest {
     private static String accessKey = "";
     private static String hdfsPath = "";
 
-    @Mocked
-    StsClient mockStsClient;
+    StsClient mockStsClient = Mockito.mock(StsClient.class);
 
     @BeforeEach
     public void setUp() {
@@ -130,8 +133,8 @@ public class S3PropertiesTest {
         origProps.put("s3.connection.timeout", "6000");
         origProps.put("test_non_storage_param", "6000");
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
-        S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(1);
-        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
+        S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(0);
+        Assertions.assertEquals(1, StorageProperties.createAll(origProps).size());
         Map<String, String> s3Props = s3Properties.getBackendConfigProperties();
         Map<String, String> s3Config = s3Properties.getMatchedProperties();
         Assertions.assertTrue(!s3Config.containsKey("test_non_storage_param"));
@@ -149,6 +152,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("6000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        Assertions.assertEquals("DEFAULT", s3Props.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
         origProps.remove("use_path_style");
         origProps.remove("s3.connection.maximum");
         origProps.remove("s3.connection.timeout");
@@ -157,6 +161,30 @@ public class S3PropertiesTest {
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("6000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+    }
+
+    @Test
+    public void testBackendCredentialsProviderType() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        props.put("s3.region", "us-west-2");
+
+        String[][] cases = new String[][] {
+                {"default", "DEFAULT"},
+                {"env", "ENV"},
+                {"system_properties", "SYSTEM_PROPERTIES"},
+                {"web_identity", "WEB_IDENTITY"},
+                {"container", "CONTAINER"},
+                {"instance_profile", "INSTANCE_PROFILE"},
+                {"anonymous", "ANONYMOUS"}
+        };
+
+        for (String[] testCase : cases) {
+            props.put("s3.credentials_provider_type", testCase[0]);
+            S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(props);
+            Map<String, String> backendProps = s3Props.getBackendConfigProperties();
+            Assertions.assertEquals(testCase[1], backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        }
     }
 
 
@@ -223,60 +251,116 @@ public class S3PropertiesTest {
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
+    @Test
+    public void testS3PropertiesIgnoreIcebergRestIamRoleAliases() throws UserException {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
+        origProps.put("iceberg.rest.external-id", "external-123");
+
+        S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        Map<String, String> backendProperties = s3Props.getBackendConfigProperties();
+
+        Assertions.assertNull(backendProperties.get("AWS_ROLE_ARN"));
+        Assertions.assertNull(backendProperties.get("AWS_EXTERNAL_ID"));
+    }
 
     @Test
-    public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
-                                                                      @Mocked StsClient mockStsClient) {
-
-        new Expectations() {
-            {
-                StsClient.builder();
-                result = mockBuilder;
-                mockBuilder.credentialsProvider((AwsCredentialsProvider) any);
-                result = mockBuilder;
-                mockBuilder.build();
-                result = mockStsClient;
-            }
-        };
-
+    public void testS3IamRoleCredentialsProviderTypeForCloudAndThrift() {
         origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
-        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
-        origProps.put("s3.external_id", "external-123");
         origProps.put("s3.region", "us-west-2");
-        S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
-        AwsCredentialsProvider provider = s3Props.getAwsCredentialsProvider();
-        Assertions.assertNotNull(provider);
-        Assertions.assertTrue(provider instanceof StsAssumeRoleCredentialsProvider);
-        origProps.put("s3.credentials_provider_type", "instance_profile");
-        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
-        provider = s3Props.getAwsCredentialsProvider();
-        Assertions.assertEquals(StsAssumeRoleCredentialsProvider.class.getName(), provider.getClass().getName());
-        Assertions.assertEquals(InstanceProfileCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.assumed.role.credentials.provider"));
-        origProps.remove("s3.external_id");
-        origProps.remove("s3.role_arn");
-        origProps.remove("s3.credentials_provider_type");
-        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
-        provider = s3Props.getAwsCredentialsProvider();
-        Assertions.assertNotNull(provider);
-        Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
-        origProps.put("s3.credentials_provider_type", "instance_profile");
-        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
-        provider = s3Props.getAwsCredentialsProvider();
-        Assertions.assertNotNull(provider);
-        Assertions.assertTrue(provider instanceof InstanceProfileCredentialsProvider);
-        Assertions.assertEquals(InstanceProfileCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
-        origProps.put("s3.credentials_provider_type", "static");
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Unsupported AWS credentials provider mode: static", () -> StorageProperties.createPrimary(origProps));
-        origProps.put("s3.credentials_provider_type", "anonymous");
-        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
-        Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
-        origProps.remove("s3.credentials_provider_type");
-        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
-        provider = s3Props.getAwsCredentialsProvider();
-        Assertions.assertNotNull(provider);
-        Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
-        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
 
+        Assertions.assertEquals(CredProviderTypePB.INSTANCE_PROFILE,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        TS3StorageParam s3StorageParam = S3Properties.getS3TStorageParam(origProps);
+        Assertions.assertEquals(TCredProviderType.INSTANCE_PROFILE, s3StorageParam.getCredProviderType());
+
+        origProps.put("s3.credentials_provider_type", "container");
+        Assertions.assertEquals(CredProviderTypePB.CONTAINER,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        s3StorageParam = S3Properties.getS3TStorageParam(origProps);
+        Assertions.assertEquals(TCredProviderType.CONTAINER, s3StorageParam.getCredProviderType());
+
+        origProps.remove("s3.credentials_provider_type");
+        origProps.put("AWS_CREDENTIALS_PROVIDER_TYPE", "env");
+        Assertions.assertEquals(CredProviderTypePB.ENV,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        s3StorageParam = S3Properties.getS3TStorageParam(origProps);
+        Assertions.assertEquals(TCredProviderType.ENV, s3StorageParam.getCredProviderType());
+        Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
+    }
+
+    @Test
+    public void testS3CredentialsProviderTypeWithoutIamRoleForCloud() {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("s3.credentials_provider_type", "container");
+
+        Assertions.assertEquals(CredProviderTypePB.CONTAINER,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+
+        origProps.remove("s3.credentials_provider_type");
+        origProps.put("AWS_CREDENTIALS_PROVIDER_TYPE", "env");
+        Assertions.assertEquals(CredProviderTypePB.ENV,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+    }
+
+
+    @Test
+    public void testGetAwsCredentialsProviderWithIamRoleAndExternalId() {
+        StsClientBuilder mockBuilder = Mockito.mock(StsClientBuilder.class);
+        StsClient localMockStsClient = Mockito.mock(StsClient.class);
+
+        try (MockedStatic<StsClient> mockedStsClient = Mockito.mockStatic(StsClient.class)) {
+            mockedStsClient.when(StsClient::builder).thenReturn(mockBuilder);
+            Mockito.when(mockBuilder.region(Mockito.any())).thenReturn(mockBuilder);
+            Mockito.when(mockBuilder.credentialsProvider(Mockito.any(AwsCredentialsProvider.class))).thenReturn(mockBuilder);
+            Mockito.when(mockBuilder.build()).thenReturn(localMockStsClient);
+
+            origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+            origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
+            origProps.put("s3.external_id", "external-123");
+            origProps.put("s3.region", "us-west-2");
+            S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+            AwsCredentialsProvider provider = s3Props.getAwsCredentialsProvider();
+            Assertions.assertNotNull(provider);
+            Assertions.assertTrue(provider instanceof StsAssumeRoleCredentialsProvider);
+            origProps.put("s3.credentials_provider_type", "instance_profile");
+            s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+            provider = s3Props.getAwsCredentialsProvider();
+            Assertions.assertEquals(StsAssumeRoleCredentialsProvider.class.getName(), provider.getClass().getName());
+            Assertions.assertEquals(InstanceProfileCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.assumed.role.credentials.provider"));
+            origProps.remove("s3.external_id");
+            origProps.remove("s3.role_arn");
+            origProps.remove("s3.credentials_provider_type");
+            s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+            provider = s3Props.getAwsCredentialsProvider();
+            Assertions.assertNotNull(provider);
+            Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
+            origProps.put("s3.credentials_provider_type", "instance_profile");
+            s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+            provider = s3Props.getAwsCredentialsProvider();
+            Assertions.assertNotNull(provider);
+            Assertions.assertTrue(provider instanceof InstanceProfileCredentialsProvider);
+            Assertions.assertEquals(InstanceProfileCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+            origProps.put("s3.credentials_provider_type", "static");
+            ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Unsupported AWS credentials provider mode: static", () -> StorageProperties.createPrimary(origProps));
+            origProps.put("s3.credentials_provider_type", "anonymous");
+            s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+            Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(), s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+            origProps.remove("s3.credentials_provider_type");
+            s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+            provider = s3Props.getAwsCredentialsProvider();
+            Assertions.assertNotNull(provider);
+            Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
+            Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+        }
     }
 
     @Test

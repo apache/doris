@@ -197,8 +197,7 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         return dorisRestClient.getTablesNameList(dbName);
     }
 

@@ -17,9 +17,8 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
-import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
-import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -31,14 +30,14 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
-import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
-import org.apache.flink.cdc.connectors.base.source.assigner.HybridSplitAssigner;
-import org.apache.flink.cdc.connectors.base.source.assigner.SnapshotSplitAssigner;
+import org.apache.flink.cdc.connectors.base.source.assigner.splitter.ChunkSplitter;
+import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState;
+import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState.ChunkBound;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.OffsetFactory;
 import org.apache.flink.cdc.connectors.base.source.meta.split.FinishedSnapshotSplitInfo;
@@ -51,8 +50,7 @@ import org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplitState;
 import org.apache.flink.cdc.connectors.base.source.meta.wartermark.WatermarkEvent;
 import org.apache.flink.cdc.connectors.base.source.reader.external.FetchTask;
 import org.apache.flink.cdc.connectors.base.source.reader.external.Fetcher;
-import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceScanFetcher;
-import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceStreamFetcher;
+import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
 import org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
@@ -61,13 +59,20 @@ import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 
@@ -80,137 +85,609 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Data
-public abstract class JdbcIncrementalSourceReader implements SourceReader {
+public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcIncrementalSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private Fetcher<SourceRecords, SourceSplitBase> currentReader;
-    private Map<TableId, TableChanges.TableChange> tableSchemas;
-    private SplitRecords currentSplitRecords;
-    private SourceSplitBase currentSplit;
+
+    // Support for multiple snapshot splits
+    private List<
+                    SnapshotReaderContext<
+                            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                            Fetcher<SourceRecords, SourceSplitBase>,
+                            SnapshotSplitState>>
+            snapshotReaderContexts;
+    private Set<String> completedSplitIds = ConcurrentHashMap.newKeySet();
+
+    // Parallel polling support
+    private ExecutorService snapshotPollExecutor;
+    private volatile List<CompletableFuture<PollResult>> activePollFutures;
+
+    // Stream/binlog reader (single reader for stream split)
+    private Fetcher<SourceRecords, SourceSplitBase> streamReader;
+    private StreamSplit streamSplit;
+    private StreamSplitState streamSplitState;
     protected FetchTask<SourceSplitBase> currentFetchTask;
 
     public JdbcIncrementalSourceReader() {
         this.serializer = new DebeziumJsonDeserializer();
+        this.snapshotReaderContexts = new CopyOnWriteArrayList<>();
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
+
+        // Initialize thread pool for parallel polling
+        int parallelism =
+                Integer.parseInt(
+                        config.getOrDefault(
+                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+        this.snapshotPollExecutor =
+                Executors.newFixedThreadPool(
+                        parallelism,
+                        r -> {
+                            Thread t = new Thread(r);
+                            t.setName("snapshot-reader-" + jobId + "-" + t.getId());
+                            t.setDaemon(true);
+                            return t;
+                        });
+        LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
+    /**
+     * Fetch a batch of snapshot splits by driving flink-cdc {@link ChunkSplitter} directly.
+     *
+     * <p>Stateless: each RPC builds a fresh splitter from the (table, nextChunkStart, nextChunkId)
+     * triple supplied by FE, fetches up to {@code batchSize} chunks, then closes the splitter.
+     *
+     * <p>Only INITIAL/SNAPSHOT startup modes call this RPC; binlog/latest modes never reach here.
+     */
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
-        LOG.info("Get table {} splits for job {}", ftsReq.getSnapshotTable(), ftsReq.getJobId());
+        LOG.info(
+                "Get table {} splits for job {} (nextSplitId={}, nextSplitStart={})",
+                ftsReq.getSnapshotTable(),
+                ftsReq.getJobId(),
+                ftsReq.getNextSplitId(),
+                java.util.Arrays.toString(ftsReq.getNextSplitStart()));
         JdbcSourceConfig sourceConfig = getSourceConfig(ftsReq);
-        List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
-                remainingSnapshotSplits = new ArrayList<>();
-        StreamSplit remainingStreamSplit = null;
+        String schema = ftsReq.getConfig().get(DataSourceConfigKeys.SCHEMA);
+        TableId tableId = new TableId(null, schema, ftsReq.getSnapshotTable());
 
-        // Check startup mode - for PostgreSQL, we use similar logic as MySQL
-        String startupMode = ftsReq.getConfig().get(DataSourceConfigKeys.OFFSET);
-        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
-            remainingSnapshotSplits =
-                    startSplitChunks(sourceConfig, ftsReq.getSnapshotTable(), ftsReq.getConfig());
-        } else {
-            // For non-initial mode, create a stream split
-            Offset startingOffset = createInitialOffset();
-            remainingStreamSplit =
-                    new StreamSplit(
-                            STREAM_SPLIT_ID,
-                            startingOffset,
-                            createNoStoppingOffset(),
-                            new ArrayList<>(),
-                            new HashMap<>(),
-                            0);
-        }
+        int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
+        ChunkSplitterState state = buildChunkSplitterState(sourceConfig, tableId, ftsReq);
+        ChunkSplitter splitter = getDialect(sourceConfig).createChunkSplitter(sourceConfig, state);
 
-        List<AbstractSourceSplit> splits = new ArrayList<>();
-        if (!remainingSnapshotSplits.isEmpty()) {
-            for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
-                    snapshotSplit : remainingSnapshotSplits) {
-                String splitId = snapshotSplit.splitId();
-                String tableId = snapshotSplit.getTableId().identifier();
-                Object[] splitStart = snapshotSplit.getSplitStart();
-                Object[] splitEnd = snapshotSplit.getSplitEnd();
-                List<String> splitKey = snapshotSplit.getSplitKeyType().getFieldNames();
-                SnapshotSplit split =
-                        new SnapshotSplit(splitId, tableId, splitKey, splitStart, splitEnd, null);
-                splits.add(split);
+        try {
+            splitter.open();
+            List<AbstractSourceSplit> result = new ArrayList<>();
+            while (result.size() < batchSize) {
+                Collection<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
+                        chunks = splitter.generateSplits(tableId);
+                for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk :
+                        chunks) {
+                    result.add(toDorisSnapshotSplit(chunk));
+                }
+                if (!splitter.hasNextChunk()) {
+                    break;
+                }
             }
-        } else {
-            Offset startingOffset = remainingStreamSplit.getStartingOffset();
-            BinlogSplit streamSplit = new BinlogSplit();
-            streamSplit.setSplitId(remainingStreamSplit.splitId());
-            streamSplit.setStartingOffset(startingOffset.getOffset());
-            splits.add(streamSplit);
+            LOG.info(
+                    "Fetched {} splits for table {} (resume nextSplitId={}); hasNextChunk={}",
+                    result.size(),
+                    tableId,
+                    ftsReq.getNextSplitId(),
+                    splitter.hasNextChunk());
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate splits for " + tableId, e);
+        } finally {
+            try {
+                splitter.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close splitter for {}", tableId, e);
+            }
         }
-        return splits;
+    }
+
+    /**
+     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume
+     * mid-table. Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip
+     * downgrades types).
+     */
+    private ChunkSplitterState buildChunkSplitterState(
+            JdbcSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq) {
+        Object[] pkValues = ftsReq.getNextSplitStart();
+        if (pkValues == null || pkValues.length == 0) {
+            return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
+        }
+        TableChanges.TableChange tableChange = getTableSchemas(ftsReq).get(tableId);
+        Column splitColumn =
+                JdbcChunkUtils.getSplitColumn(
+                        tableChange.getTable(), sourceConfig.getChunkKeyColumn());
+        Class<?> targetClass = resolveSplitKeyClass(tableId, splitColumn, ftsReq);
+        Object[] castStart = convertBounds(pkValues, targetClass, objectMapper);
+        int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
+        return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart[0]), splitId);
+    }
+
+    /**
+     * flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names).
+     */
+    private SnapshotSplit toDorisSnapshotSplit(
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk) {
+        return new SnapshotSplit(
+                chunk.splitId(),
+                chunk.getTableId().identifier(),
+                chunk.getSplitKeyType().getFieldNames(),
+                chunk.getSplitStart(),
+                chunk.getSplitEnd(),
+                null);
     }
 
     @Override
-    public SplitReadResult readSplitRecords(JobBaseRecordRequest baseReq) throws Exception {
+    public SplitReadResult prepareAndSubmitSplit(JobBaseRecordRequest baseReq) throws Exception {
         Map<String, Object> offsetMeta = baseReq.getMeta();
         if (offsetMeta == null || offsetMeta.isEmpty()) {
             throw new RuntimeException("miss meta offset");
         }
+
         LOG.info("Job {} read split records with offset: {}", baseReq.getJobId(), offsetMeta);
 
-        //  If there is an active split being consumed, reuse it directly;
-        //  Otherwise, create a new snapshot/stream split based on offset and start the reader.
-        SourceSplitBase split = null;
-        SplitRecords currentSplitRecords = this.getCurrentSplitRecords();
-        if (currentSplitRecords == null) {
-            Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-            if (baseReq.isReload() || currentReader == null) {
-                LOG.info(
-                        "No current reader or reload {}, create new split reader for job {}",
-                        baseReq.isReload(),
-                        baseReq.getJobId());
-                // build split
-                Tuple2<SourceSplitBase, Boolean> splitFlag = createSourceSplit(offsetMeta, baseReq);
-                split = splitFlag.f0;
-                // closeBinlogReader();
-                currentSplitRecords = pollSplitRecordsWithSplit(split, baseReq);
-                this.setCurrentSplitRecords(currentSplitRecords);
-                this.setCurrentSplit(split);
-            } else if (currentReader instanceof IncrementalSourceStreamFetcher) {
-                LOG.info("Continue poll records with current binlog reader");
-                // only for binlog reader
-                currentSplitRecords = pollSplitRecordsWithCurrentReader(currentReader);
-                split = this.getCurrentSplit();
-            } else {
-                throw new RuntimeException("Should not happen");
-            }
+        String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
+        if (BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
+            // Stream split mode
+            return prepareStreamSplit(offsetMeta, baseReq);
         } else {
+            // Extract snapshot split list
+            List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
+                    snapshotSplits = extractSnapshotSplits(offsetMeta, baseReq);
+            return prepareSnapshotSplits(snapshotSplits, baseReq);
+        }
+    }
+
+    /**
+     * Extract snapshot splits from meta.
+     *
+     * <p>Only supports format: {"splits": [{"splitId": "xxx", ...},...]}
+     *
+     * @return List of snapshot splits
+     */
+    private List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
+            extractSnapshotSplits(Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) {
+
+        // Check if it contains "splits" array
+        Object splitsObj = offsetMeta.get("splits");
+        if (splitsObj == null) {
+            throw new RuntimeException("Invalid meta format: missing 'splits' array");
+        }
+
+        if (!(splitsObj instanceof List)) {
+            throw new RuntimeException("Invalid meta format: 'splits' must be an array");
+        }
+
+        // Parse splits array
+        List<Map<String, Object>> splitMetaList = (List<Map<String, Object>>) splitsObj;
+        if (splitMetaList.isEmpty()) {
+            throw new RuntimeException("Invalid meta format: 'splits' array is empty");
+        }
+
+        List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> snapshotSplits =
+                new ArrayList<>();
+        for (Map<String, Object> splitMeta : splitMetaList) {
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
+                    createSnapshotSplit(splitMeta, baseReq);
+            snapshotSplits.add(split);
+        }
+
+        LOG.info("Extracted {} snapshot split(s) from meta", snapshotSplits.size());
+        return snapshotSplits;
+    }
+
+    /** Prepare snapshot splits (unified handling for single or multiple splits) */
+    private synchronized SplitReadResult prepareSnapshotSplits(
+            List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> splits,
+            JobBaseRecordRequest baseReq)
+            throws Exception {
+
+        LOG.info("Preparing {} snapshot split(s) for reading", splits.size());
+
+        // Cancel any active poll operations
+        if (activePollFutures != null) {
             LOG.info(
-                    "Continue read records with current split records, splitId: {}",
-                    currentSplitRecords.getSplitId());
+                    "Cancelling {} active poll operations with jobId {}",
+                    activePollFutures.size(),
+                    baseReq.getJobId());
+            activePollFutures.forEach(f -> f.cancel(true));
+            activePollFutures.clear();
+            activePollFutures = null;
         }
 
-        // build response with iterator
+        // Close previous readers before clearing to avoid JDBC connection leak
+        if (!this.snapshotReaderContexts.isEmpty()) {
+            LOG.info(
+                    "Closing {} previous snapshot readers before preparing new splits",
+                    snapshotReaderContexts.size());
+            for (SnapshotReaderContext<
+                            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                            Fetcher<SourceRecords, SourceSplitBase>,
+                            SnapshotSplitState>
+                    context : snapshotReaderContexts) {
+                if (context.getReader() != null) {
+                    closeReaderInternal(context.getReader());
+                }
+            }
+        }
+        this.snapshotReaderContexts.clear();
+        this.completedSplitIds.clear();
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        // Create reader for each split and submit
+        for (int i = 0; i < splits.size(); i++) {
+            final int index = i;
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
+                    splits.get(index);
+
+            // Create independent reader (each has its own Debezium queue)
+            Fetcher<SourceRecords, SourceSplitBase> reader = getSnapshotSplitReader(baseReq, index);
+
+            // Create split state
+            SnapshotSplitState splitState = new SnapshotSplitState(split);
+
+            // Save context using generic SnapshotReaderContext
+            SnapshotReaderContext<
+                            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                            Fetcher<SourceRecords, SourceSplitBase>,
+                            SnapshotSplitState>
+                    context = new SnapshotReaderContext<>(split, reader, splitState);
+            snapshotReaderContexts.add(context);
+
+            futures.add(
+                    CompletableFuture.runAsync(
+                            () -> {
+                                // Submit split (triggers async reading, data goes into reader's
+                                // Debezium queue)
+                                FetchTask<SourceSplitBase> splitFetchTask =
+                                        createFetchTaskFromSplit(baseReq, split);
+                                reader.submitTask(splitFetchTask);
+                                LOG.info(
+                                        "Created reader {}/{} and submitted split: {} (table: {})",
+                                        index + 1,
+                                        splits.size(),
+                                        split.splitId(),
+                                        split.getTableId().identifier());
+                            },
+                            snapshotPollExecutor));
+        }
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        // Construct return result with all splits and states
         SplitReadResult result = new SplitReadResult();
-        SourceSplitState currentSplitState = null;
-        SourceSplitBase currentSplit = this.getCurrentSplit();
-        if (currentSplit.isSnapshotSplit()) {
-            currentSplitState = new SnapshotSplitState(currentSplit.asSnapshotSplit());
-        } else {
-            currentSplitState = new StreamSplitState(currentSplit.asStreamSplit());
+
+        List<SourceSplit> allSplits = new ArrayList<>();
+        Map<String, Object> allStates = new HashMap<>();
+
+        for (SnapshotReaderContext<
+                        org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>,
+                        SnapshotSplitState>
+                context : snapshotReaderContexts) {
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
+                    context.getSplit();
+            allSplits.add(split);
+            allStates.put(split.splitId(), context.getSplitState());
         }
 
-        Iterator<SourceRecord> filteredIterator =
-                new FilteredRecordIterator(currentSplitRecords, currentSplitState);
+        result.setSplits(allSplits);
+        result.setSplitStates(allStates);
 
-        result.setRecordIterator(filteredIterator);
-        result.setSplitState(currentSplitState);
-        result.setSplit(split);
+        LOG.info("Success prepared {} snapshot splits for reading", splits.size());
         return result;
+    }
+
+    /** Prepare stream split */
+    private synchronized SplitReadResult prepareStreamSplit(
+            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+        // Load tableSchemas from FE if available (avoids re-discover on restart)
+        tryLoadTableSchemasFromRequest(baseReq);
+        // If still null (incremental-only startup, or snapshot→binlog transition where FE never
+        // persisted schema), do a JDBC discover so the deserializer has a baseline to diff against.
+        if (this.tableSchemas == null) {
+            LOG.info(
+                    "No tableSchemas available for stream split, discovering via JDBC for job {}",
+                    baseReq.getJobId());
+            Map<TableId, TableChanges.TableChange> discovered = getTableSchemas(baseReq);
+            this.tableSchemas = new java.util.concurrent.ConcurrentHashMap<>(discovered);
+            this.serializer.setTableSchemas(this.tableSchemas);
+            LOG.info(
+                    "Discovered {} table schema(s) for job {}",
+                    discovered.size(),
+                    baseReq.getJobId());
+        }
+        Tuple2<SourceSplitBase, Boolean> splitFlag = createStreamSplit(offsetMeta, baseReq);
+        StreamSplit newStreamSplit = splitFlag.f0.asStreamSplit();
+
+        // offset guard: reuse only when request start == reader's consumed position. Compare by
+        // compareTo (LSN), NOT equals -- PG drops lsn_proc/commit so same position differs by map.
+        if (this.streamReader != null && this.streamSplitState != null) {
+            Offset requestStart = newStreamSplit.getStartingOffset();
+            Offset readerPos = this.streamSplitState.getStartingOffset();
+            if (requestStart != null
+                    && readerPos != null
+                    && requestStart.compareTo(readerPos) == 0) {
+                LOG.info(
+                        "Reuse live stream reader for job {} at offset {}",
+                        baseReq.getJobId(),
+                        requestStart);
+                // Refresh split so commitSourceOffset advances PG confirmed_lsn to the FE-committed
+                // offset (== reader pos); poll/offset keep using streamSplitState.
+                this.streamSplit = newStreamSplit;
+                SplitReadResult reuseResult = new SplitReadResult();
+                reuseResult.setSplits(Collections.singletonList(this.streamSplit));
+                Map<String, Object> reuseStates = new HashMap<>();
+                reuseStates.put(this.streamSplit.splitId(), this.streamSplitState);
+                reuseResult.setSplitStates(reuseStates);
+                return reuseResult;
+            }
+            LOG.info(
+                    "Rebuild stream reader for job {}: requestStart={}, readerPos={}",
+                    baseReq.getJobId(),
+                    requestStart,
+                    readerPos);
+        }
+
+        this.streamSplit = newStreamSplit;
+        // Close previous stream reader (rebuild path) before creating a new one. This prevents
+        // connection leaks when a cancelled task's reader is still active while a new task arrives.
+        if (this.streamReader != null) {
+            LOG.info(
+                    "Closing previous stream reader before creating new one for job {}",
+                    baseReq.getJobId());
+            closeReaderInternal(this.streamReader);
+            this.streamReader = null;
+        }
+
+        // Rebuild path: fail loudly if the source position is gone (e.g. slot dropped) instead of
+        // silently re-locating from a lost offset.
+        validateStreamSource(offsetMeta, baseReq);
+
+        this.streamReader = getBinlogSplitReader(baseReq);
+
+        LOG.info("Prepare stream split: {}", this.streamSplit.toString());
+
+        // Submit split
+        FetchTask<SourceSplitBase> splitFetchTask =
+                createFetchTaskFromSplit(baseReq, this.streamSplit);
+        this.streamReader.submitTask(splitFetchTask);
+        this.setCurrentFetchTask(splitFetchTask);
+
+        this.streamSplitState = new StreamSplitState(this.streamSplit);
+
+        SplitReadResult result = new SplitReadResult();
+        result.setSplits(Collections.singletonList(this.streamSplit));
+
+        Map<String, Object> statesMap = new HashMap<>();
+        statesMap.put(this.streamSplit.splitId(), this.streamSplitState);
+        result.setSplitStates(statesMap);
+
+        LOG.info("Success prepared stream split: {}", this.streamSplit.toString());
+        return result;
+    }
+
+    // Source-specific check before (re)building the stream reader; default no-op.
+    protected void validateStreamSource(
+            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {}
+
+    @Override
+    public Iterator<SourceRecord> pollRecords() throws Exception {
+        if (!snapshotReaderContexts.isEmpty()) {
+            // Snapshot split mode
+            return pollRecordsFromSnapshotReaders();
+        } else if (streamReader != null) {
+            // Stream split mode
+            return pollRecordsFromStreamReader();
+        } else {
+            throw new RuntimeException("No active snapshot or stream reader available");
+        }
+    }
+
+    /**
+     * Poll records from multiple snapshot readers in parallel. Uses CompletableFuture.anyOf() to
+     * return data from the first completed reader.
+     *
+     * <p>This implementation starts parallel polling on first call, then incrementally returns
+     * results as each reader completes, improving response latency.
+     */
+    private Iterator<SourceRecord> pollRecordsFromSnapshotReaders() throws Exception {
+        if (snapshotReaderContexts.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+
+        // A split is finished only after its high-watermark event has been consumed.
+        refreshCompletedSplits();
+
+        if (completedSplitIds.size() >= snapshotReaderContexts.size()) {
+            LOG.info("All {} snapshot splits have been completed", snapshotReaderContexts.size());
+            return Collections.emptyIterator();
+        }
+
+        // If no active polling, start new parallel polling round
+        if (activePollFutures == null || activePollFutures.isEmpty()) {
+            startParallelPolling();
+        }
+
+        // Wait for any reader to complete and return its data
+        PollResult result = waitForAnyCompletion();
+
+        if (result == null) {
+            // All readers completed but no data available
+            LOG.info("All snapshot splits have no data currently");
+            activePollFutures = null;
+            return Collections.emptyIterator();
+        }
+
+        // Return data from the first completed reader
+        LOG.info(
+                "{} Records received from snapshot split {}",
+                result.sourceRecords.getSourceRecordList().size(),
+                result.context.getSplit().splitId());
+
+        SplitRecords splitRecords =
+                new SplitRecords(
+                        result.context.getSplit().splitId(), result.sourceRecords.iterator());
+
+        return new FilteredRecordIterator(splitRecords, result.context.getSplitState());
+    }
+
+    /** Start parallel polling for all snapshot readers */
+    private void startParallelPolling() {
+        LOG.info(
+                "Starting parallel polling for {} snapshot readers", snapshotReaderContexts.size());
+
+        activePollFutures = new CopyOnWriteArrayList<>();
+
+        for (int i = 0; i < snapshotReaderContexts.size(); i++) {
+            final int index = i;
+            SnapshotReaderContext<
+                            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                            Fetcher<SourceRecords, SourceSplitBase>,
+                            SnapshotSplitState>
+                    context = snapshotReaderContexts.get(index);
+            // Skip splits already drained to high-watermark; otherwise their poll futures spin
+            // returning null and starve siblings.
+            if (completedSplitIds.contains(context.getSplit().splitId())) {
+                continue;
+            }
+
+            CompletableFuture<PollResult> future =
+                    CompletableFuture.supplyAsync(
+                            () -> {
+                                try {
+                                    LOG.info("Polling from split {}", context.getSplit().splitId());
+                                    Iterator<SourceRecords> dataIt =
+                                            context.getReader().pollSplitRecords();
+
+                                    if (dataIt != null && dataIt.hasNext()) {
+                                        SourceRecords sourceRecords = dataIt.next();
+                                        if (!sourceRecords.getSourceRecordList().isEmpty()) {
+                                            return new PollResult(context, sourceRecords, index);
+                                        }
+                                    }
+                                    LOG.info("No data from split {}", context.getSplit().splitId());
+                                } catch (Exception e) {
+                                    LOG.error(
+                                            "Error polling from split {}",
+                                            context.getSplit().splitId(),
+                                            e);
+                                    throw new RuntimeException(
+                                            "Failed to poll split: " + context.getSplit().splitId(),
+                                            e);
+                                }
+                                return null;
+                            },
+                            snapshotPollExecutor);
+
+            activePollFutures.add(future);
+        }
+    }
+
+    /**
+     * Wait for any reader to complete and return its result. Removes completed futures from the
+     * active list.
+     *
+     * @return PollResult from first completed reader with data, or null if all completed without
+     *     data
+     */
+    private PollResult waitForAnyCompletion() throws Exception {
+        List<CompletableFuture<PollResult>> snapshot = activePollFutures;
+        while (snapshot != null && !snapshot.isEmpty()) {
+            CompletableFuture<Object> anyOf =
+                    CompletableFuture.anyOf(snapshot.toArray(new CompletableFuture[0]));
+
+            anyOf.join(); // Wait for at least one to complete
+
+            // Find and process completed futures
+            for (CompletableFuture<PollResult> future : snapshot) {
+                if (future.isDone()) {
+                    snapshot.remove(future);
+                    PollResult result = future.get();
+                    if (result != null) {
+                        // Split completion is determined later by splitState.getHighWatermark()
+                        // != null, not by receiving a non-empty batch.
+                        LOG.info(
+                                "Got result from reader {}, {} futures remaining",
+                                result.context.getSplit().splitId(),
+                                snapshot.size());
+                        return result;
+                    }
+                    // If result is null (no data), continue checking other futures
+                }
+            }
+            snapshot = activePollFutures;
+        }
+        // All futures completed but none had data
+        return null;
+    }
+
+    /** Result from polling a single snapshot reader */
+    private static class PollResult {
+        final SnapshotReaderContext<
+                        org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>,
+                        SnapshotSplitState>
+                context;
+        final SourceRecords sourceRecords;
+        final int readerIndex;
+
+        PollResult(
+                SnapshotReaderContext<
+                                org.apache.flink.cdc.connectors.base.source.meta.split
+                                        .SnapshotSplit,
+                                Fetcher<SourceRecords, SourceSplitBase>,
+                                SnapshotSplitState>
+                        context,
+                SourceRecords sourceRecords,
+                int readerIndex) {
+            this.context = context;
+            this.sourceRecords = sourceRecords;
+            this.readerIndex = readerIndex;
+        }
+    }
+
+    /** Poll records from stream reader */
+    private Iterator<SourceRecord> pollRecordsFromStreamReader() throws InterruptedException {
+        Fetcher<SourceRecords, SourceSplitBase> reader = streamReader;
+        StreamSplit split = streamSplit;
+        StreamSplitState state = streamSplitState;
+        if (reader == null || split == null || state == null) {
+            LOG.info("Stream reader is null at poll start, returning empty");
+            return Collections.emptyIterator();
+        }
+
+        Iterator<SourceRecords> dataIt = reader.pollSplitRecords();
+        if (dataIt == null || !dataIt.hasNext()) {
+            if (streamReader == null) {
+                LOG.info("Stream reader is null after poll, returning empty");
+            }
+            return Collections.emptyIterator();
+        }
+
+        SourceRecords sourceRecords = dataIt.next();
+        SplitRecords splitRecords = new SplitRecords(split.splitId(), sourceRecords.iterator());
+
+        if (!sourceRecords.getSourceRecordList().isEmpty()) {
+            LOG.info("{} Records received from stream", sourceRecords.getSourceRecordList().size());
+        }
+
+        return new FilteredRecordIterator(splitRecords, state);
     }
 
     protected abstract DataType fromDbzColumn(Column splitColumn);
 
     protected abstract Fetcher<SourceRecords, SourceSplitBase> getSnapshotSplitReader(
-            JobBaseConfig jobConfig);
+            JobBaseConfig jobConfig, int subtaskId);
 
     protected abstract Fetcher<SourceRecords, SourceSplitBase> getBinlogSplitReader(
             JobBaseConfig jobConfig);
@@ -225,26 +702,10 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
 
     protected abstract JdbcDataSourceDialect getDialect(JdbcSourceConfig sourceConfig);
 
-    protected Tuple2<SourceSplitBase, Boolean> createSourceSplit(
-            Map<String, Object> offsetMeta, JobBaseConfig jobConfig) {
-        Tuple2<SourceSplitBase, Boolean> splitRes = null;
-        String splitId = String.valueOf(offsetMeta.get(SPLIT_ID));
-        if (!BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
-            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
-                    createSnapshotSplit(offsetMeta, jobConfig);
-            splitRes = Tuple2.of(split, false);
-        } else {
-            splitRes = createStreamSplit(offsetMeta, jobConfig);
-        }
-        return splitRes;
-    }
-
     private org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
             createSnapshotSplit(Map<String, Object> offset, JobBaseConfig jobConfig) {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId(), false);
-        Object[] splitStart = snapshotSplit.getSplitStart();
-        Object[] splitEnd = snapshotSplit.getSplitEnd();
         List<String> splitKeys = snapshotSplit.getSplitKey();
         Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
         TableChanges.TableChange tableChange = tableSchemas.get(tableId);
@@ -252,7 +713,18 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                 tableChange, "Can not find table " + tableId + " in job " + jobConfig.getJobId());
         // only support one split key
         String splitKey = splitKeys.get(0);
-        io.debezium.relational.Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        Preconditions.checkNotNull(
+                splitColumn,
+                "Split key column "
+                        + splitKey
+                        + " not found in table "
+                        + tableId
+                        + " for job "
+                        + jobConfig.getJobId());
+        Class<?> keyClass = resolveSplitKeyClass(tableId, splitColumn, jobConfig);
+        Object[] splitStart = convertBounds(snapshotSplit.getSplitStart(), keyClass, objectMapper);
+        Object[] splitEnd = convertBounds(snapshotSplit.getSplitEnd(), keyClass, objectMapper);
         RowType splitType = getSplitType(splitColumn);
         org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
                 new org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit(
@@ -289,6 +761,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                             .sorted(Comparator.comparing(AbstractSourceSplit::getSplitId))
                             .toList();
 
+            Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(config);
             for (SnapshotSplit split : assignedSplitLists) {
                 // find the min offset
                 Map<String, String> offsetMap = split.getHighWatermark();
@@ -299,12 +772,29 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                 if (maxOffsetFinishSplits == null || sourceOffset.isAfter(maxOffsetFinishSplits)) {
                     maxOffsetFinishSplits = sourceOffset;
                 }
+                TableId tid = TableId.parse(split.getTableId());
+                TableChanges.TableChange tableChange = tableSchemas.get(tid);
+                Preconditions.checkNotNull(
+                        tableChange, "Can not find table " + tid + " in job " + config.getJobId());
+                String splitKey = split.getSplitKey().get(0);
+                Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+                Preconditions.checkNotNull(
+                        splitColumn,
+                        "Split key column "
+                                + splitKey
+                                + " not found in table "
+                                + tid
+                                + " for job "
+                                + config.getJobId());
+                Class<?> keyClass = resolveSplitKeyClass(tid, splitColumn, config);
+                Object[] start = convertBounds(split.getSplitStart(), keyClass, objectMapper);
+                Object[] end = convertBounds(split.getSplitEnd(), keyClass, objectMapper);
                 finishedSnapshotSplitInfos.add(
                         new FinishedSnapshotSplitInfo(
-                                TableId.parse(split.getTableId()),
+                                tid,
                                 split.getSplitId(),
-                                split.getSplitStart(),
-                                split.getSplitEnd(),
+                                start,
+                                end,
                                 sourceOffset,
                                 getOffsetFactory()));
             }
@@ -363,8 +853,10 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             case EARLIEST_OFFSET:
                 startingOffset = createInitialOffset();
                 break;
-            case TIMESTAMP:
             case SPECIFIC_OFFSETS:
+                startingOffset = createOffset(startupOptions.getOffset());
+                break;
+            case TIMESTAMP:
             case COMMITTED_OFFSETS:
             default:
                 throw new IllegalStateException(
@@ -373,185 +865,16 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         return startingOffset;
     }
 
-    private List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
-            startSplitChunks(
-                    JdbcSourceConfig sourceConfig,
-                    String snapshotTable,
-                    Map<String, String> config) {
-        List<TableId> remainingTables = new ArrayList<>();
-        if (snapshotTable != null) {
-            String schema = config.get(DataSourceConfigKeys.SCHEMA);
-            remainingTables.add(new TableId(null, schema, snapshotTable));
-        }
-        List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> remainingSplits =
-                new ArrayList<>();
-        HybridSplitAssigner<JdbcSourceConfig> splitAssigner =
-                new HybridSplitAssigner<>(
-                        sourceConfig,
-                        1,
-                        remainingTables,
-                        true,
-                        getDialect(sourceConfig),
-                        getOffsetFactory(),
-                        new MockSplitEnumeratorContext(1));
-        splitAssigner.open();
-        try {
-            while (true) {
-                Optional<SourceSplitBase> split = splitAssigner.getNext();
-                if (split.isPresent()) {
-                    org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
-                            snapshotSplit = split.get().asSnapshotSplit();
-                    remainingSplits.add(snapshotSplit);
-                } else {
-                    break;
-                }
-            }
-        } finally {
-            closeChunkSplitterOnly(splitAssigner);
-        }
-        return remainingSplits;
-    }
-
-    /**
-     * Close only the chunk splitter to avoid closing shared connection pools Similar to MySQL
-     * implementation Note: HybridSplitAssigner wraps SnapshotSplitAssigner, so we need to get the
-     * inner assigner first
-     */
-    private static void closeChunkSplitterOnly(HybridSplitAssigner<?> splitAssigner) {
-        try {
-            // First, get the inner SnapshotSplitAssigner from HybridSplitAssigner
-            java.lang.reflect.Field snapshotAssignerField =
-                    HybridSplitAssigner.class.getDeclaredField("snapshotSplitAssigner");
-            snapshotAssignerField.setAccessible(true);
-            SnapshotSplitAssigner<?> snapshotSplitAssigner =
-                    (SnapshotSplitAssigner<?>) snapshotAssignerField.get(splitAssigner);
-
-            if (snapshotSplitAssigner == null) {
-                LOG.warn("snapshotSplitAssigner is null in HybridSplitAssigner");
-                return;
-            }
-
-            // Call closeExecutorService() via reflection
-            java.lang.reflect.Method closeExecutorMethod =
-                    SnapshotSplitAssigner.class.getDeclaredMethod("closeExecutorService");
-            closeExecutorMethod.setAccessible(true);
-            closeExecutorMethod.invoke(snapshotSplitAssigner);
-
-            // Call chunkSplitter.close() via reflection
-            java.lang.reflect.Field chunkSplitterField =
-                    SnapshotSplitAssigner.class.getDeclaredField("chunkSplitter");
-            chunkSplitterField.setAccessible(true);
-            Object chunkSplitter = chunkSplitterField.get(snapshotSplitAssigner);
-
-            if (chunkSplitter != null) {
-                java.lang.reflect.Method closeMethod = chunkSplitter.getClass().getMethod("close");
-                closeMethod.invoke(chunkSplitter);
-                LOG.info("Closed Source chunkSplitter JDBC connection");
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to close chunkSplitter via reflection", e);
-        }
-    }
-
-    private SplitRecords pollSplitRecordsWithSplit(SourceSplitBase split, JobBaseConfig jobConfig)
-            throws Exception {
-        Preconditions.checkState(split != null, "split is null");
-        SourceRecords sourceRecords = null;
-        String currentSplitId = null;
-        Fetcher<SourceRecords, SourceSplitBase> currentReader = null;
-        LOG.info("Get a split: {}", split.splitId());
-        if (split.isSnapshotSplit()) {
-            currentReader = getSnapshotSplitReader(jobConfig);
-        } else if (split.isStreamSplit()) {
-            currentReader = getBinlogSplitReader(jobConfig);
-        }
-        this.setCurrentReader(currentReader);
-        FetchTask<SourceSplitBase> splitFetchTask = createFetchTaskFromSplit(jobConfig, split);
-        currentReader.submitTask(splitFetchTask);
-        currentSplitId = split.splitId();
-        this.setCurrentFetchTask(splitFetchTask);
-        // make split record available
-        sourceRecords =
-                pollUntilDataAvailable(currentReader, Constants.POLL_SPLIT_RECORDS_TIMEOUTS, 500);
-        if (currentReader instanceof IncrementalSourceScanFetcher) {
-            closeCurrentReader();
-        }
-        return new SplitRecords(currentSplitId, sourceRecords.iterator());
-    }
-
-    private SplitRecords pollSplitRecordsWithCurrentReader(
-            Fetcher<SourceRecords, SourceSplitBase> currentReader) throws Exception {
-        Iterator<SourceRecords> dataIt = null;
-        if (currentReader instanceof IncrementalSourceStreamFetcher) {
-            dataIt = currentReader.pollSplitRecords();
-            return dataIt == null
-                    ? null
-                    : new SplitRecords(STREAM_SPLIT_ID, dataIt.next().iterator());
-        } else {
-            throw new IllegalStateException("Unsupported reader type.");
-        }
-    }
-
-    /**
-     * Split tasks are submitted asynchronously, and data is sent to the Debezium queue. Therefore,
-     * there will be a time interval between retrieving data; it's necessary to fetch data until the
-     * queue has data.
-     */
-    private SourceRecords pollUntilDataAvailable(
-            Fetcher<SourceRecords, SourceSplitBase> reader, long maxWaitTimeMs, long pollIntervalMs)
-            throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-        long elapsedTime = 0;
-        int attemptCount = 0;
-        LOG.info("Polling until data available");
-        Iterator<SourceRecords> lastDataIt = null;
-        while (elapsedTime < maxWaitTimeMs) {
-            attemptCount++;
-            lastDataIt = reader.pollSplitRecords();
-            if (lastDataIt != null && lastDataIt.hasNext()) {
-                SourceRecords sourceRecords = lastDataIt.next();
-                if (sourceRecords != null && !sourceRecords.getSourceRecordList().isEmpty()) {
-                    LOG.info(
-                            "Data available after {} ms ({} attempts). {} Records received.",
-                            elapsedTime,
-                            attemptCount,
-                            sourceRecords.getSourceRecordList().size());
-                    // todo: poll until heartbeat ?
-                    return sourceRecords;
-                }
-            }
-
-            // No records yet, continue polling
-            if (elapsedTime + pollIntervalMs < maxWaitTimeMs) {
-                Thread.sleep(pollIntervalMs);
-                elapsedTime = System.currentTimeMillis() - startTime;
-            } else {
-                // Last attempt before timeout
-                break;
-            }
-        }
-
-        LOG.warn(
-                "Timeout: No data (heartbeat or data change) received after {} ms ({} attempts).",
-                elapsedTime,
-                attemptCount);
-        return new SourceRecords(new ArrayList<>());
-    }
-
-    private void closeCurrentReader() {
-        Fetcher<SourceRecords, SourceSplitBase> currentReader = this.getCurrentReader();
-        if (currentReader != null) {
-            LOG.info("Close current reader {}", currentReader.getClass().getCanonicalName());
-            currentReader.close();
-            this.setCurrentReader(null);
-        }
-    }
+    // Method removed - reader cleanup is now handled in finishSplitRecords()
 
     protected abstract FetchTask<SourceSplitBase> createFetchTaskFromSplit(
             JobBaseConfig jobConfig, SourceSplitBase split);
 
     /** Get source config - to be implemented by subclasses */
     protected abstract JdbcSourceConfig getSourceConfig(JobBaseConfig config);
+
+    /** Get source config - to be implemented by subclasses */
+    protected abstract JdbcSourceConfig getSourceConfig(JobBaseConfig config, int subtaskId);
 
     @Override
     public Map<String, String> extractSnapshotStateOffset(Object splitState) {
@@ -560,6 +883,35 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
         Offset highWatermark = sourceSplitState.asSnapshotSplitState().getHighWatermark();
         Map<String, String> offsetRes = new HashMap<>(highWatermark.getOffset());
         return offsetRes;
+    }
+
+    @Override
+    public boolean isSnapshotFinished() {
+        if (snapshotReaderContexts.isEmpty()) {
+            return true;
+        }
+        for (SnapshotReaderContext<
+                        org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>,
+                        SnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void refreshCompletedSplits() {
+        for (SnapshotReaderContext<
+                        org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                        Fetcher<SourceRecords, SourceSplitBase>,
+                        SnapshotSplitState>
+                context : snapshotReaderContexts) {
+            if (context.getSplitState().getHighWatermark() != null) {
+                completedSplitIds.add(context.getSplit().splitId());
+            }
+        }
     }
 
     @Override
@@ -594,13 +946,47 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public void finishSplitRecords() {
-        this.setCurrentSplitRecords(null);
-        // Close after each read, the binlog client will occupy the connection.
-        closeCurrentReader();
+    public synchronized void finishSplitRecords() {
+        // Cancel any active poll operations
+        if (activePollFutures != null) {
+            activePollFutures.forEach(f -> f.cancel(true));
+            activePollFutures.clear();
+            activePollFutures = null;
+        }
+        completedSplitIds.clear();
+        // Clean up snapshot readers
+        if (!snapshotReaderContexts.isEmpty()) {
+            LOG.info("Closing {} snapshot readers", snapshotReaderContexts.size());
+            for (SnapshotReaderContext<
+                            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                            Fetcher<SourceRecords, SourceSplitBase>,
+                            SnapshotSplitState>
+                    context : snapshotReaderContexts) {
+                if (context.getReader() != null) {
+                    closeReaderInternal(context.getReader());
+                }
+            }
+            snapshotReaderContexts.clear();
+        }
+
+        // Clean up stream reader
+        if (streamReader != null) {
+            LOG.info("Closing stream reader");
+            closeReaderInternal(streamReader);
+            streamReader = null;
+            streamSplit = null;
+            streamSplitState = null;
+        }
     }
 
-    private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
+    private void closeReaderInternal(Fetcher<SourceRecords, SourceSplitBase> reader) {
+        if (reader != null) {
+            LOG.info("Close reader {}", reader.getClass().getCanonicalName());
+            reader.close();
+        }
+    }
+
+    protected Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
         Map<TableId, TableChanges.TableChange> schemas = this.getTableSchemas();
         if (schemas == null) {
             schemas = discoverTableSchemas(config);
@@ -613,12 +999,10 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
             JobBaseConfig config);
 
     @Override
-    public void close(JobBaseConfig jobConfig) {
+    public synchronized void close(JobBaseConfig jobConfig) {
         LOG.info("Close source reader for job {}", jobConfig.getJobId());
-        closeCurrentReader();
-        currentReader = null;
-        currentSplitRecords = null;
-        currentSplit = null;
+        finishSplitRecords();
+        shutdownSnapshotPollExecutor();
         if (tableSchemas != null) {
             tableSchemas.clear();
             tableSchemas = null;
@@ -626,15 +1010,22 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public List<String> deserialize(Map<String, String> config, SourceRecord element)
+    protected void shutdownSnapshotPollExecutor() {
+        if (snapshotPollExecutor != null) {
+            snapshotPollExecutor.shutdownNow();
+        }
+    }
+
+    @Override
+    public DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException {
         return serializer.deserialize(config, element);
     }
 
     /**
      * Filtered record iterator that only returns data change records, filtering out watermark,
-     * heartbeat and other events. This is a private inner class that encapsulates record filtering
-     * logic, making the main method cleaner.
+     * heartbeat and other events. This is a private static inner class that encapsulates record
+     * filtering logic, making the main method cleaner.
      */
     private class FilteredRecordIterator implements Iterator<SourceRecord> {
         private final Iterator<SourceRecord> sourceIterator;
@@ -672,6 +1063,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
                         Offset position = createOffset(element.sourceOffset());
                         splitState.asStreamSplitState().setStartingOffset(position);
                     }
+                    nextRecord = element;
+                    return true;
                 } else if (SourceRecordUtils.isDataChangeRecord(element)) {
                     if (splitState.isStreamSplitState()) {
                         Offset position = createOffset(element.sourceOffset());

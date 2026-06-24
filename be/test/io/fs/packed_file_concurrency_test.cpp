@@ -456,6 +456,7 @@ protected:
         FileReaderOptions local_opts = opts ? *opts : FileReaderOptions();
         local_opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
         local_opts.is_doris_table = true;
+        local_opts.tablet_id = 10086;
         *reader = std::make_shared<CachedRemoteFileReader>(raw, local_opts);
         return Status::OK();
     }
@@ -722,6 +723,7 @@ TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
                 FileReaderOptions opts;
                 opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
                 opts.is_doris_table = true;
+                opts.tablet_id = 10086;
                 ASSERT_TRUE(reader_fs.open_file(Path(path), &reader, &opts).ok());
                 // After the fix, CachedRemoteFileReader wraps PackedFileReader (not vice versa)
                 // This ensures cache key uses segment path for proper cleanup

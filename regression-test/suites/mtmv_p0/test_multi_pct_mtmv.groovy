@@ -155,34 +155,40 @@ suite("test_multi_pct_mtmv","mtmv") {
         """
 
     order_qt_partitions_1 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_1_2 "select PartitionName,UnsyncTables from partitions('database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_partitions_2 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_2_2 "select PartitionName,UnsyncTables from partitions('database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         alter table ${tableName2} drop partition p201703;
         """
     order_qt_partitions_3 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_3_2 "select PartitionName,UnsyncTables from partitions('database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_partitions_4 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_4_2 "select PartitionName,UnsyncTables from partitions('database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         alter table ${tableName2} add partition p201704 VALUES [("2017-04-01"),("2017-05-01"));
         """
     order_qt_partitions_5 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_5_2 "select PartitionName,UnsyncTables from partitions('database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20170401_20170501);
         """
      waitingMTMVTaskFinishedByMvName(mvName)
      order_qt_partitions_6 "select PartitionName,UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
+     order_qt_partitions_6_2 "select PartitionName,UnsyncTables from partitions('database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
      sql """
          insert into ${tableName2} values("2017-04-01",10);

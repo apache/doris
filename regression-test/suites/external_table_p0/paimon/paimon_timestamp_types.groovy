@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_timestamp_types", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -81,8 +81,8 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
             qt_ltz_ntz_simple11 """ select carray2 from ${table} """
             qt_ltz_ntz_simple12 """ select carray2[2] from ${table} """
             qt_ltz_ntz_simple13 """ select crow from ${table} """
-            qt_ltz_ntz_simple14 """ select STRUCT_ELEMENT(crow, 'crow1') from ${table} """
-            qt_ltz_ntz_simple15 """ select STRUCT_ELEMENT(crow, 'crow2') from ${table} """
+            qt_ltz_ntz_simple14 """ select element_at(crow, 'crow1') from ${table} """
+            qt_ltz_ntz_simple15 """ select element_at(crow, 'crow2') from ${table} """
         }
 
         def test_scale = {

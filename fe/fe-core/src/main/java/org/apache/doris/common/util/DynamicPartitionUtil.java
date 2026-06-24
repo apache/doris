@@ -465,6 +465,8 @@ public class DynamicPartitionUtil {
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
+        String storagePolicy = properties.get(DynamicPartitionProperty.STORAGE_POLICY);
+        String storageMedium = properties.get(DynamicPartitionProperty.STORAGE_MEDIUM);
 
         if (!(Strings.isNullOrEmpty(enable)
                 && Strings.isNullOrEmpty(timeUnit)
@@ -475,7 +477,9 @@ public class DynamicPartitionUtil {
                 && Strings.isNullOrEmpty(buckets)
                 && Strings.isNullOrEmpty(createHistoryPartition)
                 && Strings.isNullOrEmpty(historyPartitionNum)
-                && Strings.isNullOrEmpty(reservedHistoryPeriods))) {
+                && Strings.isNullOrEmpty(reservedHistoryPeriods)
+                && Strings.isNullOrEmpty(storagePolicy)
+                && Strings.isNullOrEmpty(storageMedium))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -641,10 +645,17 @@ public class DynamicPartitionUtil {
         }
         expectCreatePartitionNum = (long) end - start;
 
-        if (!isReplay && hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+        int dynamicPartitionLimit = Config.max_dynamic_partition_num;
+        if (!isReplay && hasEnd
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
-            throw new DdlException("Too many dynamic partitions: "
-                    + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
+            if (expectCreatePartitionNum > dynamicPartitionLimit) {
+                throw new DdlException("Too many dynamic partitions: "
+                        + expectCreatePartitionNum + ". Limit: " + dynamicPartitionLimit);
+            } else if (expectCreatePartitionNum > dynamicPartitionLimit * 8L / 10) {
+                LOG.warn("Dynamic partition count {} is approaching limit {} (>80%)."
+                        + " Consider increasing max_dynamic_partition_num.",
+                        expectCreatePartitionNum, dynamicPartitionLimit);
+            }
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {

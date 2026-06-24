@@ -25,6 +25,7 @@
 #include <glog/logging.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include <cstring>
 #include <memory>
@@ -32,14 +33,14 @@
 #include <utility>
 #include <vector>
 
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "util/doris_metrics.h"
+#include "service/http/http_client.h"
 #include "util/md5.h"
-#include "util/metrics.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -166,19 +167,15 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
         return Status::InternalError("fail to open file");
     }
 
-    HttpClient client;
-
-    std::stringstream url_ss;
     ClusterInfo* cluster_info = _exec_env->cluster_info();
-    url_ss << cluster_info->master_fe_addr.hostname << ":" << cluster_info->master_fe_http_port
-           << "/api/get_small_file?"
-           << "file_id=" << file_id << "&token=" << cluster_info->token;
+    // Small file download is the only BE→FE path that uses HTTP (not Thrift/RPC).
+    // master_fe_http_port is set to https_port when enable_https=true (see HeartbeatMgr).
+    // The ~1ms fallback overhead is acceptable; small file downloads are infrequent.
+    const std::string host_port = cluster_info->master_fe_addr.hostname + ":" +
+                                  std::to_string(cluster_info->master_fe_http_port);
+    const std::string query = "/api/get_small_file?file_id=" + std::to_string(file_id) +
+                              "&token=" + cluster_info->token;
 
-    std::string url = url_ss.str();
-
-    LOG(INFO) << "download file from: " << url;
-
-    RETURN_IF_ERROR(client.init(url));
     Status status;
     Md5Digest digest;
     auto download_cb = [&status, &tmp_file, &fp, &digest](const void* data, size_t length) {
@@ -192,7 +189,32 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
         }
         return true;
     };
-    RETURN_IF_ERROR(client.execute(download_cb));
+
+    std::string url = "http://" + host_port + query;
+    LOG(INFO) << "download file from: " << url;
+    HttpClient client;
+    RETURN_IF_ERROR(client.init(url));
+    Status execute_status = client.execute(download_cb);
+
+    if (!execute_status.ok()) {
+        rewind(fp.get());
+        if (ftruncate(fileno(fp.get()), 0) != 0) {
+            LOG(WARNING) << "fail to truncate temp file for https retry, errno=" << errno;
+        }
+        status = Status::OK();
+        digest = Md5Digest();
+
+        url = "https://" + host_port + query;
+        LOG(INFO) << "HTTP failed, retrying with HTTPS: " << url;
+        HttpClient https_client;
+        RETURN_IF_ERROR(https_client.init(url));
+        // Skip TLS cert verification: internal cluster traffic only; file integrity
+        // is guaranteed independently by MD5 checksum verification below.
+        https_client.use_untrusted_ssl();
+        execute_status = https_client.execute(download_cb);
+    }
+
+    RETURN_IF_ERROR(execute_status);
     RETURN_IF_ERROR(status);
     digest.digest();
 

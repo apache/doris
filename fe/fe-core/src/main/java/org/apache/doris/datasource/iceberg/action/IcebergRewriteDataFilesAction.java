@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.action;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -28,7 +29,6 @@ import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 
@@ -160,6 +160,9 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         this.maxFileSizeBytes = namedArguments.getLong(MAX_FILE_SIZE_BYTES);
         if (this.maxFileSizeBytes == 0) {
             this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
+        }
+        if (this.minFileSizeBytes > this.maxFileSizeBytes) {
+            throw new UserException("min-file-size-bytes must be less than or equal to max-file-size-bytes");
         }
         validateNoPartitions();
     }

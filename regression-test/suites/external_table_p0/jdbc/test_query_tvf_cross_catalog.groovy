@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_query_tvf_cross_catalog", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_query_tvf_cross_catalog", "p0,external") {
     String jdbcUrl = context.config.jdbcUrl + "&jdbcCompliantTruncation=false&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword

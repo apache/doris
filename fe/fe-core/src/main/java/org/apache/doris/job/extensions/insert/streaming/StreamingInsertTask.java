@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.Util;
@@ -41,8 +42,10 @@ import org.apache.doris.thrift.TStatusCode;
 
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,6 +60,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private ConnectContext ctx;
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
+    private String cloudCluster;
     SourceOffsetProvider offsetProvider;
 
     public StreamingInsertTask(long jobId,
@@ -66,13 +70,15 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                                String currentDb,
                                StreamingJobProperties jobProperties,
                                Map<String, String> originTvfProps,
-                               UserIdentity userIdentity) {
+                               UserIdentity userIdentity,
+                               String cloudCluster) {
         super(jobId, taskId, userIdentity);
         this.sql = sql;
         this.currentDb = currentDb;
         this.offsetProvider = offsetProvider;
         this.jobProperties = jobProperties;
         this.originTvfProps = originTvfProps;
+        this.cloudCluster = cloudCluster;
     }
 
     @Override
@@ -85,6 +91,10 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.startTimeMs = System.currentTimeMillis();
         ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
         ctx.setSessionVariable(jobProperties.getSessionVariable(ctx.getSessionVariable()));
+        // apply after session merge so compute_group wins over session.cloud_cluster
+        if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
+            ctx.setCloudCluster(cloudCluster);
+        }
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
 
@@ -98,7 +108,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         if (!baseCommand.getParsedPlan().isPresent()) {
             throw new JobException("Can not get Parsed plan");
         }
-        this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset);
+        this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
         this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
     }
@@ -124,6 +134,14 @@ public class StreamingInsertTask extends AbstractStreamingTask {
                     runningOffset.toString(), e);
             throw new JobException(Util.getRootCauseMessage(e));
         }
+    }
+
+    @Override
+    public List<Long> getScanBackendIds() {
+        if (stmtExecutor != null && stmtExecutor.getCoord() != null) {
+            return stmtExecutor.getCoord().getScanBackendIds();
+        }
+        return Collections.emptyList();
     }
 
     @Override

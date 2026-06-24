@@ -1,4 +1,5 @@
-CREATE EXTERNAL TABLE IF NOT EXISTS `orc_all_types`(
+drop table if exists `orc_all_types`;
+create external table `orc_all_types`(
   `tinyint_col` tinyint,
   `smallint_col` smallint,
   `int_col` int,
@@ -28,4 +29,12 @@ LOCATION
   '/user/doris/preinstalled_data/orc/orc_all_types';
 
 msck repair table orc_all_types;
+
+
+drop table if exists hive_orc_next_batch_test;
+drop table if exists hive_orc_next_batch_test;
+create table hive_orc_next_batch_test (id  INT, data STRING) STORED AS ORC;
+INSERT INTO hive_orc_next_batch_test VALUES
+  (1, '{"age":25,"city":"beijing","score":88}'),
+  (2,   '{"age":30,"city":"shanghai","score":92}');
 

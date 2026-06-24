@@ -47,6 +47,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 class BindSlotReferenceTest implements MemoPatternMatchSupported {
 
@@ -161,12 +162,12 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         DistributeHint hint = new DistributeHint(DistributeType.NONE);
         LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>
                 using1 = new LogicalUsingJoin<>(JoinType.LEFT_OUTER_JOIN, sub1,
-                sub2, ImmutableList.of(new UnboundSlot("id")), hint);
+                sub2, ImmutableList.of(new UnboundSlot("id")), Optional.empty(), hint);
 
         LogicalUsingJoin<LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>,
                             LogicalSubQueryAlias<LogicalOlapScan>> using2 = new LogicalUsingJoin<>(
                                     JoinType.LEFT_OUTER_JOIN, using1, sub3,
-                ImmutableList.of(new UnboundSlot("id")), hint);
+                ImmutableList.of(new UnboundSlot("id")), Optional.empty(), hint);
 
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(using2)

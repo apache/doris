@@ -58,9 +58,7 @@ public class MetaServiceProxyTest {
     @Test
     public void testExecuteRequestNoShutdownOnSuccess() throws RpcException {
         MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
-        Mockito.when(client.isNormalState()).thenReturn(true);
-        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        MetaServiceClient client = mockNormalClient();
 
         Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
         serviceMap.put(Config.meta_service_endpoint, client);
@@ -71,7 +69,7 @@ public class MetaServiceProxyTest {
         lastConnTimeMs.add(0L);
 
         MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
-        String response = wrapper.executeRequest((ignored) -> "ok");
+        String response = wrapper.executeRequest("ignored", (ignored) -> "ok");
         Assert.assertEquals("ok", response);
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
@@ -79,9 +77,7 @@ public class MetaServiceProxyTest {
     @Test
     public void testExecuteRequestShutdownOnFailure() {
         MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
-        Mockito.when(client.isNormalState()).thenReturn(true);
-        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        MetaServiceClient client = mockNormalClient();
 
         Map<String, MetaServiceClient> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
         serviceMap.put(Config.meta_service_endpoint, client);
@@ -93,7 +89,7 @@ public class MetaServiceProxyTest {
 
         MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
         try {
-            wrapper.executeRequest((ignored) -> {
+            wrapper.executeRequest("ignored", (ignored) -> {
                 throw new RuntimeException("rpc failed");
             });
             Assert.fail("should throw RpcException");
@@ -107,9 +103,7 @@ public class MetaServiceProxyTest {
     @Test
     public void testGetVisibleVersionAsyncShutdownOnFailure() throws RpcException {
         MetaServiceProxy proxy = new MetaServiceProxy();
-        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
-        Mockito.when(client.isNormalState()).thenReturn(true);
-        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        MetaServiceClient client = mockNormalClient();
 
         SettableFuture<Cloud.GetVersionResponse> future = SettableFuture.create();
         Mockito.when(client.getVisibleVersionAsync(Mockito.any())).thenReturn(future);
@@ -123,5 +117,13 @@ public class MetaServiceProxyTest {
         future.setException(new RuntimeException("async failed"));
 
         Mockito.verify(client).shutdown(true);
+    }
+
+    private MetaServiceClient mockNormalClient() {
+        MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
+        Mockito.when(client.isNormalState()).thenReturn(true);
+        Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
+        Mockito.when(client.isUsingLatestChannelConfig()).thenReturn(true);
+        return client;
     }
 }

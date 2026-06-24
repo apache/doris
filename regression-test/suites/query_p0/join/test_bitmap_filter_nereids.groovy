@@ -17,7 +17,6 @@
 
 suite("test_bitmap_filter_nereids") {
     multi_sql """
-        set runtime_filter_type = 16;
         DROP TABLE IF EXISTS bitmap_table_nereids;
     
         CREATE TABLE bitmap_table_nereids (
@@ -36,8 +35,6 @@ suite("test_bitmap_filter_nereids") {
             bitmap_from_string('32767, 1985, 255, 789, 1991')),
         (2, bitmap_from_string('10, 11, 12, 13, 14'), bitmap_empty());
 
-        set enable_nereids_planner=true;
-        set enable_fallback_to_original_planner=false;
         """
         
     qt_sql1 "select k1, k2 from test_query_db.bigtable where k1 in (select k2 from bitmap_table_nereids) order by k1;"
@@ -79,12 +76,12 @@ suite("test_bitmap_filter_nereids") {
     sql "set ignore_storage_data_distribution=false"
     explain{
         sql "select k1, k2 from test_query_db.bigtable where k1 in (select k2 from bitmap_table_nereids) order by k1;"
-        contains "RF000[bitmap]"
+        notContains "RF000[bitmap]"
     }   
 
     explain{
         sql "select k1, k2 from test_query_db.bigtable where k1 not in (select k2 from bitmap_table_nereids where k1 = 1)"
-        contains "RF000[bitmap]"
+        notContains "RF000[bitmap]"
     }   
 
     explain{

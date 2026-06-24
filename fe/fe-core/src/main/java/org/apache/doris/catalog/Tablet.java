@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TTabletCopyType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
@@ -44,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.LongStream;
 
 /**
  * This class represents the olap tablet related metadata.
@@ -207,6 +207,7 @@ public abstract class Tablet {
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
     public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
+        TabletSlidingWindowAccessStats.recordTablet(getId());
         return getNormalReplicaBackendPathMapImpl(null, (rep, be) -> rep.getBackendId());
     }
 
@@ -222,6 +223,8 @@ public abstract class Tablet {
         List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
+        List<Replica> userDropReplica = Lists.newArrayListWithCapacity(replicaNum);
+        TabletSlidingWindowAccessStats.recordTablet(getId());
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {
@@ -229,6 +232,10 @@ public abstract class Tablet {
             }
             if (!replica.checkVersionCatchUp(visibleVersion, false)) {
                 notCatchupReplica.add(replica);
+                continue;
+            }
+            if (replica.isUserDrop()) {
+                userDropReplica.add(replica);
                 continue;
             }
             if (replica.getLastFailedVersion() > 0) {
@@ -254,6 +261,7 @@ public abstract class Tablet {
         if (allQueryableReplica.isEmpty()) {
             allQueryableReplica = auxiliaryReplica;
         }
+
         if (allQueryableReplica.isEmpty()) {
             allQueryableReplica = deadPathReplica;
         }
@@ -265,6 +273,10 @@ public abstract class Tablet {
 
         if (allQueryableReplica.isEmpty() && allowMissingVersion) {
             allQueryableReplica = notCatchupReplica;
+        }
+
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = userDropReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
@@ -302,14 +314,7 @@ public abstract class Tablet {
         return sb.toString();
     }
 
-    public Replica getReplicaById(long replicaId) {
-        for (Replica replica : getReplicas()) {
-            if (replica.getId() == replicaId) {
-                return replica;
-            }
-        }
-        return null;
-    }
+    public abstract Replica getReplicaById(long replicaId);
 
     public abstract Replica getReplicaByBackendId(long backendId);
 
@@ -333,41 +338,27 @@ public abstract class Tablet {
     @Override
     public abstract boolean equals(Object obj);
 
-    // ATTN: Replica::getDataSize may zero in cloud and non-cloud
-    // due to dataSize not write to image
-    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
-        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
-                .mapToLong(Replica::getDataSize);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
-    }
+    public abstract long getDataSize(boolean singleReplica, boolean filterSizeZero);
 
     public long getRemoteDataSize() {
         return 0;
     }
 
-    public long getRowCount(boolean singleReplica) {
-        LongStream s = getReplicas().stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .mapToLong(Replica::getRowCount);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (Replica replica : getReplicas()) {
+            if (replica.getState() == ReplicaState.NORMAL) {
+                binlogDataSize += replica.getBinlogSize();
+            }
+        }
+        return binlogDataSize;
     }
+
+    public abstract long getRowCount(boolean singleReplica);
 
     // Get the least row count among all valid replicas.
     // The replica with the least row count is the most accurate one. Because it performs most compaction.
-    public long getMinReplicaRowCount(long version) {
-        long minRowCount = Long.MAX_VALUE;
-        long maxReplicaVersion = 0;
-        for (Replica r : getReplicas()) {
-            if (r.isAlive()
-                    && r.checkVersionCatchUp(version, false)
-                    && (r.getVersion() > maxReplicaVersion
-                        || r.getVersion() == maxReplicaVersion && r.getRowCount() < minRowCount)) {
-                minRowCount = r.getRowCount();
-                maxReplicaVersion = r.getVersion();
-            }
-        }
-        return minRowCount == Long.MAX_VALUE ? 0 : minRowCount;
-    }
+    public abstract long getMinReplicaRowCount(long version);
 
     /**
      * A replica is healthy only if
@@ -739,5 +730,27 @@ public abstract class Tablet {
 
     public void setLastCheckTime(long lastCheckTime) {
         throw new UnsupportedOperationException("setLastCheckTime is not supported in Tablet");
+    }
+
+    public static class CopyType {
+        public static final int DEFAULT = TTabletCopyType.DATA.getValue()
+                | TTabletCopyType.CCR_BINLOG.getValue();
+
+        public static boolean has(int copyType, TTabletCopyType type) {
+            return (copyType & type.getValue()) != 0;
+        }
+
+        public static void validate(int copyType) {
+            if (copyType <= 0 || (copyType & ~allTypes()) != 0) {
+                throw new IllegalArgumentException(
+                        "invalid copy_type bitmask: " + copyType + ", valid bits: " + allTypes());
+            }
+        }
+
+        private static int allTypes() {
+            return TTabletCopyType.DATA.getValue()
+                    | TTabletCopyType.ROW_BINLOG.getValue()
+                    | TTabletCopyType.CCR_BINLOG.getValue();
+        }
     }
 }

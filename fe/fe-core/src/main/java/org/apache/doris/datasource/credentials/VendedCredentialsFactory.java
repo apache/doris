@@ -53,7 +53,7 @@ public class VendedCredentialsFactory {
     /**
      * Select the right provider according to the MetastoreProperties type
      */
-    private static AbstractVendedCredentialsProvider getProviderType(MetastoreProperties metastoreProperties) {
+    public static AbstractVendedCredentialsProvider getProviderType(MetastoreProperties metastoreProperties) {
         if (metastoreProperties == null) {
             return null;
         }

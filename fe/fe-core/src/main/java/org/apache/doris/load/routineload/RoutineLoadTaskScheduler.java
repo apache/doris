@@ -195,6 +195,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             long startTime = System.currentTimeMillis();
             tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
+            if (DebugPointUtil.isEnable("FE.RoutineLoadTaskScheduler.createRoutineLoadTask.exception")) {
+                throw new RuntimeException("debug point: createRoutineLoadTask.exception");
+            }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("create routine load task cost(ms): {}, job id: {}",
                         (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
@@ -208,12 +211,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                             new ErrorReason(InternalErrorCode.META_NOT_FOUND_ERR, "meta not found: " + e.getMessage()),
                             false);
             throw e;
-        } catch (UserException e) {
+        } catch (Exception e) {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
                     .updateState(JobState.PAUSED,
-                            new ErrorReason(e.getErrorCode(),
+                            new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
                                     "failed to create task: " + e.getMessage()), false);
             throw e;
         }
@@ -247,22 +250,34 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 routineLoadTaskInfo.getBeId(), errorMsg);
         routineLoadTaskInfo.setBeId(-1);
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
-        routineLoadJob.setOtherMsg(errorMsg);
+        RoutineLoadTaskInfo newTask;
 
-        // Check if this is a resource pressure error that should not be immediately rescheduled
-        if (errorMsg.contains("TOO_MANY_TASKS") || errorMsg.contains("MEM_LIMIT_EXCEEDED")) {
-            // submit task failed (such as TOO_MANY_TASKS/MEM_LIMIT_EXCEEDED error),
-            // but txn has already begun. Here we will still set the ExecuteStartTime of
-            // this task, which means we "assume" that this task has been successfully submitted.
-            // And this task will then be aborted because of a timeout.
-            // In this way, we can prevent the entire job from being paused due to submit errors,
-            // and we can also relieve the pressure on BE by waiting for the timeout period.
-            routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
-            return;
+        routineLoadJob.writeLock();
+        try {
+            routineLoadJob.setOtherMsg(errorMsg);
+
+            // Check if this is a resource pressure error that should not be immediately rescheduled
+            if (errorMsg.contains("TOO_MANY_TASKS") || errorMsg.contains("MEM_LIMIT_EXCEEDED")) {
+                // submit task failed (such as TOO_MANY_TASKS/MEM_LIMIT_EXCEEDED error),
+                // but txn has already begun. Here we will still set the ExecuteStartTime of
+                // this task, which means we "assume" that this task has been successfully submitted.
+                // And this task will then be aborted because of a timeout.
+                // In this way, we can prevent the entire job from being paused due to submit errors,
+                // and we can also relieve the pressure on BE by waiting for the timeout period.
+                routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
+                return;
+            }
+
+            if (routineLoadJob.getState() != JobState.RUNNING
+                    || !routineLoadJob.containsTask(routineLoadTaskInfo.getId())) {
+                return;
+            }
+
+            // for other errors (network issues, BE restart, etc.), reschedule immediately
+            newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo, false);
+        } finally {
+            routineLoadJob.writeUnlock();
         }
-
-        // for other errors (network issues, BE restart, etc.), reschedule immediately
-        RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo, false);
         addTaskInQueue(newTask);
     }
 
@@ -317,6 +332,13 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED,"
                         + "routine load task submit failed");
                 throw new LoadException("MEM_LIMIT_EXCEEDED");
+            }
+
+            if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS")) {
+                LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS,"
+                        + "routine load task submit failed");
+                tStatus = new TStatus(TStatusCode.TOO_MANY_TASKS);
+                tStatus.addToErrorMsgs("debug point: too many tasks");
             }
 
             if (tStatus.getStatusCode() != TStatusCode.OK) {

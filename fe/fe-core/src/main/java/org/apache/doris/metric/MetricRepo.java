@@ -21,6 +21,9 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.JobWarmUpStats;
 import org.apache.doris.cloud.catalog.CloudTabletRebalancer;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -29,12 +32,16 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobStatistic;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.load.routineload.RoutineLoadStatistic;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -58,14 +65,19 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.function.ToLongFunction;
 
 public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
@@ -79,6 +91,25 @@ public final class MetricRepo {
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
+    public static final String TABLET_ACCESS_RECENT = "tablet_access_recent";
+    public static final String TABLET_ACCESS_TOTAL = "tablet_access_total";
+
+    public static final String STREAMING_JOB_PER_JOB_SCANNED_ROWS = "streaming_job_per_job_scanned_rows";
+    public static final String STREAMING_JOB_PER_JOB_LOAD_BYTES = "streaming_job_per_job_load_bytes";
+    public static final String STREAMING_JOB_PER_JOB_FILTERED_ROWS = "streaming_job_per_job_filtered_rows";
+    public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
+    public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
+    public static final String STREAMING_JOB_PER_JOB_LAG = "streaming_job_per_job_lag";
+    public static final String ROUTINE_LOAD_PER_JOB_TOTAL_ROWS = "routine_load_per_job_total_rows";
+    public static final String ROUTINE_LOAD_PER_JOB_ERROR_ROWS = "routine_load_per_job_error_rows";
+    public static final String ROUTINE_LOAD_PER_JOB_RECEIVED_BYTES = "routine_load_per_job_received_bytes";
+    public static final String ROUTINE_LOAD_PER_JOB_TASK_EXECUTE_TIME =
+            "routine_load_per_job_task_execute_time";
+    public static final String ROUTINE_LOAD_PER_JOB_TASK_EXECUTE_COUNT =
+            "routine_load_per_job_task_execute_count";
+    public static final String ROUTINE_LOAD_PER_JOB_PROGRESS = "routine_load_per_job_progress";
+    public static final String ROUTINE_LOAD_PER_JOB_LAG = "routine_load_per_job_lag";
+    public static final String ROUTINE_LOAD_PER_JOB_ABORT_TASK_NUM = "routine_load_per_job_abort_task_num";
     public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
@@ -97,7 +128,7 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
-    public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
+    public static AutoMappedMetric<HistogramMetric> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Integer>> USER_GAUGE_CONNECTIONS;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
@@ -110,7 +141,13 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_SQL_CACHE_HIT;
     public static LongCounterMetric COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES;
 
+    private static final Map<String, CloudWarmUpSyncJobGauge> CLOUD_WARM_UP_SYNC_JOB_METRICS =
+            new ConcurrentHashMap<>();
+
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
+
+    public static GaugeMetric<Long> GAUGE_TABLET_ACCESS_RECENT;
+    public static GaugeMetric<Long> GAUGE_TABLET_ACCESS_TOTAL;
 
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
@@ -156,6 +193,17 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT;
+
+    // Streaming job
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_LANTENCY;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_FAILED_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TOTAL_ROWS;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_FILTER_ROWS;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_LOAD_BYTES;
 
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
@@ -237,10 +285,22 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Long> GAUGE_AVG_PARTITION_SIZE_BYTES;
     public static GaugeMetricImpl<Long> GAUGE_AVG_TABLET_SIZE_BYTES;
 
+    // Partition near-limit warnings (gauges: current number of tables near the partition limit)
+    public static GaugeMetricImpl<Long> GAUGE_AUTO_PARTITION_NEAR_LIMIT;
+    public static GaugeMetricImpl<Long> GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT;
+
     // Agent task
     public static LongCounterMetric COUNTER_AGENT_TASK_REQUEST_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
+
+    // TSO
+    public static LongCounterMetric COUNTER_TSO_CLOCK_DRIFT_DETECTED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_BACKWARD_DETECTED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_CALCULATED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATE_FAILED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_GET_SUCCESS;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -301,6 +361,7 @@ public final class MetricRepo {
         }
 
         initRoutineLoadJobMetrics();
+        initStreamingJobMetrics();
 
         // running alter job
         Alter alter = Env.getCurrentEnv().getAlterInstance();
@@ -331,6 +392,37 @@ public final class MetricRepo {
 
         // capacity
         generateBackendsTabletMetrics();
+
+        // tablet sliding window access stats
+        GAUGE_TABLET_ACCESS_RECENT = new GaugeMetric<Long>(TABLET_ACCESS_RECENT, MetricUnit.REQUESTS,
+                "total tablet access count within sliding window") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                if (!Config.enable_active_tablet_sliding_window_access_stats) {
+                    return 0L;
+                }
+                return TabletSlidingWindowAccessStats.getInstance().getRecentAccessCountInWindow();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_TABLET_ACCESS_RECENT);
+
+        GAUGE_TABLET_ACCESS_TOTAL = new GaugeMetric<Long>(TABLET_ACCESS_TOTAL, MetricUnit.REQUESTS,
+                "total tablet access count since FE start") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                if (!Config.enable_active_tablet_sliding_window_access_stats) {
+                    return 0L;
+                }
+                return TabletSlidingWindowAccessStats.getInstance().getTotalAccessCount();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_TABLET_ACCESS_TOTAL);
 
         // connections
         USER_GAUGE_CONNECTIONS = addLabeledMetrics("user", () ->
@@ -437,9 +529,10 @@ public final class MetricRepo {
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("query", "latency", "ms"));
         USER_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {
-            String metricName = MetricRegistry.name("query", "latency", "ms", "user=" + name);
-            return METRIC_REGISTER.histogram(metricName);
+            List<MetricLabel> labels = Collections.singletonList(new MetricLabel("user", name));
+            return new HistogramMetric(MetricRegistry.name("query", "latency", "ms"), labels);
         });
+        DORIS_METRIC_REGISTER.addHistogramMetrics("user_query_latency", USER_HISTO_QUERY_LATENCY);
         USER_COUNTER_QUERY_INSTANCE_BEGIN = addLabeledMetrics("user", () ->
                 new LongCounterMetric("query_instance_begin", MetricUnit.NOUNIT,
                         "number of query instance begin"));
@@ -637,6 +730,35 @@ public final class MetricRepo {
         COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT = new LongCounterMetric("routine_load_task_execute_count",
                 MetricUnit.NOUNIT, "task execute count of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT);
+
+        // streaming job metrics
+        COUNTER_STREAMING_JOB_GET_META_LANTENCY = new LongCounterMetric("streaming_job_get_meta_latency",
+                MetricUnit.MILLISECONDS, "get meta lantency of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_LANTENCY);
+        COUNTER_STREAMING_JOB_GET_META_COUNT = new LongCounterMetric("streaming_job_get_meta_count",
+                MetricUnit.NOUNIT, "get meta count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_COUNT);
+        COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT = new LongCounterMetric("streaming_job_get_meta_fail_count",
+                MetricUnit.NOUNIT, "get meta fail count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT);
+        COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME = new LongCounterMetric("streaming_job_task_execute_time",
+                MetricUnit.MILLISECONDS, "task execute time of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME);
+        COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT = new LongCounterMetric("streaming_job_task_execute_count",
+                MetricUnit.NOUNIT, "task execute count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT);
+        COUNTER_STREAMING_JOB_TASK_FAILED_COUNT = new LongCounterMetric("streaming_job_task_failed_count",
+                MetricUnit.NOUNIT, "task failed count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_FAILED_COUNT);
+        COUNTER_STREAMING_JOB_TOTAL_ROWS = new LongCounterMetric("streaming_job_total_rows", MetricUnit.ROWS,
+                "total rows of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TOTAL_ROWS);
+        COUNTER_STREAMING_JOB_FILTER_ROWS = new LongCounterMetric("streaming_job_filter_rows", MetricUnit.ROWS,
+                "filter rows of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_FILTER_ROWS);
+        COUNTER_STREAMING_JOB_LOAD_BYTES = new LongCounterMetric("streaming_job_load_bytes", MetricUnit.BYTES,
+                "load bytes of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_LOAD_BYTES);
 
         COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
                 "total hit sql block rule query");
@@ -960,6 +1082,17 @@ public final class MetricRepo {
         GAUGE_AVG_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("avg_tablet_size_bytes", MetricUnit.BYTES, "", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_TABLET_SIZE_BYTES);
 
+        // Partition near-limit warning gauges (updated by TabletStatMgr periodic scan)
+        GAUGE_AUTO_PARTITION_NEAR_LIMIT = new GaugeMetricImpl<>("auto_partition_near_limit_count",
+                MetricUnit.NOUNIT,
+                "number of auto partition tables where partition count exceeded 80% of max_auto_partition_num", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_AUTO_PARTITION_NEAR_LIMIT);
+        GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT = new GaugeMetricImpl<>("dynamic_partition_near_limit_count",
+                MetricUnit.NOUNIT,
+                "number of dynamic partition tables where partition count exceeded 80% of max_dynamic_partition_num",
+                0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT);
+
         COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
                 "total agent batch task request send to BE");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_AGENT_TASK_REQUEST_TOTAL);
@@ -967,6 +1100,26 @@ public final class MetricRepo {
                 new LongCounterMetric("agent_task_total", MetricUnit.NOUNIT, "total agent task"));
         COUNTER_AGENT_TASK_RESEND_TOTAL = addLabeledMetrics("task", () ->
                 new LongCounterMetric("agent_task_resend_total", MetricUnit.NOUNIT, "total agent task resend"));
+
+        // TSO
+        COUNTER_TSO_CLOCK_DRIFT_DETECTED = new LongCounterMetric("tso_clock_drift_detected", MetricUnit.NOUNIT,
+                "counter of tso clock drift detected");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_DRIFT_DETECTED);
+        COUNTER_TSO_CLOCK_BACKWARD_DETECTED = new LongCounterMetric("tso_clock_backward_detected", MetricUnit.NOUNIT,
+                "counter of tso clock backward detected");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_BACKWARD_DETECTED);
+        COUNTER_TSO_CLOCK_CALCULATED = new LongCounterMetric("tso_clock_calculated", MetricUnit.NOUNIT,
+                "counter of tso clock calculated");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_CALCULATED);
+        COUNTER_TSO_CLOCK_UPDATED = new LongCounterMetric("tso_clock_updated", MetricUnit.NOUNIT,
+                "counter of tso clock updated");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_UPDATED);
+        COUNTER_TSO_CLOCK_UPDATE_FAILED = new LongCounterMetric("tso_clock_update_failed", MetricUnit.NOUNIT,
+                "counter of tso clock update failed");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_UPDATE_FAILED);
+        COUNTER_TSO_CLOCK_GET_SUCCESS = new LongCounterMetric("tso_clock_get_success", MetricUnit.NOUNIT,
+                "counter of tso clock get success");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_GET_SUCCESS);
 
         // init system metrics
         initSystemMetrics();
@@ -1058,6 +1211,223 @@ public final class MetricRepo {
                 .addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
                 .addLabel(new MetricLabel("state", stateLabel));
         DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    public static void updateRoutineLoadJobPerJobMetrics() {
+        // Clear previous per-job gauges before checking mastership. If this FE loses mastership,
+        // the old gauges registered during the previous master epoch must not be exported.
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_TOTAL_ROWS);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_ERROR_ROWS);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_RECEIVED_BYTES);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_TASK_EXECUTE_TIME);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_TASK_EXECUTE_COUNT);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_PROGRESS);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_LAG);
+        DORIS_METRIC_REGISTER.removeMetrics(ROUTINE_LOAD_PER_JOB_ABORT_TASK_NUM);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+
+        try {
+            RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+            for (RoutineLoadJob job : routineLoadManager.getActiveRoutineLoadJobs()) {
+                String jobId = String.valueOf(job.getId());
+                String jobName = job.getName();
+                RoutineLoadStatistic stat = job.getRoutineLoadStatistic();
+
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_TOTAL_ROWS, MetricUnit.ROWS,
+                        "per job total rows of routine load", jobId, jobName, () -> stat.totalRows);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_ERROR_ROWS, MetricUnit.ROWS,
+                        "per job error rows of routine load", jobId, jobName, () -> stat.errorRows);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_RECEIVED_BYTES, MetricUnit.BYTES,
+                        "per job received bytes of routine load", jobId, jobName, () -> stat.receivedBytes);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_TASK_EXECUTE_TIME, MetricUnit.MILLISECONDS,
+                        "per job task execute time of routine load", jobId, jobName,
+                        () -> stat.totalTaskExcutionTimeMs);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_TASK_EXECUTE_COUNT, MetricUnit.NOUNIT,
+                        "per job task execute count of routine load", jobId, jobName, () -> stat.committedTaskNum);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_PROGRESS, MetricUnit.NOUNIT,
+                        "per job routine load progress", jobId, jobName, job::totalProgress);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_LAG, MetricUnit.NOUNIT,
+                        "per job routine load lag", jobId, jobName, job::totalLag);
+                addRoutineLoadPerJobGaugeMetric(ROUTINE_LOAD_PER_JOB_ABORT_TASK_NUM, MetricUnit.NOUNIT,
+                        "per job number of aborted tasks in routine load", jobId, jobName,
+                        () -> stat.abortedTaskNum);
+            }
+        } catch (Throwable t) {
+            LOG.warn("failed to update routine load per-job metrics", t);
+        }
+    }
+
+    private static void addRoutineLoadPerJobGaugeMetric(String metricName, MetricUnit unit, String description,
+            String jobId, String jobName, Supplier<Long> valueSupplier) {
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>(metricName, unit, description) {
+            @Override
+            public Long getValue() {
+                return valueSupplier.get();
+            }
+        };
+        gauge.addLabel(new MetricLabel("job_id", jobId))
+                .addLabel(new MetricLabel("job_name", jobName));
+        DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    private static void initStreamingJobMetrics() {
+        // streaming insert jobs
+        for (JobStatus jobStatus : JobStatus.values()) {
+            if (jobStatus == JobStatus.PAUSED) {
+                addStreamingJobStateGaugeMetric(jobStatus, "USER_PAUSED",
+                        job -> job.getFailureReason() != null
+                                && job.getFailureReason().getCode() == InternalErrorCode.MANUAL_PAUSE_ERR);
+                addStreamingJobStateGaugeMetric(jobStatus, "ABNORMAL_PAUSED",
+                        job -> job.getFailureReason() != null
+                                && job.getFailureReason().getCode() != InternalErrorCode.MANUAL_PAUSE_ERR);
+            }
+            addStreamingJobStateGaugeMetric(jobStatus, jobStatus.name(), job -> true);
+        }
+    }
+
+    private static void addStreamingJobStateGaugeMetric(
+            JobStatus jobStatus, String stateLabel, Predicate<StreamingInsertJob> filter) {
+
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>(
+                "job", MetricUnit.NOUNIT, "streaming job statistics") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                List<org.apache.doris.job.base.AbstractJob> jobs =
+                        Env.getCurrentEnv().getJobManager().queryJobs(org.apache.doris.job.common.JobType.INSERT);
+
+                return jobs.stream()
+                        .filter(job -> job instanceof StreamingInsertJob)
+                        .map(job -> (StreamingInsertJob) job)
+                        .filter(job -> job.getJobStatus() == jobStatus)
+                        .filter(filter)
+                        .count();
+            }
+        };
+
+        gauge.addLabel(new MetricLabel("job", "load"))
+                .addLabel(new MetricLabel("type", "STREAMING_JOB"))
+                .addLabel(new MetricLabel("state", stateLabel));
+        DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    // Generate per-job metrics for streaming insert jobs.
+    // Called on every /metrics request to keep labels (including offset) up-to-date.
+    // Pattern follows generateBackendsTabletMetrics(): remove all previous metrics, then re-register.
+    public static void updateStreamingJobPerJobMetrics() {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SCANNED_ROWS);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LOAD_BYTES);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FILTERED_ROWS);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG);
+
+        try {
+            List<org.apache.doris.job.base.AbstractJob> jobs =
+                    Env.getCurrentEnv().getJobManager().queryJobs(org.apache.doris.job.common.JobType.INSERT);
+
+            for (org.apache.doris.job.base.AbstractJob job : jobs) {
+                if (!(job instanceof StreamingInsertJob)) {
+                    continue;
+                }
+                StreamingInsertJob sJob = (StreamingInsertJob) job;
+                String jobId = String.valueOf(sJob.getJobId());
+                String jobName = sJob.getJobName();
+
+                // tvfType != null: TVF mode, uses jobStatistic
+                // tvfType == null: multi-table mode (FROM...TO), uses nonTxnJobStatistic
+                final StreamingJobStatistic stat;
+                if (sJob.getTvfType() != null) {
+                    stat = sJob.getJobStatistic() != null ? sJob.getJobStatistic() : new StreamingJobStatistic();
+                } else {
+                    stat = sJob.getNonTxnJobStatistic() != null
+                            ? sJob.getNonTxnJobStatistic() : new StreamingJobStatistic();
+                }
+
+                GaugeMetric<Long> scannedRows = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_SCANNED_ROWS, MetricUnit.ROWS,
+                        "per job scanned rows of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return stat.getScannedRows();
+                    }
+                };
+                scannedRows.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(scannedRows);
+
+                GaugeMetric<Long> loadBytes = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_LOAD_BYTES, MetricUnit.BYTES,
+                        "per job load bytes of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return stat.getLoadBytes();
+                    }
+                };
+                loadBytes.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(loadBytes);
+
+                GaugeMetric<Long> filteredRows = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_FILTERED_ROWS, MetricUnit.ROWS,
+                        "per job filtered rows of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return stat.getFilteredRows();
+                    }
+                };
+                filteredRows.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(filteredRows);
+
+                GaugeMetric<Long> succeedTaskCount = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT, MetricUnit.NOUNIT,
+                        "per job succeed task count of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return sJob.getSucceedTaskCount().get();
+                    }
+                };
+                succeedTaskCount.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(succeedTaskCount);
+
+                GaugeMetric<Long> failedTaskCount = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT, MetricUnit.NOUNIT,
+                        "per job failed task count of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return sJob.getFailedTaskCount().get();
+                    }
+                };
+                failedTaskCount.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(failedTaskCount);
+
+                GaugeMetric<Long> lag = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_LAG, MetricUnit.SECONDS,
+                        "per job lag in seconds of streaming job, -1 means N/A") {
+                    @Override
+                    public Long getValue() {
+                        return sJob.getLagSeconds();
+                    }
+                };
+                lag.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(lag);
+            }
+        } catch (Throwable t) {
+            LOG.warn("failed to update streaming job per-job metrics", t);
+        }
     }
 
     private static void initSystemMetrics() {
@@ -1220,6 +1590,12 @@ public final class MetricRepo {
         // update load job metrics
         updateLoadJobMetrics();
 
+        // update per-job routine load metrics
+        updateRoutineLoadJobPerJobMetrics();
+
+        // update per-job streaming job metrics
+        updateStreamingJobPerJobMetrics();
+
         // jvm
         JvmService jvmService = new JvmService();
         JvmStats jvmStats = jvmService.stats();
@@ -1229,10 +1605,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.accept(visitor);
 
         // histogram
-        SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
-        }
+        visitHistograms(visitor);
 
         visitor.visitNodeInfo();
 
@@ -1250,6 +1623,208 @@ public final class MetricRepo {
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(m);
             return m;
         });
+    }
+
+    public static void visitHistograms(MetricVisitor visitor) {
+        SortedMap<String, Histogram> histograms = METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+
+        DORIS_METRIC_REGISTER.acceptHistograms(visitor);
+    }
+
+    /*
+     * Example Prometheus output for a running event-driven cluster warm-up job. MetricVisitor adds the
+     * "doris_fe_" prefix to the metric names registered below.
+     *
+     * doris_fe_file_cache_warm_up_sync_job_info{
+     *   job_id="1778211593204", job_type="CLUSTER", sync_mode="EVENT_DRIVEN",
+     *   sync_event="LOAD", job_state="RUNNING", src_cluster_name="warmup_source",
+     *   dst_cluster_name="warmup_target"
+     * } 1
+     * doris_fe_file_cache_warm_up_sync_job_size_bytes{
+     *   job_id="1778211593204", job_type="CLUSTER", src_cluster_name="warmup_source",
+     *   dst_cluster_name="warmup_target", side="src", window="5m"
+     * } 113246208
+     * doris_fe_file_cache_warm_up_sync_job_size_bytes{
+     *   job_id="1778211593204", job_type="CLUSTER", src_cluster_name="warmup_source",
+     *   dst_cluster_name="warmup_target", side="dst", window="5m"
+     * } 100663296
+     *
+     * The size metric emits the same label shape for side=(src,dst) and window=(5m,30m,1h).
+     */
+    public static void syncCloudWarmUpSyncJobMetricDefinitions(Collection<CloudWarmUpJob> jobs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode()) {
+            clearCloudWarmUpSyncJobMetrics();
+            return;
+        }
+
+        Collection<CloudWarmUpJob> currentJobs = jobs == null ? Collections.emptyList() : jobs;
+        Set<String> currentMetricKeys = new HashSet<>();
+        for (CloudWarmUpJob job : currentJobs) {
+            if (job == null) {
+                continue;
+            }
+            registerCloudWarmUpSyncJobMetrics(job, currentMetricKeys);
+        }
+        CLOUD_WARM_UP_SYNC_JOB_METRICS.entrySet().removeIf(entry -> {
+            if (currentMetricKeys.contains(entry.getKey())) {
+                return false;
+            }
+            CloudWarmUpSyncJobGauge metric = entry.getValue();
+            DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(metric.getName(), metric.getLabels());
+            return true;
+        });
+    }
+
+    private static void clearCloudWarmUpSyncJobMetrics() {
+        CLOUD_WARM_UP_SYNC_JOB_METRICS.forEach((key, metric) ->
+                DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(metric.getName(), metric.getLabels()));
+        CLOUD_WARM_UP_SYNC_JOB_METRICS.clear();
+    }
+
+    private static void registerCloudWarmUpSyncJobMetrics(CloudWarmUpJob job, Set<String> currentMetricKeys) {
+        String jobId = String.valueOf(job.getJobId());
+        String jobType = labelValue(job.getJobType());
+        String srcClusterName = labelValue(job.getSrcClusterName());
+        String dstClusterName = labelValue(job.getDstClusterName());
+
+        List<MetricLabel> infoLabels = new ArrayList<>();
+        infoLabels.add(new MetricLabel("job_id", jobId));
+        infoLabels.add(new MetricLabel("job_type", jobType));
+        infoLabels.add(new MetricLabel("sync_mode", labelValue(job.getSyncMode())));
+        infoLabels.add(new MetricLabel("sync_event", labelValue(job.getSyncEvent())));
+        infoLabels.add(new MetricLabel("job_state", labelValue(job.getJobState())));
+        infoLabels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        infoLabels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        addCloudWarmUpSyncJobGauge(currentMetricKeys, "file_cache_warm_up_sync_job_info", MetricUnit.NOUNIT,
+                "warm up sync job info", infoLabels, job, currentJob -> 1L);
+
+        if (!job.isEventDriven() || job.isDone()) {
+            return;
+        }
+
+        for (String window : new String[] {"5m", "30m", "1h"}) {
+            for (String side : new String[] {"src", "dst"}) {
+                List<MetricLabel> labels = new ArrayList<>();
+                labels.add(new MetricLabel("job_id", jobId));
+                labels.add(new MetricLabel("job_type", jobType));
+                labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+                labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+                labels.add(new MetricLabel("side", side));
+                labels.add(new MetricLabel("window", window));
+                addCloudWarmUpSyncJobGauge(currentMetricKeys, "file_cache_warm_up_sync_job_size_bytes",
+                        MetricUnit.BYTES, "warm up sync job source or target total size in bytes",
+                        labels, job, currentJob -> getCloudWarmUpSyncJobSizeBytes(currentJob, side, window));
+            }
+        }
+
+        List<MetricLabel> labels = new ArrayList<>();
+        labels.add(new MetricLabel("job_id", jobId));
+        labels.add(new MetricLabel("job_type", jobType));
+        labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        // Trigger gap observes active event-driven warm-up lag in time: source latest trigger time
+        // minus the target-side progress watermark collected from BEs.
+        addCloudWarmUpSyncJobGauge(currentMetricKeys, "file_cache_warm_up_sync_job_trigger_gap_ms",
+                MetricUnit.MILLISECONDS, "warm up sync job trigger progress gap in milliseconds",
+                labels, job, MetricRepo::getCloudWarmUpSyncJobTriggerGapMs);
+    }
+
+    private static void addCloudWarmUpSyncJobGauge(Set<String> currentMetricKeys, String name, MetricUnit unit,
+            String description, List<MetricLabel> labels, CloudWarmUpJob job,
+            ToLongFunction<CloudWarmUpJob> valueFunction) {
+        String key = metricKey(name, labels);
+        currentMetricKeys.add(key);
+        CloudWarmUpSyncJobGauge gauge = new CloudWarmUpSyncJobGauge(name, unit, description, labels, job,
+                valueFunction);
+        CloudWarmUpSyncJobGauge existingGauge = CLOUD_WARM_UP_SYNC_JOB_METRICS.putIfAbsent(key, gauge);
+        if (existingGauge == null) {
+            DORIS_METRIC_REGISTER.addMetrics(gauge);
+        } else {
+            existingGauge.setJob(job);
+        }
+    }
+
+    private static class CloudWarmUpSyncJobGauge extends GaugeMetric<Long> {
+        private volatile CloudWarmUpJob job;
+        private final ToLongFunction<CloudWarmUpJob> valueFunction;
+
+        CloudWarmUpSyncJobGauge(String name, MetricUnit unit, String description, List<MetricLabel> labels,
+                CloudWarmUpJob job, ToLongFunction<CloudWarmUpJob> valueFunction) {
+            super(name, unit, description);
+            this.job = job;
+            this.valueFunction = valueFunction;
+            setLabels(labels);
+        }
+
+        void setJob(CloudWarmUpJob job) {
+            this.job = job;
+        }
+
+        @Override
+        public Long getValue() {
+            CloudWarmUpJob currentJob = job;
+            if (currentJob == null) {
+                return 0L;
+            }
+            try {
+                return valueFunction.applyAsLong(currentJob);
+            } catch (Exception e) {
+                return 0L;
+            }
+        }
+    }
+
+    private static String metricKey(String name, List<MetricLabel> labels) {
+        StringBuilder sb = new StringBuilder(name);
+        for (MetricLabel label : labels) {
+            sb.append('|').append(label.getKey()).append('=').append(label.getValue());
+        }
+        return sb.toString();
+    }
+
+    private static String labelValue(Object value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private static JobWarmUpStats getCloudWarmUpSyncJobStats(CloudWarmUpJob job) {
+        JobWarmUpStats stats = job.getSyncStats();
+        return stats == null ? new JobWarmUpStats() : stats;
+    }
+
+    private static long getCloudWarmUpSyncJobSizeBytes(CloudWarmUpJob job, String side, String window) {
+        JobWarmUpStats stats = getCloudWarmUpSyncJobStats(job);
+        switch (side) {
+            case "src":
+                return byWindow(window, stats.requestedSegmentSize5m + stats.requestedIndexSize5m,
+                        stats.requestedSegmentSize30m + stats.requestedIndexSize30m,
+                        stats.requestedSegmentSize1h + stats.requestedIndexSize1h);
+            case "dst":
+                return byWindow(window, stats.finishSegmentSize5m + stats.finishIndexSize5m,
+                        stats.finishSegmentSize30m + stats.finishIndexSize30m,
+                        stats.finishSegmentSize1h + stats.finishIndexSize1h);
+            default:
+                return 0L;
+        }
+    }
+
+    private static long getCloudWarmUpSyncJobTriggerGapMs(CloudWarmUpJob job) {
+        return getCloudWarmUpSyncJobStats(job).triggerGapMs;
+    }
+
+    private static long byWindow(String window, long value5m, long value30m, long value1h) {
+        switch (window) {
+            case "5m":
+                return value5m;
+            case "30m":
+                return value30m;
+            case "1h":
+                return value1h;
+            default:
+                return 0;
+        }
     }
 
     // update some metrics to make a ready to be visited
@@ -1516,6 +2091,16 @@ public final class MetricRepo {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
+    public static void updateMetaServiceRpcPerSecond(String methodName, double value, List<MetricLabel> labels) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(methodName)) {
+            return;
+        }
+        GaugeMetricImpl<Double> gauge = CloudMetrics.META_SERVICE_RPC_PER_SECOND.getOrAdd(methodName);
+        gauge.setValue(value);
+        gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
     public static void updateClusterBackendAlive(String clusterName, String clusterId, String ipAddress,
             boolean alive) {
         if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)
@@ -1590,6 +2175,33 @@ public final class MetricRepo {
         counter.update(num);
         labels.add(new MetricLabel("cluster_id", clusterId));
         labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseVirtualComputeGroupSwitch(String virtualComputeGroupId, String virtualComputeGroupName,
+                                                         String srcComputeGroupId, String srcComputeGroupName,
+                                                         String dstComputeGroupId, String dstComputeGroupName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(virtualComputeGroupId)
+                || Strings.isNullOrEmpty(virtualComputeGroupName) || Strings.isNullOrEmpty(srcComputeGroupId)
+                || Strings.isNullOrEmpty(srcComputeGroupName) || Strings.isNullOrEmpty(dstComputeGroupId)
+                || Strings.isNullOrEmpty(dstComputeGroupName)) {
+            return;
+        }
+        String key = virtualComputeGroupId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + srcComputeGroupId
+                + CloudMetrics.CLOUD_CLUSTER_DELIMITER + dstComputeGroupId;
+        LongCounterMetric counter = CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getOrAdd(key);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("virtual_compute_group_id", virtualComputeGroupId));
+        labels.add(new MetricLabel("virtual_compute_group_name", virtualComputeGroupName));
+        labels.add(new MetricLabel("src_compute_group_id", srcComputeGroupId));
+        labels.add(new MetricLabel("src_compute_group_name", srcComputeGroupName));
+        labels.add(new MetricLabel("dst_compute_group_id", dstComputeGroupId));
+        labels.add(new MetricLabel("dst_compute_group_name", dstComputeGroupName));
+        if (!counter.getLabels().isEmpty()) {
+            MetricRepo.DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(counter.getName(), counter.getLabels());
+        }
         counter.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
     }
@@ -1674,9 +2286,21 @@ public final class MetricRepo {
             MetricRepo.DORIS_METRIC_REGISTER
                 .removeMetricsByNameAndLabels(clusterCloudWarmUpBalanceNum.getName(), labels);
 
-            METRIC_REGISTER.getHistograms().keySet().stream()
-                    .filter(k -> k.contains(clusterId))
-                    .forEach(METRIC_REGISTER::remove);
+            String delimiter = CloudMetrics.CLOUD_CLUSTER_DELIMITER;
+            for (String key : new ArrayList<>(
+                    CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getMetrics().keySet())) {
+                if (key.startsWith(clusterId + delimiter) || key.contains(delimiter + clusterId + delimiter)
+                        || key.endsWith(delimiter + clusterId)) {
+                    LongCounterMetric switchCounter = CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getOrAdd(key);
+                    CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.remove(key);
+                    MetricRepo.DORIS_METRIC_REGISTER
+                        .removeMetricsByNameAndLabels(switchCounter.getName(), switchCounter.getLabels());
+                }
+            }
+
+            CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.remove(clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER
+                    + clusterName);
+            // Meta-service RPC latency is keyed by method name only, so it is not removed by cluster.
 
             for (Backend backend : backends) {
                 List<MetricLabel> backendLabels = new ArrayList<>();

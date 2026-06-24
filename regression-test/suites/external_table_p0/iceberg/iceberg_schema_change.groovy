@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_schema_change", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -65,8 +65,8 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_parquet_v1_16 """ select  * from complex_parquet_v1_schema_change where rename_col10 > 500 order by id ; """
         qt_parquet_v1_17 """ select * from complex_parquet_v1_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
         qt_parquet_v1_18 """ select * from complex_parquet_v1_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
-        qt_parquet_v1_19 """ select struct_element(rename_col7,"add") from complex_parquet_v1_schema_change  order by id; """
-        qt_parquet_v1_20 """ select struct_element(rename_col7,"x") from complex_parquet_v1_schema_change  order by id; """
+        qt_parquet_v1_19 """ select element_at(rename_col7,"add") from complex_parquet_v1_schema_change  order by id; """
+        qt_parquet_v1_20 """ select element_at(rename_col7,"x") from complex_parquet_v1_schema_change  order by id; """
         qt_parquet_v1_21 """ select array_size(rename_col3),rename_col3 from  complex_parquet_v1_schema_change order by id; """
         qt_parquet_v1_22 """ select  *  from  complex_parquet_v1_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
 
@@ -89,8 +89,8 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_parquet_v2_16 """ select  * from complex_parquet_v2_schema_change where rename_col10 > 500 order by id ; """
         qt_parquet_v2_17 """ select * from complex_parquet_v2_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
         qt_parquet_v2_18 """ select * from complex_parquet_v2_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
-        qt_parquet_v2_19 """ select struct_element(rename_col7,"add") from complex_parquet_v2_schema_change  order by id; """
-        qt_parquet_v2_20 """ select struct_element(rename_col7,"x") from complex_parquet_v2_schema_change  order by id; """
+        qt_parquet_v2_19 """ select element_at(rename_col7,"add") from complex_parquet_v2_schema_change  order by id; """
+        qt_parquet_v2_20 """ select element_at(rename_col7,"x") from complex_parquet_v2_schema_change  order by id; """
         qt_parquet_v2_21 """ select array_size(rename_col3),rename_col3 from  complex_parquet_v2_schema_change order by id; """
         qt_parquet_v2_22 """ select  *  from  complex_parquet_v2_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
 
@@ -113,8 +113,8 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_orc_v1_16 """ select  * from complex_orc_v1_schema_change where rename_col10 > 500 order by id ; """
         qt_orc_v1_17 """ select * from complex_orc_v1_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
         qt_orc_v1_18 """ select * from complex_orc_v1_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
-        qt_orc_v1_19 """ select struct_element(rename_col7,"add") from complex_orc_v1_schema_change  order by id; """
-        qt_orc_v1_20 """ select struct_element(rename_col7,"x") from complex_orc_v1_schema_change  order by id; """
+        qt_orc_v1_19 """ select element_at(rename_col7,"add") from complex_orc_v1_schema_change  order by id; """
+        qt_orc_v1_20 """ select element_at(rename_col7,"x") from complex_orc_v1_schema_change  order by id; """
         qt_orc_v1_21 """ select array_size(rename_col3),rename_col3 from  complex_orc_v1_schema_change order by id; """
         qt_orc_v1_22 """ select  *  from  complex_orc_v1_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
         
@@ -137,8 +137,8 @@ suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docke
         qt_orc_v2_16 """ select  * from complex_orc_v2_schema_change where rename_col10 > 500 order by id ; """
         qt_orc_v2_17 """ select * from complex_orc_v2_schema_change where  map_keys(rename_col4)[1] > 10 order by id;   """
         qt_orc_v2_18 """ select * from complex_orc_v2_schema_change where  map_values(rename_col5)[1] > 10 order by id; """
-        qt_orc_v2_19 """ select struct_element(rename_col7,"add") from complex_orc_v2_schema_change  order by id; """
-        qt_orc_v2_20 """ select struct_element(rename_col7,"x") from complex_orc_v2_schema_change  order by id; """
+        qt_orc_v2_19 """ select element_at(rename_col7,"add") from complex_orc_v2_schema_change  order by id; """
+        qt_orc_v2_20 """ select element_at(rename_col7,"x") from complex_orc_v2_schema_change  order by id; """
         qt_orc_v2_21 """ select array_size(rename_col3),rename_col3 from  complex_orc_v2_schema_change order by id; """
         qt_orc_v2_22 """ select  *  from  complex_orc_v2_schema_change  where rename_col8 + rename_col9 > 100 order by id;"""
 

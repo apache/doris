@@ -22,6 +22,7 @@ import hashlib
 import jsonpickle
 import os
 import os.path
+import uuid
 import utils
 import time
 
@@ -61,6 +62,20 @@ IP_PART4_SIZE = 200
 CLUSTER_ID = "12345678"
 
 LOG = utils.get_logger()
+
+
+def is_true(value):
+    return str(value).strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def get_env_value(envs, name):
+    for env in envs or []:
+        pos = env.find('=')
+        if pos == -1:
+            continue
+        if env[:pos] == name:
+            return env[pos + 1:]
+    return None
 
 
 def get_cluster_path(cluster_name):
@@ -396,6 +411,7 @@ class Node(object):
             "STOP_GRACE": 1 if enable_coverage else 0,
             "IS_CLOUD": 1 if self.cluster.is_cloud else 0,
             "SQL_MODE_NODE_MGR": 1 if self.cluster.sql_mode_node_mgr else 0,
+            "ENABLE_STORAGE_VAULT": 1 if getattr(self.cluster, "enable_storage_vault", False) else 0,
             "TDE_AK": self.get_tde_ak(),
             "TDE_SK": self.get_tde_sk(),
         }
@@ -841,7 +857,13 @@ class MS(CLOUD):
         envs["INSTANCE_ID"] = self.cluster.instance_id
         for key, value in self.cluster.cloud_store_config.items():
             envs[key] = value
-        envs['DORIS_CLOUD_PREFIX'] = 'doris_docker_env_' + self.cluster.name
+        prefix = 'doris_docker_env_{}_{}_{}'.format(
+            self.cluster.name,
+            time.strftime("%Y%m%d_%H%M%S"),
+            uuid.uuid4().hex[:8],
+        )
+        envs['DORIS_CLOUD_PREFIX'] = prefix
+        LOG.info(f"Set DORIS_CLOUD_PREFIX to {prefix}")
         return envs
 
 
@@ -891,6 +913,12 @@ class FDB(Node):
     def node_type(self):
         return Node.TYPE_FDB
 
+    def docker_env(self):
+        envs = super().docker_env()
+        for key, value in self.cluster.cloud_store_config.items():
+            envs[key] = value
+        return envs
+
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["data"]
 
@@ -902,7 +930,8 @@ class Cluster(object):
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
                  extra_hosts, env, coverage_dir, cloud_store_config,
                  sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
-                 external_ms_cluster, instance_id, cluster_snapshot=""):
+                 external_ms_cluster, instance_id, cluster_snapshot="",
+                 enable_storage_vault=False):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -928,6 +957,7 @@ class Cluster(object):
             self.instance_id = f"instance_{name}" if self.external_ms_cluster else "default_instance_id"
         # cluster_snapshot is not persisted to meta, only used during cluster creation
         self.cluster_snapshot = cluster_snapshot
+        self.enable_storage_vault = is_true(enable_storage_vault)
         self.is_rollback = False
         self.groups = {
             node_type: Group(node_type)
@@ -948,7 +978,8 @@ class Cluster(object):
             fe_follower, be_disks, be_cluster, reg_be, extra_hosts, env,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
             be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
-            external_ms_cluster, instance_id, cluster_snapshot=""):
+            external_ms_cluster, instance_id, cluster_snapshot="",
+            enable_storage_vault=False):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -964,7 +995,7 @@ class Cluster(object):
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
                               be_cluster_id, tde_ak, tde_sk, external_ms_cluster,
-                              instance_id, cluster_snapshot)
+                              instance_id, cluster_snapshot, enable_storage_vault)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()

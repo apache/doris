@@ -62,8 +62,8 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/path.h"
-#include "olap/options.h"
 #include "runtime/exec_env.h"
+#include "storage/options.h"
 #include "util/slice.h"
 #include "util/time.h"
 
@@ -93,6 +93,16 @@ extern void complete(const io::FileBlocksHolder& holder);
 extern void complete_into_memory(const io::FileBlocksHolder& holder);
 extern void test_file_cache(io::FileCacheType cache_type);
 extern void test_file_cache_memory_storage(io::FileCacheType cache_type);
+
+inline void wait_until_cache_ready(io::BlockFileCache& cache) {
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+}
 
 class BlockFileCacheTest : public testing::Test {
 public:

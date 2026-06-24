@@ -18,7 +18,10 @@
 import java.util.stream.Collectors
 
 suite("query_cache") {
+    sql "set parallel_pipeline_task_num=2"
     def tableName = "table_3_undef_partitions2_keys3_properties4_distributed_by53"
+
+    sql "set enable_sql_cache=false"
 
     def test = {
         sql "set enable_query_cache=false"
@@ -42,7 +45,6 @@ suite("query_cache") {
             "inverted_index_storage_format" = "V3",
             "light_schema_change" = "true",
             "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false",
             "group_commit_interval_ms" = "10000",
             "group_commit_data_bytes" = "134217728"
         )
@@ -249,7 +251,6 @@ GROUP BY col_int_undef_signed;
         "binlog.ttl_seconds" = "86400",
         "binlog.max_bytes" = "9223372036854775807",
         "binlog.max_history_nums" = "9223372036854775807",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "enable_mow_light_delete" = "false"
@@ -258,4 +259,32 @@ GROUP BY col_int_undef_signed;
         """
 
     sql "SELECT count(1) FROM query_cache_list_table"
+
+    for (int i = 0; i < 3; ++i) {
+        multi_sql """
+            set enable_query_cache=false;
+            drop table if exists query_cache_schema_change1;
+            create table query_cache_schema_change1(
+              id int,
+              value int
+            )
+            partition by range(id)(
+              partition p1 values[('1'), ('2')),
+              partition p2 values[('2'), ('3')),
+              partition p3 values[('3'), ('4')),
+              partition p4 values[('4'), ('5')),
+              partition p5 values[('5'), ('6'))
+            )distributed by hash(id)
+            properties('replication_num'='1');
+            
+            insert into query_cache_schema_change1 values (1, 1), (1, 2),(2, 1), (2, 2), (3, 1), (3, 2),(4, 1), (4, 2),(5, 1), (5, 2);
+            
+            set enable_query_cache=true;
+        """
+
+        explain {
+            sql ("select id, count(value) from query_cache_schema_change1 group by id order by id")
+            contains("QUERY_CACHE")
+        }
+    }
 } 

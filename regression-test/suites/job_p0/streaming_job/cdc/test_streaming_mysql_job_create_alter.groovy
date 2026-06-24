@@ -69,14 +69,35 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
+                    "include_tables" = "${table1}",
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
                   "table.create.properties1.replication_num" = "1"
                 )
             """
-            exception "Only support target properties with prefix table.create.properties"
+            exception "Not support target properties key table.create.properties1.replication_num"
+        }
+
+        // load.* keys outside the allow-list are silently dropped at runtime; reject at CREATE time
+        test {
+            sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "include_tables" = "${table1}",
+                    "offset" = "initial"
+                )
+                TO DATABASE ${currentDb} (
+                  "load.where" = "age > 0"
+                )
+            """
+            exception "Unsupported load property: 'load.where'"
         }
 
         //error jdbc url format
@@ -196,7 +217,11 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
         }
 
+        // internal pass-through property "__source_subtype" should be accepted in job properties
         sql """CREATE JOB ${jobName}
+                PROPERTIES (
+                    "__source_subtype" = "aws_aurora_mysql"
+                )
                 ON STREAMING
                 FROM MYSQL (
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
@@ -205,7 +230,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
+                    "include_tables" = "${table1}",
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
@@ -221,7 +246,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
                         // check job status and succeed task count larger than 1
-                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                     }
             )
         } catch (Exception ex){
@@ -335,8 +360,8 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
-                    "exclude_tables" = "xxxx", 
+                    "include_tables" = "${table1}",
+                    "exclude_tables" = "xxxx",
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
@@ -344,6 +369,64 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                 )
             """
             exception "The exclude_tables property cannot be modified in ALTER JOB"
+        }
+
+        // alter schema (PG-only source identity; MySQL does not use it, but the
+        // from-to check is source-type agnostic and must reject any schema change)
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "schema" = "any_schema"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "The schema property cannot be modified in ALTER JOB"
+        }
+
+        // snapshot_parallelism is cached in BE reader's pollExecutor on first initialize;
+        // reject to avoid silent staleness
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "snapshot_parallelism" = "4"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "The snapshot_parallelism property cannot be modified in ALTER JOB"
+        }
+
+        // snapshot_split_size only affects the initial splitChunks; subsequent restarts
+        // restore persisted splits, so ALTER would be a silent no-op; reject
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "snapshot_split_size" = "2048"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "The snapshot_split_size property cannot be modified in ALTER JOB"
+        }
+
+        // table.<tbl>.exclude_columns is cached in DebeziumJsonDeserializer; reject
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "table.${table1}.exclude_columns" = "age"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "table.${table1}.exclude_columns property cannot be modified in ALTER JOB"
+        }
+
+        // table.<tbl>.target_table is cached in DebeziumJsonDeserializer; reject
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "table.${table1}.target_table" = "renamed_target"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "table.${table1}.target_table property cannot be modified in ALTER JOB"
         }
 
         // unexcept properties
@@ -401,28 +484,16 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             exception "target database can't be modified"
         }
 
-        sql """ALTER JOB ${jobName}
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
-                    "offset" = "latest"
-                )
-                TO DATABASE ${currentDb}"""
-
         def jobInfoOrigin = sql """
         select CurrentOffset,LoadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfoOrigin: " + jobInfoOrigin)
 
-        // alter job properties
+        // alter job properties with internal pass-through property
         sql """ALTER JOB ${jobName}
                PROPERTIES(
-                "max_interval" = "5"
+                "max_interval" = "5",
+                "__source_subtype" = "aws_rds_mysql"
                ) """
 
         sql "RESUME JOB where jobname =  '${jobName}'";
@@ -452,8 +523,8 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         log.info("jobInfoCurrent: " + jobInfoCurrent)
         assert jobInfoCurrent.get(0).get(0) == jobInfoOrigin.get(0).get(0)
         assert jobInfoCurrent.get(0).get(1) == jobInfoOrigin.get(0).get(1)
-        assert jobInfoCurrent.get(0).get(2) == "{\"max_interval\":\"5\"}"
-        assert jobInfoCurrent.get(0).get(3).contains("latest")
+        assert jobInfoCurrent.get(0).get(2).contains("\"max_interval\":\"5\"")
+        assert jobInfoCurrent.get(0).get(2).contains("\"__source_subtype\":\"aws_rds_mysql\"")
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'

@@ -23,7 +23,7 @@ import org.awaitility.Awaitility;
 final String ERROR_SQL_SUCCEED_MSG = "SQL should have failed but succeeded"
 final String SET_SESSION_VARIABLE_FAILED_MSG = "SQL set session variable failed"
 
-suite("test_file_cache_query_limit_config", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
+suite("test_file_cache_query_limit_config", "p0,external") {
 
     sql """set file_cache_query_limit_percent = 1"""
     def fileCacheQueryLimitPercentResult = sql """show variables like 'file_cache_query_limit_percent';"""

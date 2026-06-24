@@ -102,7 +102,6 @@ public abstract class AbstractMaterializedViewWindowRule extends AbstractMateria
                 queryStructInfo.getTopPlan(),
                 materializationContext.getShuttledExprToScanExprMapping(),
                 viewToQuerySlotMapping,
-                queryStructInfo.getTableBitSet(),
                 ImmutableMap.of(), cascadesContext
         );
         // Can not rewrite, bail out

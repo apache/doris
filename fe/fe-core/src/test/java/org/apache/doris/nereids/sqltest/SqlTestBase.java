@@ -17,11 +17,20 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -30,11 +39,17 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
-import java.util.BitSet;
+import org.mockito.Mockito;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 
 public abstract class SqlTestBase extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         createDatabase("test");
         connectContext.setDatabase("test");
 
@@ -840,13 +855,45 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
     }
 
     protected LogicalCompatibilityContext constructContext(Plan p1, Plan p2, CascadesContext context) {
-        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1, p1,
-                context, new BitSet()).get(0);
-        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2, p2,
-                context, new BitSet()).get(0);
+        StructInfo st1 = StructInfo.of(p1, p1, context);
+        StructInfo st2 = StructInfo.of(p2, p2, context);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations(), 8)
                 .get(0);
         SlotMapping sm = SlotMapping.generate(rm);
         return LogicalCompatibilityContext.from(rm, sm, st1, st2);
+    }
+
+    protected MTMV mockCandidateMtmv(String mvName) {
+        Database db = (Database) Env.getCurrentEnv().getInternalCatalog().getDbNullable(connectContext.getDatabase());
+        MTMV mtmv = (MTMV) db.getTableNullable(mvName);
+        mtmv.getStatus().setState(MTMVState.NORMAL);
+        mtmv.getStatus().setRefreshState(MTMVRefreshState.SUCCESS);
+        MTMV spyMtmv = Mockito.spy(mtmv);
+        Mockito.doReturn(true).when(spyMtmv).canBeCandidate();
+        Map<Long, Table> idToTable = Deencapsulation.getField(db, "idToTable");
+        ConcurrentMap<String, Table> nameToTable = Deencapsulation.getField(db, "nameToTable");
+        idToTable.put(spyMtmv.getId(), spyMtmv);
+        nameToTable.put(spyMtmv.getName(), spyMtmv);
+        return spyMtmv;
+    }
+
+    protected void installValidRelationManager() {
+        MTMVRelationManager existingManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
+        MTMVRelationManager spyManager = Mockito.spy(existingManager);
+        Mockito.doAnswer(invocation -> {
+            MTMV mtmv = invocation.getArgument(0);
+            org.apache.doris.qe.ConnectContext ctx = invocation.getArgument(1);
+            Collection<Partition> partitions = Collections.emptyList();
+            if (mtmv.getPartitions() != null && !mtmv.getPartitions().isEmpty()) {
+                partitions = Collections.singletonList(mtmv.getPartitions().iterator().next());
+            }
+            ctx.getStatementContext().getMvCanRewritePartitionsMap()
+                    .putIfAbsent(new BaseTableInfo(mtmv), partitions);
+            return true;
+        }).when(spyManager).isMVPartitionValid(Mockito.any(MTMV.class),
+                Mockito.any(org.apache.doris.qe.ConnectContext.class),
+                Mockito.anyBoolean(), Mockito.any(Map.class));
+        Deencapsulation.setField(Env.getCurrentEnv().getMtmvService(), "relationManager", spyManager);
+        Env.getCurrentEnv().getMtmvService().registerHook("MTMVRelationManager", spyManager);
     }
 }

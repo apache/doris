@@ -19,14 +19,20 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.foundation.util.BitUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
+import org.apache.doris.thrift.TPartitionTargetExprMonotonicity;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TTargetExprMonotonicity;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -35,8 +41,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +59,35 @@ import java.util.stream.Collectors;
  */
 public final class RuntimeFilter {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilter.class);
+
+    /**
+     * Internal class that encapsulates the max, min and default sizes used for creating
+     * bloom filter objects.
+     */
+    public static class FilterSizeLimits {
+        // Maximum filter size, in bytes, rounded up to a power of two.
+        public final long maxVal;
+
+        // Minimum filter size, in bytes, rounded up to a power of two.
+        public final long minVal;
+
+        // Pre-computed default filter size, in bytes, rounded up to a power of two.
+        public final long defaultVal;
+
+        public FilterSizeLimits(SessionVariable sessionVariable) {
+            // Round up all limits to a power of two
+            long maxLimit = sessionVariable.getRuntimeBloomFilterMaxSize();
+            maxVal = BitUtil.roundUpToPowerOf2(maxLimit);
+
+            long minLimit = sessionVariable.getRuntimeBloomFilterMinSize();
+            // Make sure minVal <= defaultVal <= maxVal
+            minVal = BitUtil.roundUpToPowerOf2(Math.min(minLimit, maxVal));
+
+            long defaultValue = sessionVariable.getRuntimeBloomFilterSize();
+            defaultValue = Math.max(defaultValue, minVal);
+            defaultVal = BitUtil.roundUpToPowerOf2(Math.min(defaultValue, maxVal));
+        }
+    }
 
     // Identifier of the filter (unique within a query)
     private final RuntimeFilterId id;
@@ -92,13 +130,22 @@ public final class RuntimeFilter {
     // The type of filter to build.
     private TRuntimeFilterType runtimeFilterType;
 
-    private boolean bitmapFilterNotIn = false;
-
     private TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType;
 
     private boolean bloomFilterSizeCalculatedByNdv = false;
 
     private boolean singleEq = false;
+
+    // Per-filter wait time in ms. -1 means use query-level default. 0 means non-blocking.
+    private int waitTimeMs = -1;
+
+    // Per-target monotonicity for BE-side runtime-filter partition pruning,
+    // keyed by the target scan node's plan id. Filled by the Nereids
+    // RuntimeFilterPartitionPruneClassifier at translation time from the final
+    // legacy target expression that will be sent to BE.
+    private final Map<PlanNodeId, Map<Long, TTargetExprMonotonicity>> targetPartitionMonotonicityByScanId
+            = new HashMap<>();
+    private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
 
     /**
      * Internal representation of a runtime filter target.
@@ -137,7 +184,7 @@ public final class RuntimeFilter {
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
                           List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
                           TRuntimeFilterType type,
-                          RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv,
+                          FilterSizeLimits filterSizeLimits, long buildSizeNdv,
                           TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
@@ -173,7 +220,7 @@ public final class RuntimeFilter {
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
             List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
+            FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
         this(filterId, filterSrcNode, srcExpr, exprOrder, origTargetExprs,
                 targetSlots, type, filterSizeLimits, buildSizeNdv, TMinMaxRuntimeFilterType.MIN_MAX);
     }
@@ -181,9 +228,9 @@ public final class RuntimeFilter {
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(
             org.apache.doris.nereids.trees.plans.physical.RuntimeFilter nereidsFilter,
-            JoinNodeBase node, Expr srcExpr, List<Expr> origTargetExprs,
+            PlanNode node, Expr srcExpr, List<Expr> origTargetExprs,
             List<Map<TupleId, List<SlotId>>> targetSlots,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+            FilterSizeLimits filterSizeLimits) {
         return new RuntimeFilter(nereidsFilter.getId(), node, srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,
                 targetSlots, nereidsFilter.getType(), filterSizeLimits, nereidsFilter.getBuildSideNdv(),
                 nereidsFilter.gettMinMaxType());
@@ -210,17 +257,13 @@ public final class RuntimeFilter {
         return finalized;
     }
 
-    public void setBitmapFilterNotIn(boolean bitmapFilterNotIn) {
-        this.bitmapFilterNotIn = bitmapFilterNotIn;
-    }
-
     /**
      * Serializes a runtime filter to Thrift.
      */
     public TRuntimeFilterDesc toThrift() {
         TRuntimeFilterDesc tFilter = new TRuntimeFilterDesc();
         tFilter.setFilterId(id.asInt());
-        tFilter.setSrcExpr(srcExpr.treeToThrift());
+        tFilter.setSrcExpr(ExprToThriftVisitor.treeToThrift(srcExpr));
         tFilter.setExprOrder(exprOrder);
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
@@ -228,9 +271,9 @@ public final class RuntimeFilter {
 
         boolean hasSerialTargets = false;
         for (RuntimeFilterTarget target : targets) {
-            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), ExprToThriftVisitor.treeToThrift(target.expr));
             hasSerialTargets = hasSerialTargets
-                    || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
+                    || target.node.isSerialOperatorOnBe(ConnectContext.get());
         }
 
         boolean enableSyncFilterSize = ConnectContext.get() != null
@@ -257,16 +300,12 @@ public final class RuntimeFilter {
 
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
-        if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
-            tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
-            tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
-        }
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
             tFilter.setMinMaxType(tMinMaxRuntimeFilterType);
         }
         tFilter.setOptRemoteRf(hasRemoteTargets);
         tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
-        if (builderNode instanceof HashJoinNode) {
+        if (exprOrder >= 0 && builderNode instanceof HashJoinNode) {
             HashJoinNode join = (HashJoinNode) builderNode;
             BinaryPredicate eq = join.getEqJoinConjuncts().get(exprOrder);
             if (eq.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
@@ -277,23 +316,89 @@ public final class RuntimeFilter {
         } else if (builderNode instanceof SetOperationNode) {
             tFilter.setNullAware(true);
         }
+        if (waitTimeMs >= 0) {
+            tFilter.setWaitTimeMs(waitTimeMs);
+        }
+
+        // Per-target, per-partition monotonicity for BE-side partition pruning. Populated
+        // upstream by RuntimeFilterPartitionPruneClassifier; direct partition
+        // column targets are monotonic increasing so BE can use one unified
+        // partition-pruning path.
+        // Gated by session variable `enable_runtime_filter_partition_prune`.
+        ConnectContext rfPruneCtx = ConnectContext.get();
+        boolean enableRfPartitionPrune = rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        if (enableRfPartitionPrune) {
+            if (!targetPartitionMonotonicityByScanId.isEmpty()) {
+                Map<Integer, List<TPartitionTargetExprMonotonicity>> partitionMonoMap = new HashMap<>();
+                for (Map.Entry<PlanNodeId, Map<Long, TTargetExprMonotonicity>> e
+                        : targetPartitionMonotonicityByScanId.entrySet()) {
+                    List<TPartitionTargetExprMonotonicity> partitionMonoList = new ArrayList<>();
+                    for (Map.Entry<Long, TTargetExprMonotonicity> partitionEntry : e.getValue().entrySet()) {
+                        Preconditions.checkArgument(
+                                partitionEntry.getValue() != TTargetExprMonotonicity.NON_MONOTONIC,
+                                "partition pruning monotonicity must not be NON_MONOTONIC");
+                        TPartitionTargetExprMonotonicity partitionMono =
+                                new TPartitionTargetExprMonotonicity();
+                        partitionMono.setPartitionId(partitionEntry.getKey());
+                        partitionMono.setMonotonicity(partitionEntry.getValue());
+                        partitionMonoList.add(partitionMono);
+                    }
+                    if (!partitionMonoList.isEmpty()) {
+                        partitionMonoMap.put(e.getKey().asInt(), partitionMonoList);
+                    }
+                }
+                if (!partitionMonoMap.isEmpty()) {
+                    tFilter.setPlanIdToPartitionTargetMonotonicity(partitionMonoMap);
+                }
+            }
+        }
+
         return tFilter;
     }
 
-    public List<RuntimeFilterTarget> getTargets() {
-        return targets;
+    /**
+     * Record that a target can drive partition pruning and needs scan boundaries serialized.
+     */
+    public void markTargetCanPrunePartitions(PlanNodeId scanNodeId) {
+        partitionPruningTargetScanIds.add(scanNodeId);
+    }
+
+    /**
+     * Record per-partition monotonicity for a target whose expression is only locally monotonic.
+     */
+    public void setTargetPartitionMonotonicity(PlanNodeId scanNodeId,
+            Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
+        if (!partitionMonotonicity.isEmpty()) {
+            targetPartitionMonotonicityByScanId.put(scanNodeId, partitionMonotonicity);
+        }
+    }
+
+    /**
+     * Returns true iff this RF can drive partition pruning for the given target
+     * scan node. Used by OlapScanNode.toThrift to decide whether it is worth
+     * serializing partition_boundaries to BE. The single source of truth for
+     * that decision lives in
+     * RuntimeFilterPartitionPruneClassifier.
+     */
+    public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
+        return partitionPruningTargetScanIds.contains(scanNodeId);
     }
 
     public boolean hasTargets() {
         return !targets.isEmpty();
     }
 
-    public Expr getSrcExpr() {
-        return srcExpr;
+    public int getWaitTimeMs() {
+        return waitTimeMs;
     }
 
-    public List<Expr> getOrigTargetExprs() {
-        return origTargetExprs;
+    public void setWaitTimeMs(int waitTimeMs) {
+        this.waitTimeMs = waitTimeMs;
+    }
+
+    public Expr getSrcExpr() {
+        return srcExpr;
     }
 
     public List<Map<TupleId, List<SlotId>>> getTargetSlots() {
@@ -396,7 +501,7 @@ public final class RuntimeFilter {
      * Considering that the `IN` filter may be converted to the `Bloom FIlter` when crossing fragments,
      * the bloom filter size is always calculated.
      */
-    public void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+    public void calculateFilterSize(FilterSizeLimits filterSizeLimits) {
         if (ndvEstimate == -1) {
             filterSizeBytes = filterSizeLimits.defaultVal;
             return;
@@ -493,7 +598,7 @@ public final class RuntimeFilter {
         if (getBuilderNode().getId().equals(nodeId)) {
             // source side
             filterStr.append(" <- ");
-            filterStr.append(getSrcExpr().toSql());
+            filterStr.append(getSrcExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             filterStr.append("(").append(getEstimateNdv()).append("/")
                     .append(getExpectFilterSizeBytes()).append("/")
                     .append(getFilterSizeBytes()).append(")");
@@ -501,7 +606,7 @@ public final class RuntimeFilter {
             // target side
             if (getTargetExpr(nodeId) != null) {
                 filterStr.append(" -> ");
-                filterStr.append(getTargetExpr(nodeId).toSql());
+                filterStr.append(getTargetExpr(nodeId).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
         return filterStr.toString();

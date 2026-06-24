@@ -23,6 +23,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
@@ -169,6 +170,12 @@ public class LoadProcessor extends AbstractJobProcessor {
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
         if (params.isSetLoadedRows() && jobId != -1) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("doProcessReportExecStatus: forwarding load progress to LoadManager, "
+                                + "jobId={}, beId={}, queryId={}, loadedRows={}, loadedBytes={}, isDone={}",
+                        jobId, params.getBackendId(), DebugUtil.printId(params.getQueryId()),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+            }
             if (params.isSetFragmentInstanceReports()) {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
                     Env.getCurrentEnv().getLoadManager().updateJobProgress(
@@ -228,6 +235,10 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetIcebergCommitDatas()) {
             ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                     .updateIcebergCommitData(params.getIcebergCommitDatas());
+        }
+        if (params.isSetMcCommitDatas()) {
+            ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                    .updateMCCommitData(params.getMcCommitDatas());
         }
 
         if (fragmentTask.isDone()) {

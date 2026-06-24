@@ -155,6 +155,9 @@ suite("docs/table-design/data-partitioning/auto-partitioning.md") {
     sql """
         select * from partitions("catalog"="internal","database"="auto_partition_doc_test","table"="DAILY_TRADE_VALUE") where PartitionName = auto_partition_name('range', 'year', '2008-02-03');
     """
+    sql """
+        select * from partitions("database"="auto_partition_doc_test","table"="DAILY_TRADE_VALUE") where PartitionName = auto_partition_name('range', 'year', '2008-02-03');
+    """
 
 
 

@@ -24,21 +24,19 @@
 #include <string>
 
 #include "common/status.h"
-#include "exec/olap_common.h"
-#include "olap/shared_predicate.h"
-#include "olap/tablet_schema.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
-#include "util/binary_cast.hpp"
-#include "vec/common/arena.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/arena.h"
+#include "core/binary_cast.hpp"
+#include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
+#include "core/types.h"
+#include "core/value/vdatetime_value.h"
+#include "storage/olap_scan_common.h"
+#include "storage/predicate/shared_predicate.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 class ColumnPredicate;
-
-namespace vectorized {
 
 class RuntimePredicate {
 public:
@@ -98,7 +96,6 @@ public:
     }
 
 private:
-    StringRef _get_string_ref(const Field& field, const PrimitiveType type);
     void check_target_node_id(int32_t target_node_id) const {
         if (!_contexts.contains(target_node_id)) {
             std::string msg = "context target node ids: [";
@@ -118,7 +115,7 @@ private:
     struct TargetContext {
         TExpr expr;
         std::string col_name;
-        vectorized::DataTypePtr col_data_type;
+        DataTypePtr col_data_type;
         std::shared_ptr<ColumnPredicate> predicate;
 
         bool target_is_slot() const {
@@ -136,10 +133,9 @@ private:
     std::map<int32_t, TargetContext> _contexts;
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
-    Arena _predicate_arena;
-    std::function<std::shared_ptr<ColumnPredicate>(
-            const int cid, const std::string& col_name, const vectorized::DataTypePtr& data_type,
-            StringRef& value, bool opposite, vectorized::Arena& arena)>
+    std::function<std::shared_ptr<ColumnPredicate>(const int cid, const std::string& col_name,
+                                                   const DataTypePtr& data_type, const Field& value,
+                                                   bool opposite)>
             _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;
@@ -147,5 +143,4 @@ private:
     PrimitiveType _type;
 };
 
-} // namespace vectorized
 } // namespace doris

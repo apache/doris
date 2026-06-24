@@ -75,7 +75,7 @@ public class TaskDisruptor implements Closeable {
     public void start() {
         CustomThreadFactory exportTaskThreadFactory = new CustomThreadFactory("export-task-consumer");
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, exportTaskThreadFactory,
-                ProducerType.SINGLE, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS));
+                ProducerType.MULTI, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS));
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
         for (int i = 0; i < consumerThreadCount; i++) {
             workers[i] = new TaskHandler();
