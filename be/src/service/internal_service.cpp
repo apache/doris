@@ -1346,16 +1346,19 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
                                                  const PReportStreamLoadStatusRequest* request,
                                                  PReportStreamLoadStatusResponse* response,
                                                  google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
     TUniqueId load_id;
     load_id.__set_hi(request->load_id().hi());
     load_id.__set_lo(request->load_id().lo());
-    Status st = Status::OK();
+    Status st = request->has_status() ? Status::create(request->status()) : Status::OK();
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
+        st.to_protobuf(response->mutable_status());
+        return;
     }
     stream_load_ctx->load_status_promise.set_value(st);
-    st.to_protobuf(response->mutable_status());
+    Status::OK().to_protobuf(response->mutable_status());
 }
 
 void PInternalService::get_info(google::protobuf::RpcController* controller,

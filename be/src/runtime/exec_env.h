@@ -328,6 +328,8 @@ public:
     void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::unique_ptr<NewLoadStreamMgr>&& new_load_stream_mgr);
     void clear_new_load_stream_mgr();
+    void set_load_stream_mgr(std::unique_ptr<LoadStreamMgr>&& load_stream_mgr);
+    void clear_load_stream_mgr();
     void set_stream_load_executor(std::unique_ptr<StreamLoadExecutor>&& stream_load_executor);
     void clear_stream_load_executor();
 
