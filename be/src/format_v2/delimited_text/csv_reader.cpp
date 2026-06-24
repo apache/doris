@@ -258,8 +258,7 @@ Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* 
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }
-        if (_options.null_len > 0 && value.size == _options.null_len &&
-            std::memcmp(value.data, _options.null_format, value.size) == 0) {
+        if (_is_null_format(value)) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }

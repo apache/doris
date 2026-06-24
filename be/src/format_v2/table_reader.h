@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -353,7 +354,9 @@ protected:
             _data_reader.block_template.insert(
                     {column.type->create_column(), column.type, column.name});
         }
-        LOG(WARNING) << "TableReader debug: " << debug_string();
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "TableReader debug: " << debug_string();
+        }
         RETURN_IF_ERROR(_open_mapping_exprs());
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));

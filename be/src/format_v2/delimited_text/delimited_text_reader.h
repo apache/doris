@@ -25,6 +25,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/runtime_profile.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -57,6 +58,24 @@ public:
     Status close() override;
 
 protected:
+    struct DelimitedTextProfile {
+        RuntimeProfile::Counter* open_file_time = nullptr;
+        RuntimeProfile::Counter* create_line_reader_time = nullptr;
+        RuntimeProfile::Counter* read_line_time = nullptr;
+        RuntimeProfile::Counter* split_line_time = nullptr;
+        RuntimeProfile::Counter* deserialize_time = nullptr;
+        RuntimeProfile::Counter* conjunct_filter_time = nullptr;
+        RuntimeProfile::Counter* delete_conjunct_filter_time = nullptr;
+        RuntimeProfile::Counter* raw_lines_read = nullptr;
+        RuntimeProfile::Counter* rows_read_before_filter = nullptr;
+        RuntimeProfile::Counter* rows_filtered_by_conjunct = nullptr;
+        RuntimeProfile::Counter* rows_filtered_by_delete_conjunct = nullptr;
+        RuntimeProfile::Counter* rows_returned = nullptr;
+        RuntimeProfile::Counter* empty_lines_read = nullptr;
+        RuntimeProfile::Counter* skipped_lines = nullptr;
+        RuntimeProfile::Counter* cells_deserialized = nullptr;
+    };
+
     struct RequestedColumn {
         LocalColumnId file_column_id = LocalColumnId::invalid();
         LocalIndex block_position;
@@ -103,7 +122,12 @@ protected:
     virtual bool _can_split() const;
 
     Status _append_null(IColumn* output);
+    // Match the generic nullable serde semantics exactly: a field is NULL when its raw slice is
+    // byte-for-byte equal to null_format. This also covers Hive tables that set
+    // serialization.null.format to the empty string.
+    bool _is_null_format(Slice value) const;
     const uint8_t* _remove_bom(const uint8_t* ptr, size_t* size);
+    void _init_profile() override;
 
     const TFileScanRangeParams* _scan_params = nullptr;
     std::vector<SlotDescriptor*> _source_file_slot_descs;
@@ -133,6 +157,7 @@ protected:
     // fields do not accidentally accept arbitrary bytes; CSV can still opt out through the session
     // variable or TVF/file-format property `enable_text_validate_utf8=false`.
     bool _enable_text_validate_utf8 = true;
+    DelimitedTextProfile _text_profile;
 
 private:
     Status _build_requested_columns(const FileScanRequest& request,

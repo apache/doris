@@ -18,6 +18,7 @@
 #include "format_v2/delimited_text/delimited_text_reader.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -44,9 +45,67 @@
 namespace doris::format {
 namespace {
 
+constexpr const char* DELIMITED_TEXT_PROFILE = "DelimitedTextReader";
+
+void update_counter(RuntimeProfile::Counter* counter, int64_t value) {
+    if (counter != nullptr) {
+        COUNTER_UPDATE(counter, value);
+    }
+}
+
 DataTypePtr nullable_type(DataTypePtr type) {
     return type != nullptr && type->is_nullable() ? std::move(type)
                                                   : make_nullable(std::move(type));
+}
+
+DataTypePtr delimited_file_type_from_slot_type(const DataTypePtr& type) {
+    if (type == nullptr) {
+        return nullptr;
+    }
+
+    const bool is_nullable = type->is_nullable();
+    const auto nested_type = remove_nullable(type);
+    DataTypePtr file_type;
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+        // Delimited text files do not carry CHAR/VARCHAR length metadata. FE slot types describe
+        // the table target type, not a bounded physical file type. Expose bounded strings as
+        // unbounded STRING on the file side so TableReader can later enforce the table length.
+        // Example: a TEXT field "hangzhou" mapped to table CHAR(3) must be read as STRING and
+        // truncated to "han" during table materialization.
+        file_type = std::make_shared<DataTypeString>();
+        break;
+    case TYPE_ARRAY: {
+        const auto* array_type = assert_cast<const DataTypeArray*>(nested_type.get());
+        file_type = std::make_shared<DataTypeArray>(
+                delimited_file_type_from_slot_type(array_type->get_nested_type()));
+        break;
+    }
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(nested_type.get());
+        file_type = std::make_shared<DataTypeMap>(
+                delimited_file_type_from_slot_type(map_type->get_key_type()),
+                delimited_file_type_from_slot_type(map_type->get_value_type()));
+        break;
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(nested_type.get());
+        DataTypes file_children;
+        file_children.reserve(struct_type->get_elements().size());
+        for (const auto& child_type : struct_type->get_elements()) {
+            file_children.push_back(delimited_file_type_from_slot_type(child_type));
+        }
+        file_type =
+                std::make_shared<DataTypeStruct>(file_children, struct_type->get_element_names());
+        break;
+    }
+    default:
+        file_type = nested_type;
+        break;
+    }
+
+    return is_nullable ? make_nullable(file_type) : file_type;
 }
 
 ColumnDefinition synthetic_file_child(const std::string& name, DataTypePtr type, int32_t local_id);
@@ -116,6 +175,44 @@ DelimitedTextReader::~DelimitedTextReader() {
     static_cast<void>(close());
 }
 
+void DelimitedTextReader::_init_profile() {
+    if (_profile == nullptr || _text_profile.raw_lines_read != nullptr) {
+        return;
+    }
+
+    ADD_TIMER_WITH_LEVEL(_profile, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.open_file_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "OpenFileTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.create_line_reader_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CreateLineReaderTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.read_line_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadLineTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.split_line_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SplitLineTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.deserialize_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DeserializeTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.conjunct_filter_time =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ConjunctFilterTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.delete_conjunct_filter_time = ADD_CHILD_TIMER_WITH_LEVEL(
+            _profile, "DeleteConjunctFilterTime", DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.raw_lines_read = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RawLinesRead", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.rows_read_before_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RowsReadBeforeFilter", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.rows_filtered_by_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RowsFilteredByConjunct", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.rows_filtered_by_delete_conjunct = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RowsFilteredByDeleteConjunct", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.rows_returned = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "RowsReturned", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.empty_lines_read = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "EmptyLinesRead", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.skipped_lines = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "SkippedLines", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+    _text_profile.cells_deserialized = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "CellsDeserialized", TUnit::UNIT, DELIMITED_TEXT_PROFILE, 1);
+}
+
 Status DelimitedTextReader::init(RuntimeState* state) {
     _init_profile();
     _runtime_state = state;
@@ -165,7 +262,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         field.identifier = Field::create_field<TYPE_STRING>(slot->col_name());
         field.local_id = _source_column_idxs[i];
         field.name = slot->col_name();
-        field.type = nullable_type(slot->get_data_type_ptr());
+        field.type = nullable_type(delimited_file_type_from_slot_type(slot->get_data_type_ptr()));
         // Delimited text stores a complex value in one top-level text field, but TableColumnMapper
         // still needs semantic children to localize nested projections and predicates. Expose
         // ARRAY element, MAP key/value, and STRUCT fields as file-schema children while keeping the
@@ -194,9 +291,15 @@ Status DelimitedTextReader::open(std::shared_ptr<FileScanRequest> request) {
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
     DORIS_CHECK(_request != nullptr);
     RETURN_IF_ERROR(_build_requested_columns(*_request, &_requested_columns));
-    RETURN_IF_ERROR(_open_file());
+    {
+        SCOPED_TIMER(_text_profile.open_file_time);
+        RETURN_IF_ERROR(_open_file());
+    }
     RETURN_IF_ERROR(_create_decompressor());
-    RETURN_IF_ERROR(_create_line_reader());
+    {
+        SCOPED_TIMER(_text_profile.create_line_reader_time);
+        RETURN_IF_ERROR(_create_line_reader());
+    }
     _line_reader_eof = false;
     _bom_removed = false;
     _eof = false;
@@ -235,17 +338,37 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
         }
     }
 
-    const auto rows_before_filter = *rows;
-    if (_request != nullptr && *rows > 0 && !_request->delete_conjuncts.empty()) {
-        RETURN_IF_ERROR(VExprContext::filter_block(_request->delete_conjuncts, file_block,
-                                                   file_block->columns()));
-    }
-    if (_request != nullptr && *rows > 0 && !_request->conjuncts.empty()) {
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_request->conjuncts, file_block, file_block->columns()));
+    const size_t rows_before_filter = *rows;
+    update_counter(_text_profile.rows_read_before_filter, rows_before_filter);
+
+    size_t rows_after_delete_filter = rows_before_filter;
+    if (_request != nullptr && rows_before_filter > 0 && !_request->delete_conjuncts.empty()) {
+        {
+            SCOPED_TIMER(_text_profile.delete_conjunct_filter_time);
+            RETURN_IF_ERROR(VExprContext::filter_block(_request->delete_conjuncts, file_block,
+                                                       file_block->columns()));
+        }
+        rows_after_delete_filter =
+                file_block->columns() == 0 ? rows_before_filter : file_block->rows();
+        update_counter(_text_profile.rows_filtered_by_delete_conjunct,
+                       rows_before_filter - rows_after_delete_filter);
     }
 
-    *rows = file_block->columns() == 0 ? rows_before_filter : file_block->rows();
+    size_t rows_after_filter = rows_after_delete_filter;
+    if (_request != nullptr && rows_after_delete_filter > 0 && !_request->conjuncts.empty()) {
+        {
+            SCOPED_TIMER(_text_profile.conjunct_filter_time);
+            RETURN_IF_ERROR(VExprContext::filter_block(_request->conjuncts, file_block,
+                                                       file_block->columns()));
+        }
+        rows_after_filter =
+                file_block->columns() == 0 ? rows_after_delete_filter : file_block->rows();
+        update_counter(_text_profile.rows_filtered_by_conjunct,
+                       rows_after_delete_filter - rows_after_filter);
+    }
+
+    *rows = rows_after_filter;
+    update_counter(_text_profile.rows_returned, *rows);
     _reader_statistics.read_rows += *rows;
     *eof = _line_reader_eof && *rows == 0;
     _eof = *eof;
@@ -272,6 +395,7 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
             break;
         }
         if (line.size == 0) {
+            update_counter(_text_profile.empty_lines_read, 1);
             if (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null()) {
                 ++count;
             }
@@ -282,6 +406,8 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
     }
     result->count = count;
     result->columns.clear();
+    update_counter(_text_profile.rows_read_before_filter, count);
+    update_counter(_text_profile.rows_returned, count);
     _reader_statistics.read_rows += count;
     _eof = true;
     return Status::OK();
@@ -297,6 +423,16 @@ Status DelimitedTextReader::close() {
     _tracing_file_reader.reset();
     _requested_columns.clear();
     return Status::OK();
+}
+
+bool DelimitedTextReader::_is_null_format(Slice value) const {
+    if (value.size != _options.null_len) {
+        return false;
+    }
+    if (_options.null_len == 0) {
+        return true;
+    }
+    return std::memcmp(value.data, _options.null_format, value.size) == 0;
 }
 
 Status DelimitedTextReader::_build_requested_columns(const FileScanRequest& request,
@@ -423,7 +559,10 @@ Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
     while (true) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx.get()));
+        {
+            SCOPED_TIMER(_text_profile.read_line_time);
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx.get()));
+        }
         if (_line_reader_eof && size == 0) {
             *eof = true;
             return Status::OK();
@@ -437,10 +576,12 @@ Status DelimitedTextReader::_read_next_line(Slice* line, bool* eof) {
         if (_skip_lines > 0) {
             --_skip_lines;
             _bom_removed = true;
+            update_counter(_text_profile.skipped_lines, 1);
             continue;
         }
         *line = Slice(ptr, size);
         *eof = false;
+        update_counter(_text_profile.raw_lines_read, 1);
         return Status::OK();
     }
 }
@@ -450,9 +591,11 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
                                                     size_t* rows) {
     DORIS_CHECK(columns != nullptr);
     if (line.size == 0) {
+        update_counter(_text_profile.empty_lines_read, 1);
         if (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null()) {
             for (const auto& column : _requested_columns) {
                 RETURN_IF_ERROR(_append_null((*columns)[column.block_position.value()].get()));
+                update_counter(_text_profile.cells_deserialized, 1);
             }
             ++(*rows);
         }
@@ -460,7 +603,11 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
     }
     RETURN_IF_ERROR(_validate_line(line));
 
-    _split_line(line);
+    {
+        SCOPED_TIMER(_text_profile.split_line_time);
+        _split_line(line);
+    }
+    SCOPED_TIMER(_text_profile.deserialize_time);
     for (const auto& column : _requested_columns) {
         auto* output = (*columns)[column.block_position.value()].get();
         const int32_t field_index = column.file_column_id.value();
@@ -470,6 +617,7 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
                               ? _split_values[field_index]
                               : Slice(_options.null_format, _options.null_len);
         RETURN_IF_ERROR(_deserialize_one_cell(column, output, _normalize_value(value)));
+        update_counter(_text_profile.cells_deserialized, 1);
     }
     ++(*rows);
     return Status::OK();

@@ -134,6 +134,18 @@ std::vector<SlotDescriptor*> build_nested_complex_slots(ObjectPool* pool) {
             make_test_slot(pool, 2, 2, map_type, "kv")};
 }
 
+std::vector<SlotDescriptor*> build_char_varchar_slots(ObjectPool* pool) {
+    const auto nullable_char3 =
+            make_nullable(std::make_shared<DataTypeString>(3, PrimitiveType::TYPE_CHAR));
+    const auto nullable_varchar4 =
+            make_nullable(std::make_shared<DataTypeString>(4, PrimitiveType::TYPE_VARCHAR));
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {nullable_char3, nullable_varchar4}, Strings {"city", "country"}));
+    return {make_test_slot(pool, 0, 0, make_nullable(std::make_shared<DataTypeInt32>()), "id"),
+            make_test_slot(pool, 1, 1, nullable_char3, "city"),
+            make_test_slot(pool, 2, 2, struct_type, "region")};
+}
+
 std::unique_ptr<CsvReader> create_reader(
         const std::string& path, TFileScanRangeParams* params,
         const std::vector<SlotDescriptor*>& slots, MockRuntimeState* state, RuntimeProfile* profile,
@@ -200,6 +212,54 @@ int32_t nullable_struct_int_child_at(const IColumn& column, size_t child_index, 
     const auto& nested = assert_cast<const ColumnInt32&>(child_nullable.get_nested_column());
     return nested.get_data()[row];
 }
+
+int64_t counter_value(RuntimeProfile* profile, const std::string& name) {
+    auto* counter = profile->get_counter(name);
+    EXPECT_NE(counter, nullptr) << name;
+    return counter == nullptr ? 0 : counter->value();
+}
+
+class NullableIntGreaterThanExpr final : public VExpr {
+public:
+    NullableIntGreaterThanExpr(size_t block_position, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _block_position(block_position),
+              _value(value) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    bool is_constant() const override { return false; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_block_position).column);
+        const auto& data = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
+
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const auto source_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] =
+                    !nullable.is_null_at(source_row) && data.get_element(source_row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<NullableIntGreaterThanExpr>(_block_position, _value);
+        return Status::OK();
+    }
+
+private:
+    size_t _block_position;
+    int32_t _value;
+    const std::string _name = "NullableIntGreaterThanExpr";
+};
 
 class StructIntChildGreaterThanExpr final : public VExpr {
 public:
@@ -303,6 +363,31 @@ TEST_F(CsvV2ReaderTest, SchemaUsesSlotTypesAndColumnIdxs) {
     EXPECT_TRUE(schema[1].type->is_nullable());
 }
 
+// Scenario: FE slot types for CSV are table target types. CHAR/VARCHAR length is not stored in the
+// CSV file, so the file schema must expose bounded strings as unbounded STRING. Otherwise
+// TableReader believes the file value already satisfies the table length and skips truncation.
+TEST_F(CsvV2ReaderTest, SchemaTreatsCharVarcharSlotsAsUnboundedFileStrings) {
+    auto slots = build_char_varchar_slots(&_pool);
+    auto reader = create_reader(_file_path, &_params, slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 3);
+
+    const auto city_type = remove_nullable(schema[1].type);
+    EXPECT_EQ(city_type->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(assert_cast<const DataTypeString*>(city_type.get())->len(), -1);
+
+    const auto region_type = remove_nullable(schema[2].type);
+    ASSERT_EQ(region_type->get_primitive_type(), TYPE_STRUCT);
+    const auto* region_struct = assert_cast<const DataTypeStruct*>(region_type.get());
+    ASSERT_EQ(region_struct->get_elements().size(), 2);
+    EXPECT_EQ(remove_nullable(region_struct->get_element(0))->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(remove_nullable(region_struct->get_element(1))->get_primitive_type(), TYPE_STRING);
+    ASSERT_EQ(schema[2].children.size(), 2);
+    EXPECT_EQ(remove_nullable(schema[2].children[0].type)->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(remove_nullable(schema[2].children[1].type)->get_primitive_type(), TYPE_STRING);
+}
+
 // Scenario: CSV is row-oriented and cannot lazy-read predicate columns separately. The reader
 // declares that capability by choosing MaterializedColumnMapper itself.
 TEST_F(CsvV2ReaderTest, CreatesMaterializedColumnMapper) {
@@ -310,6 +395,55 @@ TEST_F(CsvV2ReaderTest, CreatesMaterializedColumnMapper) {
     auto mapper = reader->create_column_mapper({.mode = TableColumnMappingMode::BY_NAME});
 
     ASSERT_NE(dynamic_cast<MaterializedColumnMapper*>(mapper.get()), nullptr);
+}
+
+// Scenario: CSV v2 exposes delimited-text profile counters for read, parse, deserialize, and
+// file-local conjunct filtering, so scanner profiles can explain where row-reader time is spent.
+TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
+    const auto profile_path = (_test_dir / "profile.csv").string();
+    std::ofstream output(profile_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "\n";
+    output << "1,alice,10\n";
+    output << "2,bob,20\n";
+    output.close();
+
+    _state._query_options.__set_read_csv_empty_line_as_null(true);
+    auto reader = create_reader(profile_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(2))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(2), LocalIndex(1));
+    request->conjuncts = {
+            prepared_conjunct(&_state, std::make_shared<NullableIntGreaterThanExpr>(1, 15))};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 2});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 2);
+
+    EXPECT_NE(_profile.get_counter("OpenFileTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("CreateLineReaderTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("ReadLineTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SplitLineTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("DeserializeTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("ConjunctFilterTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("DeleteConjunctFilterTime"), nullptr);
+    EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
+    EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
+    EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);
+    EXPECT_EQ(counter_value(&_profile, "RowsReturned"), 1);
+    EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);
+    EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 1);
+    EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 6);
 }
 
 // Scenario: CSV has no embedded nested schema, but TableColumnMapper still needs semantic children
@@ -808,6 +942,40 @@ TEST_F(CsvV2ReaderTest, NullFormatAndEmptyFieldAsNullProduceNullableValues) {
     ASSERT_EQ(rows, 1);
     EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 0));
     EXPECT_TRUE(is_null_at(*block.get_by_position(1).column, 0));
+}
+
+// Scenario: explicit empty null_format means an empty field is NULL even when
+// empty_field_as_null is false. This keeps the nullable string fast path aligned with the generic
+// nullable serde wrapper used by non-string columns.
+TEST_F(CsvV2ReaderTest, EmptyNullFormatProducesNullableValue) {
+    const auto null_path = (_test_dir / "empty_null_format.csv").string();
+    std::ofstream output(null_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,alice,10\n";
+    output << "2,,20\n";
+    output << "3,NULL,30\n";
+    output.close();
+
+    _params.file_attributes.text_params.__set_null_format("");
+    _params.file_attributes.text_params.__set_empty_field_as_null(false);
+    auto reader = create_reader(null_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 3);
+    EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 0));
+    EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 1));
+    EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 2));
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 2), "NULL");
 }
 
 // Scenario: a non-first split starts inside a record. CSV v2 pre-reads enough delimiter bytes and
