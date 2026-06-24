@@ -959,6 +959,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
     }
     delete ExecEnv::GetInstance()->_workload_group_manager;
+    ExecEnv::GetInstance()->_workload_group_manager = nullptr;
 }
 
 // Test reserve memory fail for spillable pipeline task
@@ -1135,6 +1136,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
     }
     delete ExecEnv::GetInstance()->_workload_group_manager;
+    ExecEnv::GetInstance()->_workload_group_manager = nullptr;
 }
 
 TEST_F(PipelineTaskTest, TEST_INJECT_SHARED_STATE) {
