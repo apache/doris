@@ -48,7 +48,6 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
-#include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_reader.h"
@@ -311,11 +310,7 @@ Status FileScannerV2::_create_table_reader_for_format(
             *reader = std::make_unique<format::iceberg::IcebergTableReader>();
         }
     } else if (table_format == "paimon") {
-        if (get_range_format_type(*_params, range) == TFileFormatType::FORMAT_JNI) {
-            *reader = std::make_unique<format::paimon::PaimonJniReader>();
-        } else {
-            *reader = format::paimon::PaimonReader::create_unique();
-        }
+        *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
         *reader = format::hudi::HudiReader::create_unique();
     } else if (table_format == "jdbc") {
