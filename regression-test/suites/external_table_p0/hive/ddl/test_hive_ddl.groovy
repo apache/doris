@@ -403,6 +403,20 @@ suite("test_hive_ddl", "p0,external") {
                 sql """ INSERT INTO tbl_${file_format}_${compression} VALUES ('doris_lz4') """
                 def q_lz4 = "order_qt_hive_${file_format}_${compression}_write"
                 "${q_lz4}" """ SELECT * FROM tbl_${file_format}_${compression} ORDER BY col """
+
+                if (file_format.equals("parquet")) {
+                    String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
+                    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+                    order_qt_hive_parquet_lz4_footer_codec """
+                        SELECT DISTINCT compression
+                        FROM parquet_meta(
+                            "uri" = "hdfs://${externalEnvIp}:${hdfsPort}/user/hive/warehouse/test_hive_compress.db/tbl_parquet_lz4/*",
+                            "hadoop.username" = "doris",
+                            "mode" = "parquet_metadata"
+                        )
+                        ORDER BY compression
+                    """
+                }
             }
 
             sql """DROP TABLE `tbl_${file_format}_${compression}`"""
