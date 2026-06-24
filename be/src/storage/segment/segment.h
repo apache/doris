@@ -202,6 +202,14 @@ public:
         }
     }
 
+    // The tso column (__DORIS_BINLOG_TIMESTAMP__) is a NULL placeholder on disk on a
+    // single-version binlog segment, replaced with the real commit_tso at read time
+    // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
+    // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
+    // Returns false for range (compaction) segments whose on-disk value is real.
+    bool is_tso_placeholder_col(int cid, const Schema& schema,
+                                const StorageReadOptions& read_options) const;
+
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment

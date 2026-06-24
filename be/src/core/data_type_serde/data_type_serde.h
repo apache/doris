@@ -545,11 +545,12 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
     return res;
 }
 
-inline Status checkArrowStatus(const arrow::Status& status, const std::string& column,
-                               const std::string& format_name) {
+template <typename ColumnType, typename BuilderType>
+inline Status checkArrowStatus(const arrow::Status& status, const ColumnType& column,
+                               const BuilderType& builder) {
     if (!status.ok()) {
         return Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
-                                  format_name, column, status.ToString());
+                                  builder.type()->name(), column.get_name(), status.ToString());
     }
     return Status::OK();
 }

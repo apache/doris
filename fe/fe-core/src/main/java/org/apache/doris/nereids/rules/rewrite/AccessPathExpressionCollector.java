@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -75,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
 import java.util.Stack;
 
 /**
@@ -83,15 +85,17 @@ import java.util.Stack;
 public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void, CollectorContext> {
     private StatementContext statementContext;
     private boolean bottomPredicate;
+    private boolean skipMetaPath;
     private Multimap<Integer, CollectAccessPathResult> slotToAccessPaths;
     private Stack<Map<String, Expression>> nameToLambdaArguments = new Stack<>();
 
     public AccessPathExpressionCollector(
             StatementContext statementContext, Multimap<Integer, CollectAccessPathResult> slotToAccessPaths,
-            boolean bottomPredicate) {
+            boolean bottomPredicate, boolean skipMetaPath) {
         this.statementContext = statementContext;
         this.slotToAccessPaths = slotToAccessPaths;
         this.bottomPredicate = bottomPredicate;
+        this.skipMetaPath = skipMetaPath;
     }
 
     public void collect(Expression expression) {
@@ -203,9 +207,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // single check covers nested CHAR cases too.
         if (arg.getDataType().isStringLikeType() && !arg.getDataType().isCharType()
                 && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             return arg.accept(this, offsetContext);
         }
         // fall through to default (recurse into children with fresh contexts)
@@ -217,9 +225,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         Expression arg = mapSize.child();
         DataType argType = arg.getDataType();
         if (argType.isMapType() && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             return arg.accept(this, offsetContext);
         }
         return visit(mapSize, context);
@@ -232,9 +244,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // Arrays and maps share the same offset-array + data storage layout as strings on the BE.
         DataType argType = arg.getDataType();
         if ((argType.isArrayType() || argType.isMapType()) && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
             Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
@@ -339,7 +355,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapKeys(MapKeys mapKeys, CollectorContext context) {
         LinkedList<String> suffixPath = context.accessPathBuilder.accessPath;
-        if (isFunctionNullCheckPath(suffixPath)) {
+        if (isUnderIsNull(suffixPath)) {
             // map_keys(nullable_map) returns a NULL array only when the parent map is NULL.
             // The NULL suffix therefore belongs to the map itself, not to the KEYS child.
             return continueCollectAccessPath(mapKeys.getArgument(0), context);
@@ -358,7 +374,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitMapValues(MapValues mapValues, CollectorContext context) {
         LinkedList<String> suffixPath = context.accessPathBuilder.accessPath;
-        if (isFunctionNullCheckPath(suffixPath)) {
+        if (isUnderIsNull(suffixPath)) {
             // map_values(nullable_map) returns a NULL array only when the parent map is NULL.
             // A map entry whose value is NULL still produces a non-NULL values array.
             return continueCollectAccessPath(mapValues.getArgument(0), context);
@@ -374,26 +390,82 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         return continueCollectAccessPath(mapValues.getArgument(0), context);
     }
 
-    private static boolean isFunctionNullCheckPath(List<String> suffixPath) {
+    private static boolean isUnderIsNull(List<String> suffixPath) {
         return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
     }
 
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
+        // MAP_CONTAINS_KEY(<map>, <key>)
+        //
+        // isUnderIsNull checks whether the parent of this expression is IS NULL,
+        // splitting queries into two shapes:
+        //
+        // Shape A (parent is IS NULL):
+        //   SQL: SELECT ... WHERE map_contains_key(m, k) IS NULL
+        //   map_contains_key(m, k) returns NULL only when m itself is NULL — so the path
+        //   should be m.NULL, not m.KEYS.NULL
+        //
+        // Shape B (regular predicate):
+        //   SQL: SELECT ... WHERE map_contains_key(m, element_at(s, 'city'))
+        //                     AND element_at(s, 'city') IS NULL
+        //   We add the KEYS prefix for the map column and visit key arg: `element_at(s, 'city')` with a
+        //   fresh context.
+        //   s collects two paths:
+        //     [s, city]        ← from key arg (fresh context → DATA path)
+        //     [s, city, NULL]  ← from IS NULL
+        //   NestedColumnPruning sees [s, city] and strips [s, city, NULL] in prune phase.
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
+            // Shape A: skip KEYS prefix, route NULL directly to the map column.
+            return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        }
+        // Shape B: map argument — only the key sub-column is needed.
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
-        return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        // Shape B: key argument — visit with a fresh context to register full-data paths.
+        Expression keyArg = mapContainsKey.getArgument(1);
+        CollectorContext keyCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+        continueCollectAccessPath(keyArg, keyCtx);
+        return null;
     }
 
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
+        // MAP_CONTAINS_VALUE(<map>, <value>)
+        // Same two-shape logic as visitMapContainsKey; see that method for the full rationale.
+        //
+        // Shape A (parent is IS NULL): skip VALUES prefix, route NULL to m → m.NULL.
+        // Shape B (regular predicate): add VALUES prefix for m, visit value arg with fresh context.
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
+            return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
-        return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        Expression valueArg = mapContainsValue.getArgument(1);
+        CollectorContext valueCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+        continueCollectAccessPath(valueArg, valueCtx);
+        return null;
     }
 
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
+        // MAP_CONTAINS_ENTRY(<map>, <key>, <value>)
+        // Same two-shape logic as visitMapContainsKey; see that method for the full rationale.
+        //
+        // Shape A (parent is IS NULL): skip sub-column prefix, route NULL to m → m.NULL.
+        // Shape B (regular predicate): add ACCESS_ALL for m (needs both keys and values),
+        //     visit key/value args with fresh context.
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
+            return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-        return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        for (int i = 1; i < mapContainsEntry.arity(); i++) {
+            Expression entryArg = mapContainsEntry.getArgument(i);
+            CollectorContext entryCtx = new CollectorContext(context.statementContext, context.bottomFilter);
+            continueCollectAccessPath(entryArg, entryCtx);
+        }
+        return null;
     }
 
     @Override
@@ -563,6 +635,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // and nested access (element_at(s, 'city') IS NULL → [s, city, NULL]).
         // For unrecognized expressions, the default visitor resets context, safely discarding NULL.
         if (arg.nullable() && context.accessPathBuilder.isEmpty()) {
+            if (skipMetaPath) {
+                return arg.accept(this,
+                        new CollectorContext(context.statementContext, false));
+            }
             CollectorContext nullContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             nullContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_NULL);
@@ -573,7 +649,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitIf(If ifExpr, CollectorContext context) {
-        if (isFunctionNullCheckPath(context.accessPathBuilder.accessPath)) {
+        if (isUnderIsNull(context.accessPathBuilder.accessPath)) {
             ifExpr.getCondition().accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
             ifExpr.getTrueValue().accept(this, copyContext(context));
             ifExpr.getFalseValue().accept(this, copyContext(context));
@@ -618,6 +694,44 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         } finally {
             nameToLambdaArguments.pop();
         }
+
+        // After visiting the lambda body, for any bound array whose lambda variable
+        // was NOT referenced in the body (e.g. x -> true where x never appears),
+        // visitArrayItemSlot was never called and the array column's access path is
+        // missing. This gap is exposed when an is-null or offset-only path has been
+        // registered for the same slot — NestedColumnPruning then incorrectly prunes
+        // the complex column to null-only / offset-only instead of reading full data.
+        //
+        // Detect usage by scanning the lambda body for ArrayItemSlots matching the
+        // argument name, which is more reliable than getInputSlots() that deliberately
+        // excludes ArrayItemSlot and may falsely match outer slots.
+        //
+        // Must use a fresh context: when the body DOES reference some variables
+        // (e.g. (x,y) -> x > 0), visitArrayItemSlot mutates context.accessPathBuilder
+        // in-place (addPrefix without cleanup). A fresh context isolates the fallback
+        // path for unreferenced variables from pollution by referenced ones.
+        for (Expression argument : arguments) {
+            if (argument instanceof ArrayItemReference) {
+                ExprId argExprId = ((ArrayItemReference) argument).getExprId();
+                Set<ArrayItemSlot> arrayItemSlots = arguments.get(0)
+                        .<ArrayItemSlot>collect(e -> e instanceof ArrayItemSlot);
+                boolean isReferenced = false;
+                for (ArrayItemSlot slot : arrayItemSlots) {
+                    if (slot.getExprId().equals(argExprId)) {
+                        isReferenced = true;
+                        break;
+                    }
+                }
+                if (!isReferenced) {
+                    Expression boundArray = argument.child(0);
+                    CollectorContext fullAccessCtx = new CollectorContext(
+                            context.statementContext, context.bottomFilter);
+                    fullAccessCtx.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+                    continueCollectAccessPath(boundArray, fullAccessCtx);
+                }
+            }
+        }
+
         return null;
     }
 

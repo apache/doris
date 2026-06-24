@@ -25,7 +25,7 @@ suite("test_search_not_null_bitmap", "p0") {
 
     def tableName = "search_not_null_bitmap"
 
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -58,26 +58,26 @@ suite("test_search_not_null_bitmap", "p0") {
 
     // Internal NOT via search DSL - must match external NOT
     qt_not_internal_ids """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
         WHERE search('NOT msg:omega')
         ORDER BY id
     """
 
     // External NOT via SQL NOT operator (this always worked correctly)
     qt_not_external_ids """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName}
         WHERE NOT search('msg:omega')
         ORDER BY id
     """
 
     // Count must match between internal and external NOT
     qt_not_internal_count """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT msg:omega')
     """
 
     qt_not_external_count """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE NOT search('msg:omega')
     """
 
@@ -113,12 +113,12 @@ suite("test_search_not_null_bitmap", "p0") {
 
     // All NULL rows should be excluded by NOT query
     qt_all_null_internal """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${allNullTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${allNullTable}
         WHERE search('NOT msg:anything')
     """
 
     qt_all_null_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${allNullTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${allNullTable}
         WHERE NOT search('msg:anything')
     """
 
@@ -160,39 +160,39 @@ suite("test_search_not_null_bitmap", "p0") {
 
     // NOT on title field: NULL title rows (id=2,4) should be excluded
     qt_mixed_not_title_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE search('NOT title:hello')
         ORDER BY id
     """
 
     qt_mixed_not_title_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE NOT search('title:hello')
         ORDER BY id
     """
 
     // NOT on content field: NULL content rows (id=3,4) should be excluded
     qt_mixed_not_content_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE search('NOT content:morning')
         ORDER BY id
     """
 
     qt_mixed_not_content_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE NOT search('content:morning')
         ORDER BY id
     """
 
     // Complex: (title:hello OR content:good) AND NOT title:goodbye
     qt_mixed_complex_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE search('(title:hello OR content:good) AND NOT title:goodbye')
         ORDER BY id
     """
 
     qt_mixed_complex_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE (search('title:hello') OR search('content:good'))
           AND NOT search('title:goodbye')
         ORDER BY id
@@ -203,13 +203,13 @@ suite("test_search_not_null_bitmap", "p0") {
     // ---------------------------------------------------------------
 
     qt_multi_must_not_search """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE search('NOT title:hello AND NOT title:goodbye')
         ORDER BY id
     """
 
     qt_multi_must_not_external """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mixedTable}
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${mixedTable}
         WHERE NOT search('title:hello')
           AND NOT search('title:goodbye')
         ORDER BY id

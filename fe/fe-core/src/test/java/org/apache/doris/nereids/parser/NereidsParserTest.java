@@ -19,11 +19,13 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -116,6 +118,68 @@ public class NereidsParserTest extends ParserTestBase {
             e.printStackTrace();
         }
         Assertions.assertNull(exceptionOccurred);
+    }
+
+    @Test
+    public void testParseTableIncrScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        UnboundRelation minDeltaRelation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from tbl5@incr('startTimestamp' = '2026-05-25 20:51:28', "
+                        + "\"endTimestamp\" = \"2026-05-25 20:54:00\", "
+                        + "\"incrementType\" = \"MIN_DELTA\")"));
+        Assertions.assertNotNull(minDeltaRelation);
+        TableScanParams minDeltaScanParams = minDeltaRelation.getScanParams();
+        Assertions.assertEquals("incr", minDeltaScanParams.getParamType());
+        Assertions.assertEquals("2026-05-25 20:51:28",
+                minDeltaScanParams.getMapParams().get("startTimestamp"));
+        Assertions.assertEquals("2026-05-25 20:54:00",
+                minDeltaScanParams.getMapParams().get("endTimestamp"));
+        Assertions.assertEquals("MIN_DELTA",
+                minDeltaScanParams.getMapParams().get("incrementType"));
+
+        UnboundRelation appendOnlyRelation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from tbl5@incr('startTimestamp' = '2026-05-25 20:51:28', "
+                        + "\"endTimestamp\" = \"2026-05-25 20:54:00\", "
+                        + "\"incrementType\" = \"APPEND_ONLY\")"));
+        Assertions.assertNotNull(appendOnlyRelation);
+        Assertions.assertEquals("APPEND_ONLY",
+                appendOnlyRelation.getScanParams().getMapParams().get("incrementType"));
+
+        UnboundRelation detailWithRangeRelation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from tbl5@incr('startTimestamp' = '2026-05-25 20:51:28', "
+                        + "\"endTimestamp\" = \"2026-05-25 20:54:00\", "
+                        + "\"incrementType\" = \"DETAIL\")"));
+        Assertions.assertNotNull(detailWithRangeRelation);
+        Assertions.assertEquals("2026-05-25 20:51:28",
+                detailWithRangeRelation.getScanParams().getMapParams().get("startTimestamp"));
+        Assertions.assertEquals("2026-05-25 20:54:00",
+                detailWithRangeRelation.getScanParams().getMapParams().get("endTimestamp"));
+        Assertions.assertEquals("DETAIL",
+                detailWithRangeRelation.getScanParams().getMapParams().get("incrementType"));
+
+        UnboundRelation detailWithStartRelation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from tbl5@incr('startTimestamp' = '2026-05-25 20:51:28', "
+                        + "\"incrementType\" = \"DETAIL\")"));
+        Assertions.assertNotNull(detailWithStartRelation);
+        Assertions.assertEquals("2026-05-25 20:51:28",
+                detailWithStartRelation.getScanParams().getMapParams().get("startTimestamp"));
+        Assertions.assertEquals("DETAIL",
+                detailWithStartRelation.getScanParams().getMapParams().get("incrementType"));
+        Assertions.assertFalse(detailWithStartRelation.getScanParams().getMapParams().containsKey("endTimestamp"));
+
+        UnboundRelation detailOnlyRelation = findFirstUnboundRelation(
+                nereidsParser.parseSingle("select * from tbl5@incr(\"incrementType\" = \"DETAIL\")"));
+        Assertions.assertNotNull(detailOnlyRelation);
+        Assertions.assertEquals("DETAIL",
+                detailOnlyRelation.getScanParams().getMapParams().get("incrementType"));
+        Assertions.assertFalse(detailOnlyRelation.getScanParams().getMapParams().containsKey("startTimestamp"));
+
+        UnboundRelation emptyIncrRelation = findFirstUnboundRelation(
+                nereidsParser.parseSingle("select * from tbl5@incr()"));
+        Assertions.assertNotNull(emptyIncrRelation);
+        Assertions.assertEquals("incr", emptyIncrRelation.getScanParams().getParamType());
+        Assertions.assertTrue(emptyIncrRelation.getScanParams().getMapParams().isEmpty());
     }
 
     @Test
@@ -931,6 +995,19 @@ public class NereidsParserTest extends ParserTestBase {
         }
     }
 
+    private UnboundRelation findFirstUnboundRelation(Plan plan) {
+        if (plan instanceof UnboundRelation) {
+            return (UnboundRelation) plan;
+        }
+        for (Plan child : plan.children()) {
+            UnboundRelation relation = findFirstUnboundRelation(child);
+            if (relation != null) {
+                return relation;
+            }
+        }
+        return null;
+    }
+
     @Test
     public void testBlockSqlAst() {
         String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
@@ -1367,14 +1444,31 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testCreateTableVariantNestedGroupPropertyIsRejected() {
+    public void testCreateTableVariantNestedGroupPropertyIsAccepted() {
         NereidsParser parser = new NereidsParser();
         String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
                 + "\"variant_enable_nested_group\" = \"true\")>) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        org.apache.doris.nereids.types.VariantType variantType =
+                (org.apache.doris.nereids.types.VariantType) createTableCommand.getCreateTableInfo()
+                        .getColumnDefinitions().get(1).getType();
+        Assertions.assertTrue(variantType.getEnableNestedGroup());
+    }
+
+    @Test
+    public void testCreateTableVariantNestedGroupPropertyConflictsWithDocMode() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
+                + "\"variant_enable_nested_group\" = \"true\", "
+                + "\"variant_enable_doc_mode\" = \"true\")>) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
         NotSupportedException exception =
                 Assertions.assertThrowsExactly(NotSupportedException.class, () -> parser.parseSingle(sql));
-        Assertions.assertTrue(exception.getMessage().contains("variant_enable_nested_group is not supported now"));
+        Assertions.assertTrue(exception.getMessage()
+                .contains("variant_enable_nested_group and variant_enable_doc_mode cannot both be true"));
     }
 
     @Test

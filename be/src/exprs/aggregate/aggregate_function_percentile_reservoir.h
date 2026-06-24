@@ -37,6 +37,11 @@ struct QuantileReservoirSampler {
         data.insert(x);
     }
 
+    void add_batch(const double* values, size_t size, const double input_level) {
+        this->level = input_level;
+        data.insert_many(values, size);
+    }
+
     void merge(const QuantileReservoirSampler& rhs) {
         level = rhs.level;
         data.merge(rhs.data);
@@ -84,9 +89,40 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
-        auto value = assert_cast<const ColumnFloat64&>(*columns[0]).get_data()[row_num];
-        auto level = assert_cast<const ColumnFloat64&>(*columns[1]).get_data()[0];
+        auto value = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                             .get_data()[row_num];
+        auto level = assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1])
+                             .get_data()[0];
         this->data(place).add(value, level);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena&) const override {
+        const auto& sources =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& levels =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        this->data(place).add_batch(sources.get_data().data(), batch_size, levels.get_data()[0]);
+    }
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena&, UInt8* use_null_result,
+                                UInt8* could_use_previous_result) const override {
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        if (frame_start < frame_end) {
+            const auto& sources =
+                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& levels =
+                    assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+            this->data(place).add_batch(sources.get_data().data() + frame_start,
+                                        frame_end - frame_start, levels.get_data()[0]);
+            *use_null_result = false;
+            *could_use_previous_result = true;
+        } else if (!*could_use_previous_result) {
+            *use_null_result = true;
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
@@ -106,7 +142,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get());
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                this->data(place).get());
     }
 };
 

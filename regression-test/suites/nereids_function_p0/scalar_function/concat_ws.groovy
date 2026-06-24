@@ -39,4 +39,17 @@ suite("nereids_scalar_fn_concat_ws") {
     sql "INSERT INTO test_concat_ws_1 VALUES (1, ['a','b'], ['css',null,'d']), (2, ['x',null], ['y','z']),(3,['你好','世界'],['Doris',null,'Nereids'])"
     qt_concat_ws_insert_1 "SELECT concat_ws('-', a, b) FROM test_concat_ws_1 ORDER BY id"
 
+    sql "DROP TABLE IF EXISTS test_concat_ws_array_null"
+    sql "CREATE TABLE test_concat_ws_array_null (id INT, a ARRAY<VARCHAR>, b ARRAY<VARCHAR>, c ARRAY<VARCHAR>) ENGINE=OLAP DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')"
+    sql "INSERT INTO test_concat_ws_array_null VALUES (1, ['a'], NULL, ['b']), (2, ['a'], ['b'], ['c'])"
+    qt_concat_ws_array_null_full "SELECT id, CONCAT('[', CONCAT_WS(',', a, b, c), ']'), LENGTH(CONCAT_WS(',', a, b, c)) FROM test_concat_ws_array_null ORDER BY id"
+    qt_concat_ws_array_null_filter "SELECT id, CONCAT('[', CONCAT_WS(',', a, b, c), ']'), LENGTH(CONCAT_WS(',', a, b, c)) FROM test_concat_ws_array_null WHERE id = 1"
+
+    sql "SET disable_nereids_expression_rules = 'CONCATWS_MULTI_ARRAY_TO_ONE'"
+    test {
+        sql "SELECT CONCAT_WS(',', a, b, c) FROM test_concat_ws_array_null ORDER BY id"
+        exception "concat_ws with array argument expects exactly 2 arguments"
+    }
+    sql "SET disable_nereids_expression_rules = ''"
+
 }

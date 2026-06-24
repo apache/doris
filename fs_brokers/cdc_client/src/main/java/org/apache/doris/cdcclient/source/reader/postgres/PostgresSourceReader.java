@@ -27,6 +27,7 @@ import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -73,6 +74,7 @@ import io.debezium.connector.postgresql.PostgresConnectorConfig;
 import io.debezium.connector.postgresql.PostgresConnectorConfig.AutoCreateMode;
 import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
+import io.debezium.connector.postgresql.connection.Lsn;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
 import io.debezium.connector.postgresql.spi.SlotState;
@@ -491,6 +493,59 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
+    // Detect a replication slot that was dropped (or dropped and recreated) out from under us while
+    // the job was paused/retrying. Recreating it silently would resume from a position whose WAL is
+    // already gone -> data loss. Fail with a fixed marker so FE classifies it as non-resumable.
+    @Override
+    protected void validateStreamSource(
+            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+        PostgresSourceConfig sourceConfig = getSourceConfig(baseReq);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            SlotState slotState =
+                    connection.getReplicationSlotState(
+                            dialect.getSlotName(), dialect.getPluginName());
+            if (slotState == null) {
+                throw new CdcClientException(
+                        String.format(
+                                "Replication slot invalidated for job %s: slot %s not found on the"
+                                        + " upstream (dropped externally), cannot resume from the"
+                                        + " committed position without data loss.",
+                                baseReq.getJobId(), dialect.getSlotName()));
+            }
+            Lsn requestedLsn = extractRequestedLsn(offsetMeta);
+            Lsn restartLsn = slotState.slotRestartLsn();
+            // restart_lsn must stay <= committed position; a higher one means the slot was
+            // recreated
+            // and the WAL between them was discarded, so resuming would silently skip data.
+            if (requestedLsn != null
+                    && requestedLsn.asLong() > 0
+                    && restartLsn != null
+                    && restartLsn.compareTo(requestedLsn) > 0) {
+                throw new CdcClientException(
+                        String.format(
+                                "Replication slot invalidated for job %s: slot %s restart_lsn %s is"
+                                        + " ahead of the committed position %s (slot recreated),"
+                                        + " cannot resume without data loss.",
+                                baseReq.getJobId(),
+                                dialect.getSlotName(),
+                                restartLsn,
+                                requestedLsn));
+            }
+        }
+    }
+
+    private Lsn extractRequestedLsn(Map<String, Object> offsetMeta) {
+        if (offsetMeta == null || offsetMeta.get(SourceInfo.LSN_KEY) == null) {
+            return null;
+        }
+        try {
+            return Lsn.valueOf(Long.parseLong(String.valueOf(offsetMeta.get(SourceInfo.LSN_KEY))));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     @Override
     public int compareOffset(CompareOffsetRequest compareOffsetRequest) {
         Map<String, String> offsetFirst = compareOffsetRequest.getOffsetFirst();
@@ -606,6 +661,15 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         super.close(jobConfig);
+        releaseSourceResources(jobConfig);
+    }
+
+    /**
+     * Drop the Doris-owned slot/publication. Returns false if either is still present (e.g. a dead
+     * BE's stale walsender holds the slot until PG reclaims it), so the caller can retry later.
+     */
+    @Override
+    public boolean releaseSourceResources(JobBaseConfig jobConfig) {
         Map<String, String> config = jobConfig.getConfig();
         String jobId = jobConfig.getJobId();
         String slotName = resolveSlotName(config, jobId);
@@ -618,29 +682,75 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     slotName,
                     pubName,
                     jobId);
-            return;
+            return true;
         }
-        try {
-            PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
-            PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            if (dropSlot) {
-                LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
+        PostgresDialect dialect = new PostgresDialect(getSourceConfig(jobConfig));
+        boolean cleaned = true;
+        if (dropPub) {
+            LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
+            try (PostgresConnection connection = dialect.openJdbcConnection()) {
+                connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
+            } catch (Exception ex) {
+                LOG.warn(
+                        "Failed to drop publication {} for job {}: {}",
+                        pubName,
+                        jobId,
+                        ex.getMessage());
+            }
+            if (publicationExists(dialect, pubName)) {
+                LOG.warn(
+                        "Publication {} for job {} still present after drop, will retry",
+                        pubName,
+                        jobId);
+                cleaned = false;
+            }
+        }
+        if (dropSlot) {
+            LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
+            try {
                 dialect.removeSlot(slotName);
-            } else {
-                LOG.info("Skipping drop of user-provided slot {} for job {}", slotName, jobId);
+            } catch (Exception ex) {
+                LOG.warn(
+                        "Drop of replication slot {} for job {} failed: {}",
+                        slotName,
+                        jobId,
+                        ex.getMessage());
             }
-            if (dropPub) {
-                LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
-                try (PostgresConnection connection = dialect.openJdbcConnection()) {
-                    connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
-                }
-            } else {
-                LOG.info(
-                        "Skipping drop of user-provided publication {} for job {}", pubName, jobId);
+            if (slotExists(dialect, slotName)) {
+                LOG.warn(
+                        "Replication slot {} for job {} still present after drop, will retry",
+                        slotName,
+                        jobId);
+                cleaned = false;
             }
+        }
+        return cleaned;
+    }
+
+    private boolean slotExists(PostgresDialect dialect, String slotName) {
+        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            return connection.queryAndMap(
+                    "SELECT 1 FROM pg_replication_slots WHERE slot_name = '" + slotName + "'",
+                    rs -> rs.next());
         } catch (Exception ex) {
+            // Can't verify -> treat as present so the bounded retry keeps trying instead of
+            // leaking.
             LOG.warn(
-                    "Failed to clean up postgres resources for job {}: {}", jobId, ex.getMessage());
+                    "Failed to check replication slot {} existence: {}", slotName, ex.getMessage());
+            return true;
+        }
+    }
+
+    private boolean publicationExists(PostgresDialect dialect, String pubName) {
+        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            return connection.queryAndMap(
+                    "SELECT 1 FROM pg_publication WHERE pubname = '" + pubName + "'",
+                    rs -> rs.next());
+        } catch (Exception ex) {
+            // Can't verify -> treat as present so the bounded retry keeps trying instead of
+            // leaking.
+            LOG.warn("Failed to check publication {} existence: {}", pubName, ex.getMessage());
+            return true;
         }
     }
 }

@@ -1193,11 +1193,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -2212,6 +2222,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_same_name_catalog_trash_num = 3;
 
+    @ConfField(masterOnly = true, description = {
+            "The interval between catalog recycle bin clean tasks. "
+                    + "Default is 30000 milliseconds (30 seconds)."})
+    public static long catalog_recycle_bin_interval_ms = 30 * 1000;
+
     /**
      * NOTE: The storage policy is still under developement.
      */
@@ -2608,7 +2623,7 @@ public class Config extends ConfigBase {
     public static long analyze_record_limit = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Minimum number of buckets for auto bucketing."})
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
@@ -2972,6 +2987,11 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_table_stream = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "The interval at which FE cleans stale partition offset state from table streams, in seconds."},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int table_stream_partition_offset_cleanup_interval_second = 3600;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -3264,6 +3284,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3437,10 +3472,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable TSO."}, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_tso_feature = false;
-
     @ConfField(mutable = false, masterOnly = true, description = {
             "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
                     + "will perform timestamp update checks every 50 milliseconds."})
@@ -3470,16 +3501,6 @@ public class Config extends ConfigBase {
             "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
                     + "timestamp offset is 0 milliseconds."})
     public static int tso_time_offset_debug_mode = 0;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
-                    + "which may break rollback to older versions."})
-    public static boolean enable_tso_persist_journal = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
-                    + "unknown modules when reading new images."})
-    public static boolean enable_tso_checkpoint_module = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})

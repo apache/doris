@@ -236,6 +236,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -610,7 +611,11 @@ public class Env {
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
-            .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
+            .<String, Supplier<MasterDaemon>>builder()
+            .put("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler)
+            .put("table_stream_partition_offset_cleanup_interval_second",
+                    this::getTableStreamManager)
+            .build();
 
     private TSOService tsoService;
 
@@ -2029,6 +2034,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
+        tableStreamManager.start();
         tabletLoadIndexRecorderMgr.start();
         new InternalSchemaInitializer().start();
         getRefreshManager().start();
@@ -2736,6 +2742,10 @@ public class Env {
         this.tableStreamManager.write(out);
         LOG.info("finished save TableStreamManager to image");
         return checksum;
+    }
+
+    public void replayTableStreamCleanup(TableStreamCleanupInfo info) {
+        tableStreamManager.replayTableStreamCleanup(info);
     }
 
     // Only called by checkpoint thread
@@ -6336,7 +6346,6 @@ public class Env {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
-                .buildEnableTso()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildVerticalCompactionNumColumnsPerGroup()

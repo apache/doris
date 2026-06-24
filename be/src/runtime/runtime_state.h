@@ -414,8 +414,11 @@ public:
                BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
-    bool enable_local_shuffle() const {
-        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    bool plan_local_shuffle() const {
+        // If local shuffle is enabled and not planned by local shuffle planner, we should plan local shuffle in BE.
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle &&
+               (!_query_options.__isset.enable_local_shuffle_planner ||
+                !_query_options.enable_local_shuffle_planner);
     }
 
     MOCK_FUNCTION bool enable_local_exchange() const {
@@ -842,6 +845,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_candidate_rows_threshold =
+                _query_options.__isset.ann_index_candidate_rows_threshold
+                        ? _query_options.ann_index_candidate_rows_threshold
+                        : 0;
+        params.ann_index_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 

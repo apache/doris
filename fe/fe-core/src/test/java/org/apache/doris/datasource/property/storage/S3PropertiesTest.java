@@ -292,6 +292,25 @@ public class S3PropertiesTest {
         Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
     }
 
+    @Test
+    public void testS3CredentialsProviderTypeWithoutIamRoleForCloud() {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("s3.credentials_provider_type", "container");
+
+        Assertions.assertEquals(CredProviderTypePB.CONTAINER,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+
+        origProps.remove("s3.credentials_provider_type");
+        origProps.put("AWS_CREDENTIALS_PROVIDER_TYPE", "env");
+        Assertions.assertEquals(CredProviderTypePB.ENV,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+    }
+
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId() {

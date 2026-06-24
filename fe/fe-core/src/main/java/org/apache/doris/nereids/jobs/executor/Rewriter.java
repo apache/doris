@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.executor;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
@@ -131,9 +132,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
-import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -680,16 +679,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
+                topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
                 topic("Eager aggregation",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
                         ),
-                        costBased(topDown(
-                                new PushDownAggWithDistinctThroughJoinOneSide(),
-                                new PushDownAggThroughJoinOneSide()
-                        )),
-
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        costBased(topDown(new PushDownAggWithDistinctThroughJoinOneSide())),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
@@ -759,7 +754,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new MergeProjectable())
                 ),
                 topic("set initial join order",
-                        bottomUp(ImmutableList.of(new InitJoinOrder())),
                         bottomUp(ImmutableList.of(new PushDownJoinOnAssertNumRows(), new MergeProjectable())),
                         topDown(new SkewJoin())),
                 topic("agg rewrite",
@@ -898,12 +892,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-                    rewriteJobs.add(
-                            topic("normalize olap table stream scan",
-                                    custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
-                                            NormalizeOlapTableStreamScan::new)
-                            )
-                    );
+                    if (Config.enable_table_stream) {
+                        rewriteJobs.addAll(jobs(
+                                        topic("normalize olap table stream scan",
+                                                topDown(new NormalizeOlapTableStreamScan())
+                                        )
+                                )
+                        );
+                    }
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
