@@ -5,14 +5,15 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **P6.4-T02 = `ConnectorProcedureOps` SPI 骨架（dormant）**
+# 🎯 下一个 session 的任务 = **P6.4-T03 = port `BaseIcebergAction` + `IcebergExecuteActionFactory` → 连接器**
 
-**P6.4-T01 已完成**（recon + 设计 + 用户三签字 [D-062]，纯文档 0 产品码，待 commit）。**下一 = T02**（SPI 骨架），仍 behind gate（iceberg 不在 `SPI_READY_TYPES`，零行为变更直到 P6.6）。
+**P6.4-T01（recon+设计+三签字 [D-062]）+ T02（SPI 骨架）已完成**（待 commit）。**下一 = T03**，仍 behind gate（iceberg 不在 `SPI_READY_TYPES`，零行为变更直到 P6.6）。
 
-- **T02 内容**（设计 §9 / task 表 P6.4-T02）：新 `fe-connector-api` 子包 `connector.api.procedure.{ConnectorProcedureOps, ConnectorProcedureResult}`；`Connector.java:50`（`getWritePlanProvider()` 之后）加 `default getProcedureOps() { return null; }`；`IcebergConnector` 惰性 override（镜像 `getWritePlanProvider`@`IcebergConnector.java:194` = `new IcebergProcedureOps(properties, new CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context)`，T02 可先返空/throw impl 占位）。**验 jdbc/es/maxcompute/paimon/trino 0 影响**（全继承 null 默认）。connector-api UT + checkstyle 0 + import-gate 净 + grep iceberg 不在 `SPI_READY_TYPES`。
-- **SPI 形状（S-1 扁平，已签 [D-062]）**：`ConnectorProcedureResult execute(ConnectorSession, ConnectorTableHandle, String name, Map<String,String> props, ConnectorPredicate where, List<String> partitions)` + `List<String> getSupportedProcedures()`。`ConnectorProcedureResult = {List<ConnectorColumn> resultSchema, List<List<String>> rows}`。`executionMode` **不进 S-1 接口**（P6.4b 接线时增量加 `getExecutionMode(name)` 默认 COORDINATOR_LOCAL）。类型均现存：`ConnectorSession`/`ConnectorTableHandle`(api/handle)/`ConnectorPredicate`(api/pushdown)/`ConnectorColumn`(api)。
-- **起步必读**：设计 [`designs/P6.4-T01-procedure-spi-design.md`](./tasks/designs/P6.4-T01-procedure-spi-design.md)（§3 SPI / §9 TODO）+ recon [`research/p6.4-iceberg-procedures-recon.md`](./research/p6.4-iceberg-procedures-recon.md) + task 表 [`tasks/P6 §P6.4 拆解`](./tasks/P6-iceberg-migration.md) + [D-062]。镜像 P6.3 `ConnectorWritePlanProvider` 加法（`Connector.getWritePlanProvider` default-null 范式）。
-- **节奏**（playbook §5.1 / 7.3）：逐 task TDD（无 Mockito + InMemoryCatalog）→ 文档同步五步 → commit + **覆盖式** HANDOFF。T02→T03(port base/factory)→T04(8 pure-SDK)→T07a(dispatch rewire) = **P6.4a**；T05/T06/T07b = **P6.4b**（rewrite_data_files）；T08 parity 审计、T09 收口。
+- **T03 内容**（设计 §9 / task 表 P6.4-T03）：port legacy fe-core `datasource/iceberg/action/{BaseIcebergAction, IcebergExecuteActionFactory}` → `connector.iceberg.action`（去 `IcebergExecuteActionFactory` 的死 `table` 形参）；接 `IcebergProcedureOps` 内部派发（name→action）+ 实装 `getSupportedProcedures()`（导出 factory 的 9 名 switch 表）。**arg 校验落点 = 4-A 连接器自包含**（import-gate 禁 `org.apache.doris.common.NamedArguments`/`ArgumentParsers` → 连接器自带 arg-spec + 校验，逐字 port legacy error 串；TZ 类用 P6.2 已有 `IcebergTimeUtils` alias-map）。`BaseExecuteAction`/`ExecuteAction`/`NamedArguments` **留 fe-core**（legacy STILL-CONSUMED 至 P6.7）。注意 legacy `IcebergExecuteActionFactory` 的 inner `getSupportedActions()`(无参) 在 default-throw 错误消息里**有** live caller（recon §3）——port 时保该消息行为。
+- **关键先读**（subagent 总结大文件，playbook §3.1）：legacy `BaseIcebergAction`(74 行) + `IcebergExecuteActionFactory`(115 行) + `BaseExecuteAction`（fe-core，留）+ `ExecuteAction`（fe-core，留）。T03 仅 port base+factory 骨架；8 个 action 体在 T04。
+- **SPI 形状（S-1 扁平，T02 已落，已签 [D-062]）**：`ConnectorProcedureOps.execute(session, table, name, props, where, partitions) → ConnectorProcedureResult{resultSchema, rows}` + `getSupportedProcedures()`；`IcebergProcedureOps`(连接器) 镜像 `IcebergWritePlanProvider` 三元组 `(Map properties, IcebergCatalogOps catalogOps, ConnectorContext context)`，T02 两方法仍 throw（T03 实装 `getSupportedProcedures` + dispatch 骨架、T04 实装 8 体）。
+- **起步必读**：设计 [`designs/P6.4-T01-procedure-spi-design.md`](./tasks/designs/P6.4-T01-procedure-spi-design.md)（§3 SPI / §4 arg 校验 4-A / §9 TODO）+ recon [`research/p6.4-iceberg-procedures-recon.md`](./research/p6.4-iceberg-procedures-recon.md)（§3 清册 / §5 SPI / §7 flip 账本）+ task 表 [`tasks/P6 §P6.4 拆解`](./tasks/P6-iceberg-migration.md) + [D-062]。
+- **节奏**（playbook §5.1 / 7.3）：逐 task TDD（无 Mockito + InMemoryCatalog）→ 文档同步五步 → commit + **覆盖式** HANDOFF。T03→T04(8 pure-SDK)→T07a(dispatch rewire) = **P6.4a**；T05/T06/T07b = **P6.4b**（rewrite_data_files）；T08 parity 审计、T09 收口。
 
 ## P6.4 三签字（[D-062]，本 session 用户 AskUserQuestion ×2）
 
@@ -40,13 +41,15 @@
 
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。**所有 commit 均未 push。**
 - **P6.1 = ✅ DONE**（T01–T10）。**P6.2 = ✅ DONE**（T01–T11，UT 278/0/1）。**P6.3 = ✅ DONE**（T01–T09，fe-connector-iceberg UT 389/0/1 + fe-core 30/0）。
-- **P6.4 = 🟢 进行中**：T01 ✅（recon + 设计 + 三签字 [D-062]，0 产品码，待 commit）；T02–T09 未做。
+- **P6.4 = 🟢 进行中**：T01 ✅（recon + 设计 + 三签字 [D-062]，0 产品码）；T02 ✅（`ConnectorProcedureOps` SPI 骨架 + dormant 占位，connector-api 37/0 + iceberg 389/0/1）；T03–T09 未做。**两 commit 待 push。**
 - iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:50` = {jdbc,es,trino-connector,max_compute,paimon}），仍走 switch-case（`:137 case "iceberg"`）。
 - metastore 子线 **已 CLOSED**（勿读）。
 
-## 本 session 完成 = P6.4-T01（recon + SPI 设计 + 用户三签字，待 commit，未 push）
+## 本 session 完成 = P6.4-T01（recon + 设计 + 三签字）+ T02（SPI 骨架），2 commit，未 push
 
-纯文档 0 产品码。新 **`research/p6.4-iceberg-procedures-recon.md`**（10 节：Trino 参照 / legacy 9-action+rewrite 清册 / rewrite 引擎问题 / `ConnectorProcedureOps` SPI 三选项 / old→new 映射 / flip 账本 / task 拆解 / 开放决策）+ **`designs/P6.4-T01-procedure-spi-design.md`**（11 节：目标 / 架构 / S-1 SPI / §4 arg 校验冲突 / rewrite_data_files P6.4b / 不变式 / 映射 / 测试 / TODO / 风险 / 签字）。recon workflow `wf_cb757c7c-708`（10 reader + 对抗 completeness critic），critic **3 处源码核实更正**已并入：①instanceof 计数 = **3 instanceof + 11 downcast**（非初稿"14 instanceof"，grep 实证）；②`rewrite_data_files` commit 半已 P6.3 统一 → `WriteOperation.REWRITE` 变体而**非 4 新 verb**（实证 `IcebergConnectorTransaction.java:114/163/219`）；③`FileScanTask` 侧信道**非** P6.2 carrier 类比（live SDK 对象 FE 侧 vs thrift POJO BE 侧）+ 消费者 `IcebergScanNode:498` 翻闸后端到端死。**文档同步**：decisions-log [D-062]（三签字）/ master plan §P6.4 task 拆解（T01–T09）+ 状态 / PROGRESS（header+phase-row+connector-row）/ connectors/iceberg.md（T02 code 落地时更新）/ deviations-log（无新 DV，设计 §10 预登记，T08 批量登记，镜像 P6.2-T11/P6.3-T08）。
+**T02**（SPI 骨架，dormant）：新 `connector.api.procedure.{ConnectorProcedureOps, ConnectorProcedureResult}`（S-1 扁平：`execute(session,table,name,props,where,partitions)→{List<ConnectorColumn> resultSchema, List<List<String>> rows}` + `getSupportedProcedures()`；复用既有 `ConnectorColumn` 中立列型，0 新结果型）+ `Connector.getProcedureOps()` default-null（`Connector.java:54`）+ `IcebergProcedureOps`（连接器 dormant 占位，镜像 `IcebergWritePlanProvider` 三元组，两方法 throw）+ `IcebergConnector.getProcedureOps()` override。验证：connector-api `ConnectorProcedureOpsDefaultsTest` 3/0 + 全模块 37/0/0；iceberg 389/0/1；checkstyle 0（api+iceberg）；import-gate exit 0；iceberg 仍不在 `SPI_READY_TYPES`；0 BE/fe-core/pom 改。`executionMode` 不进 S-1 接口（P6.4b 增量加）。
+
+**T01**：纯文档 0 产品码。新 **`research/p6.4-iceberg-procedures-recon.md`**（10 节：Trino 参照 / legacy 9-action+rewrite 清册 / rewrite 引擎问题 / `ConnectorProcedureOps` SPI 三选项 / old→new 映射 / flip 账本 / task 拆解 / 开放决策）+ **`designs/P6.4-T01-procedure-spi-design.md`**（11 节：目标 / 架构 / S-1 SPI / §4 arg 校验冲突 / rewrite_data_files P6.4b / 不变式 / 映射 / 测试 / TODO / 风险 / 签字）。recon workflow `wf_cb757c7c-708`（10 reader + 对抗 completeness critic），critic **3 处源码核实更正**已并入：①instanceof 计数 = **3 instanceof + 11 downcast**（非初稿"14 instanceof"，grep 实证）；②`rewrite_data_files` commit 半已 P6.3 统一 → `WriteOperation.REWRITE` 变体而**非 4 新 verb**（实证 `IcebergConnectorTransaction.java:114/163/219`）；③`FileScanTask` 侧信道**非** P6.2 carrier 类比（live SDK 对象 FE 侧 vs thrift POJO BE 侧）+ 消费者 `IcebergScanNode:498` 翻闸后端到端死。**文档同步**：decisions-log [D-062]（三签字）/ master plan §P6.4 task 拆解（T01–T09）+ 状态 / PROGRESS（header+phase-row+connector-row）/ connectors/iceberg.md（T02 code 落地时更新）/ deviations-log（无新 DV，设计 §10 预登记，T08 批量登记，镜像 P6.2-T11/P6.3-T08）。
 
 ---
 

@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.iceberg.dlf.DLFCatalog;
@@ -196,6 +197,16 @@ public class IcebergConnector implements Connector {
         // provider builds the TIcebergTableSink and binds the write to the executor-opened
         // IcebergConnectorTransaction. Inert pre-cutover (iceberg writes do not route here until P6.6).
         return new IcebergWritePlanProvider(properties,
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
+    }
+
+    @Override
+    public ConnectorProcedureOps getProcedureOps() {
+        // Mirrors getWritePlanProvider: a fresh provider per call over the lazily-built live catalog. The
+        // provider loadTable()s the target and runs the procedure body (P6.4-T03/T04). Inert pre-cutover —
+        // iceberg ALTER TABLE EXECUTE routes to the legacy fe-core actions until iceberg enters
+        // SPI_READY_TYPES (P6.6), so this is never reached pre-flip.
+        return new IcebergProcedureOps(properties,
                 new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
     }
 

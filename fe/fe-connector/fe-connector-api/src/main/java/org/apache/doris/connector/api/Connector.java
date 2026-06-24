@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 
@@ -48,6 +49,14 @@ public interface Connector extends Closeable {
      * or {@code null} if this connector does not support writes.
      */
     default ConnectorWritePlanProvider getWritePlanProvider() {
+        return null;
+    }
+
+    /**
+     * Returns the procedure ops for {@code ALTER TABLE EXECUTE} dispatch, or {@code null} if this
+     * connector exposes no table procedures. Procedure-side analogue of {@link #getWritePlanProvider()}.
+     */
+    default ConnectorProcedureOps getProcedureOps() {
         return null;
     }
 

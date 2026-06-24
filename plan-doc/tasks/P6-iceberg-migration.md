@@ -335,7 +335,7 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 | ID | 标题 | 依赖 | 相位 | 状态 |
 |---|---|---|---|---|
 | **P6.4-T01** | SPI 设计 + recon + 用户三签字（0 产品码）| — | — | ✅ 2026-06-24（[D-062]，recon + design doc）|
-| **P6.4-T02** | SPI 骨架：`ConnectorProcedureOps`+`ConnectorProcedureResult`（+ executionMode 增量预留）；`Connector.getProcedureOps()=null`；`IcebergConnector` 惰性 override。验 jdbc/es/mc/paimon/trino 0 影响 | T01 | a | ⬜ |
+| **P6.4-T02** | SPI 骨架：`ConnectorProcedureOps`+`ConnectorProcedureResult`（+ executionMode 增量预留）；`Connector.getProcedureOps()=null`；`IcebergConnector` 惰性 override。验 jdbc/es/mc/paimon/trino 0 影响 | T01 | a | ✅ 2026-06-24 |
 | **P6.4-T03** | port `BaseIcebergAction`+`IcebergExecuteActionFactory`（去死 `table` 参）→ `connector.iceberg.action`；接 `IcebergProcedureOps` 内部派发 + `getSupportedProcedures()`；arg 校验 4-A 连接器自包含 | T02 | a | ⬜ |
 | **P6.4-T04** | port 8 pure-SDK procedure（逐字保 TZ alias-map/`publish_changes` STRING+`"null"`/`fast_forward`(branch,to)序+无guard读/短路不对称/全 error 串）；SDK 调裹 `executeAuthenticated`；cache 失效 | T03 | a | ⬜ |
 | **P6.4-T05** | `rewrite_data_files` 规划半 → 连接器（`RewriteDataFilePlanner` core/`RewriteDataGroup`/`RewriteResult`）；WHERE 走 P6.3 nereids→`ConnectorExpression` | T04 | b | ⬜ |
@@ -345,3 +345,11 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 | **P6.4-T09** | 收口/汇总设计 + gate 核（iceberg 仍不在 `SPI_READY_TYPES`）+ HANDOFF 覆盖式 | T08 | — | ⬜ |
 
 **通用验收门（每 task）**：连接器 UT 绿（无 Mockito，fail-loud fake + InMemoryCatalog）+ checkstyle 0 + `tools/check-connector-imports.sh` 净 + 断 SDK 调用链 / result schema 列数==行 size / error 串 vs legacy + grep 确认 iceberg **不在** `SPI_READY_TYPES`。
+
+### P6.4-T02 实现记录（2026-06-24，✅ 已实现 + 验证，**未 push**）
+
+- **新建 SPI（`fe-connector-api`）**：`connector.api.procedure.ConnectorProcedureOps`（S-1 扁平：`getSupportedProcedures()` + `execute(session, table, name, props, where, partitions)`）+ `ConnectorProcedureResult`（不可变 `{List<ConnectorColumn> resultSchema, List<List<String>> rows}`，复用既有 `ConnectorColumn` 中立列型→引擎经 `ConnectorColumnConverter` 建 result-set 元数据，0 新结果型）。`Connector.java:54`（`getWritePlanProvider()` 之后）加 `default getProcedureOps() { return null; }` + import。
+- **连接器 dormant 占位（`fe-connector-iceberg`）**：`IcebergProcedureOps`（镜像 `IcebergWritePlanProvider` 字段/ctor 三元组 `Map<String,String> properties` + `IcebergCatalogOps` + `ConnectorContext`）；T02 两方法 throw `UnsupportedOperationException`（dormant，T03 港 factory / T04 港 8 体）。`IcebergConnector.getProcedureOps()` override 镜像 `getWritePlanProvider`（fresh provider over `getOrCreateCatalog()`，inert pre-cutover）。
+- **executionMode**：S-1 不进接口（P6.4b 接线时增量加 `getExecutionMode(name)` 默认 COORDINATOR_LOCAL）——保最小面。
+- **验证**：connector-api `ConnectorProcedureOpsDefaultsTest` 3/0（`getProcedureOps()` default null〔证 jdbc/es/mc/paimon/trino 继承 no-op〕+ `ConnectorProcedureResult` schema/rows round-trip + null-arg fail-loud）；connector-api 全模块 **37/0/0/0**；fe-connector-iceberg **389/0/0**（1 env-gated skip，占位+override 编译+checkstyle 验，无新 iceberg 测——throwing 占位 T04 替）；checkstyle 0（api+iceberg）；`check-connector-imports.sh` exit 0；iceberg 仍**不在** `SPI_READY_TYPES`；**0 BE / 0 fe-core / 0 pom 改**。
+- **下一步 = P6.4-T03**（port `BaseIcebergAction`+`IcebergExecuteActionFactory` → `connector.iceberg.action`；`IcebergProcedureOps` 内部派发 + `getSupportedProcedures()`；arg 校验 4-A 连接器自包含）。
