@@ -103,7 +103,6 @@ public final class S3FileSystemProperties
             "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
             "s3.access-key-id"},
             required = false,
-            sensitive = true,
             description = "The access key of S3.")
     private String accessKey = "";
 
@@ -121,6 +120,7 @@ public final class S3FileSystemProperties
     @ConnectorProperty(names = {SESSION_TOKEN, "AWS_TOKEN", "session_token",
             "s3.session-token", "iceberg.rest.session-token"},
             required = false,
+            sensitive = true,
             description = "The session token of S3.")
     private String sessionToken = "";
 
@@ -195,7 +195,8 @@ public final class S3FileSystemProperties
         return props;
     }
 
-    private void validate() {
+    @Override
+    public void validate() {
         new ParamRules()
                 .requireTogether(new String[] {accessKey, secretKey},
                         "s3.access_key and s3.secret_key must be set together")
@@ -207,6 +208,8 @@ public final class S3FileSystemProperties
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
                 .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
                         "Either s3.endpoint or s3.region must be set")
+                .check(this::hasInvalidUsePathStyle,
+                        "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
                 .validate("Invalid S3 filesystem properties");
     }
 
@@ -239,7 +242,6 @@ public final class S3FileSystemProperties
      * Returns canonical {@code AWS_*} keys consumed by {@link S3ObjStorage}.
      * This preserves compatibility with the existing map-based path.
      */
-    @Override
     public Map<String, String> toFileSystemKv() {
         Map<String, String> kv = new HashMap<>();
         putIfNotBlank(kv, "AWS_ENDPOINT", endpoint);
@@ -386,13 +388,6 @@ public final class S3FileSystemProperties
 
     @Override
     public String toString() {
-        return "S3FileSystemProperties{"
-                + "endpoint='" + endpoint + '\''
-                + ", region='" + region + '\''
-                + ", accessKey=" + (StringUtils.isNotBlank(accessKey) ? "***" : "<empty>")
-                + ", roleArn='" + roleArn + '\''
-                + ", bucket='" + bucket + '\''
-                + ", usePathStyle=" + usePathStyle
-                + '}';
+        return ConnectorPropertiesUtils.toMaskedString(this);
     }
 }

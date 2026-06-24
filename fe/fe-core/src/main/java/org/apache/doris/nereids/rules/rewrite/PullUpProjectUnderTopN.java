@@ -73,7 +73,7 @@ public class PullUpProjectUnderTopN extends OneRewriteRuleFactory {
                     if (!outputSet.containsAll(allUsedSlots)) {
                         return null;
                     }
-                    LogicalTopN<Plan> newTopN = topN.withOrderKeys(newOrderKeys);
+                    LogicalTopN<?> newTopN = topN.withOrderKeys(newOrderKeys);
                     if (outputSet.size() == allUsedSlots.size()) {
                         Preconditions.checkState(outputSet.equals(allUsedSlots));
                         return project.withChildren(newTopN.withChildren(project.child()));

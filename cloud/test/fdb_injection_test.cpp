@@ -103,6 +103,7 @@ int main(int argc, char** argv) {
     int ret = RUN_ALL_TESTS();
     if (ret != 0) {
         std::cerr << "run first round of tests failed" << std::endl;
+        meta_service.reset();
         return ret;
     }
 
@@ -169,6 +170,7 @@ int main(int argc, char** argv) {
             if (ret != 0) {
                 std::cerr << "run test failed, sync_point=" << name << ", err=" << err
                           << ", msg=" << fdb_get_error(err) << std::endl;
+                meta_service.reset();
                 return ret;
             }
         }

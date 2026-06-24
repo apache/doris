@@ -18,13 +18,14 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for AWS S3 and S3-compatible storage (MinIO, etc.).
@@ -35,7 +36,7 @@ import java.util.Map;
  * S3 is intentionally the last-resort provider; cloud-specific providers (OSS, COS, OBS)
  * should match first via their endpoint domain patterns.
  */
-public class S3FileSystemProvider implements FileSystemProvider {
+public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProperties> {
 
     private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
     private static final String STORAGE_TYPE_S3 = "S3";
@@ -78,13 +79,13 @@ public class S3FileSystemProvider implements FileSystemProvider {
     }
 
     @Override
-    public FileSystemProperties bind(Map<String, String> properties) {
+    public S3FileSystemProperties bind(Map<String, String> properties) {
         return S3FileSystemProperties.of(properties);
     }
 
     @Override
-    public FileSystem create(FileSystemProperties properties) throws IOException {
-        return new S3FileSystem((S3FileSystemProperties) properties);
+    public FileSystem create(S3FileSystemProperties properties) throws IOException {
+        return new S3FileSystem(properties);
     }
 
     @Override
@@ -95,6 +96,11 @@ public class S3FileSystemProvider implements FileSystemProvider {
     @Override
     public String name() {
         return "S3";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(S3FileSystemProperties.class);
     }
 
     private boolean hasAny(Map<String, String> properties, String[] names) {

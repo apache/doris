@@ -367,7 +367,6 @@ public class Coordinator implements CoordInterface {
         } else {
             distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
-
         setFromUserProperty(context);
 
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -443,6 +442,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setMysqlRowBinaryFormat(
                     context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
+        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
+        this.queryOptions.setEnableLocalShufflePlanner(false);
     }
 
     public ConnectContext getConnectContext() {
@@ -3089,7 +3090,7 @@ public class Coordinator implements CoordInterface {
                             Optional<ScanNode> node = scanNodes.stream().filter(
                                     scanNode -> scanNode.getId().asInt() == scanId).findFirst();
                             Preconditions.checkArgument(node.isPresent());
-                            FInstanceExecParam instanceParamToScan = node.get().isSerialOperator()
+                            FInstanceExecParam instanceParamToScan = node.get().isSerialNode()
                                     ? firstInstanceParam : instanceParam;
                             if (!instanceParamToScan.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
                                 range.put(nodeScanRange.getKey(), Lists.newArrayList());

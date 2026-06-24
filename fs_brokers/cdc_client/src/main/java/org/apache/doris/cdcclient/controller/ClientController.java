@@ -106,7 +106,8 @@ public class ClientController {
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
         LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(jobConfig);
+            Env.getCurrentEnv().keepAlive(jobConfig.getJobId());
             return RestResponse.success(reader.getEndOffset(jobConfig));
         } catch (Exception ex) {
             LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
@@ -118,7 +119,7 @@ public class ClientController {
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
     public Object compareOffset(@RequestBody CompareOffsetRequest compareOffsetRequest) {
         try {
-            SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetRequest);
+            SourceReader reader = Env.getCurrentEnv().getMetaReader(compareOffsetRequest);
             return RestResponse.success(reader.compareOffset(compareOffsetRequest));
         } catch (Exception ex) {
             LOG.error("Failed to compare offset, jobId={}", compareOffsetRequest.getJobId(), ex);
@@ -129,12 +130,25 @@ public class ClientController {
     /** Close job */
     @RequestMapping(path = "/api/close", method = RequestMethod.POST)
     public Object close(@RequestBody JobBaseConfig jobConfig) {
-        LOG.info("Closing job {}", jobConfig.getJobId());
+        String jobId = jobConfig.getJobId();
+        LOG.info("Closing job {}", jobId);
         Env env = Env.getCurrentEnv();
-        SourceReader reader = env.getReader(jobConfig);
-        reader.close(jobConfig);
-        env.close(jobConfig.getJobId());
-        pipelineCoordinator.closeJobStreamLoad(jobConfig.getJobId());
+        // Don't rebuild a reader to close it; an absent reader (owner BE gone) just needs its slot
+        // dropped.
+        SourceReader reader = env.getReaderIfPresent(jobId);
+        try {
+            if (reader != null) {
+                reader.release(jobConfig);
+            }
+            SourceReader dropper = reader != null ? reader : env.getMetaReader(jobConfig);
+            env.releaseSourceResourcesOrRetry(dropper, jobConfig);
+        } catch (Exception ex) {
+            LOG.warn("Close job {} teardown failed: {}", jobId, ex.getMessage());
+            env.scheduleSlotDrop(jobConfig);
+        } finally {
+            env.close(jobId);
+            pipelineCoordinator.closeJobStreamLoad(jobId);
+        }
         return RestResponse.success(true);
     }
 
@@ -163,6 +177,11 @@ public class ClientController {
     @RequestMapping(path = "/api/getFailReason/{taskId}", method = RequestMethod.POST)
     public Object getFailReason(@PathVariable("taskId") String taskId) {
         return RestResponse.success(pipelineCoordinator.getTaskFailReason(taskId));
+    }
+
+    @RequestMapping(path = "/api/getTaskStatus/{taskId}", method = RequestMethod.POST)
+    public Object getTaskStatus(@PathVariable("taskId") String taskId) {
+        return RestResponse.success(pipelineCoordinator.getTaskStatus(taskId));
     }
 
     @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)

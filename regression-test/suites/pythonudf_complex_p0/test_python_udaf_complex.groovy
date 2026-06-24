@@ -476,7 +476,7 @@ suite("test_python_udaf_complex") {
         );
         """
 
-        qt_json_array_agg """
+        order_qt_json_array_agg """
             SELECT category, py_json_array_agg(CAST(id AS STRING)) AS id_array
             FROM udaf_test_data
             GROUP BY category

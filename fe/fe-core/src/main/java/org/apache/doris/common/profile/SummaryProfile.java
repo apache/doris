@@ -62,6 +62,12 @@ public class SummaryProfile {
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
+    public static final String PROFILE_COMPLETION_STATE = "Profile Completion State";
+    public static final String PROFILE_COMPLETION_STATE_RUNNING = "RUNNING";
+    public static final String PROFILE_COMPLETION_STATE_COLLECTING = "COLLECTING";
+    public static final String PROFILE_COMPLETION_STATE_COMPLETE = "COMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_INCOMPLETE = "INCOMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_UNKNOWN = "UNKNOWN";
     public static final String USER = "User";
     public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
@@ -526,6 +532,10 @@ public class SummaryProfile {
 
     public RuntimeProfile getSummary() {
         return summaryProfile;
+    }
+
+    public void setProfileCompletionState(String profileCompletionState) {
+        summaryProfile.addInfoString(PROFILE_COMPLETION_STATE, profileCompletionState);
     }
 
     public RuntimeProfile getExecutionSummary() {
