@@ -16,6 +16,8 @@
 // under the License.
 suite("extend_infer_equal_predicate") {
     sql "set enable_fallback_to_original_planner=false"
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     sql 'set runtime_filter_mode=off'
     sql 'set disable_join_reorder=true'

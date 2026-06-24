@@ -159,6 +159,7 @@ import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
+import org.apache.doris.nereids.rules.rewrite.RewriteSetOperationToJoinWhenSpill;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
@@ -359,7 +360,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     bottomUp(new EliminateEmptyRelation()),
                                     // when union has empty relation child and constantExprsList is not empty,
                                     // after EliminateEmptyRelation, project can be pushed into union
-                                    topDown(new PushProjectIntoUnion())
+                                    topDown(new PushProjectIntoUnion()),
+                                    topDown(new RewriteSetOperationToJoinWhenSpill())
                             ),
                             topic("infer In-predicate from Or-predicate",
                                     topDown(new InferInPredicateFromOr())
@@ -609,7 +611,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 bottomUp(new EliminateEmptyRelation()),
                                 // when union has empty relation child and constantExprsList is not empty,
                                 // after EliminateEmptyRelation, project can be pushed into union
-                                topDown(new PushProjectIntoUnion())
+                                topDown(new PushProjectIntoUnion()),
+                                topDown(new RewriteSetOperationToJoinWhenSpill())
                         )
                 ),
                 topic("infer In-predicate from Or-predicate",

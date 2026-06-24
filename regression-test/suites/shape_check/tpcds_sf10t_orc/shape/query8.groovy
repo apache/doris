@@ -27,6 +27,8 @@ suite("query8") {
          set enable_nereids_planner=true;
          set enable_nereids_distribute_planner=false;
          set enable_fallback_to_original_planner=false;
+         set enable_spill = false;
+         set enable_force_spill = false;
          set exec_mem_limit=21G;
          set be_number_for_test=3;
          set parallel_pipeline_task_num=8;
