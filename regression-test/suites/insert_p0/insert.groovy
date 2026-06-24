@@ -161,4 +161,63 @@ suite("insert") {
         logger.info("exception: " + e.getMessage())
     }
     order_qt_select1 """ select * from source; """
+
+    sql """ DROP TABLE IF EXISTS test_insert_stream_load_bool_numeric_cast """
+    sql """
+        CREATE TABLE test_insert_stream_load_bool_numeric_cast (
+            `id` int NULL,
+            `label` varchar(32) NULL,
+            `b` boolean NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+
+    sql """
+        INSERT INTO test_insert_stream_load_bool_numeric_cast VALUES
+        (1, 'insert_zero', 0),
+        (2, 'insert_nonzero', 1235)
+    """
+
+    streamLoad {
+        table "test_insert_stream_load_bool_numeric_cast"
+        set 'format', 'json'
+        set 'strip_outer_array', 'true'
+        file 'bool_numeric_stream_load.json'
+        time 10000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Boolean numeric stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(2, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+
+    sql "sync"
+    def boolNumericCastRows = sql """
+        SELECT CONCAT(
+            CAST(id AS string),
+            ':',
+            label,
+            ':',
+            IF(b IS NULL, 'NULL', CAST(CAST(b AS int) AS string))
+        )
+        FROM test_insert_stream_load_bool_numeric_cast
+        ORDER BY id
+    """
+    assertEquals([
+        ["1:insert_zero:0"],
+        ["2:insert_nonzero:1"],
+        ["3:stream_zero:0"],
+        ["4:stream_nonzero:1"]
+    ], boolNumericCastRows)
 }
