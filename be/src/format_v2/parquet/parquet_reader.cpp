@@ -322,8 +322,13 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Cancelled("ParquetReader is closed");
     }
 
+    const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
     RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
                                                       *request_snapshot, file_block, rows, eof));
+    if (_io_ctx != nullptr) {
+        _io_ctx->predicate_filtered_rows +=
+                _state->scheduler.predicate_filtered_rows() - predicate_filtered_rows_before;
+    }
     _eof = *eof;
     return Status::OK();
 }

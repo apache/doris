@@ -80,6 +80,7 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
+    void _collect_profile_before_close() override;
 
 private:
     TFileFormatType::type _get_current_format_type() const;
@@ -104,6 +105,8 @@ private:
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
+    void _report_file_reader_predicate_filtered_rows();
+    void _report_condition_cache_profile();
 
     struct PartitionSlotInfo {
         const SlotDescriptor* slot_desc = nullptr;
@@ -138,6 +141,9 @@ private:
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
     RuntimeProfile::Counter* _file_read_time_counter = nullptr;
+    int64_t _reported_predicate_filtered_rows = 0;
+    int64_t _reported_condition_cache_hit_count = 0;
+    int64_t _reported_condition_cache_filtered_rows = 0;
 };
 
 } // namespace doris

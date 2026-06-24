@@ -140,12 +140,13 @@ std::vector<SlotDescriptor*> build_char_varchar_slots(ObjectPool* pool) {
 std::unique_ptr<TextReader> create_reader(const std::string& path, TFileScanRangeParams* params,
                                           const std::vector<SlotDescriptor*>& slots,
                                           MockRuntimeState* state, RuntimeProfile* profile,
-                                          int64_t range_start_offset = 0, int64_t range_size = -1) {
+                                          int64_t range_start_offset = 0, int64_t range_size = -1,
+                                          std::shared_ptr<io::IOContext> io_ctx = nullptr) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
     auto desc = file_description(path, range_start_offset, range_size);
-    auto reader =
-            std::make_unique<TextReader>(system_properties, desc, nullptr, profile, params, slots);
+    auto reader = std::make_unique<TextReader>(system_properties, desc, std::move(io_ctx), profile,
+                                               params, slots);
     EXPECT_TRUE(reader->init(state).ok());
     return reader;
 }
@@ -383,7 +384,8 @@ TEST_F(TextV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     output.close();
 
     _state._query_options.__set_read_csv_empty_line_as_null(true);
-    auto reader = create_reader(profile_path, &_params, _slots, &_state, &_profile);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader(profile_path, &_params, _slots, &_state, &_profile, 0, -1, io_ctx);
     std::vector<ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
 
@@ -413,6 +415,7 @@ TEST_F(TextV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(io_ctx->predicate_filtered_rows, 2);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);
     EXPECT_EQ(counter_value(&_profile, "RowsReturned"), 1);
     EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);

@@ -363,8 +363,11 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
         }
         rows_after_filter =
                 file_block->columns() == 0 ? rows_after_delete_filter : file_block->rows();
-        update_counter(_text_profile.rows_filtered_by_conjunct,
-                       rows_after_delete_filter - rows_after_filter);
+        const auto rows_filtered_by_conjunct = rows_after_delete_filter - rows_after_filter;
+        update_counter(_text_profile.rows_filtered_by_conjunct, rows_filtered_by_conjunct);
+        if (_io_ctx != nullptr) {
+            _io_ctx->predicate_filtered_rows += rows_filtered_by_conjunct;
+        }
     }
 
     *rows = rows_after_filter;

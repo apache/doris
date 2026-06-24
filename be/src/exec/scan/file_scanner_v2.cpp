@@ -618,17 +618,10 @@ Status FileScannerV2::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
-    int64_t condition_cache_hit_count = 0;
     if (_table_reader != nullptr) {
-        condition_cache_hit_count = _table_reader->condition_cache_hit_count();
         RETURN_IF_ERROR(_table_reader->close());
+        _report_condition_cache_profile();
         _table_reader.reset();
-    }
-    auto* local_state = static_cast<FileScanLocalState*>(_local_state);
-    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, condition_cache_hit_count);
-    if (_io_ctx != nullptr) {
-        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
-                       _io_ctx->condition_cache_filtered_rows);
     }
     return Scanner::close(state);
 }
@@ -648,6 +641,48 @@ void FileScannerV2::update_realtime_counters() {
     COUNTER_SET(_file_read_bytes_counter, bytes_read);
     COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
     COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+}
+
+void FileScannerV2::_collect_profile_before_close() {
+    _report_file_reader_predicate_filtered_rows();
+    Scanner::_collect_profile_before_close();
+    if (_file_reader_stats != nullptr) {
+        COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
+        COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
+        COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+    }
+    // Query profiles can be collected before Scanner::close() runs. Publish condition-cache
+    // counters here as well, using deltas so this method and close() cannot double count.
+    _report_condition_cache_profile();
+}
+
+void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
+    const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
+    const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
+    if (filtered_delta > 0) {
+        // File readers can evaluate localized conjuncts before a block reaches Scanner. Count
+        // those rows as scanner-level unselected rows so load statistics stay identical no matter
+        // whether a predicate is pushed down or evaluated by Scanner::_filter_output_block().
+        _counter.num_rows_unselected += filtered_delta;
+        _reported_predicate_filtered_rows = filtered_rows;
+    }
+}
+
+void FileScannerV2::_report_condition_cache_profile() {
+    auto* local_state = static_cast<FileScanLocalState*>(_local_state);
+    const int64_t hit_count =
+            _table_reader != nullptr ? _table_reader->condition_cache_hit_count() : 0;
+    const int64_t hit_delta = hit_count - _reported_condition_cache_hit_count;
+    if (hit_delta > 0) {
+        COUNTER_UPDATE(local_state->_condition_cache_hit_counter, hit_delta);
+        _reported_condition_cache_hit_count = hit_count;
+    }
+    const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->condition_cache_filtered_rows : 0;
+    const int64_t filtered_delta = filtered_rows - _reported_condition_cache_filtered_rows;
+    if (filtered_delta > 0) {
+        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter, filtered_delta);
+        _reported_condition_cache_filtered_rows = filtered_rows;
+    }
 }
 
 } // namespace doris

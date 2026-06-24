@@ -258,7 +258,11 @@ Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* 
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }
-        if (_is_null_format(value)) {
+        // CSV keeps empty-field handling separate from null_format matching. An empty
+        // null_format must not turn every empty CSV field into NULL unless FE explicitly sets
+        // empty_field_as_null; OpenCSV-compatible tables expect empty fields to stay empty strings.
+        if (_options.null_len > 0 && value.size == _options.null_len &&
+            std::memcmp(value.data, _options.null_format, value.size) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }

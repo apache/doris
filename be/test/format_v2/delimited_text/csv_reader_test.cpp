@@ -150,12 +150,13 @@ std::unique_ptr<CsvReader> create_reader(
         const std::string& path, TFileScanRangeParams* params,
         const std::vector<SlotDescriptor*>& slots, MockRuntimeState* state, RuntimeProfile* profile,
         int64_t range_start_offset = 0, int64_t range_size = -1,
-        TFileCompressType::type range_compress_type = TFileCompressType::UNKNOWN) {
+        TFileCompressType::type range_compress_type = TFileCompressType::UNKNOWN,
+        std::shared_ptr<io::IOContext> io_ctx = nullptr) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
     auto desc = file_description(path, range_start_offset, range_size);
-    auto reader = std::make_unique<CsvReader>(system_properties, desc, nullptr, profile, params,
-                                              slots, range_compress_type);
+    auto reader = std::make_unique<CsvReader>(system_properties, desc, std::move(io_ctx), profile,
+                                              params, slots, range_compress_type);
     EXPECT_TRUE(reader->init(state).ok());
     return reader;
 }
@@ -409,7 +410,9 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     output.close();
 
     _state._query_options.__set_read_csv_empty_line_as_null(true);
-    auto reader = create_reader(profile_path, &_params, _slots, &_state, &_profile);
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader(profile_path, &_params, _slots, &_state, &_profile, 0, -1,
+                                TFileCompressType::UNKNOWN, io_ctx);
     std::vector<ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
 
@@ -439,6 +442,7 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
+    EXPECT_EQ(io_ctx->predicate_filtered_rows, 2);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);
     EXPECT_EQ(counter_value(&_profile, "RowsReturned"), 1);
     EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);
@@ -944,10 +948,10 @@ TEST_F(CsvV2ReaderTest, NullFormatAndEmptyFieldAsNullProduceNullableValues) {
     EXPECT_TRUE(is_null_at(*block.get_by_position(1).column, 0));
 }
 
-// Scenario: explicit empty null_format means an empty field is NULL even when
-// empty_field_as_null is false. This keeps the nullable string fast path aligned with the generic
-// nullable serde wrapper used by non-string columns.
-TEST_F(CsvV2ReaderTest, EmptyNullFormatProducesNullableValue) {
+// Scenario: OpenCSV keeps an empty field as an empty string when empty_field_as_null is false,
+// even if FE passes an empty null_format. This differs from Hive text serde, where an empty
+// serialization.null.format is a real NULL marker.
+TEST_F(CsvV2ReaderTest, EmptyNullFormatKeepsCsvEmptyFieldAsEmptyString) {
     const auto null_path = (_test_dir / "empty_null_format.csv").string();
     std::ofstream output(null_path, std::ios::binary);
     output << "id,name,score\n";
@@ -973,7 +977,8 @@ TEST_F(CsvV2ReaderTest, EmptyNullFormatProducesNullableValue) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     ASSERT_EQ(rows, 3);
     EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 0));
-    EXPECT_TRUE(is_null_at(*block.get_by_position(0).column, 1));
+    EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 1));
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 1), "");
     EXPECT_FALSE(is_null_at(*block.get_by_position(0).column, 2));
     EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 2), "NULL");
 }

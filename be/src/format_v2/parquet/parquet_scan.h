@@ -112,7 +112,7 @@ IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t s
 // 对 predicate 列的全量 batch 执行表达式，生成 SelectionVector 标记命中行。
 Status execute_batch_filters(const format::FileScanRequest& request, int64_t batch_rows,
                              Block* file_block, SelectionVector* selection,
-                             uint16_t* selected_rows);
+                             uint16_t* selected_rows, int64_t* conjunct_filtered_rows = nullptr);
 
 // ============================================================================
 // Parquet 扫描调度器
@@ -154,6 +154,7 @@ public:
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
     int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
+    int64_t predicate_filtered_rows() const { return _predicate_filtered_rows; }
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -174,7 +175,7 @@ private:
     // 读取 predicate 列并执行 conjuncts + delete_conjuncts，生成 SelectionVector。
     Status read_filter_columns(int64_t batch_rows, const format::FileScanRequest& request,
                                Block* file_block, SelectionVector* selection,
-                               uint16_t* selected_rows);
+                               uint16_t* selected_rows, int64_t* conjunct_filtered_rows);
 
     // 单 batch 的完整读取：predicate 列 → filter → non-predicate 列（select 模式）。
     Status read_current_row_group_batch(int64_t batch_rows, const format::FileScanRequest& request,
@@ -210,6 +211,7 @@ private:
     bool _enable_strict_mode = false;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
+    int64_t _predicate_filtered_rows = 0;
 };
 
 } // namespace doris::format::parquet
