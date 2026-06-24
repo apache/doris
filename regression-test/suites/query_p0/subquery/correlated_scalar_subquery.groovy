@@ -372,4 +372,40 @@ suite("correlated_scalar_subquery") {
     qt_select_agg_project2 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 = (select if(sum(c1) is null, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_2_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) - min(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_3_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(sum(c1) is null, count(c1), max(c2)) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
+
+    // EXISTS over a top-level scalar aggregate wraps a set operation:
+    // hasTopLevelScalarAgg() in SubExprAnalyzer folds EXISTS to TRUE and
+    // NOT EXISTS to FALSE before checkNoCorrelatedSlotsUnderSetOp() runs,
+    // because a scalar aggregate (no GROUP BY) always returns one row.
+    qt_exists_over_scalar_agg_union """
+        SELECT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u
+        ) AS result
+    """
+    qt_not_exists_over_scalar_agg_union """
+        SELECT NOT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u
+        ) AS result
+    """
+    // Correlated EXISTS over scalar agg + UNION: the outer query references
+    // are inside the UNION branches, but the aggregate still guarantees one
+    // row.  This shape must not throw "Unsupported correlated subquery with
+    // set operation" — the scalar aggregate fold happens first.
+    qt_exists_correlated_scalar_agg_union """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+            ) u
+        ) ORDER BY c1
+    """
 }

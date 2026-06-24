@@ -98,6 +98,15 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
+        // EXISTS over a top-level scalar aggregate (no GROUP BY) always returns
+        // exactly one row.  Fold to TRUE / FALSE immediately; this also avoids
+        // rejecting a valid query that happens to contain a set-operation
+        // underneath the aggregate, e.g.
+        //   WHERE EXISTS (SELECT COUNT(*) FROM (... UNION ALL ...) u)
+        // because SubqueryToApply would have constant-folded it anyway.
+        if (hasTopLevelScalarAgg(analyzedResult)) {
+            return BooleanLiteral.of(!exists.isNot());
+        }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
@@ -239,6 +248,24 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause "
                     + analyzedResult.getLogicalPlan());
         }
+    }
+
+    /**
+     * Check whether the analyzed subquery plan has a top-level scalar aggregate
+     * (aggregate without GROUP BY).  Such an aggregate is guaranteed to return
+     * exactly one row regardless of its input, so EXISTS over it is always TRUE
+     * and NOT EXISTS is always FALSE.
+     */
+    private boolean hasTopLevelScalarAgg(AnalyzedResult analyzedResult) {
+        LogicalPlan plan = analyzedResult.getLogicalPlan();
+        // Strip leading projects — analysis may wrap the aggregate in a project.
+        while (plan instanceof LogicalProject) {
+            plan = (LogicalPlan) plan.child(0);
+        }
+        if (plan instanceof LogicalAggregate) {
+            return ((LogicalAggregate<?>) plan).getGroupByExpressions().isEmpty();
+        }
+        return false;
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
