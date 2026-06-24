@@ -179,7 +179,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
                     if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
-                        needPushDownSelfExprs.add(arg);
+                        if (arg instanceof OrderExpression) {
+                            needPushDownSelfExprs.add(arg.child(0));
+                        } else {
+                            needPushDownSelfExprs.add(arg);
+                        }
                     } else {
                         needPushDownInputs.add(arg);
                     }
