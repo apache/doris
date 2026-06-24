@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
@@ -162,6 +163,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable()) {
+            // System (metadata) table: load the base table and build the iceberg metadata-table, then
+            // parse ITS schema (e.g. t$snapshots -> committed_at/snapshot_id/...). Mirrors legacy
+            // IcebergSysExternalTable.getSysIcebergTable + getOrCreateSchemaCacheValue; the enable.mapping.*
+            // flags are threaded by the shared buildTableSchema -> parseSchema (deviation 5).
+            Table sysTable = loadSysTable(iceHandle);
+            return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema());
+        }
         // Mirror legacy IcebergMetadataOps.loadTable: wrap the remote load in the auth context. The schema
         // + table-property assembly is pure (operates on the already-loaded Table).
         Table table = loadTable(iceHandle);
@@ -178,10 +187,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public ConnectorTableSchema getTableSchema(
             ConnectorSession session, ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable()) {
+            // A metadata table has a FIXED schema, independent of snapshot/schema-version (t$snapshots
+            // always exposes committed_at/snapshot_id/...; legacy has no schema-at-snapshot for sys
+            // tables). The time-travel pin (deviation 1) selects which rows the SCAN reads (T05), not the
+            // schema, so delegate to the latest path, which builds the metadata-table schema.
+            return getTableSchema(session, handle);
+        }
         if (snapshot == null || snapshot.getSchemaId() < 0) {
             return getTableSchema(session, handle);
         }
-        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Table table = loadTable(iceHandle);
         Schema schema;
         if (table.currentSnapshot() == null) {
@@ -230,6 +246,28 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Loads the iceberg metadata (system) table for {@code handle} through the seam, wrapped in the
+     * FE-injected auth context (Kerberos UGI). Mirrors legacy
+     * {@code IcebergSysExternalTable.getSysIcebergTable}: load the base table by its BASE coordinates,
+     * then build the metadata table via {@code MetadataTableUtils.createMetadataTableInstance}. Both the
+     * base load and the (in-memory) metadata-table build run inside ONE {@code executeAuthenticated} so
+     * the auth scope covers the remote base load. {@code handle.getSysTableName()} is the lower-cased name
+     * already validated by {@code getSysTableHandle}, so {@code MetadataTableType.from} (case-insensitive)
+     * never returns null.
+     */
+    private Table loadSysTable(IcebergTableHandle handle) {
+        try {
+            return context.executeAuthenticated(() -> {
+                Table base = catalogOps.loadTable(handle.getDbName(), handle.getTableName());
+                return MetadataTableUtils.createMetadataTableInstance(
+                        base, MetadataTableType.from(handle.getSysTableName()));
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+        }
+    }
+
+    /**
      * Column handles keyed by (lowercased) column name, mirroring {@code PaimonConnectorMetadata}. The generic
      * {@code PluginDrivenScanNode.buildColumnHandles} looks each query slot up here by name, so the provider
      * receives the PRUNED set of requested columns — which the T06 field-id schema dictionary keys its
@@ -242,8 +280,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     public Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        // Mirror getTableSchema: wrap the remote load in the auth context.
-        Table table = loadTable(iceHandle);
+        // Mirror getTableSchema: wrap the remote load in the auth context. A sys handle resolves the
+        // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
+        // its pruned sys-table slots by name; a data handle resolves the base table's columns.
+        Table table = iceHandle.isSystemTable() ? loadSysTable(iceHandle) : loadTable(iceHandle);
         List<Types.NestedField> fields = table.schema().columns();
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(fields.size());
         for (Types.NestedField field : fields) {

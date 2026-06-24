@@ -17,23 +17,38 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 
 import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
- * Tests for the iceberg E7 system-table capability (P6.5-T03): {@code listSupportedSysTables} and
- * {@code getSysTableHandle}. The sys-aware schema reload path ({@code getTableSchema(sysHandle)}) and
- * the scan-plane sys split path land in later tasks (T04/T05); the sys-handle identity / serialization
- * invariants are pinned by {@link IcebergTableHandleTest} (T02).
+ * Tests for the iceberg E7 system-table capability (P6.5-T03/T04): {@code listSupportedSysTables} and
+ * {@code getSysTableHandle} (T03), plus the sys-aware schema/columns reload path
+ * ({@code getTableSchema}/{@code getColumnHandles} for a sys handle, T04). The scan-plane sys split path
+ * lands in T05; the sys-handle identity / serialization invariants are pinned by
+ * {@link IcebergTableHandleTest} (T02).
  *
  * <p>Like the other metadata tests these drive a {@link RecordingIcebergCatalogOps} fake with a
  * {@code null} real catalog, so they stay entirely offline (no live remote iceberg).
@@ -266,5 +281,218 @@ public class IcebergConnectorMetadataSysTableTest {
                 "getSysTableHandle must not touch the catalog seam (lazy resolution)");
         Assertions.assertEquals(0, ctx.authCount,
                 "getSysTableHandle must not open an auth scope (no remote read at resolution)");
+    }
+
+    // ---------------------------------------------------------------------
+    // getTableSchema / getColumnHandles for a sys handle (T04)
+    // ---------------------------------------------------------------------
+    //
+    // These exercise the sys-aware schema/columns reload: the metadata-table is built lazily from the
+    // BASE table via MetadataTableUtils.createMetadataTableInstance. createMetadataTableInstance needs a
+    // real org.apache.iceberg.Table (HasTableOperations) — a FakeIcebergTable is NOT one — so the base is
+    // a real InMemoryCatalog table wired through the recording seam (ops.table). The base columns
+    // (id, name) are deliberately DIFFERENT from every metadata-table's columns so reading the wrong
+    // schema is detectable.
+
+    /** Base data-table schema: deliberately disjoint from every metadata-table's columns. */
+    private static final Schema BASE_SCHEMA = new Schema(
+            Types.NestedField.required(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "name", Types.StringType.get()));
+
+    /** A real iceberg {@link Table} (a {@code BaseTable} with working {@code operations()}/{@code io()}). */
+    private static Table inMemoryBaseTable() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        return catalog.createTable(
+                TableIdentifier.of("db1", "t1"), BASE_SCHEMA, PartitionSpec.unpartitioned());
+    }
+
+    private static List<String> columnNames(ConnectorTableSchema schema) {
+        List<String> names = new ArrayList<>();
+        for (ConnectorColumn c : schema.getColumns()) {
+            names.add(c.getName());
+        }
+        return names;
+    }
+
+    @Test
+    public void getTableSchemaForSysHandleBuildsColumnsFromMetadataTable() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = inMemoryBaseTable();
+        IcebergConnectorMetadata md = metadataWith(ops);
+
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+        List<String> names = columnNames(md.getTableSchema(null, sysHandle));
+
+        // WHY: a sys handle's schema MUST come from the iceberg METADATA table (t$snapshots ->
+        // committed_at/snapshot_id/...), not the base table — mirroring legacy
+        // IcebergSysExternalTable.getOrCreateSchemaCacheValue (parseSchema of the sys table's schema).
+        // Surfacing the base columns for a sys-table query would be a silent correctness bug. MUTATION:
+        // dropping the isSystemTable() branch in getTableSchema -> base columns [id, name] -> red.
+        Assertions.assertTrue(names.containsAll(Arrays.asList(
+                        "committed_at", "snapshot_id", "parent_id", "operation", "manifest_list", "summary")),
+                "sys schema must expose the snapshots metadata-table columns, got " + names);
+        Assertions.assertFalse(names.contains("id"), "must NOT surface the base table's columns");
+        Assertions.assertFalse(names.contains("name"), "must NOT surface the base table's columns");
+    }
+
+    @Test
+    public void getTableSchemaForSysHandleUsesSysNameTypeNotHardcoded() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = inMemoryBaseTable();
+        IcebergConnectorMetadata md = metadataWith(ops);
+
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "history").get();
+        List<String> names = columnNames(md.getTableSchema(null, sysHandle));
+
+        // WHY: the metadata-table TYPE must come from the handle's sys name via
+        // MetadataTableType.from(getSysTableName()), NOT a hardcoded SNAPSHOTS. The history table
+        // exposes made_current_at/is_current_ancestor (which the snapshots table does not), and does NOT
+        // expose the snapshots-only committed_at/manifest_list. MUTATION: hardcoding
+        // MetadataTableType.SNAPSHOTS -> snapshots columns (committed_at present, is_current_ancestor
+        // absent) -> red.
+        Assertions.assertTrue(names.containsAll(Arrays.asList(
+                        "made_current_at", "snapshot_id", "parent_id", "is_current_ancestor")),
+                "sys schema must expose the history metadata-table columns, got " + names);
+        Assertions.assertFalse(names.contains("committed_at"),
+                "history must not carry the snapshots-only columns (the sys type must thread through)");
+        Assertions.assertFalse(names.contains("manifest_list"),
+                "history must not carry the snapshots-only columns (the sys type must thread through)");
+    }
+
+    @Test
+    public void getTableSchemaForSysHandleThreadsMappingFlags() {
+        // committed_at is a TIMESTAMP-with-zone column of the snapshots metadata table, so its mapped
+        // Doris type depends on enable.mapping.timestamp_tz -- a clean probe that the connector's
+        // properties flags thread into the SYS-table schema parse (deviation 5).
+        IcebergConnectorMetadata mdDefault = metadataWith(seamWith(inMemoryBaseTable()));
+
+        Map<String, String> tzProps = new HashMap<>();
+        tzProps.put(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+        RecordingIcebergCatalogOps opsTz = seamWith(inMemoryBaseTable());
+        IcebergConnectorMetadata mdTz =
+                new IcebergConnectorMetadata(opsTz, tzProps, new RecordingConnectorContext());
+
+        ConnectorColumn committedDefault = committedAtColumn(mdDefault);
+        ConnectorColumn committedTz = committedAtColumn(mdTz);
+
+        // WHY: deviation 5 -- the sys branch must reuse parseSchema so the per-catalog enable.mapping.*
+        // flags (read from the connector properties) reach the metadata-table schema. With the flag ON,
+        // committed_at maps to TIMESTAMPTZ; OFF (default) it does not. A sys branch that parsed the schema
+        // WITHOUT threading the flags would yield identical types. MUTATION: building the sys schema from
+        // a flag-less parse -> equal types -> red.
+        Assertions.assertNotEquals(committedDefault.getType(), committedTz.getType(),
+                "enable.mapping.timestamp_tz must change the sys-table committed_at mapping");
+        Assertions.assertEquals("TIMESTAMPTZ", committedTz.getType().getTypeName(),
+                "with the flag on, the sys-table committed_at must map to TIMESTAMPTZ");
+    }
+
+    private static ConnectorColumn committedAtColumn(IcebergConnectorMetadata md) {
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+        for (ConnectorColumn c : md.getTableSchema(null, sysHandle).getColumns()) {
+            if (c.getName().equals("committed_at")) {
+                return c;
+            }
+        }
+        throw new AssertionError("the snapshots metadata table must expose a committed_at column");
+    }
+
+    private static RecordingIcebergCatalogOps seamWith(Table base) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = base;
+        return ops;
+    }
+
+    @Test
+    public void getTableSchemaForSysHandleLoadsBaseInsideAuthScope() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorMetadata md = metadataWith(ops, ctx);
+
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+        md.getTableSchema(null, sysHandle);
+
+        // WHY: the metadata-table is built from the BASE table loaded via the seam with the BASE
+        // coordinates (db1.t1, NOT a "$snapshots"-suffixed name), wrapped in exactly ONE auth scope (the
+        // Kerberos UGI must cover the remote base load; mirrors legacy
+        // IcebergSysExternalTable.getSysIcebergTable and the data-table getTableSchema). MUTATION:
+        // loading by getTableName()+"$"+sys -> lastLoadTable "t1$snapshots" -> red; double-wrapping the
+        // auth scope -> authCount 2 -> red.
+        Assertions.assertEquals("db1", ops.lastLoadDb, "the base table must be loaded by the base db");
+        Assertions.assertEquals("t1", ops.lastLoadTable,
+                "the base table must be loaded by the BARE base name (not a $sys suffix)");
+        Assertions.assertEquals(1, ctx.authCount, "exactly one auth scope must wrap the sys schema load");
+    }
+
+    @Test
+    public void getTableSchemaForSysHandleRunsInsideAuthenticator() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true; // executeAuthenticated throws WITHOUT running the wrapped task
+        IcebergConnectorMetadata md = metadataWith(ops, ctx);
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+
+        // WHY: the remote base load (and the metadata-table build) sit INSIDE
+        // context.executeAuthenticated -- when auth fails, the wrapped task must not run, so the catalog
+        // seam is never touched. This proves the load is auth-scoped (Kerberos UGI parity), not a bare
+        // unauthenticated catalogOps.loadTable. MUTATION: calling catalogOps.loadTable OUTSIDE
+        // executeAuthenticated -> ops.log records "loadTable:db1.t1" despite failAuth -> red.
+        Assertions.assertThrows(RuntimeException.class,
+                () -> md.getTableSchema(null, sysHandle),
+                "an auth failure must surface as a RuntimeException");
+        Assertions.assertTrue(ops.log.isEmpty(),
+                "the catalog seam must not be touched when the auth scope fails (load is inside auth)");
+    }
+
+    @Test
+    public void getTableSchemaAtSnapshotForSysHandleUsesMetadataTableSchema() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        IcebergConnectorMetadata md = metadataWith(ops);
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+
+        // A pinned snapshot carrying a NON-negative schema id -- the case the data-table @snapshot path
+        // would route to table.schemas().get(schemaId). An iceberg sys handle legally carries a
+        // time-travel pin (deviation 1), so this overload IS reachable for a sys handle.
+        ConnectorMvccSnapshot pinned =
+                ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(0L).build();
+        List<String> names = columnNames(md.getTableSchema(null, sysHandle, pinned));
+
+        // WHY: an iceberg metadata table has a FIXED schema, independent of snapshot/schema-version
+        // (t$snapshots always exposes committed_at/snapshot_id/...; legacy has no schema-at-snapshot for
+        // sys tables). The @snapshot overload must therefore still build the metadata-table schema, NOT
+        // read base.schemas().get(schemaId) (which would surface the base columns). MUTATION: dropping the
+        // isSystemTable() short-circuit in the @snapshot overload -> base schema [id, name] -> red.
+        Assertions.assertTrue(names.containsAll(Arrays.asList(
+                        "committed_at", "snapshot_id", "manifest_list")),
+                "the @snapshot sys schema must still be the metadata-table schema, got " + names);
+        Assertions.assertFalse(names.contains("id"), "must not fall back to the base table schema");
+    }
+
+    @Test
+    public void getColumnHandlesForSysHandleBuildsFromMetadataTable() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        IcebergConnectorMetadata md = metadataWith(ops);
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+
+        Map<String, ConnectorColumnHandle> handles = md.getColumnHandles(null, sysHandle);
+
+        // WHY: the generic PluginDrivenScanNode.buildColumnHandles looks up each query slot in this map by
+        // name, so a sys handle MUST expose the METADATA-table columns (t$snapshots), not the base table's
+        // -- otherwise a sys-table scan could not resolve its slots (or would resolve the wrong field).
+        // Pairs with the getTableSchema sys branch (same loadSysTable helper). MUTATION: dropping the
+        // isSystemTable() branch in getColumnHandles -> base keys [id, name] -> red.
+        Assertions.assertTrue(handles.keySet().containsAll(Arrays.asList(
+                        "committed_at", "snapshot_id", "operation", "manifest_list")),
+                "sys column handles must be keyed by the metadata-table column names, got " + handles.keySet());
+        Assertions.assertFalse(handles.containsKey("id"), "must not expose the base table's columns");
+        Assertions.assertFalse(handles.containsKey("name"), "must not expose the base table's columns");
     }
 }
