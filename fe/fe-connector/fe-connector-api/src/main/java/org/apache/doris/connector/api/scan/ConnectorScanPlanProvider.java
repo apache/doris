@@ -73,6 +73,22 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether this connector's SYSTEM tables honor a pinned read — {@code FOR TIME/VERSION AS OF}
+     * (snapshot) and {@code @branch}/{@code @tag} scan-params. Consulted by the generic
+     * {@code PluginDrivenScanNode} sys-table guard: a connector returning {@code true} (e.g. iceberg,
+     * whose metadata tables legally time-travel) lets those pinned sys reads through to {@link #planScan};
+     * a connector returning {@code false} (the default — e.g. paimon, whose binlog/audit_log sys tables
+     * have no point-in-time semantics) keeps the fail-loud rejection. {@code @incr} (incremental read) is
+     * rejected for EVERY connector regardless of this flag — it is undefined on a synthetic metadata table.
+     *
+     * @return {@code true} if this connector's system tables honor a time-travel / branch-tag pin
+     *         (default: {@code false})
+     */
+    default boolean supportsSystemTableTimeTravel() {
+        return false;
+    }
+
+    /**
      * Plans the scan for the given table, returning a list of scan ranges.
      *
      * @param session the current session

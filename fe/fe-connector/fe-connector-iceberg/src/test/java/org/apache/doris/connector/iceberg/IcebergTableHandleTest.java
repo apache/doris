@@ -210,4 +210,40 @@ public class IcebergTableHandleTest {
         Assertions.assertTrue(sys.toString().contains("snapshots"),
                 "toString must surface the sys-table name, was: " + sys);
     }
+
+    @Test
+    public void coordinatesArePartOfIdentity() {
+        // WHY (T07 gap-fill): the handle is a plan-cache map key, so the BASE coordinates (dbName /
+        // tableName) MUST participate in equals/hashCode — otherwise db1.t1$snapshots would collide with
+        // db1.t2$snapshots (or db1.t1 with db2.t1), serving one table's plan for another. Every other
+        // identity test fixes coords to db1/t1, so a mutation dropping dbName or tableName from
+        // equals/hashCode would pass green. MUTATION: equals/hashCode omitting dbName -> the db2 asserts
+        // below fail; omitting tableName -> the t2 asserts fail.
+        Assertions.assertNotEquals(
+                IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                IcebergTableHandle.forSystemTable("db1", "t2", "snapshots", -1L, null, -1L),
+                "a sys handle on a different base table must not be equal");
+        Assertions.assertNotEquals(
+                IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                IcebergTableHandle.forSystemTable("db2", "t1", "snapshots", -1L, null, -1L),
+                "a sys handle in a different base db must not be equal");
+        Assertions.assertNotEquals(new IcebergTableHandle("db1", "t1"), new IcebergTableHandle("db2", "t1"),
+                "a bare handle in a different db must not be equal");
+        Assertions.assertNotEquals(new IcebergTableHandle("db1", "t1"), new IcebergTableHandle("db1", "t2"),
+                "a bare handle on a different table must not be equal");
+    }
+
+    @Test
+    public void toStringOfPinnedSysHandleRendersSeparatorAndPin() {
+        IcebergTableHandle sys = IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", 42L, null, 3L);
+        // WHY (T07 gap-fill): the only existing toString test uses an UN-pinned sys handle and a
+        // substring("snapshots") assertion, so neither the '$' separator nor the hasSnapshotPin() render
+        // branch is exercised. A pinned sys handle (time-travel) must render BOTH `t1$snapshots` and the
+        // pin, so a plan dump distinguishes `t1$snapshots FOR VERSION AS OF 42` from a latest read.
+        // MUTATION: dropping the '$' separator -> no "t1$snapshots" -> red; dropping the pin branch on a
+        // sys handle -> no "snapshotId=42" -> red.
+        String s = sys.toString();
+        Assertions.assertTrue(s.contains("t1$snapshots"), "must render the '$'-joined sys name, was: " + s);
+        Assertions.assertTrue(s.contains("snapshotId=42"), "must render the snapshot pin, was: " + s);
+    }
 }

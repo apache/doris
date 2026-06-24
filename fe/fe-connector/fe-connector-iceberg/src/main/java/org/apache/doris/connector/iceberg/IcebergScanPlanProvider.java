@@ -184,6 +184,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
+    /**
+     * Iceberg metadata tables legally time-travel ({@code t$snapshots FOR TIME/VERSION AS OF ...},
+     * {@code t$files@branch('b')}): legacy {@code IcebergScanNode.createTableScan} honors the pin via
+     * {@code useRef}/{@code useSnapshot} with no isSystemTable gate, and this provider retains
+     * ({@code getSysTableHandle}) + applies ({@code planSystemTableScan} -> {@code buildScan}) it. So the
+     * generic {@code PluginDrivenScanNode} sys-table guard must let pinned iceberg sys reads through
+     * (unlike paimon, whose binlog/audit_log sys tables keep the default {@code false} rejection).
+     */
+    @Override
+    public boolean supportsSystemTableTimeTravel() {
+        return true;
+    }
+
     @Override
     public List<ConnectorScanRange> planScan(
             ConnectorSession session,

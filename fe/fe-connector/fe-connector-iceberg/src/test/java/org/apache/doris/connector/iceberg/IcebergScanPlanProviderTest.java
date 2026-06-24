@@ -178,6 +178,19 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void supportsSystemTableTimeTravelIsTrue() {
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), new RecordingIcebergCatalogOps());
+        // WHY: iceberg metadata tables legally time-travel (t$snapshots FOR TIME AS OF ..., t$files@branch).
+        // legacy IcebergScanNode.createTableScan honors useRef/useSnapshot for sys tables with no
+        // isSystemTable gate, and this provider retains+honors the pin. So the generic
+        // PluginDrivenScanNode sys-table guard must let pinned iceberg sys reads through — unlike paimon,
+        // whose binlog/audit_log sys tables keep the SPI default false. MUTATION: drop the override
+        // (inherit default false) -> the fe-core guard would reject t$snapshots FOR TIME AS OF -> red.
+        Assertions.assertTrue(provider.supportsSystemTableTimeTravel());
+    }
+
+    @Test
     public void planScanResolvesTableViaSeamAndEmptyTableReturnsNoSplits() {
         // An empty table (no snapshot) plans no files -> no ranges; proves the (db, table) coordinates were
         // threaded through the seam to loadTable, and the real scan path tolerates an empty table.
@@ -497,6 +510,39 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertFalse(props.containsKey("iceberg.schema_evolution"),
                 "a pinned sys handle must also skip the schema-evolution dict (a base-schema dict is wrong "
                         + "for a metadata scan)");
+        Assertions.assertEquals("jni", props.get("file_format_type"));
+    }
+
+    @Test
+    public void getScanNodePropertiesForSysHandleStillEmitsLocationCreds() {
+        // T07 gap-fill: both existing sys getScanNodeProperties tests run context==null, so the location.*
+        // credential blocks (which sit OUTSIDE the two if(!systemTable) skips, D-065) never execute -> cred
+        // SURVIVAL for a sys handle is never positively asserted. BE still needs creds to read the metadata
+        // files (legacy IcebergScanNode.getLocationProperties has no isSystemTable branch). MUTATION: folding
+        // the location.* blocks inside if(!systemTable) (a plausible "tidy-up") strips creds from sys
+        // metadata scans -> BE 403 -> every existing test stays green, this one -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        Map<String, String> beStatic = new HashMap<>();
+        beStatic.put("AWS_ACCESS_KEY", "ak");
+        beStatic.put("AWS_SECRET_KEY", "sk");
+        context.storageProperties = Collections.singletonList(fakeBackendStorage(beStatic));
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+        // Requested columns are metadata columns absent from the base schema (the dict-throw trap).
+        List<ConnectorColumnHandle> metaColumns = Arrays.asList(
+                new IcebergColumnHandle("committed_at", 1),
+                new IcebergColumnHandle("snapshot_id", 2));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                metaColumns, Optional.empty());
+
+        Assertions.assertEquals("ak", props.get("location.AWS_ACCESS_KEY"),
+                "a sys handle must still emit location.* creds (BE reads the metadata files; legacy parity)");
+        Assertions.assertEquals("sk", props.get("location.AWS_SECRET_KEY"));
+        Assertions.assertFalse(props.containsKey("iceberg.schema_evolution"), "sys still skips the dict");
+        Assertions.assertFalse(props.containsKey("path_partition_keys"), "sys still skips path_partition_keys");
         Assertions.assertEquals("jni", props.get("file_format_type"));
     }
 

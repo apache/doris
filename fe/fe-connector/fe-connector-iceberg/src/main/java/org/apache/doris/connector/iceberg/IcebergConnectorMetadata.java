@@ -307,8 +307,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * exactly as legacy {@code IcebergExternalTable.toThrift} / {@code IcebergSysExternalTable.toThrift}:
      * an {@code hms}-backed catalog sends {@code TTableType.HIVE_TABLE} carrying a {@link THiveTable}, every
      * other flavor sends {@code TTableType.ICEBERG_TABLE} carrying a {@link TIcebergTable}. The {@code hms}
-     * predicate mirrors legacy {@code getIcebergCatalogType().equals("hms")} (null-safe: an absent
-     * {@code iceberg.catalog.type} -&gt; the ICEBERG_TABLE branch).
+     * predicate is CASE-INSENSITIVE to match legacy: legacy compares the FIXED constant
+     * {@code getIcebergCatalogType()} (= {@code "hms"}) while the raw user value is lower-cased for factory
+     * dispatch, so {@code iceberg.catalog.type="HMS"}/{@code "Hms"} still bound a HiveCatalog and emitted
+     * {@code HIVE_TABLE}; matching that here keeps descriptor parity (P6.5-T07). Null-safe: an absent
+     * {@code iceberg.catalog.type} -&gt; the ICEBERG_TABLE branch.
      *
      * <p>Without this override the SPI default returns {@code null}, so fe-core
      * ({@code PluginDrivenExternalTable.toThrift}) falls back to {@code TTableType.SCHEMA_TABLE} and BE's
@@ -323,7 +326,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session,
             long tableId, String tableName, String dbName,
             String remoteName, int numCols, long catalogId) {
-        if (IcebergConnectorProperties.TYPE_HMS.equals(
+        if (IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(
                 properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE))) {
             THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
             TTableDescriptor desc = new TTableDescriptor(

@@ -495,4 +495,80 @@ public class IcebergConnectorMetadataSysTableTest {
         Assertions.assertFalse(handles.containsKey("id"), "must not expose the base table's columns");
         Assertions.assertFalse(handles.containsKey("name"), "must not expose the base table's columns");
     }
+
+    // ---------------------------------------------------------------------
+    // P6.5-T07 gap-fill
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void getColumnHandlesForSysHandleLoadsBaseInsideAuthScope() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorMetadata md = metadataWith(ops, ctx);
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+
+        md.getColumnHandles(null, sysHandle);
+
+        // WHY (T07 gap-fill): getColumnHandles shares loadSysTable with getTableSchema, so the BASE load
+        // must sit in exactly ONE auth scope by the BARE base coordinates -- but only getTableSchema pinned
+        // this. MUTATION: loading by a "$"-suffixed name -> lastLoadTable "t1$snapshots" -> red;
+        // double-wrapping / no auth scope -> authCount != 1 -> red.
+        Assertions.assertEquals("db1", ops.lastLoadDb);
+        Assertions.assertEquals("t1", ops.lastLoadTable,
+                "getColumnHandles must load the BARE base name (not a $sys suffix)");
+        Assertions.assertEquals(1, ctx.authCount,
+                "exactly one auth scope must wrap the sys column-handle load");
+    }
+
+    @Test
+    public void getColumnHandlesForSysHandleRunsInsideAuthenticator() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true; // executeAuthenticated throws WITHOUT running the wrapped task
+        IcebergConnectorMetadata md = metadataWith(ops, ctx);
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+
+        // WHY (T07 gap-fill): like getTableSchema, the getColumnHandles base load must sit INSIDE
+        // executeAuthenticated, so an auth failure leaves the catalog seam untouched. MUTATION: loading
+        // OUTSIDE the auth scope -> ops.log records the load despite failAuth -> red.
+        Assertions.assertThrows(RuntimeException.class, () -> md.getColumnHandles(null, sysHandle));
+        Assertions.assertTrue(ops.log.isEmpty(),
+                "the catalog seam must not be touched when the auth scope fails");
+    }
+
+    @Test
+    public void getColumnHandlesKeysetMatchesSchemaForSysHandle() {
+        RecordingIcebergCatalogOps ops = seamWith(inMemoryBaseTable());
+        IcebergConnectorMetadata md = metadataWith(ops);
+        IcebergTableHandle sysHandle = (IcebergTableHandle)
+                md.getSysTableHandle(null, baseHandle(), "snapshots").get();
+
+        java.util.Set<String> schemaNames =
+                new java.util.HashSet<>(columnNames(md.getTableSchema(null, sysHandle)));
+        java.util.Set<String> handleKeys = md.getColumnHandles(null, sysHandle).keySet();
+
+        // WHY (T07 gap-fill, #969249): the BE scan-slot names (getTableSchema -> parseSchema) and the
+        // column-handle keys (getColumnHandles) are produced by two INDEPENDENT loops over the same
+        // metadata table; they match only by construction (same source + same lowercasing).
+        // PluginDrivenScanNode.buildColumnHandles resolves each schema slot against the handle map by name,
+        // so a drift (one path drops lowercasing or reads a different schema) leaves BE slots unresolvable
+        // -- yet each method's own containsAll test still passes. MUTATION: key getColumnHandles by
+        // field.name() (no lowercase) while getTableSchema keeps lowercasing -> the two sets diverge -> red.
+        Assertions.assertEquals(schemaNames, handleKeys,
+                "getColumnHandles keys must equal the getTableSchema column names by construction (#969249)");
+    }
+
+    @Test
+    public void getSysTableHandleEmptyForBlankName() {
+        // WHY (T07 gap-fill): null / unknown / position_deletes each yield Optional.empty and are pinned;
+        // the empty-string loop-fallthrough (isSupportedSysTable's null-guard does NOT cover "") is not.
+        // Legacy TableIf.findSysTable also returns empty for an empty sys name (parity). MUTATION:
+        // special-casing "" to a present handle -> isPresent() true -> red.
+        Assertions.assertFalse(
+                metadataWith(new RecordingIcebergCatalogOps())
+                        .getSysTableHandle(null, baseHandle(), "").isPresent(),
+                "an empty sys name must yield Optional.empty()");
+    }
 }

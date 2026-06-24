@@ -30,25 +30,34 @@ import org.mockito.Mockito;
  * Guards the fail-loud sys-table scan-constraint check in
  * {@link PluginDrivenScanNode#checkSysTableScanConstraints()} (P5-T19 Part C).
  *
- * <p>WHY this matters: a {@code FOR TIME AS OF} (snapshot) or {@code @incr}/scan-params query against
- * a plugin <b>system</b> table ({@link PluginDrivenSysExternalTable}) has no defined semantics — the
- * sys table is a synthetic view, not a versioned data table. Legacy
+ * <p>WHY this matters: for a connector whose sys tables have no point-in-time semantics (paimon —
+ * the default capability), a {@code FOR TIME AS OF} (snapshot) or {@code @incr}/scan-params query
+ * against a plugin <b>system</b> table ({@link PluginDrivenSysExternalTable}) is undefined; legacy
  * {@code PaimonScanNode.getProcessedTable} throws for exactly this case. Without the guard the
  * scan-params / snapshot would be silently dropped and the query would return the plain sys-table
  * contents, masking a user error. These tests pin that the guard fails loud (Rule 12).</p>
  *
+ * <p>P6.5-T07: the guard is now CONNECTOR-CAPABILITY-AWARE. A connector reporting
+ * {@code supportsSystemTableTimeTravel()==true} (iceberg — whose metadata tables legally time-travel)
+ * lets a pinned read ({@code FOR TIME AS OF}, {@code @branch}/{@code @tag}) through to the connector,
+ * which retains+honors the pin; {@code @incr} is rejected for EVERY connector (undefined on a synthetic
+ * metadata table). Paimon keeps the default {@code false} and the original blanket rejection.</p>
+ *
  * <p>Driven on a Mockito mock with {@code CALLS_REAL_METHODS} (no constructor — building a full
- * {@link FileQueryScanNode} needs a harness this module lacks) and the three accessors
- * ({@code getTargetTable}, {@code getScanParams}, {@code getQueryTableSnapshot}) stubbed, so the real
- * guard runs against controlled state. The guard is package-private exactly to enable this.</p>
+ * {@link FileQueryScanNode} needs a harness this module lacks) and the four accessors
+ * ({@code getTargetTable}, {@code getScanParams}, {@code getQueryTableSnapshot},
+ * {@code sysTableSupportsTimeTravel}) stubbed, so the real guard runs against controlled state. The
+ * guard and the capability hook are package-private exactly to enable this.</p>
  */
 public class PluginDrivenScanNodeSysTableGuardTest {
 
     private static PluginDrivenScanNode guardOnlyNode() throws Exception {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
-        // Default: no scan-params, no snapshot. Tests override per-case.
+        // Default: no scan-params, no snapshot, and a connector whose sys tables do NOT time-travel
+        // (paimon-like — the default capability). Time-travel-capable cases (iceberg) override the flag.
         Mockito.doReturn(null).when(node).getScanParams();
         Mockito.doReturn(null).when(node).getQueryTableSnapshot();
+        Mockito.doReturn(false).when(node).sysTableSupportsTimeTravel();
         return node;
     }
 
@@ -102,5 +111,57 @@ public class PluginDrivenScanNodeSysTableGuardTest {
         // WHY: the guard is SYS-table only. MUTATION: widening the instanceof check to all tables
         // would throw here -> red. Pins the scope limit.
         Assertions.assertDoesNotThrow(node::checkSysTableScanConstraints);
+    }
+
+    // ---------------------------------------------------------------------
+    // P6.5-T07: connector-capability-aware gating (iceberg sys tables time-travel)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void timeTravelCapableSysTableAllowsTimeTravel() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(true).when(node).sysTableSupportsTimeTravel();
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableSnapshot.class)).when(node).getQueryTableSnapshot();
+
+        // WHY: iceberg metadata tables legally time-travel (t$snapshots FOR TIME AS OF ...); legacy
+        // IcebergScanNode.createTableScan honors the pin for sys tables. A connector reporting
+        // supportsSystemTableTimeTravel()==true must let the pinned read through (the connector retains +
+        // honors the pin), NOT reject it as paimon does. MUTATION: dropping the `&& !timeTravelSupported`
+        // gate on the snapshot throw -> rejects even capable connectors -> red.
+        Assertions.assertDoesNotThrow(node::checkSysTableScanConstraints);
+    }
+
+    @Test
+    public void timeTravelCapableSysTableAllowsBranchTagScanParams() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(true).when(node).sysTableSupportsTimeTravel();
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        // A @branch/@tag scan-param: incrementalRead()==false (the generic mock default).
+        Mockito.doReturn(Mockito.mock(TableScanParams.class)).when(node).getScanParams();
+
+        // WHY: t$files@branch('b') / @tag is a valid snapshot selector legacy iceberg honors for sys
+        // tables. A time-travel-capable connector must allow it through. MUTATION: removing the
+        // timeTravelSupported gate on the scan-params throw -> rejects branch/tag too -> red.
+        Assertions.assertDoesNotThrow(node::checkSysTableScanConstraints);
+    }
+
+    @Test
+    public void timeTravelCapableSysTableStillRejectsIncrementalRead() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(true).when(node).sysTableSupportsTimeTravel();
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        TableScanParams incr = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(true).when(incr).incrementalRead();
+        Mockito.doReturn(incr).when(node).getScanParams();
+
+        // WHY: @incr (incremental read) is undefined on a synthetic metadata table even for iceberg —
+        // legacy silently ignored it; the guard fails loud instead (strictly safer). MUTATION: dropping
+        // the `|| getScanParams().incrementalRead()` clause -> @incr slips through on a capable connector
+        // -> red.
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("scan params"),
+                "incremental-read rejection must carry the scan-params message, got: " + ex.getMessage());
     }
 }

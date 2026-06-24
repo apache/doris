@@ -628,12 +628,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
             return;
         }
+        boolean timeTravelSupported = sysTableSupportsTimeTravel();
         if (getScanParams() != null) {
-            throw new UserException("Plugin system tables do not support scan params.");
+            // A connector whose sys tables honor a pin (iceberg) still rejects @incr — incremental read
+            // of a synthetic metadata table is undefined; a connector that does not (paimon, the default)
+            // rejects EVERY scan-param. Branch/tag are allowed only for the former.
+            if (!timeTravelSupported || getScanParams().incrementalRead()) {
+                throw new UserException("Plugin system tables do not support scan params.");
+            }
         }
-        if (getQueryTableSnapshot() != null) {
+        if (getQueryTableSnapshot() != null && !timeTravelSupported) {
             throw new UserException("Plugin system tables do not support time travel.");
         }
+    }
+
+    /**
+     * Whether the connector's system tables honor a time-travel / branch-tag pin (iceberg) versus reject
+     * it (paimon, the default). Package-private + overridable so {@link #checkSysTableScanConstraints}
+     * stays unit-testable on a Mockito mock without a live connector (mirrors the guard's own visibility).
+     */
+    boolean sysTableSupportsTimeTravel() {
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        return scanProvider != null && scanProvider.supportsSystemTableTimeTravel();
     }
 
     @Override

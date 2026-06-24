@@ -104,6 +104,24 @@ public class IcebergBuildTableDescriptorTest {
     }
 
     @Test
+    public void forkIsCaseInsensitiveOnHmsType() {
+        // P6.5-T07: legacy is case-INSENSITIVE on the user's iceberg.catalog.type (it compares the fixed
+        // lower-cased constant getIcebergCatalogType()=="hms"; the raw value is lower-cased for factory
+        // dispatch). So iceberg.catalog.type="HMS" (uppercase) bound a HiveCatalog and emitted HIVE_TABLE.
+        // The connector reads the RAW property, so a case-SENSITIVE equals would wrongly emit ICEBERG_TABLE
+        // for "HMS" -> FE descriptor/EXPLAIN diverges from legacy. MUTATION: equalsIgnoreCase -> equals
+        // makes this assert ICEBERG_TABLE -> red.
+        TTableDescriptor desc = build(metadataWithCatalogType("HMS"));
+
+        Assertions.assertEquals(TTableType.HIVE_TABLE, desc.getTableType(),
+                "uppercase HMS catalog type must still report HIVE_TABLE (legacy is case-insensitive)");
+        Assertions.assertTrue(desc.isSetHiveTable(),
+                "uppercase HMS must set THiveTable, matching the lowercase hms branch");
+        Assertions.assertFalse(desc.isSetIcebergTable(),
+                "uppercase HMS must NOT set TIcebergTable");
+    }
+
+    @Test
     public void defaultsToIcebergTableWhenCatalogTypeAbsent() {
         // No iceberg.catalog.type property at all: legacy predicate getIcebergCatalogType().equals("hms")
         // is false for any non-"hms" value, so the else (ICEBERG_TABLE) branch is taken. MUTATION: an
