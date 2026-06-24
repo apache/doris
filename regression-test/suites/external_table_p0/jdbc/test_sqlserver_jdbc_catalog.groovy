@@ -142,10 +142,10 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
 
         // Regression test for https://github.com/apache/doris/issues/64464
         // SQL Server `bit` maps to Doris BOOLEAN, so a predicate like `bit_value = '1'`
-        // is folded to a boolean literal during analysis. When the filter is pushed down
-        // it must be rendered as an integer (`= 1` / `= 0`) for SQL Server, never the
-        // `TRUE`/`FALSE` keyword: SQL Server has no boolean literal and would otherwise
-        // report "Invalid column name 'TRUE'".
+        // is folded to a boolean literal during analysis. When the filter is pushed down it
+        // must be rendered with integer literals (`= 1` / `= 0` / `IN (1, 0)`) for SQL Server,
+        // never the `TRUE`/`FALSE` keyword: SQL Server has no boolean literal and would
+        // otherwise report "Invalid column name 'TRUE'".
         explain {
             sql("select * from test_binary where bit_value = '1'")
             contains "[bit_value] = 1"
@@ -154,11 +154,18 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
             sql("select * from test_binary where bit_value = '0'")
             contains "[bit_value] = 0"
         }
-        // Execute the predicates end-to-end; on the buggy path these throw
-        // "Invalid column name 'TRUE'" against SQL Server.
-        sql """ select * from test_binary where bit_value = '1' order by id; """
-        sql """ select * from test_binary where bit_value = '0' order by id; """
-        sql """ select * from test_binary where bit_value in ('1', '0') order by id; """
+        explain {
+            sql("select * from test_binary where bit_value in ('1', '0')")
+            contains "[bit_value] IN (1, 0)"
+        }
+        // Selective execution checks. At this point test_binary holds id=1 (bit 0),
+        // id=2 and id=3 (bit 1), so `= '0'` returns only id=1 and `= '1'` only id=2,3:
+        // these fail if the pushed-down filter is dropped or applied as a no-op. The IN
+        // predicate matches every row (a bit is always 0 or 1), so its 1/0 rendering is
+        // asserted by the explain above rather than by row selectivity.
+        order_qt_bit_eq_false """ select id, bit_value from test_binary where bit_value = '0' order by id; """
+        order_qt_bit_eq_true """ select id, bit_value from test_binary where bit_value = '1' order by id; """
+        order_qt_bit_in """ select id, bit_value from test_binary where bit_value in ('1', '0') order by id; """
 
         sql """ insert into test_binary values (4, 4, X"ABAB", X"AB") """
         order_qt_query_after_insert """ select * from test_binary order by id; """
