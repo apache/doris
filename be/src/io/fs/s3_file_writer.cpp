@@ -152,13 +152,35 @@ Status S3FileWriter::close(bool non_block) {
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
         s3_file_writer_async_close_queuing << 1;
-        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
-            s3_file_writer_async_close_queuing << -1;
-            s3_file_writer_async_close_processing << 1;
-            _st = _close_impl();
-            _async_close_pack->promise.set_value(_st);
-            s3_file_writer_async_close_processing << -1;
+        Status submit_status = Status::OK();
+        DBUG_EXECUTE_IF("S3FileWriter.close.submit_async_close.inject_error", {
+            submit_status = Status::IOError("S3FileWriter.close.submit_async_close.inject_error");
         });
+        if (submit_status.ok()) {
+            submit_status =
+                    ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
+                        s3_file_writer_async_close_queuing << -1;
+                        s3_file_writer_async_close_processing << 1;
+                        _st = _close_impl();
+                        _async_close_pack->promise.set_value(_st);
+                        s3_file_writer_async_close_processing << -1;
+                    });
+        }
+        if (!submit_status.ok()) {
+            s3_file_writer_async_close_queuing << -1;
+            _async_close_pack = nullptr;
+            _state = State::OPENED;
+            LOG(WARNING) << "failed to submit async close for "
+                         << _obj_storage_path_opts.path.native()
+                         << ", fallback to sync close, status=" << submit_status;
+            _st = _close_impl();
+            _state = State::CLOSED;
+            if (_st.ok()) {
+                _record_close_latency();
+            }
+            return _st;
+        }
+        return Status::OK();
     }
     _st = _close_impl();
     _state = State::CLOSED;
@@ -249,6 +271,20 @@ Status S3FileWriter::_build_upload_buffer() {
     return Status::OK();
 }
 
+Status S3FileWriter::_submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf) {
+    _countdown_event.add_count();
+    DBUG_EXECUTE_IF("S3FileWriter.submit_upload_buffer.inject_error", {
+        auto st = Status::IOError("S3FileWriter.submit_upload_buffer.inject_error");
+        _complete_part_task_callback(st);
+        return st;
+    });
+    auto st = FileBuffer::submit(buf);
+    if (!st.ok()) [[unlikely]] {
+        _complete_part_task_callback(st);
+    }
+    return st;
+}
+
 Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _obj_storage_path_opts.path.native();
 
@@ -275,9 +311,9 @@ Status S3FileWriter::_close_impl() {
     }
 
     if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
-        _countdown_event.add_count();
-        RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
+        auto st = _submit_upload_buffer(_pending_buf);
         _pending_buf = nullptr;
+        RETURN_IF_ERROR(st);
     }
 
     RETURN_IF_ERROR(_complete());
@@ -329,9 +365,9 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                     RETURN_IF_ERROR(_create_multi_upload_request());
                 }
                 _cur_part_num++;
-                _countdown_event.add_count();
-                RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
+                auto st = _submit_upload_buffer(_pending_buf);
                 _pending_buf = nullptr;
+                RETURN_IF_ERROR(st);
             }
             _bytes_appended += data_size_to_append;
         }
