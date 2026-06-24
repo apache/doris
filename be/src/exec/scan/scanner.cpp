@@ -99,8 +99,8 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
             }
             _direct_slot_ref_projection_column_ids.push_back(slot_ref->column_id());
         }
-        if (!_direct_slot_ref_projection_column_ids.empty() && _conjuncts.empty() &&
-            _limit <= 0 && _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
+        if (!_direct_slot_ref_projection_column_ids.empty() && _conjuncts.empty() && _limit <= 0 &&
+            _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
             _output_row_descriptor->num_materialized_slots() ==
                     _direct_slot_ref_projection_column_ids.size()) {
             size_t row_bytes = 0;
@@ -143,8 +143,7 @@ int Scanner::_storage_read_batch_size(RuntimeState* state) const {
     // batch_size contract. The byte budget decides whether a fixed-width scan can safely use that
     // many rows; the session batch size remains the lower bound so this path never shrinks existing
     // scans.
-    static constexpr size_t kMaxReadBatchRows =
-            AdaptiveBlockSizePredictor::kDefaultBlockSizeRows;
+    static constexpr size_t kMaxReadBatchRows = AdaptiveBlockSizePredictor::kDefaultBlockSizeRows;
     const size_t rows_by_bytes =
             state->preferred_block_size_bytes() / _direct_slot_ref_projection_row_bytes;
     if (rows_by_bytes == 0) {

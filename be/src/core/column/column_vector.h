@@ -90,20 +90,13 @@ public:
     using Container = PaddedPODArray<value_type>;
     using ImmContainer = std::span<const value_type>;
 
-private:
-    struct ExternalDataSpan {
-        std::shared_ptr<void> owner;
-        const value_type* data = nullptr;
-        size_t size = 0;
-    };
-
     ColumnVector() = default;
     explicit ColumnVector(const size_t n) : data(n) {}
     explicit ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) {
         data.reserve(src.size());
-        src.for_each_immutable_data_span(
-                [this](ImmContainer values) { data.insert(values.begin(), values.end()); });
+        const auto values = src.immutable_data();
+        data.insert(values.begin(), values.end());
     }
 
     /// Sugar constructor.
@@ -202,17 +195,16 @@ public:
             return;
         }
         const bool can_use_external_data =
-                owner != nullptr && data.empty() &&
+                owner != nullptr && data.empty() && !_has_external_data() &&
                 reinterpret_cast<uintptr_t>(data_ptr) % alignof(value_type) == 0;
         if (can_use_external_data) {
             // The page decoder already owns decoded fixed-width values in naturally aligned page
-            // memory. Keep the page owner and append a read-only span instead of copying it into
-            // the local PODArray. A large Doris block can cross several storage pages, so this is
-            // intentionally segmented; consumers that can iterate spans stay zero-copy, while
-            // legacy consumers that require one contiguous array call immutable_data()/get_data()
-            // and materialize once.
-            _append_external_data_span(reinterpret_cast<const value_type*>(data_ptr), num,
-                                       std::move(owner));
+            // memory. Keep the page owner and adopt one read-only view instead of copying it into
+            // the local PODArray. This deliberately supports only one page-backed view, matching
+            // SR's single-resource model. If a later append brings another page range, the normal
+            // append path materializes this view first and then copies the new values.
+            _set_external_data(reinterpret_cast<const value_type*>(data_ptr), num,
+                               std::move(owner));
             return;
         }
         insert_many_fix_len_data(data_ptr, num);
@@ -324,15 +316,15 @@ public:
     size_t byte_size() const override { return size() * sizeof(value_type); }
 
     size_t allocated_bytes() const override {
-        // External spans point into page-cache owned memory. Count only ColumnVector metadata here;
+        // External data points into page-cache owned memory. Count only ColumnVector metadata here;
         // charging the page bytes again would double-count memory already tracked by the storage
         // page cache.
-        return data.allocated_bytes() + _external_data_spans.capacity() * sizeof(ExternalDataSpan);
+        return data.allocated_bytes();
     }
 
     bool has_enough_capacity(const IColumn& src) const override {
-        // Capacity reuse is meaningful only for the mutable local PODArray. A page-backed column has
-        // immutable external spans, so any append-style reuse must first materialize and should not
+        // Capacity reuse is meaningful only for the mutable local PODArray. A page-backed column
+        // has immutable external data, so append-style reuse must first materialize and should not
         // be selected by generic block reuse heuristics.
         if (_has_external_data()) {
             return false;
@@ -452,28 +444,11 @@ public:
         return data;
     }
 
-    // Read-only consumers should prefer for_each_immutable_data_span() when they can process
-    // segmented input. Scan blocks often span multiple storage pages; immutable_data() still keeps
-    // the historical contiguous-span contract and therefore materializes multi-page columns.
     ImmContainer immutable_data() const {
         if (_has_external_data()) {
-            if (_external_data_spans.size() == 1) {
-                const auto& span = _external_data_spans.front();
-                return {span.data, span.size};
-            }
-            materialize_external_data();
+            return {_external_data, _external_size};
         }
         return {data.data(), data.size()};
-    }
-
-    template <typename Func>
-    void for_each_immutable_data_span(Func&& func) const {
-        if (!data.empty()) {
-            func(ImmContainer {data.data(), data.size()});
-        }
-        for (const auto& span : _external_data_spans) {
-            func(ImmContainer {span.data, span.size});
-        }
     }
 
     const value_type& get_element(size_t n) const { return immutable_data()[n]; }
@@ -541,34 +516,24 @@ public:
     }
 
 private:
-    bool _has_external_data() const { return !_external_data_spans.empty(); }
+    bool _has_external_data() const { return _external_owner != nullptr; }
 
-    void _append_external_data_span(const value_type* external_data, size_t external_size,
-                                    std::shared_ptr<void> owner) {
+    void _set_external_data(const value_type* external_data, size_t external_size,
+                            std::shared_ptr<void> owner) {
         if (external_size == 0) {
             return;
         }
         DCHECK(external_data != nullptr);
         DCHECK(owner != nullptr);
-        if (!_external_data_spans.empty()) {
-            auto& last = _external_data_spans.back();
-            if (last.owner.get() == owner.get() && last.data + last.size == external_data) {
-                // Consecutive decoder calls can return adjacent slices from the same page. Merge
-                // them so read-only consumers see fewer spans without changing ownership semantics.
-                last.size += external_size;
-                _external_size += external_size;
-                return;
-            }
-        }
-        _external_data_spans.push_back(
-                ExternalDataSpan {.owner = std::move(owner),
-                                  .data = external_data,
-                                  .size = external_size});
-        _external_size += external_size;
+        DCHECK(!_has_external_data());
+        _external_owner = std::move(owner);
+        _external_data = external_data;
+        _external_size = external_size;
     }
 
     void _reset_external_data() const {
-        _external_data_spans.clear();
+        _external_owner.reset();
+        _external_data = nullptr;
         _external_size = 0;
     }
 
@@ -576,18 +541,12 @@ private:
         if (!_has_external_data()) {
             return;
         }
-        // This is the boundary back to the traditional ColumnVector contract: many generic
-        // expression, sort, filter, and serialization paths assume a single contiguous
-        // PaddedPODArray. Page-backed scan spans are safe only for read-only consumers that
-        // explicitly iterate spans; all other paths pay one copy here and then behave exactly like
-        // an ordinary ColumnVector.
+        // This is the boundary back to the traditional ColumnVector contract. The zero-copy path
+        // keeps at most one page-backed span. Any mutable access or append that cannot reuse that
+        // single page resource copies it into Doris-owned storage before continuing.
         const auto old_size = data.size();
         data.resize(old_size + _external_size);
-        auto* dst = data.data() + old_size;
-        for (const auto& span : _external_data_spans) {
-            memcpy(dst, span.data, span.size * sizeof(value_type));
-            dst += span.size;
-        }
+        memcpy(data.data() + old_size, _external_data, _external_size * sizeof(value_type));
         _reset_external_data();
     }
 
@@ -596,7 +555,8 @@ protected:
     uint32_t _crc32c_hash_value(uint32_t hash, const value_type& value) const;
     uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
     mutable Container data;
-    mutable std::vector<ExternalDataSpan> _external_data_spans;
+    mutable std::shared_ptr<void> _external_owner;
+    mutable const value_type* _external_data = nullptr;
     mutable size_t _external_size = 0;
 };
 

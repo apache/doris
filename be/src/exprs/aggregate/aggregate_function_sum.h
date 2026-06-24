@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -127,30 +126,10 @@ public:
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         auto& aggregate_data = this->data(place);
-        if constexpr (is_decimal(T)) {
-            // Decimal columns are already stored in Doris-owned contiguous memory and their
-            // arithmetic goes through the existing decimal container semantics.
-            const auto& source_values = _column_values(column);
-            const auto* __restrict values = source_values.data();
-            for (size_t i = 0; i < batch_size; ++i) {
-                aggregate_data.add(typename PrimitiveTypeTraits<TResult>::CppType(values[i]));
-            }
-        } else {
-            // This is semantically the same as the default IAggregateFunctionHelper loop over
-            // add(), but it is intentionally written for the hot no-group-by SUM path. Fixed-width
-            // scan columns can be backed by several storage pages inside one large block; iterating
-            // page spans keeps those pages read-only and avoids materializing them into one
-            // contiguous PODArray just to add the values.
-            size_t remaining = batch_size;
-            column.for_each_immutable_data_span([&](typename ColVecType::ImmContainer source_values) {
-                const size_t rows = std::min(remaining, source_values.size());
-                const auto* __restrict values = source_values.data();
-                for (size_t i = 0; i < rows; ++i) {
-                    aggregate_data.add(typename PrimitiveTypeTraits<TResult>::CppType(values[i]));
-                }
-                remaining -= rows;
-            });
-            DCHECK_EQ(remaining, 0);
+        const auto& source_values = _column_values(column);
+        const auto* __restrict values = source_values.data();
+        for (size_t i = 0; i < batch_size; ++i) {
+            aggregate_data.add(typename PrimitiveTypeTraits<TResult>::CppType(values[i]));
         }
     }
 
