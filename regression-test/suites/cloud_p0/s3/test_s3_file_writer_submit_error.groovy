@@ -30,28 +30,23 @@ suite("test_s3_file_writer_submit_error", "p0, nonConcurrent") {
         }
     }
 
-    def streamLoadAndCheck = { String label, String expectedStatus ->
-        streamLoad {
-            table "test_s3_file_writer_submit_error"
-            set "column_separator", ","
-            inputText "1,${label}\n2,${label}\n"
-            time 120000
-
-            check { result, exception, startTime, endTime ->
-                def msg = exception == null ? result : exception.getMessage()
-                logger.info("stream load result for ${label}: ${msg}")
-                assertTrue(exception == null,
-                        "stream load should return json result for ${label}: ${msg}")
-                def json = parseJson(result)
-                assertEquals(expectedStatus, json.Status.toLowerCase())
+    def insertAndCheck = { String label, boolean expectSuccess ->
+        def insertSql = "INSERT INTO test_s3_file_writer_submit_error " +
+                "VALUES (1, '${label}'), (2, '${label}')"
+        if (expectSuccess) {
+            sql insertSql
+        } else {
+            test {
+                sql insertSql
+                exception "S3FileWriter.submit_upload_buffer.inject_error"
             }
         }
     }
 
-    def runWithDebugPoint = { String label, String expectedStatus, String point ->
+    def runWithDebugPoint = { String label, boolean expectSuccess, String point ->
         GetDebugPoint().enableDebugPointForAllBEs(point)
         try {
-            streamLoadAndCheck(label, expectedStatus)
+            insertAndCheck(label, expectSuccess)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs(point)
         }
@@ -71,16 +66,18 @@ suite("test_s3_file_writer_submit_error", "p0, nonConcurrent") {
     """
 
     setBeConfigTemporary([
-        "enable_file_cache": "false",
+        "enable_file_cache_adaptive_write": "false",
         "enable_packed_file": "true",
         "small_file_threshold_bytes": "1"
     ]) {
         try {
+            sql """ SET disable_file_cache = true """
             disableDebugPoints()
 
-            runWithDebugPoint("submit_err", "fail", submitUploadBufferErrorPoint)
-            runWithDebugPoint("close_submit_err", "success", asyncCloseSubmitErrorPoint)
+            runWithDebugPoint("submit_err", false, submitUploadBufferErrorPoint)
+            runWithDebugPoint("close_submit_err", true, asyncCloseSubmitErrorPoint)
         } finally {
+            sql """ SET disable_file_cache = false """
             disableDebugPoints()
         }
     }
