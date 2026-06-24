@@ -66,6 +66,7 @@
 #include "util/debug_points.h"
 #endif
 #include "util/json/path_in_data.h"
+#include "util/string_util.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -155,6 +156,61 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
 }
 
+static Status parse_predicate_lm_stage1_cols_to_column_ids(const std::string& cols,
+                                                          const TabletSchemaSPtr& tablet_schema,
+                                                          std::vector<ColumnId>* column_ids) {
+    column_ids->clear();
+    if (cols.empty()) {
+        return Status::OK();
+    }
+
+    std::vector<std::string> parts = doris::split(cols, ",");
+    std::vector<std::string> missing;
+    missing.reserve(parts.size());
+
+    for (const auto& part : parts) {
+        std::string_view name_sv = doris::trim(std::string_view(part));
+        if (name_sv.empty()) {
+            continue;
+        }
+
+        // allow backticks: `col`
+        if (name_sv.size() >= 2 && name_sv.front() == '`' && name_sv.back() == '`') {
+            name_sv = name_sv.substr(1, name_sv.size() - 2);
+            name_sv = doris::trim(name_sv);
+        }
+        if (name_sv.empty()) {
+            continue;
+        }
+
+        std::string name(name_sv);
+
+        // TabletSchema stores names as-is (not guaranteed lower-case).
+        // Try exact match first, then fall back to lower-case.
+        int32_t cid = tablet_schema->field_index(name);
+        if (cid < 0) {
+            cid = tablet_schema->field_index(doris::to_lower(name));
+        }
+
+        if (cid < 0) {
+            missing.emplace_back(std::move(name));
+            continue;
+        }
+
+        column_ids->push_back(static_cast<ColumnId>(cid));
+    }
+
+    if (!missing.empty()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "predicate_lm_stage1_cols contains non-existing columns: {}",
+                doris::join(missing, ","));
+    }
+
+    std::sort(column_ids->begin(), column_ids->end());
+    column_ids->erase(std::unique(column_ids->begin(), column_ids->end()), column_ids->end());
+    return Status::OK();
+}
+
 Status OlapScanner::_prepare_impl() {
     auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
@@ -214,6 +270,18 @@ Status OlapScanner::_prepare_impl() {
         }
         if (olap_scan_node.__isset.indexes_desc) {
             tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
+        }
+
+        // Map FE session variable predicate_lm_stage1_cols -> ColumnId list
+        // NOTE: only meaningful when multi-stage predicate LM is enabled.
+        if (_tablet_reader_params.enable_multi_stage_predicate_lazy_materialization) {
+            const auto& qopts = _state->query_options();
+            if (qopts.__isset.predicate_lm_stage1_cols && !qopts.predicate_lm_stage1_cols.empty()) {
+                std::vector<ColumnId> stage1_column_ids;
+                RETURN_IF_ERROR(parse_predicate_lm_stage1_cols_to_column_ids(
+                        qopts.predicate_lm_stage1_cols, tablet_schema, &stage1_column_ids));
+                _tablet_reader_params.predicate_lm_stage1_column_ids = std::move(stage1_column_ids);
+            }
         }
 
         if (_tablet_reader_params.rs_splits.empty()) {

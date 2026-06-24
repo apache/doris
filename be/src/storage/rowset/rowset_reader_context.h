@@ -110,6 +110,11 @@ struct RowsetReaderContext {
 
     // General LIMIT budget forwarded to SegmentIterator.
     int64_t general_read_limit = -1;
+
+    // Multi-stage predicate lazy materialization (experimental)
+    bool enable_multi_stage_predicate_lazy_materialization = false;
+    std::vector<ColumnId> predicate_lm_stage1_column_ids;
+    double predicate_lm_stage1_survival_ratio_threshold = 0.8;
 };
 
 } // namespace doris

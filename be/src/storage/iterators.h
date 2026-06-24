@@ -161,6 +161,22 @@ public:
     std::shared_ptr<ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
 
+    // Multi-stage predicate lazy materialization (experimental):
+    // Stage1 reads a subset of predicate columns by index, evaluates predicates to produce
+    // an intermediate surviving row set; stage2 reads remaining predicate columns only for
+    // surviving rows (by rowids) and continues filtering.
+    //
+    // When disabled (default), SegmentIterator keeps the existing behavior: all predicate
+    // columns are read in the first pass.
+    bool enable_multi_stage_predicate_lazy_materialization = false;
+    // ColumnIds (tablet schema ordinal ids) to read/evaluate in stage1.
+    // If empty and enable_multi_stage_predicate_lazy_materialization=true, SegmentIterator will
+    // fallback to a conservative heuristic (currently: runtime-filter predicate columns).
+    std::vector<ColumnId> predicate_lm_stage1_column_ids;
+    // If stage1 survival ratio is greater than this threshold, stage2 rowid reads may be
+    // less beneficial. SegmentIterator may choose a conservative evaluation path.
+    double predicate_lm_stage1_survival_ratio_threshold = 0.8;
+
     // Cache for sparse column data to avoid redundant reads
     // col_unique_id -> cached column_ptr
     std::unordered_map<int32_t, ColumnPtr> sparse_column_cache;

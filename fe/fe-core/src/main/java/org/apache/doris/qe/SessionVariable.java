@@ -900,6 +900,9 @@ public class SessionVariable implements Serializable, Writable {
             = "decompose_repeat_shuffle_index_in_max_group";
     public static final String ENABLE_SHUFFLE_KEY_PRUNE = "enable_shuffle_key_prune";
 
+    public static final String ENABLE_MULTI_STAGE_PREDICATE_LM = "enable_multi_stage_predicate_lm";
+    public static final String PREDICATE_LM_STAGE1_COLS = "predicate_lm_stage1_cols";
+
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
                 description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为 hot value",
@@ -3033,6 +3036,24 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SHUFFLE_KEY_PRUNE)
     public boolean enableShuffleKeyPrune = true;
+
+    @VarAttrDef.VarAttr(
+        name = ENABLE_MULTI_STAGE_PREDICATE_LM,
+        fuzzy = true,
+        description = {"控制 SegmentIterator 是否启用多阶段谓词延迟物化(实验特性)。默认为 false。",
+            "Controls whether to enable multi-stage predicate lazy materialization in SegmentIterator "
+                + "(experimental). The default value is false."},
+        needForward = true)
+    public boolean enableMultiStagePredicateLm = false;
+
+    @VarAttrDef.VarAttr(
+        name = PREDICATE_LM_STAGE1_COLS,
+        fuzzy = true,
+        description = {"人工指定的多阶段谓词延迟物化中 stage1 参与过滤的列名列表，逗号分隔，例如 'a,b,c'。默认为空。",
+            "Stage1 predicate columns for multi-stage predicate LM, comma-separated, e.g. 'a,b,c'. "
+                + "Default is empty."},
+        needForward = true)
+    public String predicateLmStage1Cols = "";
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -5759,6 +5780,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAnnIndexCandidateRowsThreshold(annIndexCandidateRowsThreshold);
         tResult.setAnnIndexCandidateRowsPercentThreshold(annIndexCandidateRowsPercentThreshold);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
+
+        tResult.setEnableMultiStagePredicateLm(enableMultiStagePredicateLm);
+        tResult.setPredicateLmStage1Cols(predicateLmStage1Cols);
+
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
             tResult.setFileCacheQueryLimitPercent(Math.min(fileCacheQueryLimitPercent,

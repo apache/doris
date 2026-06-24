@@ -507,6 +507,11 @@ struct TQueryOptions {
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
 
   226: optional bool enable_prune_nested_column = false;
+
+  227: optional bool enable_multi_stage_predicate_lm = false
+
+  228: optional string predicate_lm_stage1_cols = ""
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

@@ -215,14 +215,30 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        MutableColumns& column_block, size_t nrows);
-    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
+    [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& column_ids,
+                                                uint32_t nrows_read_limit, uint16_t& nrows_read,
+                                                bool read_rowids);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     void _update_tso_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    uint16_t _evaluate_vectorization_predicate(
+            const std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+            uint16_t* sel_rowid_idx, uint16_t selected_size);
+
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    uint16_t _evaluate_short_circuit_predicate(
+            const std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
+            uint16_t* sel_rowid_idx, uint16_t selected_size, bool evaluate_delete_condition);
+
+    // Dictionary column should do something to initial.
+    void _convert_dict_code_for_predicate_if_necessary();
+    void _convert_dict_code_for_predicate_if_necessary(
+            const std::vector<std::shared_ptr<ColumnPredicate>>& short_circuit_predicates,
+            const std::vector<std::shared_ptr<ColumnPredicate>>& vectorized_predicates,
+            bool include_delete_condition_columns);
     Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();
     Status _output_non_pred_columns(Block* block);

@@ -1958,42 +1958,132 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         }
     }
 
+    // Multi-stage predicate lazy materialization config
+    _enable_multi_stage_predicate_lazy_materialization =
+            _opts.enable_multi_stage_predicate_lazy_materialization;
+    _predicate_lm_stage1_survival_ratio_threshold =
+            _opts.predicate_lm_stage1_survival_ratio_threshold;
+
+    _pre_eval_block_predicate.clear();
+    _short_cir_eval_predicate.clear();
+    _late_pre_eval_block_predicate.clear();
+    _late_short_cir_eval_predicate.clear();
+    _vec_pred_column_ids.clear();
+    _short_cir_pred_column_ids.clear();
+    _late_predicate_column_ids.clear();
+    _filter_info_id.clear();
+
+    _is_need_vec_eval = false;
+    _is_need_short_eval = false;
+    _is_need_vec_eval_late = false;
+    _is_need_short_eval_late = false;
+
     // Step1: extract columns that can be lazy materialization
     if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
-        std::set<ColumnId> short_cir_pred_col_id_set; // using set for distinct cid
-        std::set<ColumnId> vec_pred_col_id_set;
+        std::set<ColumnId> stage1_pred_col_id_set;
+        std::set<ColumnId> stage2_pred_col_id_set;
 
+        std::set<ColumnId> stage1_short_cir_pred_col_id_set;
+        std::set<ColumnId> stage1_vec_pred_col_id_set;
+        std::set<ColumnId> stage2_short_cir_pred_col_id_set;
+        std::set<ColumnId> stage2_vec_pred_col_id_set;
+
+        std::set<ColumnId> runtime_filter_cids;
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
+            if (predicate->is_runtime_filter()) {
+                runtime_filter_cids.insert(cid);
+            }
+        }
 
-            // check pred using short eval or vec eval
-            if (_can_evaluated_by_vectorized(predicate)) {
-                vec_pred_col_id_set.insert(cid);
-                _pre_eval_block_predicate.push_back(predicate);
+        // handle delete_condition (always stage1)
+        if (!del_cond_id_set.empty()) {
+            pred_column_ids.insert(del_cond_id_set.begin(), del_cond_id_set.end());
+            stage1_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
+            for (auto cid : del_cond_id_set) {
+                _is_pred_column[cid] = true;
+            }
+        }
+
+        if (_enable_multi_stage_predicate_lazy_materialization) {
+            if (!_opts.predicate_lm_stage1_column_ids.empty()) {
+                stage1_pred_col_id_set.insert(_opts.predicate_lm_stage1_column_ids.begin(),
+                                              _opts.predicate_lm_stage1_column_ids.end());
             } else {
-                short_cir_pred_col_id_set.insert(cid);
-                _short_cir_eval_predicate.push_back(predicate);
+                stage1_pred_col_id_set.insert(runtime_filter_cids.begin(), runtime_filter_cids.end());
+            }
+
+            for (auto it = stage1_pred_col_id_set.begin(); it != stage1_pred_col_id_set.end();) {
+                if (pred_column_ids.find(*it) == pred_column_ids.end()) {
+                    it = stage1_pred_col_id_set.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            if (stage1_pred_col_id_set.empty() && !pred_column_ids.empty()) {
+                stage1_pred_col_id_set.insert(*pred_column_ids.begin());
+            }
+
+            for (auto cid : pred_column_ids) {
+                if (stage1_pred_col_id_set.find(cid) == stage1_pred_col_id_set.end()) {
+                    stage2_pred_col_id_set.insert(cid);
+                }
+            }
+        } else {
+            stage1_pred_col_id_set = pred_column_ids;
+        }
+
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            bool in_stage1 = (stage2_pred_col_id_set.empty() ||
+                              stage1_pred_col_id_set.find(cid) != stage1_pred_col_id_set.end());
+            if (_can_evaluated_by_vectorized(predicate)) {
+                if (in_stage1) {
+                    stage1_vec_pred_col_id_set.insert(cid);
+                    _pre_eval_block_predicate.push_back(predicate);
+                } else {
+                    stage2_vec_pred_col_id_set.insert(cid);
+                    _late_pre_eval_block_predicate.push_back(predicate);
+                }
+            } else {
+                if (in_stage1) {
+                    stage1_short_cir_pred_col_id_set.insert(cid);
+                    _short_cir_eval_predicate.push_back(predicate);
+                } else {
+                    stage2_short_cir_pred_col_id_set.insert(cid);
+                    _late_short_cir_eval_predicate.push_back(predicate);
+                }
             }
             if (predicate->is_runtime_filter()) {
                 _filter_info_id.push_back(predicate);
             }
         }
 
-        // handle delete_condition
-        if (!del_cond_id_set.empty()) {
-            short_cir_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
-            pred_column_ids.insert(del_cond_id_set.begin(), del_cond_id_set.end());
+        stage1_short_cir_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
 
-            for (auto cid : del_cond_id_set) {
-                _is_pred_column[cid] = true;
-            }
+
+        _vec_pred_column_ids.assign(stage1_vec_pred_col_id_set.cbegin(),
+                                   stage1_vec_pred_col_id_set.cend());
+        _short_cir_pred_column_ids.assign(stage1_short_cir_pred_col_id_set.cbegin(),
+                                          stage1_short_cir_pred_col_id_set.cend());
+
+        _is_need_vec_eval = !_vec_pred_column_ids.empty();
+        _is_need_short_eval = !_short_cir_pred_column_ids.empty();
+
+        _is_need_vec_eval_late = !stage2_vec_pred_col_id_set.empty();
+        _is_need_short_eval_late = !stage2_short_cir_pred_col_id_set.empty();
+
+        if (_enable_multi_stage_predicate_lazy_materialization) {
+            std::set<ColumnId> stage2_read_columns;
+            stage2_read_columns.insert(stage2_vec_pred_col_id_set.begin(),
+                                       stage2_vec_pred_col_id_set.end());
+            stage2_read_columns.insert(stage2_short_cir_pred_col_id_set.begin(),
+                                       stage2_short_cir_pred_col_id_set.end());
+            _late_predicate_column_ids.assign(stage2_read_columns.begin(), stage2_read_columns.end());
         }
-
-        _vec_pred_column_ids.assign(vec_pred_col_id_set.cbegin(), vec_pred_col_id_set.cend());
-        _short_cir_pred_column_ids.assign(short_cir_pred_col_id_set.cbegin(),
-                                          short_cir_pred_col_id_set.cend());
     }
 
     if (!_vec_pred_column_ids.empty()) {
@@ -2069,9 +2159,16 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // Step 4: fill first read columns
+    _predicate_column_ids.clear();
     if (_lazy_materialization_read) {
-        // insert pred cid to first_read_columns
-        for (auto cid : pred_column_ids) {
+        std::set<ColumnId> first_read_pred_column_ids = pred_column_ids;
+        if (_enable_multi_stage_predicate_lazy_materialization && !_late_predicate_column_ids.empty()) {
+            for (auto cid : _late_predicate_column_ids) {
+                first_read_pred_column_ids.erase(cid);
+            }
+        }
+        // insert pred cid to first_read_pred_column_ids
+        for (auto cid : first_read_pred_column_ids) {
             _predicate_column_ids.push_back(cid);
         }
     } else if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
@@ -2324,24 +2421,30 @@ Status SegmentIterator::_output_non_pred_columns(Block* block) {
  * This approach optimizes reading performance by leveraging batch processing for continuous
  * rowid sequences and handling discontinuities gracefully in smaller chunks.
  */
-Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read) {
+Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& column_ids,
+                                                uint32_t nrows_read_limit, uint16_t& nrows_read,
+                                                bool read_rowids) {
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
-    nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    if (read_rowids) {
+        nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(),
+                                                             nrows_read_limit);
+    }
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
             "nrows_read from range iterator: {}, is_continus {}, "
             "_cols_read_by_column_predicate "
             "[{}]",
-            nrows_read, is_continuous, fmt::join(_predicate_column_ids, ","));
+            nrows_read, is_continuous, fmt::join(column_ids, ","));
 
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
             "[verbose] SegmentIterator::_read_columns_by_index read {} rowids, continuous: {}, "
             "rowids: [{}...{}]",
             nrows_read, is_continuous, nrows_read > 0 ? _block_rowids[0] : 0,
             nrows_read > 0 ? _block_rowids[nrows_read - 1] : 0);
-    for (auto cid : _predicate_column_ids) {
+
+    for (auto cid : column_ids) {
         auto& column = _current_return_columns[cid];
         VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
                                   _schema->column(cid)->name());
@@ -2637,27 +2740,119 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     return new_size;
 }
 
-uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
+uint16_t SegmentIterator::_evaluate_vectorization_predicate(
+        const std::vector<std::shared_ptr<ColumnPredicate>>& predicates, uint16_t* sel_rowid_idx,
+        uint16_t selected_size) {
+    SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
+    const uint16_t original_size = selected_size;
+    if (predicates.empty()) {
+        for (uint16_t i = 0; i < original_size; ++i) {
+            sel_rowid_idx[i] = i;
+        }
+        _opts.stats->vec_cond_input_rows += original_size;
+        return original_size;
+    }
+
+    bool all_pred_always_true = true;
+    for (const auto& pred : predicates) {
+        if (!pred->always_true()) {
+            all_pred_always_true = false;
+        } else {
+            pred->update_filter_info(0, 0, selected_size);
+        }
+    }
+
+    if (all_pred_always_true) {
+        for (uint16_t i = 0; i < original_size; ++i) {
+            sel_rowid_idx[i] = i;
+        }
+        _opts.stats->vec_cond_input_rows += original_size;
+        return original_size;
+    }
+
+    _ret_flags.resize(original_size);
+    bool is_first = true;
+    for (auto& pred : predicates) {
+        if (pred->always_true()) {
+            continue;
+        }
+        auto column_id = pred->column_id();
+        auto& column = _current_return_columns[column_id];
+        if (is_first) {
+            pred->evaluate_vec(*column, original_size, (bool*)_ret_flags.data());
+            is_first = false;
+        } else {
+            pred->evaluate_and_vec(*column, original_size, (bool*)_ret_flags.data());
+        }
+    }
+
+    uint16_t new_size = 0;
+    uint16_t sel_pos = 0;
+    const uint16_t sel_end = sel_pos + selected_size;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
+    const uint16_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
+
+    while (sel_pos < sel_end_simd) {
+        auto mask = simd::bytes_mask_to_bits_mask(_ret_flags.data() + sel_pos);
+        if (0 == mask) {
+            // pass
+        } else if (simd::bits_mask_all() == mask) {
+            for (uint16_t i = 0; i < SIMD_BYTES; i++) {
+                sel_rowid_idx[new_size++] = sel_pos + i;
+            }
+        } else {
+            simd::iterate_through_bits_mask(
+                    [&](const int bit_pos) {
+                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
+                    },
+                    mask);
+        }
+        sel_pos += SIMD_BYTES;
+    }
+
+    for (; sel_pos < sel_end; sel_pos++) {
+        if (_ret_flags[sel_pos]) {
+            sel_rowid_idx[new_size++] = sel_pos;
+        }
+    }
+
+    _opts.stats->vec_cond_input_rows += original_size;
+    _opts.stats->rows_vec_cond_filtered += original_size - new_size;
+    return new_size;
+}
+
+uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
-    SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
     if (!_is_need_short_eval) {
         return selected_size;
     }
+    return _evaluate_short_circuit_predicate(_short_cir_eval_predicate, sel_rowid_idx, selected_size,
+                                             /*evaluate_delete_condition=*/true);
+}
+
+uint16_t SegmentIterator::_evaluate_short_circuit_predicate(
+        const std::vector<std::shared_ptr<ColumnPredicate>>& predicates, uint16_t* sel_rowid_idx,
+        uint16_t selected_size, bool evaluate_delete_condition) {
+    SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
 
     uint16_t original_size = selected_size;
-    for (auto predicate : _short_cir_eval_predicate) {
+
+    for (auto predicate : predicates) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
-        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        selected_size = predicate->evaluate(*short_cir_column, sel_rowid_idx, selected_size);
     }
 
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 
+    if (!evaluate_delete_condition) {
+        return selected_size;
+    }
     // evaluate delete condition
     original_size = selected_size;
     selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
-                                                                vec_sel_rowid_idx, selected_size);
+                                                                sel_rowid_idx, selected_size);
     _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
     return selected_size;
 }
@@ -2966,7 +3161,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     _converted_column_ids.assign(_schema->columns().size(), false);
 
     _selected_size = 0;
-    RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _selected_size));
+    RETURN_IF_ERROR(_read_columns_by_index(_predicate_column_ids, nrows_read_limit, _selected_size,
+                                          /*read_rowids=*/true));
     _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
     _update_lsn_col_if_needed(_predicate_column_ids, _selected_size);
     _update_tso_col_if_needed(_predicate_column_ids, _selected_size);
@@ -2982,45 +3178,222 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
         _sel_rowid_idx.resize(_selected_size);
 
         if (_is_need_vec_eval || _is_need_short_eval) {
-            _convert_dict_code_for_predicate_if_necessary();
+            if (!_enable_multi_stage_predicate_lazy_materialization) {
+                _convert_dict_code_for_predicate_if_necessary();
 
-            // step 1: evaluate vectorization predicate
-            _selected_size =
-                    _evaluate_vectorization_predicate(_sel_rowid_idx.data(), _selected_size);
+                // step 1: evaluate vectorization predicate
+                _selected_size =
+                        _evaluate_vectorization_predicate(_sel_rowid_idx.data(), _selected_size);
 
-            // step 2: evaluate short circuit predicate
-            // todo(wb) research whether need to read short predicate after vectorization evaluation
-            //          to reduce cost of read short circuit columns.
-            //          In SSB test, it make no difference; So need more scenarios to test
-            _selected_size =
-                    _evaluate_short_circuit_predicate(_sel_rowid_idx.data(), _selected_size);
-            VLOG_DEBUG << fmt::format("After evaluate predicates, selected size: {} ",
-                                      _selected_size);
-            if (_selected_size > 0) {
-                // step 3.1: output short circuit and predicate column
-                // when lazy materialization enables, _predicate_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
-                // see _vec_init_lazy_materialization
-                // todo(wb) need to tell input columnids from output columnids
-                RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
-                                                          _sel_rowid_idx.data(), _selected_size));
+                // step 2: evaluate short circuit predicate
+                // todo(wb) research whether need to read short predicate after vectorization evaluation
+                //          to reduce cost of read short circuit columns.
+                //          In SSB test, it make no difference; So need more scenarios to test
+                _selected_size =
+                        _evaluate_short_circuit_predicate(_sel_rowid_idx.data(), _selected_size);
+                VLOG_DEBUG << fmt::format("After evaluate predicates, selected size: {} ",
+                                          _selected_size);
+                if (_selected_size > 0) {
+                    // step 3.1: output short circuit and predicate column
+                    // when lazy materialization enables, _predicate_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
+                    // see _vec_init_lazy_materialization
+                    // todo(wb) need to tell input columnids from output columnids
+                    RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
+                                                              _sel_rowid_idx.data(), _selected_size));
 
-                // step 3.2: read remaining expr column and evaluate it.
-                if (_is_need_expr_eval) {
-                    // The predicate column contains the remaining expr column, no need second read.
-                    if (_common_expr_column_ids.size() > 0) {
-                        SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
-                        RETURN_IF_ERROR(_read_columns_by_rowids(
-                                _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
-                                _selected_size, &_current_return_columns, false, true));
-                        _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
-                        _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
-                        _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
+                    // step 3.2: read remaining expr column and evaluate it.
+                    if (_is_need_expr_eval) {
+                        // The predicate column contains the remaining expr column, no need second read.
+                        if (_common_expr_column_ids.size() > 0) {
+                            SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
+                            RETURN_IF_ERROR(_read_columns_by_rowids(
+                                    _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
+                                    _selected_size, &_current_return_columns, false, true));
+                            _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                            _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
+                            _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
+                            RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
+                        }
+
+                        DCHECK(block->columns() >
+                               _schema->column_index(*_common_expr_columns.begin()));
+                        RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size,
+                                                             block));
+                    }
+                } else {
+                    _fill_column_nothing();
+                    if (_is_need_expr_eval) {
                         RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
+                }
+            } else {
+                const uint16_t rows_read = _selected_size;
 
-                    DCHECK(block->columns() > _schema->column_index(*_common_expr_columns.begin()));
-                    RETURN_IF_ERROR(
-                            _process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
+                _sel_rowid_idx_stage1.resize(rows_read);
+                _convert_dict_code_for_predicate_if_necessary(
+                        _short_cir_eval_predicate, _pre_eval_block_predicate,
+                        /*include_delete_condition_columns=*/true);
+
+                // Stage1: evaluate predicates on the first-read predicate columns (by index)
+                uint16_t stage1_size =
+                        _evaluate_vectorization_predicate(_sel_rowid_idx_stage1.data(), rows_read);
+                stage1_size = _evaluate_short_circuit_predicate(_sel_rowid_idx_stage1.data(),
+                                                               stage1_size);
+                _selected_size = stage1_size;
+
+                if (stage1_size > 0) {
+                    bool do_stage2 = _enable_multi_stage_predicate_lazy_materialization &&
+                                     !_late_predicate_column_ids.empty() &&
+                                     (_is_need_vec_eval_late || _is_need_short_eval_late);
+
+                    bool stage2_columns_dense_on_all_rows = false;
+
+                    if (do_stage2) {
+                        const double survival_ratio = static_cast<double>(stage1_size) /
+                                                      static_cast<double>(rows_read);
+                        const bool stage2_by_rowids =
+                                survival_ratio <= _predicate_lm_stage1_survival_ratio_threshold;
+
+                        if (stage2_by_rowids) {
+                            RETURN_IF_ERROR(_read_columns_by_rowids(
+                                    _late_predicate_column_ids, _block_rowids,
+                                    _sel_rowid_idx_stage1.data(), stage1_size,
+                                    &_current_return_columns));
+                            _replace_version_col_if_needed(_late_predicate_column_ids, stage1_size);
+                            _update_lsn_col_if_needed(_late_predicate_column_ids, stage1_size);
+                            _update_tso_col_if_needed(_late_predicate_column_ids, stage1_size);
+
+                            _convert_dict_code_for_predicate_if_necessary(
+                                    _late_short_cir_eval_predicate, _late_pre_eval_block_predicate,
+                                    /*include_delete_condition_columns=*/false);
+
+                            _sel_rowid_idx_stage2.resize(stage1_size);
+                            uint16_t stage2_size = stage1_size;
+                            if (_is_need_vec_eval_late) {
+                                stage2_size = _evaluate_vectorization_predicate(
+                                        _late_pre_eval_block_predicate, _sel_rowid_idx_stage2.data(),
+                                        stage2_size);
+                            } else {
+                                for (uint16_t i = 0; i < stage2_size; ++i) {
+                                    _sel_rowid_idx_stage2[i] = i;
+                                }
+                            }
+                            if (_is_need_short_eval_late) {
+                                stage2_size = _evaluate_short_circuit_predicate(
+                                        _late_short_cir_eval_predicate, _sel_rowid_idx_stage2.data(),
+                                        stage2_size, /*evaluate_delete_condition=*/false);
+                            }
+
+                            _sel_rowid_idx.resize(stage2_size);
+                            for (uint16_t i = 0; i < stage2_size; ++i) {
+                                _sel_rowid_idx[i] =
+                                        _sel_rowid_idx_stage1[_sel_rowid_idx_stage2[i]];
+                            }
+                            _selected_size = stage2_size;
+                        } else {
+                            uint16_t stage2_rows_read = rows_read;
+                            RETURN_IF_ERROR(_read_columns_by_index(_late_predicate_column_ids,
+                                                                  rows_read, stage2_rows_read,
+                                                                  /*read_rowids=*/false));
+                            _replace_version_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
+                            _update_lsn_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
+                            _update_tso_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
+
+                            _convert_dict_code_for_predicate_if_necessary(
+                                    _late_short_cir_eval_predicate, _late_pre_eval_block_predicate,
+                                    /*include_delete_condition_columns=*/false);
+
+                            _sel_rowid_idx_stage2.resize(stage2_rows_read);
+                            uint16_t stage2_size_all = stage2_rows_read;
+                            if (_is_need_vec_eval_late) {
+                                stage2_size_all = _evaluate_vectorization_predicate(
+                                        _late_pre_eval_block_predicate, _sel_rowid_idx_stage2.data(),
+                                        stage2_size_all);
+                            } else {
+                                for (uint16_t i = 0; i < stage2_size_all; ++i) {
+                                    _sel_rowid_idx_stage2[i] = i;
+                                }
+                            }
+                            if (_is_need_short_eval_late) {
+                                stage2_size_all = _evaluate_short_circuit_predicate(
+                                        _late_short_cir_eval_predicate, _sel_rowid_idx_stage2.data(),
+                                        stage2_size_all, /*evaluate_delete_condition=*/false);
+                            }
+
+                            _sel_rowid_idx.clear();
+                            _sel_rowid_idx.reserve(std::min<uint16_t>(stage1_size, stage2_size_all));
+                            uint16_t i = 0;
+                            uint16_t j = 0;
+                            while (i < stage1_size && j < stage2_size_all) {
+                                const uint16_t a = _sel_rowid_idx_stage1[i];
+                                const uint16_t b = _sel_rowid_idx_stage2[j];
+                                if (a == b) {
+                                    _sel_rowid_idx.push_back(a);
+                                    ++i;
+                                    ++j;
+                                } else if (a < b) {
+                                    ++i;
+                                } else {
+                                    ++j;
+                                }
+                            }
+                            _selected_size = cast_set<uint16_t>(_sel_rowid_idx.size());
+                            stage2_columns_dense_on_all_rows = true;
+                        }
+                    } else {
+                        _sel_rowid_idx.resize(stage1_size);
+                        for (uint16_t i = 0; i < stage1_size; ++i) {
+                            _sel_rowid_idx[i] = _sel_rowid_idx_stage1[i];
+                        }
+                        _selected_size = stage1_size;
+                    }
+
+                    if (_selected_size > 0) {
+                        // Output stage1 predicate columns
+                        RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
+                                                                  _sel_rowid_idx.data(),
+                                                                  _selected_size));
+
+                        // Output stage2 predicate columns (if any)
+                        if (do_stage2) {
+                            uint16_t* stage2_output_sel = _sel_rowid_idx.data();
+                            if (!stage2_columns_dense_on_all_rows) {
+                                stage2_output_sel = _sel_rowid_idx_stage2.data();
+                            }
+                            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _late_predicate_column_ids,
+                                                                      stage2_output_sel,
+                                                                      _selected_size));
+                        }
+
+                        // common expr (unchanged, uses final selector)
+                        if (_is_need_expr_eval) {
+                            if (_common_expr_column_ids.size() > 0) {
+                                SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
+                                RETURN_IF_ERROR(_read_columns_by_rowids(
+                                        _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
+                                        _selected_size, &_current_return_columns, false, true));
+                                _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                                _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
+                                _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
+                                RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
+                            }
+
+                            DCHECK(block->columns() >
+                                   _schema->column_index(*_common_expr_columns.begin()));
+                            RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size,
+                                                                 block));
+                        }
+                    } else {
+                        _fill_column_nothing();
+                        if (_is_need_expr_eval) {
+                            RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
+                        }
+                    }
+                } else {
+                    _fill_column_nothing();
+                    if (_is_need_expr_eval) {
+                        RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
+                    }
                 }
             } else {
                 _fill_column_nothing();
@@ -3300,12 +3673,24 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
 }
 
 void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
-    for (auto predicate : _short_cir_eval_predicate) {
+    _convert_dict_code_for_predicate_if_necessary(_short_cir_eval_predicate, _pre_eval_block_predicate,
+                                                  /*include_delete_condition_columns=*/true);
+}
+
+void SegmentIterator::_convert_dict_code_for_predicate_if_necessary(
+        const std::vector<std::shared_ptr<ColumnPredicate>>& short_circuit_predicates,
+        const std::vector<std::shared_ptr<ColumnPredicate>>& vectorized_predicates,
+        bool include_delete_condition_columns) {
+    for (auto predicate : short_circuit_predicates) {
         _convert_dict_code_for_predicate_if_necessary_impl(predicate);
     }
 
-    for (auto predicate : _pre_eval_block_predicate) {
+    for (auto predicate : vectorized_predicates) {
         _convert_dict_code_for_predicate_if_necessary_impl(predicate);
+    }
+
+    if (!include_delete_condition_columns) {
+        return;
     }
 
     for (auto column_id : _delete_range_column_ids) {
