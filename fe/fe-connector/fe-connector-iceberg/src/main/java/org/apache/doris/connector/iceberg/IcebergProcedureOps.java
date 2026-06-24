@@ -18,12 +18,16 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.iceberg.action.BaseIcebergAction;
+import org.apache.doris.connector.iceberg.action.IcebergExecuteActionFactory;
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -37,9 +41,12 @@ import java.util.Map;
  * runs in the connector; argument validation is connector-local (the engine cannot reach
  * {@code org.apache.doris.common.NamedArguments} across the import gate).</p>
  *
- * <p><b>Dormant (P6.4-T02).</b> This skeleton wires the SPI seam; the per-procedure dispatch and bodies
- * are ported in P6.4-T03 (base + factory) / T04 (the 8 pure-SDK procedures) / T05–T06
- * ({@code rewrite_data_files}). Inert pre-cutover regardless: iceberg tables are not
+ * <p><b>T03 dispatch skeleton.</b> {@link #getSupportedProcedures()} exports the factory's name list and
+ * {@link #execute} routes through {@link IcebergExecuteActionFactory} → {@link BaseIcebergAction}: validate
+ * arguments, load the SDK table inside {@code context.executeAuthenticated}, run the body and wrap the
+ * single row. The 9 procedure bodies (the factory's switch cases) are ported in T04 (the 8 pure-SDK
+ * procedures) / T05–T06 ({@code rewrite_data_files}); until then a known name reaches the factory's faithful
+ * "Unsupported Iceberg procedure" rejection. Inert pre-cutover regardless: iceberg tables are not
  * {@code PluginDrivenExternalTable} until P6.6, so {@code ExecuteActionCommand} still routes them to the
  * legacy fe-core actions and never reaches this class.</p>
  */
@@ -58,15 +65,46 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
 
     @Override
     public List<String> getSupportedProcedures() {
-        throw new UnsupportedOperationException(
-                "iceberg procedures are not yet wired (P6.4-T03 ports the action factory)");
+        return Arrays.asList(IcebergExecuteActionFactory.getSupportedActions());
     }
 
     @Override
     public ConnectorProcedureResult execute(ConnectorSession session, ConnectorTableHandle table,
             String procedureName, Map<String, String> properties,
             ConnectorPredicate whereCondition, List<String> partitionNames) {
-        throw new UnsupportedOperationException(
-                "iceberg procedure '" + procedureName + "' is not yet wired (P6.4-T04 ports the bodies)");
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        // Build the procedure body (rejects unknown names) and validate its arguments before touching the
+        // catalog — the engine has already performed the ALTER privilege check (D-062 §2).
+        BaseIcebergAction action = IcebergExecuteActionFactory.createAction(
+                procedureName, properties, partitionNames, whereCondition);
+        action.validate();
+        return runInAuthScope(handle, action);
+    }
+
+    /**
+     * Loads the table and runs the procedure body within ONE authenticated scope. The body's SDK
+     * manipulation and remote {@code commit()} must run under the catalog's auth context (Kerberized
+     * catalogs), mirroring the write path — recon §7 "commit 裹 executeAuthenticated"; this is the auth fix
+     * the legacy fe-core actions lacked (the snapshot mutators ran their commit unauthenticated).
+     *
+     * <p>The body's own {@link DorisConnectorException} (argument / procedure-body failures) surfaces
+     * verbatim — the engine command shell re-wraps it with the user-facing "Failed to execute action:"
+     * prefix when {@code ExecuteActionCommand} is rewired to this SPI at the iceberg cutover (T07). T04 adds
+     * post-commit cache invalidation here via {@code context.getMetaInvalidator()} (the legacy
+     * per-action {@code ExtMetaCacheMgr.invalidateTableCache} is fe-core-only and dropped).
+     */
+    private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action) {
+        if (context == null) {
+            return action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        }
+        try {
+            return context.executeAuthenticated(
+                    () -> action.execute(catalogOps.loadTable(handle.getDbName(), handle.getTableName())));
+        } catch (DorisConnectorException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to load iceberg table "
+                    + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
+        }
     }
 }
