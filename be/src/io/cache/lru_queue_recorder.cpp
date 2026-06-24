@@ -17,27 +17,53 @@
 
 #include "io/cache/lru_queue_recorder.h"
 
+#include "common/config.h"
+#include "common/status.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
 
 namespace doris::io {
 
+namespace {
+
+size_t file_cache_type_index(FileCacheType type) {
+    return static_cast<size_t>(type);
+}
+
+} // namespace
+
 void LRUQueueRecorder::record_queue_event(FileCacheType type, CacheLRULogType log_type,
                                           const UInt128Wrapper hash, const size_t offset,
                                           const size_t size) {
-    CacheLRULogQueue& log_queue = get_lru_log_queue(type);
-    log_queue.enqueue(std::make_unique<CacheLRULog>(log_type, hash, offset, size));
+    if (config::file_cache_background_lru_dump_tail_record_num <= 0) {
+        return;
+    }
     ++(_lru_queue_update_cnt_from_last_dump[type]);
+    auto log = std::make_unique<CacheLRULog>(log_type, hash, offset, size);
+    if (!reserve_lru_log_queue_slot(type)) {
+        return;
+    }
+    CacheLRULogQueue& log_queue = get_lru_log_queue(type);
+    if (!log_queue.enqueue(std::move(log))) {
+        release_lru_log_queue_slot(type);
+        return;
+    }
+    size_t idx = file_cache_type_index(type);
+    *(_mgr->_lru_recorder_queue_produce_metrics[idx]) << 1;
+    *(_mgr->_lru_recorder_queue_length_recorder[idx]) << lru_log_queue_size(type);
 }
 
-void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
+size_t LRUQueueRecorder::replay_queue_event(FileCacheType type) {
     // we don't need the real cache lock for the shadow queue, but we do need a lock to prevent read/write contension
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     LRUQueue& shadow_queue = get_shadow_queue(type);
 
     std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
     std::unique_ptr<CacheLRULog> log;
+    size_t replayed = 0;
     while (log_queue.try_dequeue(log)) {
+        release_lru_log_queue_slot(type);
+        ++replayed;
         try {
             switch (log->type) {
             case CacheLRULogType::ADD: {
@@ -79,6 +105,12 @@ void LRUQueueRecorder::replay_queue_event(FileCacheType type) {
             LOG(WARNING) << "Failed to replay queue event: " << e.what();
         }
     }
+    size_t idx = file_cache_type_index(type);
+    if (replayed > 0) {
+        *(_mgr->_lru_recorder_queue_consume_metrics[idx]) << replayed;
+    }
+    *(_mgr->_lru_recorder_queue_length_recorder[idx]) << lru_log_queue_size(type);
+    return replayed;
 }
 
 // we evaluate the diff between two queue by calculate how many operation is
@@ -135,6 +167,36 @@ size_t LRUQueueRecorder::get_lru_queue_update_cnt_from_last_dump(FileCacheType t
 
 void LRUQueueRecorder::reset_lru_queue_update_cnt_from_last_dump(FileCacheType type) {
     _lru_queue_update_cnt_from_last_dump[type] = 0;
+}
+
+size_t LRUQueueRecorder::lru_log_queue_size(FileCacheType type) const {
+    return _lru_log_queue_size[file_cache_type_index(type)].load(std::memory_order_relaxed);
+}
+
+bool LRUQueueRecorder::reserve_lru_log_queue_slot(FileCacheType type) {
+    int64_t queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    if (queue_limit <= 0) {
+        return false;
+    }
+    auto& queue_size = _lru_log_queue_size[file_cache_type_index(type)];
+    size_t cur_size = queue_size.load(std::memory_order_relaxed);
+    while (cur_size < static_cast<size_t>(queue_limit)) {
+        if (queue_size.compare_exchange_weak(cur_size, cur_size + 1, std::memory_order_relaxed)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void LRUQueueRecorder::release_lru_log_queue_slot(FileCacheType type) {
+    auto& queue_size = _lru_log_queue_size[file_cache_type_index(type)];
+    size_t cur_size = queue_size.load(std::memory_order_relaxed);
+    while (true) {
+        DORIS_CHECK(cur_size > 0);
+        if (queue_size.compare_exchange_weak(cur_size, cur_size - 1, std::memory_order_relaxed)) {
+            return;
+        }
+    }
 }
 
 } // end of namespace doris::io
