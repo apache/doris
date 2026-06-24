@@ -74,7 +74,7 @@ suite("test_s3_file_writer_submit_error", "p0, nonConcurrent") {
         "enable_packed_file": "false"
     ]) {
         try {
-            sql """ SET enable_file_cache = false """
+            sql """ SET disable_file_cache = true """
             disableDebugPoints()
 
             runWithDebugPoint("submit_err", "fail", submitUploadBufferErrorPoint)
