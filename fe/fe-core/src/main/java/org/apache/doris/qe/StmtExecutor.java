@@ -199,6 +199,10 @@ public class StmtExecutor {
 
     @Setter
     private volatile Coordinator coord = null;
+    // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
+    // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
+    // is skipped.
+    private volatile boolean deferredForArrowFlight = false;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
@@ -1035,6 +1039,23 @@ public class StmtExecutor {
         QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
     }
 
+    public boolean isDeferredForArrowFlight() {
+        return deferredForArrowFlight;
+    }
+
+    // Finalize an Arrow Flight query whose coordinator was kept alive across the
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
+    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    public void finalizeArrowFlightQuery() {
+        try {
+            if (coord != null) {
+                coord.close();
+            }
+        } finally {
+            finalizeQuery();
+        }
+    }
+
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
@@ -1470,6 +1491,16 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                // The BE keeps scanning and pulling results after GetFlightInfo returns; for an
+                // external-table scan in batch mode it lazily fetches splits from the FE during the
+                // later DoGet phase. Keep the coordinator (and the batch SplitSource its scan nodes
+                // hold) alive by deferring its close to ConnectContext, instead of closing it in the
+                // finally block below which would release the SplitSource too early. See #62259.
+                // (Point queries use a different coordBase and are not deferred.)
+                if (coordBase == coord) {
+                    deferredForArrowFlight = true;
+                    context.addFlightSqlDeferredExecutor(this);
+                }
                 return;
             }
 
@@ -1579,7 +1610,12 @@ public class StmtExecutor {
             this.coord = null;
             throw e;
         } finally {
-            coordBase.close();
+            // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
+            // (next query / connection teardown), so the BE can still fetch splits during DoGet.
+            // See #62259.
+            if (!deferredForArrowFlight) {
+                coordBase.close();
+            }
         }
     }
 
