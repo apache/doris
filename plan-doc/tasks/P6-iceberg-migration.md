@@ -461,7 +461,7 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 | ID | 标题 | dep | 状态 |
 |---|---|---|---|
 | **P6.5-T01** | 本设计 + recon + 用户二签字（0 产品码）| — | ✅ 2026-06-24（见下实现记录）|
-| **P6.5-T02** | `IcebergTableHandle` sys 变体（`sysTableName` 字段 + `forSystemTable`〔**保留** snapshot pin，偏差①〕+ `isSystemTable()` + equals/hashCode/序列化）+ UT | T01 | ⬜ |
+| **P6.5-T02** | `IcebergTableHandle` sys 变体（`sysTableName` 字段 + `forSystemTable`〔**保留** snapshot pin，偏差①〕+ `isSystemTable()` + equals/hashCode/序列化）+ UT | T01 | ✅ 2026-06-24（见下实现记录）|
 | **P6.5-T03** | `IcebergConnectorMetadata.listSupportedSysTables` + `getSysTableHandle`（+ `isSupportedSysTable` guard + `executeAuthenticated` + `MetadataTableUtils` 构建 + position_deletes 不上报，偏差③）+ UT（含 seam-identity）| T02 | ⬜ |
 | **P6.5-T04** | `IcebergConnectorMetadata.getTableSchema` sys 分支（parse metadata-table schema + mapping flag 透传，偏差⑤）+ UT | T03 | ⬜ |
 | **P6.5-T05** | `IcebergScanPlanProvider`/`IcebergScanRange` sys split 路（planFiles→序列化 `FileScanTask`→`serialized_split`+FORMAT_JNI + time-travel useSnapshot/useRef，偏差①②）+ UT | T04 | ⬜ |
@@ -481,3 +481,16 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 - **文档同步五步**：task 表（P6.5 phase 行 ❌→🔵 + 本 P6.5 section + T01 记录）/ PROGRESS / connectors/iceberg.md / decisions-log（无新 D）/ deviations-log（无新 DV）；HANDOFF 覆盖式。
 - **gate**：0 产品码 → iceberg 仍不在 `SPI_READY_TYPES`，无构建/UT 变更。
 - **下一步 = P6.5-T02**（`IcebergTableHandle` sys 变体，TDD；**待用户批准进 T02 + 确认设计方向 §4 保留 snapshot pin / §5 无新 seam**）。
+
+### P6.5-T02 实现记录（2026-06-24，✅ 已实现 + 验证（TDD），**未 push**）
+
+> **进 T02 前用户二次签字（AskUserQuestion）**：决策 A = `forSystemTable` **保留** snapshot/ref/schemaId pin（≠ paimon 清零，偏差①——iceberg sys 表合法时间旅行）；决策 B = **无新 seam**（T03 复用 `loadTable` + 连接器内 `MetadataTableUtils`，净 0 新 SPI）。两项均选推荐方向。
+- **改动 = 单文件 `IcebergTableHandle.java`（连接器，dormant）+ 其 UT**。镜像 `PaimonTableHandle.forSystemTable`/`isSystemTable`/`getSysTableName`，**但 snapshot pin 与 sys 共存而非清零**（偏差①）：
+  - 加 `private final String sysTableName`（**非 transient**，小写 bare 名，`null`=普通表）；公开 `forSystemTable(db, table, sysName, long snapshotId, String ref, long schemaId)` 工厂〔保留 pin〕；`getSysTableName()` + `isSystemTable()`。
+  - `equals`/`hashCode`/`toString` 纳入 `sysTableName`（既有 snapshot 字段已在身份内——`db.t$snapshots@v1` ≠ `@v2` ≠ `db.t`）。
+  - `withSnapshot` **保留** `sysTableName`（copy 工厂不得把 sys handle 退化为普通表，镜像 paimon `withScanOptions`/`withBranch`）。
+- **设计偏差修正（Rule 7/12，对照实码）**：设计 §4 工厂签名写 boxed `Long/Integer`，但实码字段/getter 是 **primitive `long`**（`NO_PIN=-1L` sentinel）→ 实现用 `long snapshotId`/`long schemaId` 对齐既有风格（conformance，非方向变更）。
+- **TDD**：先写 9 UT（RED：test-compile 报 `cannot find symbol forSystemTable/isSystemTable/getSysTableName`，证缺特性非笔误）→ 实现（GREEN）→ **mutation-check**（坑：把 `forSystemTable` 清 pin→`IcebergTableHandleTest` 4 红〔`forSystemTableRetainsSnapshotPin`/`RetainsRefPin`/`sysHandleAtDifferentVersionsAreDifferent`/`SurvivesJavaSerializationRoundTrip`〕→复绿；证测试真 pin 偏差① 不变式）。
+- **验证（重跑 surefire 实证，非凭 `@Test` 计数，Rule 12）**：`IcebergTableHandleTest` **14/0/0**（5 旧 + 9 新，方法名核 XML）；连接器全量 **503/0/1**（39 类，= 494 基线 + 9）；checkstyle 0；import-gate exit 0；`CatalogFactory` 未改 → iceberg 仍**不在** `SPI_READY_TYPES`〔`:51`〕。**无新 D / DV**（DV 登记延后 T07 批量；偏差① 是 parity-保留的内部设计选择，legacy `IcebergSysExternalTable` 同样 honor 时间旅行，非 pre-flip 行为偏差）。
+- **dormant 边界**：iceberg 表 pre-flip 仍是 `IcebergExternalTable`，此 handle sys 变体无调用方（T03 起接线）→ 零行为变更。
+- **下一步 = P6.5-T03**（`IcebergConnectorMetadata.listSupportedSysTables` + `getSysTableHandle`：`isSupportedSysTable` guard + `executeAuthenticated` 内 `MetadataTableUtils` 构 metadata-table〔决策 B 无新 seam〕+ position_deletes 不上报 + seam-identity UT）。

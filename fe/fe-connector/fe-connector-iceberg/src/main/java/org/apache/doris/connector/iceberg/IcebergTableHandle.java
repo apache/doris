@@ -39,6 +39,12 @@ import java.util.Objects;
  * </ul>
  * The handle is immutable: {@link #withSnapshot} returns a NEW handle (the pin is part of the handle
  * identity, so {@link #equals}/{@link #hashCode}/{@link #toString} include it).
+ *
+ * <p>A handle may also represent a <b>system table</b> (e.g. {@code t$snapshots}); see
+ * {@link #forSystemTable}. For a system handle {@link #sysTableName} is the bare sys-table name (no
+ * {@code "$"}) and {@link #isSystemTable()} returns true. Unlike paimon's {@code forSystemTable},
+ * the snapshot/ref/schema pin is RETAINED on a system handle because iceberg system tables legally
+ * time-travel ({@code t$snapshots FOR VERSION AS OF ...}).
  */
 public class IcebergTableHandle implements ConnectorTableHandle {
 
@@ -53,16 +59,41 @@ public class IcebergTableHandle implements ConnectorTableHandle {
     private final String ref;
     private final long schemaId;
 
+    /**
+     * Bare system-table name (no {@code "$"}), lower-cased by the caller
+     * ({@code IcebergConnectorMetadata.getSysTableHandle}), or {@code null} for a normal data-table
+     * handle. Non-transient: the JNI sys-table read happens on a DESERIALIZED handle, so a deserialized
+     * sys handle must still know it is a sys table (and at which snapshot) — otherwise it would silently
+     * read the base data table at the latest version. It is part of the handle identity (a
+     * {@code t$snapshots} read is a different table than {@code t}), so {@link #equals}/{@link #hashCode}/
+     * {@link #toString} include it.
+     */
+    private final String sysTableName;
+
     public IcebergTableHandle(String dbName, String tableName) {
-        this(dbName, tableName, NO_PIN, null, NO_PIN);
+        this(dbName, tableName, NO_PIN, null, NO_PIN, null);
     }
 
-    private IcebergTableHandle(String dbName, String tableName, long snapshotId, String ref, long schemaId) {
+    private IcebergTableHandle(String dbName, String tableName, long snapshotId, String ref, long schemaId,
+            String sysTableName) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.snapshotId = snapshotId;
         this.ref = ref;
         this.schemaId = schemaId;
+        this.sysTableName = sysTableName;
+    }
+
+    /**
+     * Builds a system-table handle for {@code db.table$sysName} (e.g. {@code t$snapshots}). Unlike
+     * paimon's {@code forSystemTable}, the snapshot/ref/schema pin is RETAINED and threaded straight
+     * through: iceberg system tables legally time-travel ({@code FOR VERSION/TIME AS OF}), so a pinned
+     * sys read must honor the pin (deviation 1). {@code sysName} is the bare lower-cased name (no
+     * {@code "$"}); the caller normalizes it.
+     */
+    public static IcebergTableHandle forSystemTable(String dbName, String tableName, String sysName,
+            long snapshotId, String ref, long schemaId) {
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysName);
     }
 
     public String getDbName() {
@@ -88,6 +119,16 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return schemaId;
     }
 
+    /** Bare system-table name (no {@code "$"}), or {@code null} for a normal data-table handle. */
+    public String getSysTableName() {
+        return sysTableName;
+    }
+
+    /** Whether this handle represents an iceberg system table (e.g. {@code t$snapshots}). */
+    public boolean isSystemTable() {
+        return sysTableName != null;
+    }
+
     /** Whether this handle carries an explicit MVCC / time-travel pin (a snapshot id or a tag/branch ref). */
     public boolean hasSnapshotPin() {
         return snapshotId >= 0 || ref != null;
@@ -98,7 +139,9 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      * {@code PaimonTableHandle.withScanOptions}/{@code withBranch} but with iceberg's typed carriers.
      */
     public IcebergTableHandle withSnapshot(long snapshotId, String ref, long schemaId) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId);
+        // sysTableName is preserved: threading a resolved time-travel pin in must not degrade a sys
+        // handle (t$snapshots) into a normal data-table handle. Mirrors paimon withScanOptions/withBranch.
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName);
     }
 
     @Override
@@ -114,17 +157,21 @@ public class IcebergTableHandle implements ConnectorTableHandle {
                 && schemaId == that.schemaId
                 && Objects.equals(dbName, that.dbName)
                 && Objects.equals(tableName, that.tableName)
-                && Objects.equals(ref, that.ref);
+                && Objects.equals(ref, that.ref)
+                && Objects.equals(sysTableName, that.sysTableName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId);
+        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, sysTableName);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("IcebergTableHandle{").append(dbName).append('.').append(tableName);
+        if (sysTableName != null) {
+            sb.append('$').append(sysTableName);
+        }
         if (hasSnapshotPin()) {
             sb.append(", snapshotId=").append(snapshotId).append(", ref=").append(ref)
                     .append(", schemaId=").append(schemaId);
