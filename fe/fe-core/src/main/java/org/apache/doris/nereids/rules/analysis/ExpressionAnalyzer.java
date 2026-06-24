@@ -397,7 +397,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
 
-        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        List<Slot> scopeSlots = qualifier.isEmpty() ? getScope().getAsteriskSlots() : getScope().getSlots();
         ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
         for (Slot slot : scopeSlots) {
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
