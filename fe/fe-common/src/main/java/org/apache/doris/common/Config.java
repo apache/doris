@@ -464,6 +464,13 @@ public class Config extends ConfigBase {
             "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
+    @ConfField(description = {
+            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
+                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
+            "The maximum number of extra reads Jetty performs for unconsumed request content. "
+                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    public static int jetty_server_max_unconsumed_request_content_reads = -1;
+
     @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 1MB。",
             "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
     public static int jetty_server_max_http_header_size = 1048576;
@@ -3511,6 +3518,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3546,6 +3568,23 @@ public class Config extends ConfigBase {
             "streamload route policy, available options are "
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
+                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
+            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
+                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
+                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
+            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
+                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
+                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下是否启用 group commit 的 streamload BE 转发功能。"

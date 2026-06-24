@@ -1317,7 +1317,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -1361,7 +1361,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
                   << ", with timeout: " << timeout_ms << " ms";
     }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-    manager.warm_up_rowset(rs_meta, timeout_ms);
+    manager.warm_up_rowset(rs_meta, table_id, timeout_ms);
     return st;
 }
 
