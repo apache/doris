@@ -20,10 +20,12 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemCapability;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -107,6 +109,29 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
      */
     default Set<String> sensitivePropertyKeys() {
         return Collections.emptySet();
+    }
+
+    /**
+     * Negotiates the capabilities this provider exposes for the given bound configuration.
+     *
+     * <p>Capability is a function of the resolved configuration, not of the provider type alone:
+     * the same provider may expose different capabilities depending on the config (e.g. Ozone via
+     * the S3 gateway has no {@link FileSystemCapability#ATOMIC_RENAME}, but Ozone via {@code ofs://}
+     * does). Defaults to the empty set; providers override to declare what they support. Framework
+     * code that only holds the raw property map should call {@link #capabilities(Map)}, which binds
+     * first.
+     */
+    default Set<FileSystemCapability> capabilities(P boundProperties) {
+        return EnumSet.noneOf(FileSystemCapability.class);
+    }
+
+    /**
+     * Bridges {@link #capabilities(P)} for framework code that holds only the raw property map.
+     * Binds the properties, then negotiates capabilities against the bound configuration. Mirrors
+     * the {@link #create(P)} / {@link #create(Map)} pair.
+     */
+    default Set<FileSystemCapability> capabilities(Map<String, String> properties) {
+        return capabilities(bind(properties));
     }
 
     /**
