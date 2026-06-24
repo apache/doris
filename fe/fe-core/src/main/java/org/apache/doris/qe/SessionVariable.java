@@ -1058,6 +1058,22 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
 
+    // Enable GroupJoin fusion: fuse INNER hash join + hash aggregation into a single GroupJoin operator
+    // when the GROUP BY keys are equivalent to the equi-join keys. The hash table is reused for both
+    // join and aggregation, eliminating the need for a separate aggregation pass.
+    @VarAttrDef.VarAttr(name = "enable_group_join_fusion", needForward = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否启用 GroupJoin 融合算子（实验特性）。"
+                    + "当 GROUP BY 键与 equi-join 键等价时，将 INNER hash join 与 hash agg 融合为单个算子",
+                    "Enable GroupJoin fusion (experimental). "
+                    + "Fuse INNER hash join + hash agg into a single operator when GROUP BY keys "
+                    + "are equivalent to equi-join keys"})
+    public boolean enableGroupJoinFusion = false;
+
+    public boolean isEnableGroupJoinFusion() {
+        return enableGroupJoinFusion;
+    }
+
     // Experimental: enable pushing down virtual slots (common sub-expressions) into OlapScan.
     // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
     @VarAttrDef.VarAttr(name = "enable_virtual_slot_for_cse", needForward = true,
