@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "CLucene.h"
+#include "common/config.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 
@@ -29,7 +30,15 @@ using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
 
-TEST(KuromojiAnalyzerTest, BuiltinDispatchTokenizes) {
+class KuromojiAnalyzerTest : public ::testing::Test {
+protected:
+    bool _saved = false;
+    void SetUp() override { _saved = config::enable_kuromoji_analyzer; }
+    void TearDown() override { config::enable_kuromoji_analyzer = _saved; }
+};
+
+TEST_F(KuromojiAnalyzerTest, BuiltinDispatchTokenizes) {
+    config::enable_kuromoji_analyzer = true;
     auto analyzer = InvertedIndexAnalyzer::create_builtin_analyzer(
             InvertedIndexParserType::PARSER_KUROMOJI, INVERTED_INDEX_PARSER_KUROMOJI_SEARCH, "true",
             "none");
@@ -46,6 +55,15 @@ TEST(KuromojiAnalyzerTest, BuiltinDispatchTokenizes) {
         out.emplace_back(t.termBuffer<char>(), t.termLength<char>());
     }
     EXPECT_EQ(out, (std::vector<std::string> {"東", "京", "都"}));
+}
+
+TEST_F(KuromojiAnalyzerTest, DisabledByConfigThrows) {
+    config::enable_kuromoji_analyzer = false;
+    EXPECT_ANY_THROW({
+        (void)InvertedIndexAnalyzer::create_builtin_analyzer(
+                InvertedIndexParserType::PARSER_KUROMOJI, INVERTED_INDEX_PARSER_KUROMOJI_SEARCH,
+                "true", "none");
+    });
 }
 
 } // namespace doris::segment_v2::inverted_index

@@ -1311,6 +1311,8 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// The kuromoji (Japanese) analyzer
+DEFINE_mBool(enable_kuromoji_analyzer, "false");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");

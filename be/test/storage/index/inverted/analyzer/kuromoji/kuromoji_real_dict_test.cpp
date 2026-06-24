@@ -125,6 +125,8 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
     const std::string saved = doris::config::inverted_index_dict_path;
     doris::config::inverted_index_dict_path =
             std::string(home != nullptr ? home : ".") + "/be/dict";
+    const bool saved_enable = doris::config::enable_kuromoji_analyzer;
+    doris::config::enable_kuromoji_analyzer = true;
 
     std::vector<std::string> toks;
     {
@@ -147,6 +149,7 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
         }
     }
     doris::config::inverted_index_dict_path = saved;
+    doris::config::enable_kuromoji_analyzer = saved_enable;
 
     std::cout << "analyzer tokens for 東京都に住んでいます:";
     for (const auto& t : toks) {
