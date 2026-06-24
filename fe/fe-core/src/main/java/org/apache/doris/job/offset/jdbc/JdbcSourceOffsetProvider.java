@@ -882,7 +882,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (body.getCode() != RestApiStatusCode.OK.code) {
             throw new JobException(response);
         }
-        return objectMapper.convertValue(body.getData(), dataType);
+        try {
+            return objectMapper.convertValue(body.getData(), dataType);
+        } catch (Exception e) {
+            throw new JobException(response);
+        }
     }
 
     protected boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {

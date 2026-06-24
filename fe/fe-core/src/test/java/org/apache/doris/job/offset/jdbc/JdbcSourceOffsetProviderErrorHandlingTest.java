@@ -26,6 +26,7 @@ import org.junit.Test;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Covers the remote-error handling added to {@link JdbcSourceOffsetProvider}:
@@ -57,6 +58,20 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
         } catch (JobException e) {
             Assert.assertTrue("the real remote error must be surfaced, got: " + e.getMessage(),
                     e.getMessage().contains(realError));
+        }
+    }
+
+    @Test
+    public void testParseSuccessEnvelopeWithIncompatibleDataSurfacesRawResponse() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        // code=0 (remote thinks it succeeded) but data is a String where a Map is expected.
+        String response = "{\"code\":0,\"msg\":\"Success\",\"data\":\"not-a-map\"}";
+        try {
+            provider.parseCdcResponseData(response, new TypeReference<Map<String, String>>() {});
+            Assert.fail("an incompatible success payload must throw");
+        } catch (JobException e) {
+            Assert.assertTrue("the raw response must be surfaced, got: " + e.getMessage(),
+                    e.getMessage().contains("not-a-map"));
         }
     }
 
