@@ -29,6 +29,9 @@ true	1	1000	2.3
 true	1	1000	2.3
 true	1	1000	2.3
 
+-- !hive_parquet_lz4_write --
+doris_lz4
+
 -- !insert01 --
 true	123	9876543210	abcdefghij	3.14	6.28	123.4567	varcharval	stringval
 
@@ -58,4 +61,7 @@ false	1	1000	\N
 true	1	1000	2.3
 true	1	1000	2.3
 true	1	1000	2.3
+
+-- !hive_orc_lz4_write --
+doris_lz4
 
