@@ -107,4 +107,32 @@ TEST_F(SnappyBlockDecompressorTest, SmallBlockExceedsOutputBuffer) {
     EXPECT_FALSE(st.ok());
 }
 
+// Even when the output buffer is large enough for the snappy payload, a small block whose
+// decompressed length exceeds the declared large-block length must be rejected. Otherwise
+// remaining_decompressed_large_block_len (uint32_t) underflows and the loop reports a bogus
+// need-more-input state instead of failing on the inconsistent stream.
+TEST_F(SnappyBlockDecompressorTest, SmallBlockExceedsLargeBlockLength) {
+    std::string raw(4096, 'a');
+    std::vector<uint8_t> stream = make_snappy_block(raw, /*large_block_len=*/1);
+
+    std::unique_ptr<Decompressor> decompressor;
+    ASSERT_TRUE(Decompressor::create_decompressor(CompressType::SNAPPYBLOCK, &decompressor).ok());
+
+    // Output buffer large enough for the real payload, so only the large-block length check
+    // can catch the inconsistency.
+    std::vector<uint8_t> output(raw.size());
+    size_t input_bytes_read = 0;
+    size_t decompressed_len = 0;
+    bool stream_end = false;
+    size_t more_input_bytes = 0;
+    size_t more_output_bytes = 0;
+
+    Status st = decompressor->decompress(stream.data(), static_cast<uint32_t>(stream.size()),
+                                         &input_bytes_read, output.data(),
+                                         static_cast<uint32_t>(output.size()), &decompressed_len,
+                                         &stream_end, &more_input_bytes, &more_output_bytes);
+
+    EXPECT_FALSE(st.ok());
+}
+
 } // namespace doris

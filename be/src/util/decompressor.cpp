@@ -686,6 +686,15 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
                         "decompressed_len: {}, available_output_len: {}",
                         decompressed_small_block_len, available_output_len);
             }
+            // The small block must also fit within the declared large-block length, otherwise
+            // remaining_decompressed_large_block_len (uint32_t) underflows below and the loop
+            // reports a bogus need-more-input state for an inconsistent stream.
+            if (decompressed_small_block_len > remaining_decompressed_large_block_len) {
+                return Status::InternalError(
+                        "Failed to do snappy decompress, small block exceeds large block length. "
+                        "decompressed_len: {}, remaining_large_block_len: {}",
+                        decompressed_small_block_len, remaining_decompressed_large_block_len);
+            }
             if (!snappy::RawUncompress(reinterpret_cast<const char*>(input_ptr),
                                        compressed_small_block_len,
                                        reinterpret_cast<char*>(output_ptr))) {
