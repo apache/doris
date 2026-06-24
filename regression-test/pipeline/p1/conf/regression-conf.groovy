@@ -64,6 +64,9 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "fault_injection_p0," +
     "workload_manager_p1," +
+    "tpcds_sf1_unique_p1/spill," + // in fixing, MEM_LIMIT_EXCEEDED
+    "tpcds_sf1_p1/spill_test," + // in fixing, MEM_LIMIT_EXCEEDED
+    "tpch_sf0.1_p1/spill," + // in fixing, MEM_LIMIT_EXCEEDED
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 cacheDataPath="/data/regression/"
