@@ -37,3 +37,10 @@ a-b-css-d
 x-y-z
 你好-世界-Doris-Nereids
 
+-- !concat_ws_array_null_full --
+1	[]	0
+2	[a,b,c]	5
+
+-- !concat_ws_array_null_filter --
+1	[]	0
+
