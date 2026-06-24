@@ -377,19 +377,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     echo "Finished patching ${MYSQL_SOURCE}"
 fi
 
-# protobuf patch to respect the C++ standard requested by Doris thirdparty build.
-if [[ " ${TP_ARCHIVES[*]} " =~ " PROTOBUF " ]]; then
-    if [[ "${PROTOBUF_SOURCE}" == "protobuf-21.11" ]]; then
-        cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/protobuf-21.11-respect-cxx-standard.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
-    fi
-    echo "Finished patching ${PROTOBUF_SOURCE}"
-fi
-
 # gsasl2 patch to fix link error such as mutilple func defination
 # when link target with kerberos
 if [[ " ${TP_ARCHIVES[*]} " =~ " GSASL " ]]; then

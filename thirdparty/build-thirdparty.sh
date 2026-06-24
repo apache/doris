@@ -445,7 +445,6 @@ build_protobuf() {
         LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -Dprotobuf_USE_EXTERNAL_GTEST=ON \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -726,7 +725,7 @@ build_re2() {
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
     "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
+        -DCMAKE_BUILD_TYPE=Release \
         -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
@@ -1031,7 +1030,6 @@ build_grpc() {
     "${CMAKE_CMD}" -DgRPC_INSTALL=ON \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DgRPC_BUILD_TESTS=OFF \
-        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -Dgrpc_csharp_plugin=OFF \
         -Dgrpc_node_plugin=OFF \
         -Dgrpc_objective_c_plugin=OFF \
@@ -1159,7 +1157,6 @@ build_abseil() {
     LDFLAGS="-L${TP_LIB_DIR}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -DABSL_ENABLE_INSTALL=ON \
         -DBUILD_DEPS=ON \
         -DCMAKE_BUILD_TYPE=Release \

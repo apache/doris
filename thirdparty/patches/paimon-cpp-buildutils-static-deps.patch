@@ -29,7 +29,8 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 57f6c50..d8e3cd0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -39,4 +39,6 @@ string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPERCASE_BUILD_TYPE)
+@@ -38,6 +38,8 @@ string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPERCASE_BUILD_TYPE)
+ 
 -set(CMAKE_CXX_STANDARD 17)
 +if(NOT DEFINED CMAKE_CXX_STANDARD)
 +    set(CMAKE_CXX_STANDARD 17)
