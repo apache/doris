@@ -26,6 +26,7 @@
 #include <memory>
 #include <ostream>
 #include <set>
+#include <string>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -96,6 +97,17 @@ bool is_current_level_meta_access_path(const TColumnAccessPath& path) {
     const auto& component = path.data_access_path.path[0];
     return StringCaseEqual()(component, ColumnIterator::ACCESS_OFFSET) ||
            StringCaseEqual()(component, ColumnIterator::ACCESS_NULL);
+}
+
+bool is_current_level_data_access_path(const TColumnAccessPath& path,
+                                       const std::string& column_name) {
+    return path.data_access_path.path.size() == 1 &&
+           StringCaseEqual()(path.data_access_path.path[0], column_name);
+}
+
+void remove_current_level_meta_access_paths(TColumnAccessPaths& paths) {
+    auto removed = std::ranges::remove_if(paths, is_current_level_meta_access_path);
+    paths.erase(removed.begin(), removed.end());
 }
 
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -1390,9 +1402,16 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
                    << " to READING_FOR_PREDICATE";
     }
 
+    const bool has_current_level_data_path =
+            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
+                return is_current_level_data_access_path(path, _column_name);
+            });
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths =
             DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
+    if (has_current_level_data_path) {
+        remove_current_level_meta_access_paths(sub_all_access_paths);
+    }
 
     if (sub_predicate_access_paths.empty() && _reading_flag == ReadingFlag::READING_FOR_PREDICATE) {
         // if no sub-column in predicate_access_paths, but current column is READING_FOR_PREDICATE,
@@ -1743,9 +1762,16 @@ Status StructFileColumnIterator::set_access_paths(
                    << " to READING_FOR_PREDICATE";
     }
 
+    const bool has_current_level_data_path =
+            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
+                return is_current_level_data_access_path(path, _column_name);
+            });
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths =
             DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
+    if (has_current_level_data_path) {
+        remove_current_level_meta_access_paths(sub_all_access_paths);
+    }
 
     // Check for NULL_MAP_ONLY mode: only read null map, skip all sub-columns
     _check_and_set_meta_read_mode(sub_all_access_paths);
@@ -2169,9 +2195,19 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
                    << " to READING_FOR_PREDICATE";
     }
 
+    const bool has_current_level_data_path =
+            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
+                return is_current_level_data_access_path(path, _column_name);
+            });
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths =
             DORIS_TRY(_get_sub_access_paths(predicate_access_paths, true));
+    if (has_current_level_data_path) {
+        // A current-level data path already reads the array offsets while materializing the array.
+        // Do not let a redundant current-level OFFSET/NULL path switch this iterator into a
+        // meta-only mode that would skip item data.
+        remove_current_level_meta_access_paths(sub_all_access_paths);
+    }
     const bool has_current_level_predicate_meta_path =
             std::ranges::any_of(sub_predicate_access_paths, is_current_level_meta_access_path);
     auto removed =
@@ -2192,6 +2228,9 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
                    << " to NULL_MAP_ONLY reading mode, item column set to SKIP_READING";
         return Status::OK();
     }
+    // OFFSET/NULL at the current array level is consumed by this iterator. After deciding that
+    // the array is not in a meta-only mode, do not forward those paths to the item iterator.
+    remove_current_level_meta_access_paths(sub_all_access_paths);
 
     const auto no_sub_column_to_skip = sub_all_access_paths.empty();
     const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
@@ -2258,9 +2297,16 @@ Status StringFileColumnIterator::set_access_paths(
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
     }
 
+    const bool has_current_level_data_path =
+            std::ranges::any_of(all_access_paths, [this](const TColumnAccessPath& path) {
+                return is_current_level_data_access_path(path, _column_name);
+            });
     // Strip the column name from path[0] before checking for meta-only modes.
     // Raw paths look like ["col_name", "OFFSET"] or ["col_name", "NULL"].
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
+    if (has_current_level_data_path) {
+        remove_current_level_meta_access_paths(sub_all_access_paths);
+    }
     _check_and_set_meta_read_mode(sub_all_access_paths);
     // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
     // CHAR is stored padded to its declared length (see
@@ -2300,18 +2346,27 @@ Status StringFileColumnIterator::set_access_paths(
 FileColumnIterator::FileColumnIterator(std::shared_ptr<ColumnReader> reader) : _reader(reader) {}
 
 void ColumnIterator::_check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths) {
+    bool has_offset_path = false;
+    bool has_null_path = false;
     for (const auto& path : sub_all_access_paths) {
-        if (!path.data_access_path.path.empty()) {
-            if (StringCaseEqual()(path.data_access_path.path[0], ACCESS_OFFSET)) {
-                _read_mode = ReadMode::OFFSET_ONLY;
-                return;
-            } else if (StringCaseEqual()(path.data_access_path.path[0], ACCESS_NULL)) {
-                _read_mode = ReadMode::NULL_MAP_ONLY;
-                return;
-            }
+        if (!is_current_level_meta_access_path(path)) {
+            _read_mode = ReadMode::DEFAULT;
+            return;
+        }
+        const auto& component = path.data_access_path.path[0];
+        if (StringCaseEqual()(component, ACCESS_OFFSET)) {
+            has_offset_path = true;
+        } else {
+            has_null_path = true;
         }
     }
-    _read_mode = ReadMode::DEFAULT;
+    if (has_offset_path == has_null_path) {
+        _read_mode = ReadMode::DEFAULT;
+    } else if (has_offset_path) {
+        _read_mode = ReadMode::OFFSET_ONLY;
+    } else {
+        _read_mode = ReadMode::NULL_MAP_ONLY;
+    }
 }
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {

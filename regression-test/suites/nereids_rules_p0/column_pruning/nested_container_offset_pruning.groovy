@@ -42,9 +42,9 @@ suite("nested_container_offset_pruning") {
         )
     """
 
-    // cardinality(s.arr) only needs array offsets, but element_at(...).int_field also needs
-    // array item data. The redundant s.arr.OFFSET path must be removed even though the root slot
-    // itself is STRUCT.
+    // cardinality(s.arr) needs array offsets, and element_at(...).int_field also needs array item
+    // data. Keep both paths: the BE consumes the current array-level metadata at the array
+    // iterator without forwarding it to the item iterator.
     order_qt_struct_root_arr_mixed """
         SELECT id,
                cardinality(element_at(s, 'arr')),
@@ -52,9 +52,8 @@ suite("nested_container_offset_pruning") {
         FROM nested_container_offset_pruning_tbl ORDER BY id
     """
 
-    // Same issue for nested maps: length(element_at(s.m, 'a')) needs the key lookup path,
-    // while map_values(s.m)[1] needs full value data. Dedup must therefore keep KEYS + VALUES
-    // and drop only the redundant value-side OFFSET path under the nested map container.
+    // Same issue for nested maps: length(element_at(s.m, 'a')) needs the key lookup path and
+    // value-string offsets, while map_values(s.m)[1] needs full value data.
     order_qt_struct_root_map_mixed """
         SELECT id,
                length(element_at(element_at(s, 'm'), 'a')),
@@ -69,7 +68,7 @@ suite("nested_container_offset_pruning") {
             FROM nested_container_offset_pruning_tbl
         """
         contains "s.arr.*.int_field"
-        notContains "s.arr.OFFSET"
+        contains "s.arr.OFFSET"
     }
 
     explain {
@@ -80,6 +79,6 @@ suite("nested_container_offset_pruning") {
         """
         contains "s.m.KEYS"
         contains "s.m.VALUES"
-        notContains "OFFSET"
+        contains "s.m.VALUES.OFFSET"
     }
 }

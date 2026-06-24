@@ -269,16 +269,9 @@ public class NestedColumnPruning implements CustomRewriter {
             if (!accessTree.hasOffsetPath() && !accessTree.hasNullPath()) {
                 continue;
             }
-            int slotId = slot.getExprId().asInt();
             // Expand both sets before stripping so covering is complete.
             expandMapStarPaths(slot, allAccessPaths);
             expandMapStarPaths(slot, predicateAccessPaths);
-            // Predicate meta paths must only be stripped by paths that are also evaluated in the
-            // predicate phase.  A non-predicate data path may cover the same container for lazy
-            // materialization, but predicate evaluation still needs the container metadata (for
-            // example array offsets for cardinality()) before row filtering.
-            MetaPathStriper.strip(slotId, predicateAccessPaths, predicateAccessPaths);
-            MetaPathStriper.strip(slotId, allAccessPaths, allAccessPaths);
         }
 
         // second: build non-predicate access paths
@@ -308,8 +301,6 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
-                retainPredicatePathsInFinalAllAccessPaths(
-                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -320,45 +311,11 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
-                retainPredicatePathsInFinalAllAccessPaths(
-                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
 
         return result;
-    }
-
-    /**
-     * Keep predicate data access paths as a subset of final all access paths after NULL/OFFSET
-     * cleanup. Predicate paths are built from filter expressions first, but later all-path rewrites
-     * may drop metadata-only paths or collapse paths to whole-column access. Any predicate data path
-     * not present in final all paths must be removed before sending access info to BE. Predicate
-     * metadata paths are kept because predicate evaluation still needs them even when final lazy
-     * materialization reads the covering data path later.
-     *
-     * <p>Examples:
-     * <ul>
-     *   <li>All paths {@code [s]}, predicate paths {@code [s.city.NULL]} still keeps
-     *       {@code [s.city.NULL]} for predicate-phase NULL evaluation.</li>
-     *   <li>All paths {@code [s.city.NULL, s.zip]}, predicate paths
-     *       {@code [s.NULL, s.city.NULL, s.other]} becomes
-     *       {@code [s.NULL, s.city.NULL]}.</li>
-     * </ul>
-     */
-    private static void retainPredicatePathsInFinalAllAccessPaths(
-            List<ColumnAccessPath> predicatePaths, List<ColumnAccessPath> allPaths) {
-        if (predicatePaths.isEmpty()) {
-            return;
-        }
-
-        List<ColumnAccessPath> toRemove = new ArrayList<>();
-        for (ColumnAccessPath predicatePath : predicatePaths) {
-            if (!allPaths.contains(predicatePath) && !isMetaPath(predicatePath)) {
-                toRemove.add(predicatePath);
-            }
-        }
-        predicatePaths.removeAll(toRemove);
     }
 
     private static boolean isMetaPath(ColumnAccessPath path) {
