@@ -20,7 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.action.IcebergExecuteActionFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -52,6 +55,13 @@ public class ExecuteActionFactory {
             Optional<Expression> whereCondition,
             TableIf table) throws DdlException {
 
+        // Plugin-driven (connector SPI) tables route to the connector's ConnectorProcedureOps. iceberg becomes a
+        // PluginDrivenExternalTable only after entering SPI_READY_TYPES (P6.6), so this branch is dormant until
+        // the cutover; the legacy IcebergExternalTable branch below stays live (removed in P6.7).
+        if (table instanceof PluginDrivenExternalTable) {
+            return new ConnectorExecuteAction(actionType, properties,
+                    partitionNamesInfo, whereCondition, (PluginDrivenExternalTable) table);
+        }
         // Delegate to specific table engine factories
         if (table instanceof IcebergExternalTable) {
             return IcebergExecuteActionFactory.createAction(actionType, properties,
@@ -74,6 +84,17 @@ public class ExecuteActionFactory {
      * @return array of supported action type strings
      */
     public static String[] getSupportedActions(TableIf table) {
+        if (table instanceof PluginDrivenExternalTable) {
+            // Mirrors createAction's PluginDriven routing (dormant until P6.6). No live caller today — this is the
+            // forward-looking pathfinder so SHOW-style discovery exports the connector's procedure names at flip.
+            PluginDrivenExternalCatalog catalog =
+                    (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) table).getCatalog();
+            ConnectorProcedureOps procedureOps = catalog.getConnector().getProcedureOps();
+            if (procedureOps == null) {
+                return new String[0];
+            }
+            return procedureOps.getSupportedProcedures().toArray(new String[0]);
+        }
         if (table instanceof IcebergExternalTable) {
             return IcebergExecuteActionFactory.getSupportedActions();
         }
