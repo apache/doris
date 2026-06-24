@@ -15,17 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.iceberg.action;
+package org.apache.doris.foundation.util;
 
 /**
  * Interface for argument parsers that validate and parse string values to typed
  * objects.
  * This interface extends the validation concept to include type conversion and
  * storage.
- *
- * <p>Connector-local port of {@code org.apache.doris.common.ArgumentParser} (banned by the
- * fe-connector import gate). Verbatim except for the package; see {@link NamedArguments} for the
- * 4-A rationale (D-062).
  *
  * @param <T> The target type that this parser converts string values to
  */

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.foundation.util;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,7 +68,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testValidateWithRequiredArguments() throws AnalysisException {
+    void testValidateWithRequiredArguments() {
         // Register required arguments
         namedArguments.registerRequiredArgument("host", "Server host",
                 ArgumentParsers.nonEmptyString("host"));
@@ -88,7 +88,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testValidateWithOptionalArguments() throws AnalysisException {
+    void testValidateWithOptionalArguments() {
         // Register optional arguments with defaults
         namedArguments.registerOptionalArgument("timeout", "Request timeout", 30,
                 ArgumentParsers.positiveInt("timeout"));
@@ -114,7 +114,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testValidateWithMixedArguments() throws AnalysisException {
+    void testValidateWithMixedArguments() {
         // Register mixed required and optional arguments
         namedArguments.registerRequiredArgument("name", "Service name",
                 ArgumentParsers.nonEmptyString("name"));
@@ -144,7 +144,7 @@ class NamedArgumentsTest {
         Map<String, String> properties = new HashMap<>();
         // host is missing
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("Missing required argument: host"));
     }
@@ -157,7 +157,7 @@ class NamedArgumentsTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("host", "   "); // Empty string
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("host cannot be empty"));
     }
@@ -171,7 +171,7 @@ class NamedArgumentsTest {
         properties.put("timeout", "60");
         properties.put("unknown_param", "value"); // Unknown argument
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("Unknown argument: unknown_param"));
     }
@@ -184,7 +184,7 @@ class NamedArgumentsTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("port", "not-a-number");
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("Invalid value for argument 'port'"));
     }
@@ -197,13 +197,13 @@ class NamedArgumentsTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("port", "-1"); // Negative number
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("Invalid value for argument 'port'"));
     }
 
     @Test
-    void testAllowedArguments() throws AnalysisException {
+    void testAllowedArguments() {
         namedArguments.registerRequiredArgument("name", "Service name",
                 ArgumentParsers.nonEmptyString("name"));
         namedArguments.addAllowedArgument("system_param");
@@ -221,7 +221,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testGetTypedValues() throws AnalysisException {
+    void testGetTypedValues() {
         namedArguments.registerOptionalArgument("timeout", "Timeout", 30,
                 ArgumentParsers.positiveInt("timeout"));
         namedArguments.registerOptionalArgument("rate", "Rate", 1.5,
@@ -253,7 +253,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testGetValueWithGenericType() throws AnalysisException {
+    void testGetValueWithGenericType() {
         namedArguments.registerOptionalArgument("count", "Count", 100,
                 ArgumentParsers.positiveInt("count"));
 
@@ -275,7 +275,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testGetNullValues() throws AnalysisException {
+    void testGetNullValues() {
         namedArguments.registerOptionalArgument("optional_param", "Optional", null,
                 ArgumentParsers.nonEmptyString("optional_param"));
 
@@ -321,7 +321,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testValidateWithStringChoice() throws AnalysisException {
+    void testValidateWithStringChoice() {
         namedArguments.registerOptionalArgument("level", "Log level", "INFO",
                 ArgumentParsers.stringChoice("level", "DEBUG", "INFO", "WARN", "ERROR"));
 
@@ -333,13 +333,13 @@ class NamedArgumentsTest {
 
         // Test invalid choice
         properties.put("level", "INVALID");
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("must be one of"));
     }
 
     @Test
-    void testValidateWithRangedInt() throws AnalysisException {
+    void testValidateWithRangedInt() {
         namedArguments.registerOptionalArgument("port", "Port number", 8080,
                 ArgumentParsers.intRange("port", 1, 65535));
 
@@ -351,13 +351,13 @@ class NamedArgumentsTest {
 
         // Test out of range
         properties.put("port", "70000");
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> namedArguments.validate(properties));
         Assertions.assertTrue(exception.getMessage().contains("must be between 1 and 65535"));
     }
 
     @Test
-    void testMultipleValidationCalls() throws AnalysisException {
+    void testMultipleValidationCalls() {
         namedArguments.registerOptionalArgument("value", "Test value", 10,
                 ArgumentParsers.positiveInt("value"));
 
@@ -380,7 +380,7 @@ class NamedArgumentsTest {
     }
 
     @Test
-    void testValidateWithEmptyProperties() throws AnalysisException {
+    void testValidateWithEmptyProperties() {
         // Only optional arguments
         namedArguments.registerOptionalArgument("debug", "Debug mode", false,
                 ArgumentParsers.booleanValue("debug"));

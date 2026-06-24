@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.foundation.util;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

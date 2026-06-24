@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.foundation.util;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,6 +31,11 @@ import java.util.Set;
  * type-safe parsers and validate them against provided property maps.
  * After validation, parsed values are stored internally and can be retrieved
  * using type-safe getter methods.
+ *
+ * <p>Lives in {@code fe-foundation} so both the engine ({@code fe-core}) and the connector modules can
+ * share it. {@link #validate} signals failures with an unchecked {@link IllegalArgumentException} (the
+ * lowest common denominator across modules); callers wrap it in their own domain exception while keeping
+ * the message verbatim (e.g. {@code fe-core} re-wraps it as {@code AnalysisException}).
  *
  * <p>
  * Usage example:
@@ -116,16 +121,16 @@ public class NamedArguments {
      * 5. Store parsed values for later retrieval
      *
      * @param properties The property map to validate and parse
-     * @throws AnalysisException If validation or parsing fails
+     * @throws IllegalArgumentException If validation or parsing fails
      */
-    public void validate(Map<String, String> properties) throws AnalysisException {
+    public void validate(Map<String, String> properties) throws IllegalArgumentException {
         // Clear previous parsed values
         parsedValues.clear();
 
         // Check for unknown arguments
         for (String providedArg : properties.keySet()) {
             if (!isRegisteredArgument(providedArg) && !isAllowedArgument(providedArg)) {
-                throw new AnalysisException("Unknown argument: " + providedArg);
+                throw new IllegalArgumentException("Unknown argument: " + providedArg);
             }
         }
 
@@ -135,7 +140,7 @@ public class NamedArguments {
 
             // Check required arguments
             if (arg.isRequired() && stringValue == null) {
-                throw new AnalysisException("Missing required argument: " + arg.getName());
+                throw new IllegalArgumentException("Missing required argument: " + arg.getName());
             }
 
             // Determine the value to parse (either provided or default)
@@ -145,7 +150,7 @@ public class NamedArguments {
                 try {
                     valueToStore = arg.getParser().parse(stringValue);
                 } catch (IllegalArgumentException e) {
-                    throw new AnalysisException(String.format(
+                    throw new IllegalArgumentException(String.format(
                             "Invalid value for argument '%s': %s. %s",
                             arg.getName(), stringValue, e.getMessage()));
                 }

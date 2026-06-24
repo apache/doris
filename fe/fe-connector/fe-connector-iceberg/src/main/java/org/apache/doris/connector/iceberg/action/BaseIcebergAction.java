@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.foundation.util.NamedArguments;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -36,10 +37,11 @@ import java.util.Map;
  *
  * <p>Standalone connector port of legacy {@code datasource/iceberg/action/BaseIcebergAction} folded
  * together with the still-consumed half of {@code BaseExecuteAction}. It cannot extend the legacy base:
- * the import gate forbids {@code BaseExecuteAction}, {@code NamedArguments}, {@code PartitionNamesInfo}
- * and the nereids {@code Expression}. The legacy types are therefore replaced by the SPI's engine-neutral
- * carriers — {@code List<String>} partition names, {@link ConnectorPredicate} where, and
- * {@link ConnectorColumn} result columns.
+ * the import gate forbids {@code BaseExecuteAction}, {@code PartitionNamesInfo} and the nereids
+ * {@code Expression}. The legacy types are therefore replaced by the SPI's engine-neutral carriers —
+ * {@code List<String>} partition names, {@link ConnectorPredicate} where, and {@link ConnectorColumn}
+ * result columns. The argument framework ({@link NamedArguments} / {@code ArgumentParsers}) is the shared
+ * fe-foundation utility, so the engine and the connector validate against the same code.
  *
  * <p><b>Engine/connector split (D-062 §2).</b> The {@code ALTER} privilege check, the {@code ResultSet}
  * wrapping and the edit-log refresh stay in the engine; this base owns argument validation (§4 = 4-A) and
@@ -57,7 +59,8 @@ public abstract class BaseIcebergAction {
     protected final List<String> partitionNames;
     protected final ConnectorPredicate whereCondition;
 
-    // Named arguments for parameter validation (connector-local; see NamedArguments / §4 = 4-A).
+    // Named arguments for parameter validation. NamedArguments lives in fe-foundation (shared with the
+    // engine); the connector still owns the per-procedure argument specs and runs the validation (§4 = 4-A).
     protected final NamedArguments namedArguments = new NamedArguments();
 
     // Result columns, captured once at construction (mirrors BaseExecuteAction's resultSetMetaData).
@@ -82,7 +85,13 @@ public abstract class BaseIcebergAction {
      * {@code ALTER} privilege check before dispatch, so it is intentionally not repeated here.
      */
     public final void validate() {
-        namedArguments.validate(properties);
+        // NamedArguments (fe-foundation) signals failures with an unchecked IllegalArgumentException;
+        // re-wrap it as DorisConnectorException, keeping the message verbatim (T08 byte-parity).
+        try {
+            namedArguments.validate(properties);
+        } catch (IllegalArgumentException e) {
+            throw new DorisConnectorException(e.getMessage());
+        }
         validateIcebergAction();
     }
 

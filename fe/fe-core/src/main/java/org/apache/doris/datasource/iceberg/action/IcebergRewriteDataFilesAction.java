@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -29,6 +28,7 @@ import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
+import org.apache.doris.foundation.util.ArgumentParsers;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 

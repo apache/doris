@@ -47,6 +47,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Shared low-level utilities: the NamedArguments / ArgumentParsers argument framework used by the
+             ALTER TABLE EXECUTE procedure bodies (the engine validates against the same fe-foundation code).
+             fe-foundation has zero fe-core dependencies and a non-gated package (org.apache.doris.foundation),
+             so the connector depends on it directly. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Iceberg per-engine metastore backends + the shared MetaStoreProvider SPI (D-059 Q2=B): the
              per-flavor property / HiveConf / DLF-conf assembly ported in P6-T05/T07 reuses the shared
              Abstract{Hms,Dlf}MetaStoreProperties conf (toHiveConfOverrides / toDlfCatalogConf) via

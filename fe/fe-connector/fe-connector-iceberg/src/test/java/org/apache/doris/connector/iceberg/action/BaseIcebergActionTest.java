@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.foundation.util.ArgumentParsers;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
