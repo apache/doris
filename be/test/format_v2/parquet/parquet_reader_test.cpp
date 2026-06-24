@@ -992,9 +992,9 @@ TEST_F(NewParquetReaderTest, GlobalRowIdSchemaAndSelectionUseFileRowPosition) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 3);
 
-    const auto& ids = int32_data_column(*block.get_by_position(0).column);
-    const auto& values = string_data_column(*block.get_by_position(1).column);
-    const auto& rowids = string_data_column(*block.get_by_position(2).column);
+    const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+    const auto& values = nullable_nested_column<ColumnString>(block, 1);
+    const auto& rowids = assert_cast<const ColumnString&>(*block.get_by_position(2).column);
     ASSERT_EQ(ids.size(), 3);
     ASSERT_EQ(values.size(), 3);
     ASSERT_EQ(rowids.size(), 3);
