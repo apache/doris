@@ -104,7 +104,11 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
                 .tag("request_type", "SET_JOB")
                 .tag("job_id", request.job_id);
         if (request.__isset.event) {
-            st = manager.set_event(request.job_id, request.event);
+            const std::vector<int64_t>* table_ids_ptr = nullptr;
+            if (request.__isset.table_ids) {
+                table_ids_ptr = &request.table_ids;
+            }
+            st = manager.set_event(request.job_id, request.event, false, table_ids_ptr);
             if (st.ok()) {
                 break;
             }
