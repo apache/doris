@@ -11,8 +11,8 @@
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/iceberg/` |
 | **共享依赖** | `fe-connector-hms`（iceberg-HMS-flavor 用） |
 | **计划迁移阶段** | **P6**（最大阶段，5 周）|
-| **当前状态** | 🟢 **P6.1 DONE + P6.2 DONE + P6.3 进行中（T01~T08 ✅，剩 T09 收口）**：P6.1〔T01–T10〕7-flavor 装配 + 读元数据 parity + per-flavor 校验 + metastore 模块拆分；P6.2〔T01–T11〕scan+MVCC+cache+vended（UT 278/0/1）；**P6.3 写路径 RFC ✅ + T01~T08**（框架统一·SPI 收口 + jdbc planWrite + `IcebergConnectorTransaction` 骨架·op 选择·WriterHelper·begin guards + commit 校验套件·O5-2·V3 DV + sink 统一〔INSERT/OVERWRITE〕·写排序 SPI + DELETE/MERGE sink 方言〔T07a〕+ O5-2 生产半〔T07b〕+ 通用 `RowLevelDmlCommand` 壳·注册表·6 派发重接·O5-2 dormant〔T07c，commit `a61cd9262b9`〕+ parity 审计·deviation 中央登记 DV-041..044〔T08：审计 wf 40→20 confirmed→11 gap-fill〕；iceberg UT **389/0/1** + fe-core 30/0）。下一 = **T09 收口（= P6.3 DONE）**。**翻闸阻塞 = [DV-038]（field-id BE DCHECK）+ [DV-041]（写路径 visitPhysicalConnectorTableSink 缺合成列物化，DV-038 同主题新面）**，P6.6 前必修 |
-| **完成度** | ~70%（P6.1+P6.2 实现完 + P6.3 T01–T08；剩 P6.3 T09 收口 / P6.4 procedure / P6.5 sys-table / P6.6 翻闸）|
+| **当前状态** | 🟢 **P6.1 DONE + P6.2 DONE + P6.3 DONE（T01~T09 ✅）**：P6.1〔T01–T10〕7-flavor 装配 + 读元数据 parity + per-flavor 校验 + metastore 模块拆分；P6.2〔T01–T11〕scan+MVCC+cache+vended（UT 278/0/1）；**P6.3 写路径 RFC ✅ + T01~T09 = P6.3 DONE**（框架统一·SPI 收口 + jdbc planWrite + `IcebergConnectorTransaction` 骨架·op 选择·WriterHelper·begin guards + commit 校验套件·O5-2·V3 DV + sink 统一〔INSERT/OVERWRITE〕·写排序 SPI + DELETE/MERGE sink 方言〔T07a〕+ O5-2 生产半〔T07b〕+ 通用 `RowLevelDmlCommand` 壳·注册表·6 派发重接·O5-2 dormant〔T07c，commit `a61cd9262b9`〕+ parity 审计·deviation 中央登记 DV-041..044〔T08：审计 wf 40→20 confirmed→11 gap-fill〕+ 收口汇总设计·faithfulness 对抗验证〔T09，`designs/P6.3-T09-iceberg-write-summary-design.md`〕；iceberg UT **389/0/1** + fe-core 30/0）。下一 = **P6.4 procedures**（仍 behind gate）。**翻闸阻塞 = [DV-038]（field-id BE DCHECK）+ [DV-041]（写路径 visitPhysicalConnectorTableSink 缺合成列物化，DV-038 同主题新面）**，P6.6 前必修 |
+| **完成度** | ~72%（P6.1+P6.2+P6.3 实现完；剩 P6.4 procedure / P6.5 sys-table / P6.6 翻闸 / P6.7 删 legacy / P6.8 回归）|
 | **阶段拆分 spec** | [`tasks/P6-iceberg-migration.md`](../tasks/P6-iceberg-migration.md) |
 | **主 owner** | TBD |
 
@@ -90,10 +90,11 @@
 
 ## 进度日志
 
-### 2026-06-24（P6.3-T07c + T08 实现）
+### 2026-06-24（P6.3-T07c + T08 + T09 实现 ⇒ P6.3 DONE）
 
 - **T07c**（commit `a61cd9262b9`）通用 `RowLevelDmlCommand` 壳 + `RowLevelDmlTransform` 注册表 + `IcebergRowLevelDmlTransform` + 6 instanceof 派发站点重接（Update/DeleteFrom/MergeInto→capability）；合成留 `Iceberg{Delete,Update,Merge}Command` 原地经 transform 委派（D1：仅放宽 3 private→包级，单 live 循环，legacy loop transitional-dead→P6.7 删）；O5-2 现接 dormant（D2：新 `BaseExternalTableInsertExecutor.getConnectorTransactionOrNull()`→iceberg 走 legacy txn→null→不可达直到 P6.6）。fe-core 目标测 **104/0/0**（oracle `IcebergDDLAndDMLPlanTest` 14/0 byte-parity 铁证 + `IcebergRowLevelDmlTransformTest` 7/0）。对抗 `wf_a80f8edb-bed` = 24 raw/0 REAL/24 refuted。
 - **T08** 写路径 parity-UT 审计 + deviation 中央登记（设计 `designs/P6.3-T08-write-parity-audit-design.md`）。10 维对抗审计 `wf_c1067212-ab8`（132 agents）= 40 报告→**20 confirmed/20 refuted**→11 交付（8 新测 + 3 强化）：分区 identity 冲突 filter 窄化 / 非-identity 禁窄化 / snapshot 隔离 / PUFFIN DV dedup（连接器 +4）；dataLocation 级联 + ORC/codec 矩阵 + partitionSpecsJson 字节（+2+强化）；O5-2 per-conjunct drop + OR all-or-nothing（fe-core +1+1）；DELETE/UPDATE operation-literal 值断（oracle 2 强化）。**deviation 中央登记 DV-041**（🔴 翻闸 BLOCKER：通用 sink 缺合成列物化+分布=DV-038 同主题新面 + 休眠激活集）/ **DV-042**（北极星 iii 有界：DML 合成 fe-resident）/ **DV-043**（parity-忠实 correctness-bearing）/ **DV-044**（perf/cosmetic/EXPLAIN-diff）。mutation 实证 PUFFIN dedup 测可红已 revert。iceberg UT **389/0/1**（383→389）、fe-core 3 测类绿、0 SPI/BE/fe-core 产品/pom 改、iceberg 仍**不在** `SPI_READY_TYPES`。下一 = **T09 收口（= P6.3 DONE）**。
+- **T09**（收口 = P6.3 DONE）写汇总设计 `designs/P6.3-T09-iceberg-write-summary-design.md`（7 节，镜像 `P6-T11`）：架构总览 + T01–T08 逐 task 索引 + **写路径 SPI 收口核对**（与 P6.2「净 0 新 SPI」相反——P6.3 有意 SPI 统一：删双模型 fork + config-bag 三件套→单 `ConnectorTransaction` 写模型 + capability 派发）+ deviation 回指 DV-041..044 + 翻闸阻塞汇总 + 验收门 + 下一阶段。**faithfulness 对抗验证 `wf_9234a18e-1d9`**（6 cluster verifier refute-by-default + 1 completeness critic）= 全 CONFIRMED，唯 1 真错（§5 通用 `visitPhysicalConnectorTableSink` 行号 `:589-627`→实测 `:630-681`，`:589-627` 是 legacy delete+merge visitor）**已修**；critic cheap-check 证 UT 计数静态精确。纯文档 0 产品码、0 BE/pom、iceberg 仍**不在** `SPI_READY_TYPES`。**P6.3 全 9 task DONE**，下一 = **P6.4 procedures**（仍 behind gate）。
 
 ### 2026-06-23（P6.3 写路径 RFC ✅ + T01~T05 实现）
 
