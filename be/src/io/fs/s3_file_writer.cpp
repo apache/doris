@@ -168,16 +168,11 @@ Status S3FileWriter::close(bool non_block) {
         }
         if (!submit_status.ok()) {
             s3_file_writer_async_close_queuing << -1;
-            _async_close_pack = nullptr;
-            _state = State::OPENED;
             LOG(WARNING) << "failed to submit async close for "
                          << _obj_storage_path_opts.path.native()
                          << ", fallback to sync close, status=" << submit_status;
             _st = _close_impl();
-            _state = State::CLOSED;
-            if (_st.ok()) {
-                _record_close_latency();
-            }
+            _async_close_pack->promise.set_value(_st);
             return _st;
         }
         return Status::OK();

@@ -71,10 +71,11 @@ suite("test_s3_file_writer_submit_error", "p0, nonConcurrent") {
     """
 
     setBeConfigTemporary([
-        "enable_packed_file": "false"
+        "enable_file_cache": "false",
+        "enable_packed_file": "true",
+        "small_file_threshold_bytes": "1"
     ]) {
         try {
-            sql """ SET disable_file_cache = true """
             disableDebugPoints()
 
             runWithDebugPoint("submit_err", "fail", submitUploadBufferErrorPoint)
