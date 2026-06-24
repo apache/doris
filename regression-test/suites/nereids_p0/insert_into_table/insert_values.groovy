@@ -191,6 +191,8 @@ suite('nereids_insert_into_values') {
 
     // when disable insert strict, the longer varchar row will be truncated and inserted
     sql 'set enable_insert_strict = false'
+    sql "set enable_strict_cast = false"
+    sql 'set enable_insert_value_auto_cast = true'
     sql "insert into test_insert_more_string values (5, 'o'), (6, 'pqrst')"
 
     order_qt_select_test_insert_more_string "select * from test_insert_more_string"

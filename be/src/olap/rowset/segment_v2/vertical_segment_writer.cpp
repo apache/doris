@@ -22,6 +22,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
 #include <cassert>
 #include <memory>
 #include <ostream>
@@ -379,32 +380,44 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
-    if (block.rows() == 0) {
-        return;
+Status VerticalSegmentWriter::_append_row_store_column(const vectorized::Block& block,
+                                                       size_t row_pos, size_t num_rows,
+                                                       uint32_t cid) {
+    DCHECK(_tablet_schema->column(cid).is_row_store_column());
+    if (num_rows == 0) {
+        return Status::OK();
     }
-    MonotonicStopWatch watch;
-    watch.start();
-    int row_column_id = 0;
-    for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
-        if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<vectorized::ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
-            vectorized::DataTypeSerDeSPtrs serdes =
-                    vectorized::create_data_type_serdes(block.get_data_types());
-            std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
-                                                       _tablet_schema->row_columns_uids().end());
-            vectorized::JsonbSerializeUtil::block_to_jsonb(
-                    *_tablet_schema, block, *row_store_column,
-                    cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set);
-            break;
-        }
-    }
+    DCHECK_LE(row_pos + num_rows, block.rows());
 
-    VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
-               << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
-               << watch.elapsed_time() / 1000;
+    auto serdes = vectorized::create_data_type_serdes(block.get_data_types());
+    std::unordered_set<int32_t> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
+                                                   _tablet_schema->row_columns_uids().end());
+    size_t end_pos = row_pos + num_rows;
+    size_t batch_rows = _opts.num_rows_per_block;
+    static constexpr size_t kRowStoreBatchBytes = 4 * 1024 * 1024;
+    DCHECK_GT(batch_rows, 0);
+    for (size_t pos = row_pos; pos < end_pos;) {
+        size_t max_rows = std::min(batch_rows, end_pos - pos);
+        auto row_column = vectorized::ColumnString::create();
+        auto* row_store_column = row_column.get();
+        size_t rows = vectorized::JsonbSerializeUtil::block_to_jsonb(
+                *_tablet_schema, block, *row_store_column,
+                cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set, pos,
+                max_rows, kRowStoreBatchBytes);
+        DCHECK_GT(rows, 0);
+
+        auto typed_column = block.get_by_position(cid);
+        typed_column.column = std::move(row_column);
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                typed_column, 0, rows, cid));
+        auto [status, column] = _olap_data_convertor->convert_column_data(cid);
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(
+                _column_writers[cid]->append(column->get_nullmap(), column->get_data(), rows));
+        _olap_data_convertor->clear_source_content(cid);
+        pos += rows;
+    }
+    return Status::OK();
 }
 
 Status VerticalSegmentWriter::_probe_key_for_mow(
@@ -468,6 +481,15 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
         _mow_context->delete_bitmap->add(
                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         ++stats.num_rows_updated;
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_check_column_writer_disk_capacity(size_t cid) {
+    if (_data_dir != nullptr &&
+        _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
+                                                        _data_dir->path_hash());
     }
     return Status::OK();
 }
@@ -658,14 +680,15 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         RETURN_IF_ERROR(parse_variant_columns_in_block(full_block, *_tablet_schema));
     }
 
-    // row column should be filled here
-    // convert block to row store format
-    _serialize_block_to_row_column(full_block);
-
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     for (auto cid : missing_cids) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+        if (_tablet_schema->column(cid).is_row_store_column()) {
+            RETURN_IF_ERROR(_append_row_store_column(full_block, data.row_pos, data.num_rows, cid));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+            continue;
+        }
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                 &full_block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
@@ -824,10 +847,22 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // this column is not needed in read path for merge-on-write table
 
     // 7. fill row store column
-    _serialize_block_to_row_column(full_block);
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
+        if (!_tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
+        RETURN_IF_ERROR(_create_column_writer(cast_set<uint32_t>(cid), _tablet_schema->column(cid),
+                                              _tablet_schema));
+        RETURN_IF_ERROR(_append_row_store_column(full_block, data.row_pos, data.num_rows,
+                                                 cast_set<uint32_t>(cid)));
+        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+    }
 
     // 8. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
+        if (_tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
         if (cid != _tablet_schema->sequence_col_idx()) {
             RETURN_IF_ERROR(_create_column_writer(cast_set<uint32_t>(cid),
                                                   _tablet_schema->column(cid), _tablet_schema));
@@ -1009,11 +1044,21 @@ Status VerticalSegmentWriter::write_batch() {
     }
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        for (auto& data : _batched_blocks) {
-            // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*data.block);
+    bool should_write_row_store_column = _opts.write_type == DataWriteType::TYPE_DIRECT ||
+                                         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE;
+    if (should_write_row_store_column) {
+        for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+            if (!_tablet_schema->column(cid).is_row_store_column()) {
+                continue;
+            }
+            RETURN_IF_ERROR(
+                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+            for (auto& data : _batched_blocks) {
+                RETURN_IF_ERROR(
+                        _append_row_store_column(*data.block, data.row_pos, data.num_rows, cid));
+            }
+            RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
+            RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
         }
     }
 
@@ -1022,6 +1067,9 @@ Status VerticalSegmentWriter::write_batch() {
     // the key is cluster key column unique id
     std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+        if (should_write_row_store_column && _tablet_schema->column(cid).is_row_store_column()) {
+            continue;
+        }
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
@@ -1049,11 +1097,7 @@ Status VerticalSegmentWriter::write_batch() {
                                                          data.num_rows));
             _olap_data_convertor->clear_source_content();
         }
-        if (_data_dir != nullptr &&
-            _data_dir->reach_capacity_limit(_column_writers[cid]->estimate_buffer_size())) {
-            return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
-                                                            _data_dir->path_hash());
-        }
+        RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
         RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
     }
 

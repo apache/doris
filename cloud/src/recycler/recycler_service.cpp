@@ -236,7 +236,7 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
         std::ranges::for_each(resource_types, [&](const auto& resource_type) {
             int64_t to_recycle_num =
                     g_bvar_recycler_instance_last_round_to_recycle_num.get({id, resource_type});
-            int64_t to_recycle_bytes = to_recycle_bytes =
+            int64_t to_recycle_bytes =
                     g_bvar_recycler_instance_last_round_to_recycle_bytes.get({id, resource_type});
 
             ss << "Task Type: " << resource_type << "\n";

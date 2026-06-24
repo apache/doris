@@ -100,8 +100,12 @@ suite("test_colocate_join_of_column_order") {
     sql """insert into test_colocate_join_of_column_order_tb values(1,1);"""
     sql """insert into test_colocate_join_of_column_order_tc values(1,1);"""
 
+    // parallel_pipeline_task_num=1 keeps the bucket-shuffle downgrade from firing: with the default
+    // fuzzed value (0 -> auto ~cores/2) the heuristic totalBucketNum(10) < backEndNum*paraNum*0.8 can
+    // trip on a single-BE cloud cluster, turning ta's NATURAL distribution into EXECUTION_BUCKETED and
+    // forbidding the downstream COLOCATE. Pinning paraNum=1 makes the condition always false.
     explain {
-        sql("""select /*+ set_var(disable_join_reorder=true) */ * from test_colocate_join_of_column_order_ta join [shuffle] (select cast((c2 + 1) as bigint) c2 from test_colocate_join_of_column_order_tb) test_colocate_join_of_column_order_tb  on test_colocate_join_of_column_order_ta.c1 = test_colocate_join_of_column_order_tb.c2 join [shuffle] test_colocate_join_of_column_order_tc on test_colocate_join_of_column_order_tb.c2 = test_colocate_join_of_column_order_tc.c1;""");
+        sql("""select /*+ set_var(disable_join_reorder=true,parallel_pipeline_task_num=1) */ * from test_colocate_join_of_column_order_ta join [shuffle] (select cast((c2 + 1) as bigint) c2 from test_colocate_join_of_column_order_tb) test_colocate_join_of_column_order_tb  on test_colocate_join_of_column_order_ta.c1 = test_colocate_join_of_column_order_tb.c2 join [shuffle] test_colocate_join_of_column_order_tc on test_colocate_join_of_column_order_tb.c2 = test_colocate_join_of_column_order_tc.c1;""");
         contains "COLOCATE"
     }
 

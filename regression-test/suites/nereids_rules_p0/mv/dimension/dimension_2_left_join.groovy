@@ -210,7 +210,7 @@ suite("partition_mv_rewrite_dimension_2_1") {
         if (i == 0) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [ 0, 2, 4, 5, 10, 11]) {
+                if (j in [ 0, 2, 4, 5, 8, 10, 11]) {
                     mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
@@ -230,7 +230,7 @@ suite("partition_mv_rewrite_dimension_2_1") {
         } else if (i == 2) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [0, 2, 4, 5, 10, 11]) {
+                if (j in [0, 2, 4, 5, 8, 10, 11]) {
                     mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
@@ -281,7 +281,7 @@ suite("partition_mv_rewrite_dimension_2_1") {
         } else if (i == 7) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [4, 5, 7, 9, 10, 11]) {
+                if (j in [3, 4, 5, 7, 9, 10, 11]) {
                     mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {
@@ -301,7 +301,7 @@ suite("partition_mv_rewrite_dimension_2_1") {
         } else if (i == 9) {
             for (int j = 0; j < mv_list_1.size(); j++) {
                 logger.info("j:" + j)
-                if (j in [4, 5, 7, 9, 10, 11]) {
+                if (j in [3, 4, 5, 7, 9, 10, 11]) {
                     mv_rewrite_success(mv_list_1[j], mv_name)
                     compare_res(mv_list_1[j] + " order by 1,2,3,4,5")
                 } else {

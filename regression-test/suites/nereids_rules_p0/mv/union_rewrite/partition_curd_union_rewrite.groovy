@@ -195,9 +195,11 @@ suite ("partition_curd_union_rewrite") {
     """
     // wait partition is invalid
     sleep(5000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
@@ -209,9 +211,11 @@ suite ("partition_curd_union_rewrite") {
     """
     // Wait partition is invalid
     sleep(5000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     // Test when base table delete partition test
@@ -221,8 +225,10 @@ suite ("partition_curd_union_rewrite") {
     """
     // Wait partition is invalid
     sleep(3000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 }

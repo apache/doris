@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -36,8 +39,34 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
                     's3.path.style.access' = 'true'
             );
         """
+        // All tables in partition_db are pre-created by the docker preinstalled paimon script and are
+        // only read here. A freshly created Paimon catalog can occasionally return an incomplete table
+        // list on its first metadata fetch (catalog cold start), which can make this test flaky with
+        // "Table xxx does not exist in database [partition_db]". Wait until all expected tables are
+        // visible (refresh to drop any cached partial list) before querying.
+        // Note: binary_partitioned is intentionally excluded (its queries are skipped below).
+        def expectedTables = ["decimal_partitioned", "int_partitioned", "string_partitioned",
+                              "date_partitioned", "timestamp_partitioned", "bigint_partitioned",
+                              "boolean_partitioned", "float_partitioned",
+                              "null_str_partition_table"] as Set
+        Awaitility.await("wait for ${db_name} tables to be visible")
+                .atMost(60, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+            try {
+                sql """refresh catalog ${catalog_name}"""
+                def actualTables = sql("""show tables from `${catalog_name}`.`${db_name}`""")
+                        .collect { it[0] as String } as Set
+                if (!actualTables.containsAll(expectedTables)) {
+                    logger.warn("${db_name} not ready yet, missing tables: ${expectedTables - actualTables}")
+                    return false
+                }
+                return true
+            } catch (Exception e) {
+                logger.warn("waiting for ${db_name} tables to be visible: ${e.getMessage()}")
+                return false
+            }
+        }
         sql """use `${catalog_name}`.`${db_name}`;"""
-        
+
         def test_runtime_filter_partition_pruning = {
             qt_runtime_filter_partition_pruning_decimal1 """
                 select count(*) from decimal_partitioned where partition_key =

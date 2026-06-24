@@ -3727,6 +3727,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -3840,6 +3841,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     {
         std::string buffer;
@@ -3913,6 +3915,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -3998,6 +4001,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_self_heal_on_downloaded_not
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
 
     uint64_t before_self_heal = g_read_cache_self_heal_on_not_found.get_value();
@@ -4094,6 +4098,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_no_self_heal_on_non_not_fou
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
 
     std::string buffer(64_kb, '\0');
@@ -4242,6 +4247,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     bool flag1 = false;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
     auto sp = SyncPoint::get_instance();
@@ -4326,6 +4332,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -4846,6 +4853,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
     io::FileReaderOptions opts;
     opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     {
         FileReaderSPtr local_reader;
         ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader).ok());
@@ -7474,6 +7482,7 @@ TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -7959,6 +7968,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_ttl_index) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -8036,6 +8046,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     CachedRemoteFileReader reader(local_reader, opts);
     auto key = io::BlockFileCache::hash("tmp_file");
     EXPECT_EQ(reader._cache_hash, key);
@@ -8192,6 +8203,7 @@ TEST_F(BlockFileCacheTest, DISABLE_cached_remote_file_reader_direct_read_and_evi
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer;
@@ -8282,6 +8294,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer;
@@ -8429,6 +8442,22 @@ TEST_F(BlockFileCacheTest, finalize_partial_block) {
     }
 }
 
+TEST_F(BlockFileCacheTest, fs_file_cache_storage_finalize_missing_writer_returns_error) {
+    FSFileCacheStorage storage;
+    FileCacheKey key;
+    key.hash = io::BlockFileCache::hash("finalize-missing-writer");
+    key.offset = 4096;
+    key.meta.type = io::FileCacheType::NORMAL;
+    key.meta.expiration_time = 0;
+
+    auto st = storage.finalize(key);
+
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_TRUE(st.to_string().find("file cache finalize missing writer") != std::string::npos)
+            << st;
+    EXPECT_TRUE(st.to_string().find("offset=4096") != std::string::npos) << st;
+}
+
 TEST_F(BlockFileCacheTest, set_downloaded_empty_block_branch) {
     FileCacheKey key;
     key.hash = io::BlockFileCache::hash("set_downloaded_empty_block_branch");
@@ -8521,6 +8550,77 @@ TEST_F(BlockFileCacheTest, add_cell_rejects_oversized_size) {
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, lru_restore_size_mismatch_does_not_underflow_on_clear) {
+    std::string my_cache_path =
+            caches_dir / "lru_restore_size_mismatch_does_not_underflow_on_clear" / "";
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
+    }
+    fs::create_directories(my_cache_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1_mb;
+    settings.query_queue_elements = 30;
+    settings.capacity = 1_mb;
+    settings.max_file_block_size = 1_mb;
+    settings.max_query_cache_size = 1_mb;
+
+    io::BlockFileCache cache(my_cache_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    auto hash = io::BlockFileCache::hash("lru_restore_size_mismatch_does_not_underflow_on_clear");
+    io::CacheContext ctx;
+    TUniqueId qid;
+    qid.hi = 1;
+    qid.lo = 1;
+    ctx.query_id = qid;
+    ctx.cache_type = io::FileCacheType::NORMAL;
+    ReadStatistics rstats;
+    ctx.stats = &rstats;
+
+    constexpr size_t old_size = 128_kb;
+    constexpr size_t new_size = 64_kb;
+    constexpr size_t offset = 0;
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(hash, ctx, offset, old_size, io::FileBlock::State::DOWNLOADED,
+                                    cache_lock);
+        ASSERT_NE(cell, nullptr);
+        ASSERT_EQ(cell->file_block->range().size(), old_size);
+        ASSERT_EQ(cache._cur_cache_size, old_size);
+
+        auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache._storage.get());
+        ASSERT_NE(storage, nullptr);
+        ASSERT_TRUE(
+                storage->handle_already_loaded_block(&cache, hash, offset, new_size, cache_lock));
+        ASSERT_EQ(cell->file_block->range().size(), new_size);
+        ASSERT_EQ(cell->file_block->range().right, offset + new_size - 1);
+        ASSERT_EQ(cache._cur_cache_size, new_size);
+        ASSERT_EQ(cache.get_queue(io::FileCacheType::NORMAL).get_capacity(cache_lock), new_size);
+    }
+
+    cache.clear_file_cache_async();
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        ASSERT_EQ(cache._cur_cache_size, 0);
+        ASSERT_EQ(cache.get_queue(io::FileCacheType::NORMAL).get_capacity(cache_lock), 0);
+        ASSERT_TRUE(cache._files.empty());
+    }
+
+    if (fs::exists(my_cache_path)) {
+        fs::remove_all(my_cache_path);
     }
 }
 
