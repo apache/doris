@@ -368,7 +368,9 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
         Azure::Storage::Blobs::BlobClientOptions options;
-        options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        if (config::s3_client_retry_slow_down) {
+            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        }
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
@@ -380,7 +382,7 @@ int S3Accessor::init() {
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
-        // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
+        // Therefore, the policy can record retries after the RetryPolicy has handled the response.
         options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
@@ -414,7 +416,7 @@ int S3Accessor::init() {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry /*scaleFactor = 25*/);
+                config::max_s3_client_retry, config::s3_client_retry_slow_down);
 
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
