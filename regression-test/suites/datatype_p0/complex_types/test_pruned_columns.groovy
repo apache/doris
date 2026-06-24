@@ -175,11 +175,11 @@ suite("test_pruned_columns") {
     """
 
     qt_sql5_3 """
-        select /*+ set enable_prune_nested_column = 1; */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
+        select /*+ SET_VAR(enable_prune_nested_column=true) */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
     """
 
     qt_sql5_4 """
-        select /*+ set enable_prune_nested_column = 0; */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
+        select /*+ SET_VAR(enable_prune_nested_column=false) */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
     """
 
     sql """DROP TABLE IF EXISTS `tbl_test_pruned_columns_map`"""

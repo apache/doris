@@ -24,7 +24,9 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -66,10 +68,22 @@ public:
         return _get_sub_access_paths(access_paths, is_predicate);
     }
 
+    void check_and_set_meta_read_mode(const TColumnAccessPaths& access_paths) {
+        _check_and_set_meta_read_mode(access_paths);
+    }
+
     void convert_to_place_holder_column(MutableColumnPtr& dst, size_t count) {
         _convert_to_place_holder_column(dst, count);
     }
 };
+
+TColumnAccessPath create_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    TDataAccessPath data_access_path;
+    data_access_path.__set_path(std::move(path));
+    access_path.__set_data_access_path(std::move(data_access_path));
+    return access_path;
+}
 } // namespace
 
 class ColumnReaderTest : public ::testing::Test {
@@ -207,6 +221,29 @@ TEST_F(ColumnReaderTest, ReadingFlagPriorityAndNeedToRead) {
 
     iterator.set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
     EXPECT_EQ(iterator.reading_flag(), ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+}
+
+TEST_F(ColumnReaderTest, MetaReadModePrefersOffsetOverNull) {
+    auto assert_read_mode = [](TColumnAccessPaths access_paths, bool offset_only,
+                               bool null_map_only) {
+        TestColumnIterator iterator;
+        iterator.check_and_set_meta_read_mode(access_paths);
+        EXPECT_EQ(iterator.read_offset_only(), offset_only);
+        EXPECT_EQ(iterator.read_null_map_only(), null_map_only);
+    };
+
+    assert_read_mode(TColumnAccessPaths {}, false, false);
+    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET})}, true,
+                     false);
+    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_NULL})}, false,
+                     true);
+    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
+                                         create_access_path({ColumnIterator::ACCESS_NULL})},
+                     true, false);
+    assert_read_mode(TColumnAccessPaths {create_access_path({"child"})}, false, false);
+    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
+                                         create_access_path({"child"})},
+                     false, false);
 }
 
 TEST_F(ColumnReaderTest, PlaceHolderLifecycleInLazyMode) {
@@ -530,6 +567,112 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
               ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
 }
 
+TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
+    auto make_value_struct = []() {
+        auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        std::vector<ColumnIteratorUPtr> sub_iters;
+        auto sub_a = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        sub_a->set_column_name("a");
+        auto sub_b = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        sub_b->set_column_name("b");
+        sub_iters.emplace_back(std::move(sub_a));
+        sub_iters.emplace_back(std::move(sub_b));
+
+        auto value_struct = std::make_unique<StructFileColumnIterator>(
+                std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
+        value_struct->set_column_name("value");
+        return value_struct;
+    };
+
+    auto map_null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+            std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+    auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    map_key_iter->set_column_name("key");
+    auto map_iterator = std::make_unique<MapFileColumnIterator>(
+            std::make_shared<ColumnReader>(), std::move(map_null_iter), std::move(map_offsets_iter),
+            std::move(map_key_iter), make_value_struct());
+    map_iterator->set_column_name("m");
+
+    TColumnAccessPaths all_access_paths;
+    all_access_paths.emplace_back();
+    all_access_paths[0].data_access_path.path = {"m"};
+
+    TColumnAccessPaths predicate_access_paths;
+    predicate_access_paths.emplace_back();
+    predicate_access_paths[0].data_access_path.path = {"m", "KEYS"};
+    predicate_access_paths.emplace_back();
+    predicate_access_paths[1].data_access_path.path = {"m", "VALUES", "a"};
+
+    auto st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
+
+    EXPECT_EQ(map_iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(map_iterator->_key_iterator->_reading_flag,
+              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(map_iterator->_val_iterator->_reading_flag,
+              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+
+    auto* value_struct = static_cast<StructFileColumnIterator*>(map_iterator->_val_iterator.get());
+    EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
+              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
+              ColumnIterator::ReadingFlag::NEED_TO_READ);
+}
+
+TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
+    {
+        auto array_item_iterator =
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto array_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+        auto array_null_iter =
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        ArrayFileColumnIterator array_iterator(
+                std::make_shared<ColumnReader>(), std::move(array_offsets_iter),
+                std::move(array_item_iterator), std::move(array_null_iter));
+        array_iterator.set_column_name("a");
+
+        TColumnAccessPaths all_access_paths {
+                create_access_path({"a", ColumnIterator::ACCESS_OFFSET}),
+                create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {
+                create_access_path({"a", ColumnIterator::ACCESS_ALL})};
+
+        auto st = array_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
+        EXPECT_FALSE(array_iterator.read_offset_only());
+        EXPECT_EQ(array_iterator._item_iterator->_reading_flag,
+                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    }
+
+    {
+        auto map_null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+        auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto map_val_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        MapFileColumnIterator map_iterator(std::make_shared<ColumnReader>(),
+                                           std::move(map_null_iter), std::move(map_offsets_iter),
+                                           std::move(map_key_iter), std::move(map_val_iter));
+        map_iterator.set_column_name("m");
+
+        TColumnAccessPaths all_access_paths {
+                create_access_path({"m", ColumnIterator::ACCESS_OFFSET}),
+                create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {
+                create_access_path({"m", ColumnIterator::ACCESS_MAP_KEYS})};
+
+        auto st = map_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
+        EXPECT_FALSE(map_iterator.read_offset_only());
+        EXPECT_EQ(map_iterator._key_iterator->_reading_flag,
+                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(map_iterator._val_iterator->_reading_flag,
+                  ColumnIterator::ReadingFlag::SKIP_READING);
+    }
+}
+
 TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
     auto make_value_struct = []() {
         auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
@@ -842,7 +985,7 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
                   ColumnIterator::ReadingFlag::NEED_TO_READ);
         EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
+                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
     }
 
     {

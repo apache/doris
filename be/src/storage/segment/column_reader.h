@@ -422,7 +422,8 @@ public:
     static constexpr const char* ACCESS_NULL = "NULL";
 
     // Meta-only read modes:
-    // - OFFSET_ONLY: only read offset information (e.g., for array_size/map_size/string_length)
+    // - OFFSET_ONLY: read offsets while skipping actual child/string data. For nullable
+    //   complex columns, the parent null map is still materialized when needed.
     // - NULL_MAP_ONLY: only read null map (e.g., for IS NULL / IS NOT NULL predicates)
     // When these modes are enabled, actual content data is skipped.
     enum class ReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
