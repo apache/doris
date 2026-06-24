@@ -471,6 +471,16 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
         _num_threads_pending_start++;
     }
 
+    if (need_a_thread && _num_threads + _num_threads_pending_start == 1) {
+        Status status = create_thread();
+        if (!status.ok()) {
+            _num_threads_pending_start--;
+            thread_pool_submit_failed->increment(1);
+            return status;
+        }
+        need_a_thread = false;
+    }
+
     Task task;
     task.runnable = std::move(r);
     task.submit_time_wather.start();
@@ -682,6 +692,12 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
+    DBUG_EXECUTE_IF("ThreadPool.create_thread.inject_error", {
+        auto pool_name = dp->param<std::string>("name", "");
+        if (pool_name.empty() || pool_name == _name) {
+            return Status::InternalError("ThreadPool.create_thread.inject_error");
+        }
+    });
     return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }

@@ -46,6 +46,7 @@
 #include "gtest/gtest.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/random.h"
 #include "util/time.h"
@@ -174,6 +175,37 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMinimum) {
     EXPECT_EQ(0, _pool->_active_threads);
     _pool->shutdown();
     EXPECT_EQ(0, _pool->num_threads());
+}
+
+TEST_F(ThreadPoolTest, TestSubmitFailureDoesNotRetainTaskWithoutWorker) {
+    bool enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->clear();
+    Defer defer = [enable_debug_points] {
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = enable_debug_points;
+    };
+
+    constexpr auto kPoolName = "submit_failure_without_worker";
+    EXPECT_TRUE(rebuild_pool_with_builder(
+                        ThreadPoolBuilder(kPoolName).set_min_threads(0).set_max_threads(1))
+                        .ok());
+    DebugPoints::instance()->add_with_params("ThreadPool.create_thread.inject_error",
+                                             {{"name", kPoolName}});
+
+    std::atomic<int32_t> counter(0);
+    auto st = _pool->submit_func([&counter]() { counter++; });
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(0, counter.load());
+    EXPECT_EQ(0, _pool->get_queue_size());
+    EXPECT_EQ(0, _pool->num_threads_pending_start());
+    EXPECT_EQ(0, _pool->num_threads());
+
+    DebugPoints::instance()->clear();
+    EXPECT_TRUE(_pool->submit_func([&counter]() { counter++; }).ok());
+    _pool->wait();
+    EXPECT_EQ(1, counter.load());
+    _pool->shutdown();
 }
 
 TEST_F(ThreadPoolTest, TestThreadPoolWithNoMaxThreads) {

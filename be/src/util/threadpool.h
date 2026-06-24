@@ -305,7 +305,9 @@ private:
     // Create new thread.
     //
     // REQUIRES: caller has incremented '_num_threads_pending_start' ahead of this call.
-    // NOTE: For performance reasons, _lock should not be held.
+    // NOTE: For performance reasons, _lock should usually not be held.
+    // do_submit() may hold it when creating the first worker, so a thread creation failure
+    // cannot leave a submitted task queued without any worker.
     Status create_thread();
 
     // Aborts if the current thread is a member of this thread pool.
