@@ -65,27 +65,44 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             }
         }
     }
-    try {
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    String backend_id;
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
+    // Set a BE config on every backend (used to disable auto compaction cluster-wide).
+    def set_be_param = { paramName, paramValue ->
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            def (rcode, rout, rerr) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(rout.contains("OK"))
         }
+    }
+
+    backend_id = backendId_to_backendIP.keySet()[0]
+    def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+    logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+    assertEquals(code, 0)
+    def configList = parseJson(out.trim())
+    assert configList instanceof List
+
+    // Capture the original cluster-wide disable_auto_compaction so it can be restored.
+    boolean originalDisableAutoCompaction = false
+    for (Object ele in (List) configList) {
+        assert ele instanceof List<String>
+        if (((List<String>) ele)[0] == "disable_auto_compaction") {
+            originalDisableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
+        }
+    }
+
+    try {
+        // This test deterministically builds a [0-3] (>1G) single base rowset via manual
+        // compactions, then expects a manual base compaction to be REJECTED with E-808
+        // (input rowset exceeds base_compaction_dup_key_max_file_size_mbytes). Background
+        // auto compaction would race those manual steps and reshape the rowsets, making the
+        // result flaky, so disable it cluster-wide for the duration of the test.
+        set_be_param("disable_auto_compaction", "true")
 
         def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
             // trigger compactions for all tablets in ${tableName}
@@ -98,15 +115,14 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             String command = sb.toString()
             logger.info(command)
             def process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
-            if (!disableAutoCompaction) {
-                return "Success, " + out
-            }
-            assertEquals(code, 0)
-            return out
+            def ccode = process.waitFor()
+            def cerr = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            def cout = process.getText()
+            logger.info("Run compaction: code=" + ccode + ", out=" + cout + ", err=" + cerr)
+            // curl exit code 0 means the HTTP request completed; the E-808 rejection is
+            // carried in the response body (cout), which the caller asserts on.
+            assertEquals(ccode, 0)
+            return cout
         }
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -190,5 +206,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         def rowCount = sql "select count(*) from ${tableName}"
         assertTrue(rowCount[0][0] != rows)
     } finally {
+        // Restore the original cluster-wide auto-compaction setting.
+        set_be_param("disable_auto_compaction", originalDisableAutoCompaction.toString())
     }
 }
