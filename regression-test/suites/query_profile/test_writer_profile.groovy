@@ -84,116 +84,117 @@ suite('test_writer_profile', "nonConcurrent") {
         return queryId
     }
 
-    sql "drop table if exists ${level1TableName};"
-    sql "drop table if exists ${level2TableName};"
-    createTable(level1TableName)
-    createTable(level2TableName)
-
-    sql "set enable_profile=true;"
-    sql "set profile_level=1;"
-
     try {
-        def sql_str = """
-            INSERT INTO ${level1TableName}
-            SELECT * FROM S3(
-                "uri" = "$s3Uri",
-                "s3.access_key" = "$ak",
-                "s3.secret_key" = "$sk",
-                "s3.endpoint" = "${s3Endpoint}",
-                "s3.region" = "${s3Region}",
-                "format" = "json",
-                "read_json_by_line" = "true"
-            );
-        """
-        sql """${sql_str}"""
+        sql "drop table if exists ${level1TableName};"
+        sql "drop table if exists ${level2TableName};"
+        createTable(level1TableName)
+        createTable(level2TableName)
 
-        Thread.sleep(500)
-
-        def allFrontends = sql """show frontends;"""
-        logger.info("allFrontends: " + allFrontends)
-        /*
-        - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
-        */
-        def frontendCounts = allFrontends.size()
-        def masterIP = ""
-        def masterHTTPPort = ""
-
-        for (def i = 0; i < frontendCounts; i++) {
-            def currentFrontend = allFrontends[i]
-            def isMaster = currentFrontend[8]
-            if (isMaster == "true") {
-                masterIP = allFrontends[i][1]
-                masterHTTPPort = allFrontends[i][3]
-                break
-            }
-        }
-        def masterAddress = masterIP + ":" + masterHTTPPort
-        logger.info("masterIP:masterHTTPPort is:${masterAddress}")
-
-        def queryId = getInsertProfileId(masterAddress, level1TableName)
-        assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
-        def profileString = getProfile(masterAddress, queryId)
-        logger.info(profileString)
-        assertFalse(profileString.contains("DeltaWriterV2"), "should not contain DeltaWriterV2")
-        assertFalse(profileString.contains("MemTableWriter"), "should not contain MemTableWriter")
-    } finally {
-        sql "set enable_profile=false;"   
+        sql "set enable_profile=true;"
         sql "set profile_level=1;"
-    }
 
+        try {
+            def sql_str = """
+                INSERT INTO ${level1TableName}
+                SELECT * FROM S3(
+                    "uri" = "$s3Uri",
+                    "s3.access_key" = "$ak",
+                    "s3.secret_key" = "$sk",
+                    "s3.endpoint" = "${s3Endpoint}",
+                    "s3.region" = "${s3Region}",
+                    "format" = "json",
+                    "read_json_by_line" = "true"
+                );
+            """
+            sql """${sql_str}"""
 
-    sql "set enable_profile=true;"   
-    sql "set profile_level=2;"
+            Thread.sleep(500)
 
-    try {
-        def sql_str = """
-            INSERT INTO ${level2TableName}
-            SELECT * FROM S3(
-                "uri" = "$s3Uri",
-                "s3.access_key" = "$ak",
-                "s3.secret_key" = "$sk",
-                "s3.endpoint" = "${s3Endpoint}",
-                "s3.region" = "${s3Region}",
-                "format" = "json",
-                "read_json_by_line" = "true"
-            );
-        """
-        sql """${sql_str}"""
+            def allFrontends = sql """show frontends;"""
+            logger.info("allFrontends: " + allFrontends)
+            /*
+            - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
+            */
+            def frontendCounts = allFrontends.size()
+            def masterIP = ""
+            def masterHTTPPort = ""
 
-        Thread.sleep(500)
-
-        def allFrontends = sql """show frontends;"""
-        logger.info("allFrontends: " + allFrontends)
-        /*
-        - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
-        */
-        def frontendCounts = allFrontends.size()
-        def masterIP = ""
-        def masterHTTPPort = ""
-
-        for (def i = 0; i < frontendCounts; i++) {
-            def currentFrontend = allFrontends[i]
-            def isMaster = currentFrontend[8]
-            if (isMaster == "true") {
-                masterIP = allFrontends[i][1]
-                masterHTTPPort = allFrontends[i][3]
-                break
+            for (def i = 0; i < frontendCounts; i++) {
+                def currentFrontend = allFrontends[i]
+                def isMaster = currentFrontend[8]
+                if (isMaster == "true") {
+                    masterIP = allFrontends[i][1]
+                    masterHTTPPort = allFrontends[i][3]
+                    break
+                }
             }
+            def masterAddress = masterIP + ":" + masterHTTPPort
+            logger.info("masterIP:masterHTTPPort is:${masterAddress}")
+
+            def queryId = getInsertProfileId(masterAddress, level1TableName)
+            assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
+            def profileString = getProfile(masterAddress, queryId)
+            logger.info(profileString)
+            assertFalse(profileString.contains("DeltaWriterV2"), "should not contain DeltaWriterV2")
+            assertFalse(profileString.contains("MemTableWriter"), "should not contain MemTableWriter")
+        } finally {
+            sql "set enable_profile=false;"
+            sql "set profile_level=1;"
         }
-        def masterAddress = masterIP + ":" + masterHTTPPort
-        logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-        def queryId = getInsertProfileId(masterAddress, level2TableName)
-        assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
-        def profileString = getProfile(masterAddress, queryId)
-        logger.info(profileString)
-        assertTrue(profileString.contains("DeltaWriterV2"), "should contain DeltaWriterV2")
-        assertTrue(profileString.contains("MemTableWriter"), "should contain MemTableWriter")
+        sql "set enable_profile=true;"
+        sql "set profile_level=2;"
+
+        try {
+            def sql_str = """
+                INSERT INTO ${level2TableName}
+                SELECT * FROM S3(
+                    "uri" = "$s3Uri",
+                    "s3.access_key" = "$ak",
+                    "s3.secret_key" = "$sk",
+                    "s3.endpoint" = "${s3Endpoint}",
+                    "s3.region" = "${s3Region}",
+                    "format" = "json",
+                    "read_json_by_line" = "true"
+                );
+            """
+            sql """${sql_str}"""
+
+            Thread.sleep(500)
+
+            def allFrontends = sql """show frontends;"""
+            logger.info("allFrontends: " + allFrontends)
+            /*
+            - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
+            */
+            def frontendCounts = allFrontends.size()
+            def masterIP = ""
+            def masterHTTPPort = ""
+
+            for (def i = 0; i < frontendCounts; i++) {
+                def currentFrontend = allFrontends[i]
+                def isMaster = currentFrontend[8]
+                if (isMaster == "true") {
+                    masterIP = allFrontends[i][1]
+                    masterHTTPPort = allFrontends[i][3]
+                    break
+                }
+            }
+            def masterAddress = masterIP + ":" + masterHTTPPort
+            logger.info("masterIP:masterHTTPPort is:${masterAddress}")
+
+            def queryId = getInsertProfileId(masterAddress, level2TableName)
+            assertTrue(queryId != null && queryId != "", "No INSERT query found in profile list")
+            def profileString = getProfile(masterAddress, queryId)
+            logger.info(profileString)
+            assertTrue(profileString.contains("DeltaWriterV2"), "should contain DeltaWriterV2")
+            assertTrue(profileString.contains("MemTableWriter"), "should contain MemTableWriter")
+        } finally {
+            sql "set enable_profile=false;"
+            sql "set profile_level=1;"
+        }
     } finally {
-        sql "set enable_profile=false;"
-        sql "set profile_level=1;"
+        sql "drop table if exists ${level1TableName};"
+        sql "drop table if exists ${level2TableName};"
     }
-
-    sql "drop table if exists ${level1TableName};"
-    sql "drop table if exists ${level2TableName};"
 }
