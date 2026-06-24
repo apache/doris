@@ -58,8 +58,6 @@ constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
 constexpr static std::string_view DUMP = "dump";
 constexpr static std::string_view VALUE = "value";
 constexpr static std::string_view RELOAD = "reload";
-constexpr static std::string_view SYNC_CLEAR_UNSUPPORTED_MSG =
-        "sync clear_file_cache is no longer supported in http api, running async clear instead";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     const std::string header_json(HEADER_JSON);
