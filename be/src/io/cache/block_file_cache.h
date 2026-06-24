@@ -25,6 +25,7 @@
 #include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -90,7 +91,7 @@ public:
 
     // Insert a block into the pending set. Returns true only when the block
     // was not already queued. Null inputs are ignored.
-    bool insert(FileBlockSPtr block);
+    bool insert(FileBlockSPtr block, size_t max_queue_size = std::numeric_limits<size_t>::max());
 
     // Drain up to `limit` unique blocks into `output`. The method returns how
     // many blocks were actually drained and shrinks the internal size
@@ -113,6 +114,7 @@ private:
     };
 
     size_t shard_index(FileBlock* ptr) const;
+    void decrease_size(size_t delta);
 
     std::array<Shard, kShardCount> _shards;
     std::atomic<size_t> _size {0};
@@ -467,6 +469,7 @@ private:
     void run_background_ttl_gc();
     void run_background_gc();
     void run_background_lru_log_replay();
+    size_t replay_lru_logs_once();
     void run_background_lru_dump();
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
@@ -617,9 +620,15 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
+    std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_produce_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_consume_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
+    std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash
     // coz it will use other members of BlockFileCache
