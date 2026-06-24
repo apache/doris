@@ -2357,8 +2357,8 @@ Status SegmentIterator::RowStorePredicateColumnCache::materialize(
                 predicate_field.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
             }
             auto predicate_data_type = Schema::get_data_type_ptr(predicate_field);
-            auto predicate_column_ptr = Schema::get_predicate_column_ptr(
-                    predicate_data_type, ReaderType::UNKNOWN);
+            auto predicate_column_ptr =
+                    Schema::get_predicate_column_ptr(predicate_data_type, ReaderType::UNKNOWN);
             predicate_column_ptr->reserve(source.size());
             auto& char_buffer = _char_padding_buffers[cid];
             if (is_char_type) {
