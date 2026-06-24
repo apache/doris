@@ -48,7 +48,9 @@
 | **P6.2** | **scan 路径 + MVCC + cache + vended** | `source/`(7, `IcebergScanNode` 1228) + `IcebergExternalMetaCache`(289) + `cache/`(2) + `IcebergSnapshot*` → `IcebergScanPlanProvider` + 连接器内 cache（D6）；`IcebergMvccSnapshot` → `ConnectorMvccSnapshot`；`IcebergVendedCredentialsProvider` → 连接器 `extractVendedToken` + 复用既有 `ConnectorContext` 接缝 | **0 新 SPI**（recon 更正：E6 取消，复用 `ConnectorContext.vendStorageCredentials`） | ❌ |
 | **P6.3** | **写路径**（INSERT/DELETE/UPDATE/MERGE + 事务） | **先写 `06-iceberg-write-path-rfc.md` → PMC 评审**；`IcebergTransaction`(981) + `IcebergMetadataOps`(写半) + `helper/`(3) + `IcebergConflictDetectionFilterUtils`(336) + `IcebergNereidsUtils`(608) + `transaction/IcebergTransactionManager`；planner 改用 `PhysicalConnectorTableSink`，删 `Iceberg{Delete,Merge,Table}Sink`；nereids `Iceberg{Update,Delete,Merge}Command` 走通用 `RowLevelDmlCommand` 壳 + capability 派发（iceberg plan 合成留 fe-core，DV-04x） | **✅ RFC 评审通过**（`06-iceberg-write-path-rfc.md`，commit `a49720820f9`）：框架**全面统一**（删 `usesConnectorTransaction`/insert-handle/dead delete-merge handle/config-bag 三件套）+ 新 `ConnectorTransaction.applyWriteConstraint`（O5-2 default-no-op）+ `ConnectorWriteHandle.writeOperation`；逐 task 见 §P6.3 拆解；**T01–T09 ✅ DONE**（2026-06-24，未 push） | ✅ |
 | **P6.4** | **9 个 procedure**（8 pure-SDK + `rewrite_data_files`）| `action/`(11: `BaseIcebergAction` + 9 action + `IcebergExecuteActionFactory`) + `rewrite/`(规划半) → 连接器；`ExecuteActionCommand` 走通用 dispatch（T07 adapter `ConnectorExecuteAction`，dormant 保 legacy 分支）| **`ConnectorProcedureOps`**（S-1 扁平 `getSupportedProcedures`/`execute`，**非** list/call；E2 净 +1 SPI）| ✅ **DONE**（T01–T09，2026-06-24；iceberg UT 494/0/1、fe-core 14/0；`rewrite_data_files` 执行半 ②③④ = R-B 翻闸阻塞 DV-045；legacy `action/`+`rewrite/` STILL-CONSUMED 留 P6.7）|
-| **P6.5** | **系统表 + 元数据列** | `IcebergSysExternalTable`(177) → 复用 `PluginDrivenSysExternalTable`（E7 已就绪）；`IcebergMetadataColumn`(122) + `IcebergRowId`(68) → 元数据列 SPI | 复用 E7 sys-table hook（按需扩元数据列承载） | ❌ |
+| **P6.5** | **系统表**（元数据列推迟，见下）| `IcebergSysExternalTable`(177) → 复用 `PluginDrivenSysExternalTable`（E7 已就绪）+ 连接器 2 override（`listSupportedSysTables`/`getSysTableHandle`）| **净 0 新 SPI**（复用 E7 hook）| 🔵 **进行中**（T01 ✅ recon+设计+用户二签字〔Q1=仅系统表 / Q2=position_deletes 不上报〕，2026-06-24；T02–T08 待）|
+
+> **P6.5 scope 用户签字（2026-06-24 AskUserQuestion）**：**Q1 = 仅系统表**——元数据列 `IcebergMetadataColumn`(122)/`IcebergRowId`(68) 是 DML 专用（冲突检测 + 隐藏 row-id 注入），挂在 nereids `instanceof IcebergExternalTable` + `getFullSchema()` 钩子上，**不受 `SPI_READY_TYPES` 控制**，flip 后表变 `PluginDrivenExternalTable`→钩子失效→DML row-id 注入断，**故属写路径翻闸阻塞 DV-041（`DV-T07-materialize`）同族、无 paimon 模板**→推迟到 P6.6 写路径 holistic 修。**Q2 = position_deletes 不上报**（`listSupportedSysTables` 直接不含→通用 not-found，保 fe-core 通用机制零改动；错误文案偏差 Tn7 登记 DV）。详 `designs/P6.5-T01-systable-design.md` + `research/p6.5-iceberg-systable-recon.md`。
 | **P6.6** | **🔻 唯一翻闸** | iceberg 入 `SPI_READY_TYPES` + 删 built-in case + `pluginCatalogTypeToEngine` 加 `iceberg→ENGINE_ICEBERG` + `PhysicalPlanTranslator` 分支收口；**GSON compat**（7 catalog flavor + db + table 全转 `registerCompatibleSubtype`→PluginDriven*）；restore SHOW PARTITIONS / SHOW CREATE TABLE parity；翻闸-scope 文档外编辑点（参 P5-T27 经验：UserAuthentication unwrap / engine 名 / 硬编码消息） | — | ✅ |
 | **P6.7** | **删 legacy + 清反向 instanceof** | 删 fe-core `datasource/iceberg/`(74) + `transaction/IcebergTransactionManager` + planner sinks + 清 ~49 处反向 `instanceof IcebergExternal*`（写命令层最密）+ 删可删的 iceberg maven dep（保留 metastore-props + 共享 iceberg-aws，见开放决策 O3） | — | — |
 | **P6.8** | **翻闸后 live 回归** | e2e parity（7 flavor 读 / native·JNI / position+equality delete / time-travel / INSERT·DELETE·UPDATE·MERGE / 10 action / sys-table / vended REST·DLF / Kerberos HMS），用户跑 docker（硬门） | — | — |
@@ -449,3 +451,33 @@ P6.1 ──▶ P6.2 ──▶ P6.3 ──▶ P6.4 ──▶ P6.5 ──▶ P6.6 
 - **gate 核**（**重跑实证非凭文档**，Rule 12——critic 指 `@Test` 计数不能证绿）：iceberg **不在** `SPI_READY_TYPES`（`CatalogFactory:51` = {jdbc,es,trino-connector,max_compute,paimon}，switch-case `:137 "iceberg"` 仍在）；`tools/check-connector-imports.sh` exit 0；`git diff 52e25fb25e9..HEAD` = **0 BE / 0 gensrc / 0 `CatalogFactory` / 1 pom**〔`fe-connector-iceberg/pom.xml` 加 `fe-foundation` 依赖，arg-move `b045c9db45b`——P6.4 **累计非 0 pom**，Rule 12 如实记于 §6；T08 自身 0 pom〕；**iceberg UT 重跑** `clean package`（cache off）`BUILD SUCCESS` surefire 39 类 **tests=494 failures=0 errors=0 skipped=1**；**fe-core `ConnectorExecuteActionTest` 重跑** `Tests run: 14, Failures: 0, Errors: 0, Skipped: 0`〔补 T08 record 留的「运行中确认」〕。
 - **文档同步五步**：task 表（P6.4 phase 行 ❌→✅ + T09 行 ⬜→✅ + 本记录）/ PROGRESS（header + §一/§二 board〔T08 仅改 header、board 遗留「T08–T09 未做」一并修〕 + progress-log）/ connectors/iceberg.md（当前状态 + 完成度 + 进度日志）/ decisions-log（**无新 D**）/ deviations-log（**无新 DV**；唯 DV-045 stale `:498` 校正）。HANDOFF **覆盖式**。
 - **下一阶段 = P6.5 sys-table**（iceberg `$`-后缀 metadata 表，复用 P5-B4 live 机制；非 RFC §10）。**P6.4 全 9 task DONE，仍 behind gate**（iceberg 不在 `SPI_READY_TYPES`，翻闸只在 P6.6）。
+
+---
+
+## P6.5 逐 task 拆解（P6.5-Tnn）—— 2026-06-24 code-grounded recon 产出
+
+> 设计 = `designs/P6.5-T01-systable-design.md`；recon = `research/p6.5-iceberg-systable-recon.md`。**仅系统表**（元数据列推迟，Q1）。**镜像 P5-paimon B4**（连接器 2 override + fe-core 通用 `PluginDrivenSysExternalTable`，[D-039]/[DV-023]）。**全程 dormant，iceberg 不入 `SPI_READY_TYPES`，零行为变更直到 P6.6。**
+
+| ID | 标题 | dep | 状态 |
+|---|---|---|---|
+| **P6.5-T01** | 本设计 + recon + 用户二签字（0 产品码）| — | ✅ 2026-06-24（见下实现记录）|
+| **P6.5-T02** | `IcebergTableHandle` sys 变体（`sysTableName` 字段 + `forSystemTable`〔**保留** snapshot pin，偏差①〕+ `isSystemTable()` + equals/hashCode/序列化）+ UT | T01 | ⬜ |
+| **P6.5-T03** | `IcebergConnectorMetadata.listSupportedSysTables` + `getSysTableHandle`（+ `isSupportedSysTable` guard + `executeAuthenticated` + `MetadataTableUtils` 构建 + position_deletes 不上报，偏差③）+ UT（含 seam-identity）| T02 | ⬜ |
+| **P6.5-T04** | `IcebergConnectorMetadata.getTableSchema` sys 分支（parse metadata-table schema + mapping flag 透传，偏差⑤）+ UT | T03 | ⬜ |
+| **P6.5-T05** | `IcebergScanPlanProvider`/`IcebergScanRange` sys split 路（planFiles→序列化 `FileScanTask`→`serialized_split`+FORMAT_JNI + time-travel useSnapshot/useRef，偏差①②）+ UT | T04 | ⬜ |
+| **P6.5-T06** | thrift 描述符 hms↔iceberg 分叉核（`buildTableDescriptor` for sys handle，偏差⑥）+ DESCRIBE/SHOW CREATE/information_schema parity 核 + UT/gap-fill | T05 | ⬜ |
+| **P6.5-T07** | parity-UT 审计 + gap-fill + DV 中央登记（类型变更 `ICEBERG_EXTERNAL_TABLE→PLUGIN_EXTERNAL_TABLE` / position_deletes 文案 / thrift 分叉 / serialized-split 潜伏）+ 对抗 parity workflow | T06 | ⬜ |
+| **P6.5-T08** | 收口/汇总设计 `designs/P6.5-T08-systable-summary-design.md` + faithfulness 对抗验证 wf + gate 重跑核 + HANDOFF 覆盖式 = **P6.5 DONE** | T07 | ⬜ |
+
+> T05/T06 视实现耦合可合并。逐 task recon 后微调（AGENT-PLAYBOOK §7.2）。**5 处不能照抄 paimon 的偏差**（设计 §4 / recon §4）：①时间旅行（sys handle 保留 snapshot pin，**勿**抄 paimon MVCC-排除）②全 JNI（**勿**抄 paimon binlog/audit_log-only forceJni）③SDK `MetadataTableUtils` 构建（无 4-arg Identifier，无新 seam）④position_deletes 不上报⑤schema mapping flag 透传⑥thrift hms 分叉 + 类型变更 DV。
+
+### P6.5-T01 实现记录（2026-06-24，✅ recon + 设计 + 用户二签字，**未 push**）
+
+> **纯文档 0 产品码**（镜像 P6.4-T01）。
+- **recon = 对抗 workflow `wf_bf813782-b4b`**（4 并行 Explore reader〔paimon 先例 / fe-core 通用机制 / legacy iceberg sys-table 扫描路 / 元数据列 scope〕 + synthesize〔parity 矩阵 + 连接器 delta + scope question〕 + completeness critic，6 agent / 1130s / 484k subagent tokens）+ **主 session 独立读码核对**（`IcebergSysExternalTable`/`IcebergSysTable`/`ConnectorTableOps`/`PluginDrivenSysExternalTable`/`PaimonConnectorMetadata`/`IcebergScanRange`/连接器结构）。
+- **critic 5 follow-up 全主 session 解决**：① test infra `RecordingIcebergCatalogOps`/`RecordingConnectorContext`/`ActionTestTables` **已存在** ✓；② seam-identity 不变式（无 4-arg Identifier）= 捕获 base 表身份 + `MetadataTableType` + 在 `executeAuthenticated` 内；③ scan-plane 可行（连接器有 FORMAT_JNI 默认、缺 serialized-split 发射，`TIcebergFileDesc.serialized_split` thrift 字段已存在）；④ DESCRIBE/SHOW/information_schema 走通用机制（paimon 已验证）+ thrift hms 分叉实现期核；⑤ critic correction = legacy `IcebergSysExternalTable` 报 `ICEBERG_EXTERNAL_TABLE`（**非** PLUGIN）→ flip 类型变更登记 DV。
+- **用户二签字（AskUserQuestion）**：Q1 = 仅系统表（元数据列推迟 P6.6 DV-041 同族——读码证元数据列挂 nereids `instanceof IcebergExternalTable` 钩子、不受 `SPI_READY_TYPES` 控制、flip 后失效）；Q2 = position_deletes 不上报（→ 通用 not-found，fe-core 通用机制零改动）。
+- **产出**：`designs/P6.5-T01-systable-design.md`（11 节，镜像 P6.4-T01）+ `research/p6.5-iceberg-systable-recon.md`（8 节 parity 矩阵 + 扫描路 + 5 偏差 + scope 论证 + critic follow-up）。**无新 D / DV**（DV 登记延后到 T07 批量）。
+- **文档同步五步**：task 表（P6.5 phase 行 ❌→🔵 + 本 P6.5 section + T01 记录）/ PROGRESS / connectors/iceberg.md / decisions-log（无新 D）/ deviations-log（无新 DV）；HANDOFF 覆盖式。
+- **gate**：0 产品码 → iceberg 仍不在 `SPI_READY_TYPES`，无构建/UT 变更。
+- **下一步 = P6.5-T02**（`IcebergTableHandle` sys 变体，TDD；**待用户批准进 T02 + 确认设计方向 §4 保留 snapshot pin / §5 无新 seam**）。
