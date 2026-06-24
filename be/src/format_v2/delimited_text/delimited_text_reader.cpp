@@ -52,10 +52,12 @@ DelimitedTextReader::DelimitedTextReader(
         std::unique_ptr<io::FileDescription>& file_description,
         std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
         const TFileScanRangeParams* scan_params,
-        const std::vector<SlotDescriptor*>& file_slot_descs, std::string reader_name)
+        const std::vector<SlotDescriptor*>& file_slot_descs,
+        TFileCompressType::type range_compress_type, std::string reader_name)
         : FileReader(system_properties, file_description, std::move(io_ctx), profile),
           _scan_params(scan_params),
           _source_file_slot_descs(file_slot_descs),
+          _range_compress_type(range_compress_type),
           _reader_name(std::move(reader_name)) {}
 
 DelimitedTextReader::~DelimitedTextReader() {
@@ -75,6 +77,8 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         !_scan_params->file_attributes.__isset.text_params) {
         return Status::InvalidArgument("{} v2 reader requires text file attributes", _reader_name);
     }
+    _enable_text_validate_utf8 = !_scan_params->file_attributes.__isset.enable_text_validate_utf8 ||
+                                 _scan_params->file_attributes.enable_text_validate_utf8;
 
     RETURN_IF_ERROR(_init_format_state());
 
@@ -281,12 +285,14 @@ Status DelimitedTextReader::_build_requested_columns(const FileScanRequest& requ
 Status DelimitedTextReader::_open_file() {
     _start_offset = _file_description->range_start_offset;
     _size = _file_description->range_size;
-    // Some tests and callers use -1 to mean "read to EOF". NewPlainTextLineReader needs a concrete
-    // byte budget, so normalize it to the remaining file size when the file metadata is known.
+    // Some callers, especially stream-load/http_stream, do not know the total length up front.
+    // For a first split this is fine: NewPlainTextLineReader can read until the underlying reader
+    // returns EOF. For non-first splits we still need a concrete range so the pre-read/skip-one-line
+    // boundary logic does not read an unbounded stream.
     if (_size <= 0 && _file_description->file_size >= 0) {
         _size = _file_description->file_size - _start_offset;
     }
-    if (_size < 0) {
+    if (_size < 0 && _start_offset > 0) {
         return Status::InvalidArgument("{} v2 reader requires a valid split size for {}",
                                        _reader_name, _file_description->path);
     }

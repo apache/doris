@@ -67,7 +67,7 @@ protected:
                         std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                         const TFileScanRangeParams* scan_params,
                         const std::vector<SlotDescriptor*>& file_slot_descs,
-                        std::string reader_name);
+                        TFileCompressType::type range_compress_type, std::string reader_name);
 
     // Initialize format-specific options after the common init path has validated scan params and
     // runtime state. Implementations must fill `_value_separator`, `_line_delimiter`,
@@ -117,12 +117,17 @@ protected:
     std::string _value_separator;
     std::string _line_delimiter;
     TFileCompressType::type _file_compress_type = TFileCompressType::UNKNOWN;
+    TFileCompressType::type _range_compress_type = TFileCompressType::UNKNOWN;
     int64_t _start_offset = 0;
     int64_t _size = -1;
     int _skip_lines = 0;
     char _escape = 0;
     bool _line_reader_eof = false;
     bool _bom_removed = false;
+    // FE exposes this as an optional text-file attribute. Keep the default strict so missing thrift
+    // fields do not accidentally accept arbitrary bytes; CSV can still opt out through the session
+    // variable or TVF/file-format property `enable_text_validate_utf8=false`.
+    bool _enable_text_validate_utf8 = true;
 
 private:
     Status _build_requested_columns(const FileScanRequest& request,

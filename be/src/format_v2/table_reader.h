@@ -1427,6 +1427,10 @@ protected:
     std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
     std::optional<io::FileDescription> _current_file_description;
+    // Range-level compression has higher priority than scan-param compression. TVF/load can keep
+    // the logical format as CSV/TEXT while carrying the concrete compression such as GZ or LZO on
+    // each TFileRangeDesc, matching the old FileScanner reader contract.
+    TFileCompressType::type _current_range_compress_type = TFileCompressType::UNKNOWN;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;

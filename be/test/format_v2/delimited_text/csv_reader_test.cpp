@@ -72,6 +72,15 @@ std::unique_ptr<io::FileDescription> file_description(const std::string& path,
     return desc;
 }
 
+std::unique_ptr<io::FileDescription> unknown_size_file_description(const std::string& path) {
+    auto desc = std::make_unique<io::FileDescription>();
+    desc->path = path;
+    desc->range_start_offset = 0;
+    desc->range_size = -1;
+    desc->file_size = -1;
+    return desc;
+}
+
 std::vector<SlotDescriptor*> build_slots(ObjectPool* pool) {
     DescriptorTblBuilder builder(pool);
     builder.declare_tuple()
@@ -109,13 +118,28 @@ std::vector<SlotDescriptor*> build_struct_slots(ObjectPool* pool) {
             make_test_slot(pool, 2, 2, make_nullable(std::make_shared<DataTypeInt32>()), "score")};
 }
 
-std::unique_ptr<CsvReader> create_reader(const std::string& path, TFileScanRangeParams* params,
-                                         const std::vector<SlotDescriptor*>& slots,
-                                         MockRuntimeState* state, RuntimeProfile* profile,
-                                         int64_t range_start_offset = 0, int64_t range_size = -1) {
+std::unique_ptr<CsvReader> create_reader(
+        const std::string& path, TFileScanRangeParams* params,
+        const std::vector<SlotDescriptor*>& slots, MockRuntimeState* state, RuntimeProfile* profile,
+        int64_t range_start_offset = 0, int64_t range_size = -1,
+        TFileCompressType::type range_compress_type = TFileCompressType::UNKNOWN) {
     auto system_properties = std::make_shared<io::FileSystemProperties>();
     system_properties->system_type = TFileType::FILE_LOCAL;
     auto desc = file_description(path, range_start_offset, range_size);
+    auto reader = std::make_unique<CsvReader>(system_properties, desc, nullptr, profile, params,
+                                              slots, range_compress_type);
+    EXPECT_TRUE(reader->init(state).ok());
+    return reader;
+}
+
+std::unique_ptr<CsvReader> create_unknown_size_reader(const std::string& path,
+                                                      TFileScanRangeParams* params,
+                                                      const std::vector<SlotDescriptor*>& slots,
+                                                      MockRuntimeState* state,
+                                                      RuntimeProfile* profile) {
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    system_properties->system_type = TFileType::FILE_LOCAL;
+    auto desc = unknown_size_file_description(path);
     auto reader =
             std::make_unique<CsvReader>(system_properties, desc, nullptr, profile, params, slots);
     EXPECT_TRUE(reader->init(state).ok());
@@ -288,6 +312,102 @@ TEST_F(CsvV2ReaderTest, ReadsRequestedColumnsInFileLocalBlockOrder) {
     EXPECT_EQ(nullable_int_at(*block.get_by_position(1).column, 1), 2);
 }
 
+// Scenario: CSV v2 defaults to the same strict UTF-8 validation as the old query reader. Invalid
+// bytes should fail fast unless the scan params explicitly disable text UTF-8 validation.
+TEST_F(CsvV2ReaderTest, InvalidUtf8FailsWhenValidationEnabled) {
+    const auto invalid_path = (_test_dir / "invalid_utf8.csv").string();
+    std::ofstream output(invalid_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,";
+    output.write("\xff", 1);
+    output << ",10\n";
+    output.close();
+
+    auto reader = create_reader(invalid_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.to_string().find("Only support csv data in utf8 codec") != std::string::npos)
+            << status;
+}
+
+// Scenario: external CSV scans can opt out of UTF-8 validation through
+// `enable_text_validate_utf8=false`. In that mode the reader preserves the original bytes instead
+// of rejecting the row.
+TEST_F(CsvV2ReaderTest, DisableTextValidateUtf8ReadsRawBytes) {
+    const auto invalid_path = (_test_dir / "invalid_utf8_disabled.csv").string();
+    std::ofstream output(invalid_path, std::ios::binary);
+    output << "id,name,score\n";
+    output << "1,";
+    output.write("\xff", 1);
+    output << ",10\n";
+    output.close();
+
+    _params.file_attributes.__set_enable_text_validate_utf8(false);
+    auto reader = create_reader(invalid_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, 0), std::string("\xff", 1));
+}
+
+// Scenario: file TVF can keep the logical CSV format as FORMAT_CSV_PLAIN and put the actual gzip
+// compression on the scan range. CSV v2 must honor that range-level compression before validating
+// UTF-8; otherwise the gzip bytes are misread as CSV text.
+TEST_F(CsvV2ReaderTest, RangeCompressTypeGzipDecompressesPlainCsvFormat) {
+    const auto gz_path = (_test_dir / "reader.csv.gz").string();
+    static constexpr unsigned char gzipped_csv[] = {
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcb, 0x4c,
+            0xd1, 0xc9, 0x4b, 0xcc, 0x4d, 0xd5, 0x29, 0x4e, 0xce, 0x2f, 0x4a, 0xe5,
+            0x32, 0xd4, 0x49, 0xcc, 0xc9, 0x4c, 0x4e, 0xd5, 0x31, 0x34, 0xe0, 0x02,
+            0x00, 0x0b, 0xed, 0x5c, 0xa2, 0x19, 0x00, 0x00, 0x00};
+    std::ofstream output(gz_path, std::ios::binary);
+    output.write(reinterpret_cast<const char*>(gzipped_csv), sizeof(gzipped_csv));
+    output.close();
+
+    _params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    _params.__isset.compress_type = false;
+    auto reader = create_reader(gz_path, &_params, _slots, &_state, &_profile, 0, -1,
+                                TFileCompressType::GZ);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "alice");
+}
+
 // Scenario: FE column_idxs define the CSV field ordinal for each physical file slot. The mapping
 // can be non-identity when FE reorders projected file slots, so the reader must use the local id
 // from FileScanRequest instead of the slot vector position.
@@ -372,6 +492,29 @@ TEST_F(CsvV2ReaderTest, EmptyFileLocalProjectionStillReportsRows) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_EQ(rows, 2);
     EXPECT_FALSE(eof);
+}
+
+// Scenario: stream-load/http_stream inputs do not have a known split size or file size. A first
+// split must still read until EOF instead of rejecting the request before opening the stream.
+TEST_F(CsvV2ReaderTest, UnknownFirstSplitSizeReadsUntilEof) {
+    auto reader = create_unknown_size_reader(_file_path, &_params, _slots, &_state, &_profile);
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->non_predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0)),
+                                      LocalColumnIndex::top_level(LocalColumnId(1))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 1);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 1), "bob");
 }
 
 // Scenario: CSV has no footer row count, so v2 COUNT pushdown scans the split and returns the

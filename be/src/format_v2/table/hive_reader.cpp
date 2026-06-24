@@ -81,6 +81,12 @@ Status HiveReader::init(format::TableReadOptions&& options) {
         use_column_names = query_options.hive_orc_use_column_names;
     } else if (file_format == format::FileFormat::PARQUET) {
         use_column_names = query_options.hive_parquet_use_column_names;
+    } else if (file_format == format::FileFormat::CSV || file_format == format::FileFormat::TEXT) {
+        // Hive CSV/TEXT readers synthesize a file-local schema from FE-provided file slots because
+        // delimited text files do not carry embedded column names or field ids. The scan params'
+        // column_idxs still tell CsvReader/TextReader which physical field ordinal to read, while
+        // the table-level mapper can safely match the synthesized file schema by table column name.
+        use_column_names = true;
     } else {
         return Status::NotSupported("HiveReader does not support file reader format {}",
                                     file_format);

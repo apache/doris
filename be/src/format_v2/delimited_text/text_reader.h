@@ -41,7 +41,8 @@ public:
                std::unique_ptr<io::FileDescription>& file_description,
                std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                const TFileScanRangeParams* scan_params,
-               const std::vector<SlotDescriptor*>& file_slot_descs);
+               const std::vector<SlotDescriptor*>& file_slot_descs,
+               TFileCompressType::type range_compress_type = TFileCompressType::UNKNOWN);
     ~TextReader() override;
 
 private:

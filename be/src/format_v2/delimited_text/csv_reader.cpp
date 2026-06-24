@@ -62,16 +62,20 @@ CsvReader::CsvReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::unique_ptr<io::FileDescription>& file_description,
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      const TFileScanRangeParams* scan_params,
-                     const std::vector<SlotDescriptor*>& file_slot_descs)
+                     const std::vector<SlotDescriptor*>& file_slot_descs,
+                     TFileCompressType::type range_compress_type)
         : DelimitedTextReader(system_properties, file_description, std::move(io_ctx), profile,
-                              scan_params, file_slot_descs, "CSV") {}
+                              scan_params, file_slot_descs, range_compress_type, "CSV") {}
 
 CsvReader::~CsvReader() = default;
 
 Status CsvReader::_init_format_state() {
     _file_format_type = _scan_params->format_type;
-    _file_compress_type = _scan_params->__isset.compress_type ? _scan_params->compress_type
-                                                              : TFileCompressType::UNKNOWN;
+    _file_compress_type =
+            _range_compress_type != TFileCompressType::UNKNOWN
+                    ? _range_compress_type
+                    : (_scan_params->__isset.compress_type ? _scan_params->compress_type
+                                                           : TFileCompressType::UNKNOWN);
     if (_file_compress_type == TFileCompressType::UNKNOWN &&
         _file_format_type == TFileFormatType::FORMAT_CSV_PLAIN) {
         // FORMAT_CSV_PLAIN is an uncompressed byte stream even when FE does not fill
@@ -150,8 +154,8 @@ Status CsvReader::_create_line_reader() {
 }
 
 Status CsvReader::_validate_line(const Slice& line) {
-    if (_file_format_type != TFileFormatType::FORMAT_PROTO &&
-        !validate_utf8(*_scan_params, line.data, line.size)) {
+    if (_file_format_type != TFileFormatType::FORMAT_PROTO && _enable_text_validate_utf8 &&
+        !validate_utf8(line.data, line.size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     return Status::OK();

@@ -42,15 +42,19 @@ TextReader::TextReader(std::shared_ptr<io::FileSystemProperties>& system_propert
                        std::unique_ptr<io::FileDescription>& file_description,
                        std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                        const TFileScanRangeParams* scan_params,
-                       const std::vector<SlotDescriptor*>& file_slot_descs)
+                       const std::vector<SlotDescriptor*>& file_slot_descs,
+                       TFileCompressType::type range_compress_type)
         : DelimitedTextReader(system_properties, file_description, std::move(io_ctx), profile,
-                              scan_params, file_slot_descs, "Text") {}
+                              scan_params, file_slot_descs, range_compress_type, "Text") {}
 
 TextReader::~TextReader() = default;
 
 Status TextReader::_init_format_state() {
-    _file_compress_type = _scan_params->__isset.compress_type ? _scan_params->compress_type
-                                                              : TFileCompressType::PLAIN;
+    _file_compress_type =
+            _range_compress_type != TFileCompressType::UNKNOWN
+                    ? _range_compress_type
+                    : (_scan_params->__isset.compress_type ? _scan_params->compress_type
+                                                           : TFileCompressType::PLAIN);
 
     const auto& text_params = _scan_params->file_attributes.text_params;
     _value_separator = text_params.column_separator;

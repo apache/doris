@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/consts.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
@@ -45,6 +46,9 @@
 
 namespace doris::format::iceberg {
 
+static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
+static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
     std::ostringstream out;
@@ -57,6 +61,20 @@ static std::string join_values_for_debug(const std::vector<T>& values) {
     }
     out << "]";
     return out.str();
+}
+
+static bool is_projected_row_lineage_row_id(const format::ColumnDefinition& column) {
+    // Iceberg row lineage columns can be bound by field id when a mapper has already been built,
+    // but customize_file_scan_request() is also exercised directly by scan-request tests before the
+    // mapper exists. In that path, inspect the projected table schema so row-position dependencies
+    // are still added for `_row_id`.
+    return column.name == ROW_LINEAGE_ROW_ID ||
+           (column.has_identifier_field_id() &&
+            column.get_identifier_field_id() == ROW_LINEAGE_ROW_ID_FIELD_ID);
+}
+
+static bool is_projected_iceberg_rowid(const format::ColumnDefinition& column) {
+    return column.name == BeConsts::ICEBERG_ROWID_COL;
 }
 
 static std::string iceberg_delete_file_debug_string(const TIcebergDeleteFileDesc& delete_file) {
@@ -755,21 +773,25 @@ Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number
 }
 
 bool IcebergTableReader::_need_row_lineage_row_id() const {
-    for (const auto& mapping : _data_reader.column_mapper->mappings()) {
-        if (mapping.virtual_column_type == format::TableVirtualColumnType::ROW_ID) {
-            return true;
+    if (_data_reader.column_mapper != nullptr) {
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+            if (mapping.virtual_column_type == format::TableVirtualColumnType::ROW_ID) {
+                return true;
+            }
         }
     }
-    return false;
+    return std::ranges::any_of(_projected_columns, is_projected_row_lineage_row_id);
 }
 
 bool IcebergTableReader::_need_iceberg_rowid() const {
-    for (const auto& mapping : _data_reader.column_mapper->mappings()) {
-        if (mapping.virtual_column_type == format::TableVirtualColumnType::ICEBERG_ROWID) {
-            return true;
+    if (_data_reader.column_mapper != nullptr) {
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+            if (mapping.virtual_column_type == format::TableVirtualColumnType::ICEBERG_ROWID) {
+                return true;
+            }
         }
     }
-    return false;
+    return std::ranges::any_of(_projected_columns, is_projected_iceberg_rowid);
 }
 
 } // namespace doris::format::iceberg
