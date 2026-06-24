@@ -61,6 +61,14 @@ public:
     Status get_block(Block* block, bool* eos) override;
     Status close() override;
 
+#ifdef BE_TEST
+    static bool TEST_is_jni_split(const TFileRangeDesc& range) { return _is_jni_split(range); }
+    static Status TEST_to_file_format(const TFileRangeDesc& range,
+                                      format::FileFormat* file_format) {
+        return _to_file_format(range, file_format);
+    }
+#endif
+
 private:
     Status _ensure_current_split_reader(const format::SplitReadOptions& options);
     Status _init_child_reader(format::TableReader* reader, format::FileFormat file_format);
