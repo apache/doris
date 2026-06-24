@@ -381,7 +381,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -390,14 +390,14 @@ void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<ColumnString*>(
-                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
-            row_store_column->clear();
+            auto row_store_column_ptr = block.get_by_position(i).column->clone_empty();
+            auto* row_store_column = static_cast<ColumnString*>(row_store_column_ptr.get());
             DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
                                                cast_set<int>(_tablet_schema->num_columns()), serdes,
                                                {_tablet_schema->row_columns_uids().begin(),
                                                 _tablet_schema->row_columns_uids().end()});
+            block.replace_by_position(i, std::move(row_store_column_ptr));
             break;
         }
     }
@@ -711,7 +711,7 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*block);
+        _serialize_block_to_row_column(*const_cast<Block*>(block));
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&

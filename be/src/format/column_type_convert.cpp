@@ -18,6 +18,7 @@
 #include "format/column_type_convert.h"
 
 #include "common/cast_set.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 
 namespace doris::converter {
@@ -112,20 +113,12 @@ ColumnPtr ColumnTypeConverter::get_column(const DataTypePtr& src_type, ColumnPtr
         _cached_src_type = dst_type->is_nullable()
                                    ? get_data_type_with_default_argument(make_nullable(src_type))
                                    : get_data_type_with_default_argument(remove_nullable(src_type));
-        _cached_src_column = remove_nullable(_cached_src_type)->create_column();
+        _cached_src_column = _cached_src_type->create_column();
     }
     // remove the old cached data
-    _cached_src_column->assume_mutable()->clear();
-
-    if (dst_type->is_nullable()) {
-        // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
-        // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
-        // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column =
-                const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(dst_column.get()));
-        return ColumnNullable::create(_cached_src_column,
-                                      doris_nullable_column->get_null_map_column_ptr());
-    }
+    auto cached_src_column = IColumn::mutate(std::move(_cached_src_column));
+    cached_src_column->clear();
+    _cached_src_column = std::move(cached_src_column);
 
     return _cached_src_column;
 }

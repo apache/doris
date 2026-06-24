@@ -226,9 +226,9 @@ protected:
 private:
     Status _create_decompressor();
     Status _create_file_reader(bool need_schema);
-    Status _fill_dest_columns(const Slice& line, Block* block,
-                              std::vector<MutableColumnPtr>& columns, size_t* rows);
-    Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
+    Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns,
+                              size_t* rows);
+    Status _fill_empty_line(std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     void _init_system_properties();

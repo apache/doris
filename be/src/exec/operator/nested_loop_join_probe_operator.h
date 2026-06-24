@@ -40,9 +40,10 @@ public:
     NestedLoopJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
     ~NestedLoopJoinProbeLocalState() = default;
 
-#define CLEAR_BLOCK                                                  \
-    for (size_t i = 0; i < column_to_keep; ++i) {                    \
-        block->get_by_position(i).column->assume_mutable()->clear(); \
+#define CLEAR_BLOCK                                         \
+    for (size_t i = 0; i < column_to_keep; ++i) {           \
+        auto column_guard = block->mutate_column_scoped(i); \
+        column_guard.mutable_column()->clear();             \
     }
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;

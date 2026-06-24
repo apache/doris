@@ -107,8 +107,9 @@ protected:
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         } else if (_origin_block.rows()) {
-            RETURN_IF_ERROR(
-                    MutableBlock::build_mutable_block(&_padding_block).merge(_origin_block));
+            ScopedMutableBlock scoped_mutable_block(&_padding_block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
+            RETURN_IF_ERROR(mutable_block.merge(_origin_block));
         }
         return Status::OK();
     }

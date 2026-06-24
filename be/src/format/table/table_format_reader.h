@@ -64,11 +64,11 @@ public:
             auto rows =
                     std::min(_table_level_row_count, (int64_t)_state->query_options().batch_size);
             _table_level_row_count -= rows;
-            auto mutate_columns = block->mutate_columns();
+            auto columns_guard = block->mutate_columns_scoped();
+            auto& mutate_columns = columns_guard.mutable_columns();
             for (auto& col : mutate_columns) {
                 col->resize(rows);
             }
-            block->set_columns(std::move(mutate_columns));
             *read_rows = rows;
             if (_table_level_row_count == 0) {
                 *eof = true;

@@ -204,7 +204,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     int8_t c1 = k1;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
 
@@ -227,7 +227,8 @@ static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
     columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 
     int32_t c5 = seq;
-    columns[4]->insert_data((const char*)&c5, sizeof(c2));
+    columns[4]->insert_data((const char*)&c5, sizeof(c5));
+    block->set_columns(std::move(columns));
 }
 
 class TestDeltaWriterClusterKey : public ::testing::Test {

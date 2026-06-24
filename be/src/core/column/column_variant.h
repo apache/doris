@@ -325,7 +325,7 @@ public:
         if (subcolumns.empty()) {
             return nullptr;
         }
-        return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
+        return std::move(*subcolumns.get_mutable_root()->data.get_finalized_column_ptr()).mutate();
     }
 
     void serialize_one_row_to_string(int64_t row, std::string* output,
@@ -353,6 +353,8 @@ public:
     static const DataTypePtr& get_most_common_type();
 
     void clear_sparse_column();
+
+    void ensure_binary_columns_rows();
 
     // root is null or type nothing
     bool is_null_root() const;
@@ -409,7 +411,11 @@ public:
 
     ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
 
+    IColumn& get_sparse_column_mutable() { return *serialized_sparse_column; }
+
     ColumnPtr get_doc_value_column() const { return serialized_doc_value_column; }
+
+    IColumn& get_doc_value_column_mutable() { return *serialized_doc_value_column; }
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {

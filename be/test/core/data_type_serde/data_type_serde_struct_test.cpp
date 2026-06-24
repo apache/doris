@@ -146,10 +146,9 @@ TEST_F(DataTypeStructSerDeTest, ArrowMemNotAligned) {
     EXPECT_EQ(string_values_address % 4, 1);
 
     // 5.Test read_column_from_arrow
-    std::vector<ColumnPtr> vector_columns;
-    vector_columns.emplace_back(ColumnInt32::create());
-    vector_columns.emplace_back(ColumnString::create());
-    auto ser_col = ColumnStruct::create(vector_columns);
+    // Create sub-columns exclusively (no extra refs) so that ColumnStruct::get_column()
+    // non-const path does not find use_count > 1.
+    auto ser_col = ColumnStruct::create(Columns {ColumnInt32::create(), ColumnString::create()});
     cctz::time_zone tz;
     DataTypeSerDeSPtrs elem_serdes = {serde_int32, serde_str};
     Strings field_names = {"int_field", "string_field"};
