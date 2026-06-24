@@ -414,21 +414,49 @@ public class DebeziumJsonDeserializer
 
     // Format a since-midnight time value given as total microseconds (may be negative or exceed
     // 24h) as MySQL TIME literal text: ±HH:MM:SS[.ffffff], stripping trailing fractional zeros.
+    // Built by hand instead of String.format/regex so the per-row path stays allocation-light and
+    // locale-independent (always ASCII digits, never localized by the JVM default locale). MySQL/PG
+    // TIME stays well within the long range, so negating microsTotal cannot overflow.
     private static String formatTimeText(long microsTotal) {
-        boolean negative = microsTotal < 0;
-        long abs = Math.abs(microsTotal);
+        long abs = microsTotal < 0 ? -microsTotal : microsTotal;
         long hours = abs / 3_600_000_000L;
         long rem = abs % 3_600_000_000L;
         long minutes = rem / 60_000_000L;
         rem %= 60_000_000L;
         long seconds = rem / 1_000_000L;
         long frac = rem % 1_000_000L;
-        String sign = negative ? "-" : "";
-        if (frac == 0) {
-            return String.format("%s%02d:%02d:%02d", sign, hours, minutes, seconds);
+        StringBuilder sb = new StringBuilder(16);
+        if (microsTotal < 0) {
+            sb.append('-');
         }
-        String fracStr = String.format("%06d", frac).replaceAll("0+$", "");
-        return String.format("%s%02d:%02d:%02d.%s", sign, hours, minutes, seconds, fracStr);
+        // hours keeps a minimum of two digits but may be longer (e.g. 838); minutes/seconds are
+        // always < 60, so exactly two digits.
+        appendAtLeastTwoDigits(sb, hours).append(':');
+        appendAtLeastTwoDigits(sb, minutes).append(':');
+        appendAtLeastTwoDigits(sb, seconds);
+        if (frac != 0) {
+            sb.append('.');
+            int start = sb.length();
+            // six-digit zero-padded micros, then drop trailing zeros (e.g. 500000 -> "5").
+            String f = Long.toString(frac);
+            for (int pad = 6 - f.length(); pad > 0; pad--) {
+                sb.append('0');
+            }
+            sb.append(f);
+            int end = sb.length();
+            while (end > start + 1 && sb.charAt(end - 1) == '0') {
+                end--;
+            }
+            sb.setLength(end);
+        }
+        return sb.toString();
+    }
+
+    private static StringBuilder appendAtLeastTwoDigits(StringBuilder sb, long value) {
+        if (value < 10) {
+            sb.append('0');
+        }
+        return sb.append(value);
     }
 
     protected Object convertToTime(Object dbzObj, Schema schema) {
@@ -447,6 +475,8 @@ public class DebeziumJsonDeserializer
                         if (v >= 0 && v < 86_400_000_000_000L) {
                             return LocalTime.ofNanoOfDay(v).toString();
                         }
+                        // out-of-range: nano to micro. MySQL/PG TIME carries at most microsecond
+                        // precision, so dropping the sub-micro nanos here is lossless for them.
                         return formatTimeText(v / 1000L);
                 }
             } else if (dbzObj instanceof Integer) {

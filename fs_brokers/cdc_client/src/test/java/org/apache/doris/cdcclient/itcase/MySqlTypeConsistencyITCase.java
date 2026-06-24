@@ -168,11 +168,10 @@ class MySqlTypeConsistencyITCase {
                 if (col.equals("id") || col.startsWith("__DORIS")) {
                     continue;
                 }
-                String snapVal = snap.get(col).asText();
+                JsonNode snapNode = snap.get(col);
                 JsonNode binNode = bin.get(col);
-                String binVal = binNode == null ? "<missing>" : binNode.asText();
-                if (!equalOrJsonEquivalent(snapVal, binVal)) {
-                    mismatches.add(col + ": snapshot=[" + snapVal + "] binlog=[" + binVal + "]");
+                if (!columnsMatch(col, snapNode, binNode)) {
+                    mismatches.add(col + ": snapshot=[" + snapNode + "] binlog=[" + binNode + "]");
                 }
             }
             mismatches.forEach(m -> System.out.println("[TYPE SCAN][MISMATCH] " + m));
@@ -180,17 +179,26 @@ class MySqlTypeConsistencyITCase {
         }
     }
 
-    // Text equality, falling back to parsed-JSON equality so JSON columns that differ only in
-    // whitespace/key-order are treated as equal while a genuinely different value still fails.
-    private boolean equalOrJsonEquivalent(String a, String b) {
+    // Compare the parsed nodes directly so container columns (objects/arrays) compare by content
+    // rather than collapsing to "" via JsonNode.asText(). The whitespace/key-order tolerance is
+    // limited to the JSON column: a JSON value carried as a string can differ in spacing/key order
+    // between the snapshot (JDBC) and binlog paths, so it is compared by parsed value; every other
+    // column must match exactly so a real representation difference is never masked.
+    private boolean columnsMatch(String col, JsonNode a, JsonNode b) {
+        if (a == null || b == null) {
+            return false;
+        }
         if (a.equals(b)) {
             return true;
         }
-        try {
-            return MAPPER.readTree(a).equals(MAPPER.readTree(b));
-        } catch (Exception e) {
-            return false;
+        if (col.equals("c_json")) {
+            try {
+                return MAPPER.readTree(a.asText()).equals(MAPPER.readTree(b.asText()));
+            } catch (Exception e) {
+                return false;
+            }
         }
+        return false;
     }
 
     private Connection rootConnection(String db) throws Exception {

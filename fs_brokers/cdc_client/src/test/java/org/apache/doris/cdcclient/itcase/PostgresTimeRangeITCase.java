@@ -58,24 +58,31 @@ class PostgresTimeRangeITCase {
                     .withCommand("postgres", "-c", "wal_level=logical");
 
     private String jobId;
+    private String table;
 
     @BeforeEach
     void setUp() throws Exception {
         jobId = String.valueOf(JOB_ID_SEQ.incrementAndGet());
+        // per-run table name so concurrent forks / parallel runs cannot collide on a shared table.
+        table = "t_time_" + jobId;
         try (Connection conn = connect();
                 Statement st = conn.createStatement()) {
-            st.execute("DROP TABLE IF EXISTS t_time");
-            st.execute("CREATE TABLE t_time (id INT PRIMARY KEY, t_col TIME(6))");
-            st.execute("ALTER TABLE t_time REPLICA IDENTITY FULL");
+            st.execute("DROP TABLE IF EXISTS " + table);
+            st.execute("CREATE TABLE " + table + " (id INT PRIMARY KEY, t_col TIME(6))");
+            st.execute("ALTER TABLE " + table + " REPLICA IDENTITY FULL");
             // id 1: ordinary in-range value -- the fix must leave it byte-for-byte unchanged.
             // id 2: PG-legal upper boundary 24:00:00 -- a raw-long fallback before the fix.
-            st.execute("INSERT INTO t_time VALUES (1,'12:34:56.123456'), (2,'24:00:00')");
+            st.execute("INSERT INTO " + table + " VALUES (1,'12:34:56.123456'), (2,'24:00:00')");
         }
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
         Env.getCurrentEnv().close(jobId);
+        try (Connection conn = connect();
+                Statement st = conn.createStatement()) {
+            st.execute("DROP TABLE IF EXISTS " + table);
+        }
     }
 
     @Test
@@ -89,10 +96,10 @@ class PostgresTimeRangeITCase {
                         POSTGRES.getPassword(),
                         POSTGRES.getDatabaseName(),
                         "public",
-                        "t_time",
+                        table,
                         "initial")) {
 
-            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_time");
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits(table);
             CdcClientReadHarness.SnapshotResult snapshot = harness.readSnapshot(splits);
             Map<Integer, JsonNode> snap = indexById(snapshot.records());
 
