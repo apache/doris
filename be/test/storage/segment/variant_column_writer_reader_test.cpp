@@ -34,6 +34,7 @@
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
 #include "storage/segment/variant/nested_group_path.h"
+#include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/nested_group_streaming_write_plan.h"
 #include "storage/segment/variant/sparse_column_merge_iterator.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -83,6 +84,11 @@ static void construct_tablet_index(TabletIndexPB* tablet_index, int64_t index_id
     tablet_index->set_index_name(index_name);
     tablet_index->set_index_type(IndexType::INVERTED);
     tablet_index->add_col_unique_id(col_unique_id);
+}
+
+static bool nested_group_write_path_available() {
+    auto provider = segment_v2::create_nested_group_read_provider();
+    return provider != nullptr && provider->should_enable_nested_group_read_path();
 }
 
 static void fill_nullable_variant_block(Block* block,
@@ -5236,6 +5242,10 @@ TEST_F(VariantColumnWriterReaderTest, test_concurrent_load_external_meta_and_get
 
 TEST_F(VariantColumnWriterReaderTest,
        test_streaming_write_plan_collects_regular_paths_from_rowset_metadata) {
+    if (!nested_group_write_path_available()) {
+        GTEST_SKIP() << "NestedGroup write path is not available in this build";
+    }
+
     init_variant_tablet(41000, 10, true);
 
     std::vector<RowsetSharedPtr> input_rowsets;
@@ -5267,6 +5277,10 @@ TEST_F(VariantColumnWriterReaderTest,
 
 TEST_F(VariantColumnWriterReaderTest,
        test_streaming_compaction_writer_streams_regular_array_paths_across_batches) {
+    if (!nested_group_write_path_available()) {
+        GTEST_SKIP() << "NestedGroup write path is not available in this build";
+    }
+
     init_variant_tablet(41001, 10, true);
 
     std::vector<RowsetSharedPtr> input_rowsets;

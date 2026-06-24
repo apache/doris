@@ -1444,14 +1444,31 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testCreateTableVariantNestedGroupPropertyIsRejected() {
+    public void testCreateTableVariantNestedGroupPropertyIsAccepted() {
         NereidsParser parser = new NereidsParser();
         String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
                 + "\"variant_enable_nested_group\" = \"true\")>) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        org.apache.doris.nereids.types.VariantType variantType =
+                (org.apache.doris.nereids.types.VariantType) createTableCommand.getCreateTableInfo()
+                        .getColumnDefinitions().get(1).getType();
+        Assertions.assertTrue(variantType.getEnableNestedGroup());
+    }
+
+    @Test
+    public void testCreateTableVariantNestedGroupPropertyConflictsWithDocMode() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
+                + "\"variant_enable_nested_group\" = \"true\", "
+                + "\"variant_enable_doc_mode\" = \"true\")>) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
         NotSupportedException exception =
                 Assertions.assertThrowsExactly(NotSupportedException.class, () -> parser.parseSingle(sql));
-        Assertions.assertTrue(exception.getMessage().contains("variant_enable_nested_group is not supported now"));
+        Assertions.assertTrue(exception.getMessage()
+                .contains("variant_enable_nested_group and variant_enable_doc_mode cannot both be true"));
     }
 
     @Test
