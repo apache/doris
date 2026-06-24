@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.AssertNumRowsElement;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
@@ -199,6 +200,7 @@ import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
+import org.apache.doris.planner.GroupJoinNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergDeleteSink;
@@ -235,6 +237,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.thrift.TGroupJoinAggOutputMode;
+import org.apache.doris.thrift.TGroupJoinAggSide;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -1139,6 +1143,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
+
+        // V2: try GroupJoin fusion directly in translator
+        PlanFragment groupJoinFragment = maybeTranslateToGroupJoin(aggregate, context);
+        if (groupJoinFragment != null) {
+            return groupJoinFragment;
+        }
 
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
@@ -3041,6 +3051,315 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             leftFragment.addChild(rightChild);
         }
         return leftFragment;
+    }
+
+    private PlanFragment connectGroupJoinNode(GroupJoinNode groupJoinNode, PlanFragment leftFragment,
+            PlanFragment rightFragment, PlanTranslatorContext context, AbstractPlan groupJoin) {
+        groupJoinNode.setChild(0, leftFragment.getPlanRoot());
+        groupJoinNode.setChild(1, rightFragment.getPlanRoot());
+        setPlanRoot(leftFragment, groupJoinNode, groupJoin);
+        context.mergePlanFragment(rightFragment, leftFragment);
+        for (PlanFragment rightChild : rightFragment.getChildren()) {
+            leftFragment.addChild(rightChild);
+        }
+        return leftFragment;
+    }
+
+    /**
+     * V2: Try to fuse HashAggregate(HashJoin) into GroupJoin directly in the translator stage.
+     * <p>
+     * When the aggregate's child is an INNER hash join with compatible group-by/join-key,
+     * generate a GroupJoinNode instead of separate AggregationNode + HashJoinNode.
+     * Returns null if conditions are not met — caller falls through to normal translation.
+     */
+    private PlanFragment maybeTranslateToGroupJoin(
+            Plan aggregate,
+            PlanTranslatorContext context) {
+        // Gate: session variable
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null
+                || !connectContext.getSessionVariable().isEnableGroupJoinFusion()) {
+            return null;
+        }
+        // Gate: spill not supported
+        if (connectContext.getSessionVariable().enableSpill) {
+            return null;
+        }
+
+        // Child must be PhysicalHashJoin (optionally through PhysicalProject)
+        Plan child = aggregate.child(0);
+        if (child instanceof PhysicalProject) {
+            child = child.child(0);
+        }
+        if (!(child instanceof PhysicalHashJoin)) {
+            return null;
+        }
+        PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) child;
+
+        // Only INNER_JOIN for V1
+        if (join.getJoinType() != JoinType.INNER_JOIN && !join.getJoinType().isCrossJoin()) {
+            return null;
+        }
+        // Not mark join
+        if (join.isMarkJoin()) {
+            return null;
+        }
+        // Not broadcast join
+        if (join.isBroadCastJoin()) {
+            return null;
+        }
+
+        Aggregate<?> agg = (Aggregate<?>) aggregate;
+
+        // Group-by keys must be equivalent to hash-join keys
+        if (!isGroupKeyEquivalentToJoinKey(agg, join)) {
+            return null;
+        }
+        // Aggregate functions must not reference columns from both sides
+        if (!aggFunctionsSingleSide(agg, join)) {
+            return null;
+        }
+
+        // All checks passed — generate GroupJoinNode
+        return translateToGroupJoinNode(agg, join, context);
+    }
+
+    /** Check group-by expressions match equi-join keys. */
+    private boolean isGroupKeyEquivalentToJoinKey(
+            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
+        List<Expression> groupByExprs = aggregate.getGroupByExpressions();
+        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+        if (groupByExprs.isEmpty() || hashJoinConjuncts.isEmpty()
+                || groupByExprs.size() != hashJoinConjuncts.size()) {
+            return false;
+        }
+        Set<Slot> groupBySlots = groupByExprs.stream()
+                .flatMap(e -> e.getInputSlots().stream())
+                .collect(Collectors.toSet());
+        Set<Slot> joinLeftSlots = new HashSet<>();
+        Set<Slot> joinRightSlots = new HashSet<>();
+        Set<Slot> leftOutput = join.left().getOutputSet();
+        Set<Slot> rightOutput = join.right().getOutputSet();
+        for (Expression conjunct : hashJoinConjuncts) {
+            if (!(conjunct instanceof EqualPredicate)) {
+                return false;
+            }
+            EqualPredicate eq = (EqualPredicate) conjunct;
+            Set<Slot> leftSide = eq.left().getInputSlots();
+            Set<Slot> rightSide = eq.right().getInputSlots();
+            if (leftOutput.containsAll(leftSide) && rightOutput.containsAll(rightSide)) {
+                joinLeftSlots.addAll(leftSide);
+                joinRightSlots.addAll(rightSide);
+            } else if (leftOutput.containsAll(rightSide) && rightOutput.containsAll(leftSide)) {
+                joinLeftSlots.addAll(rightSide);
+                joinRightSlots.addAll(leftSide);
+            } else {
+                return false;
+            }
+        }
+        return groupBySlots.equals(joinLeftSlots) || groupBySlots.equals(joinRightSlots);
+    }
+
+    /** Check no aggregate function references columns from both join sides. */
+    private boolean aggFunctionsSingleSide(
+            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join) {
+        Set<Slot> leftOutput = join.left().getOutputSet();
+        Set<Slot> rightOutput = join.right().getOutputSet();
+        for (NamedExpression outputExpr : aggregate.getOutputExpressions()) {
+            List<AggregateExpression> aggExprs = outputExpr
+                    .collect(AggregateExpression.class::isInstance).stream()
+                    .map(AggregateExpression.class::cast)
+                    .collect(Collectors.toList());
+            for (AggregateExpression aggExpr : aggExprs) {
+                Set<Slot> inputSlots = aggExpr.getInputSlots();
+                boolean hasLeft = false;
+                boolean hasRight = false;
+                for (Slot slot : inputSlots) {
+                    if (leftOutput.contains(slot)) {
+                        hasLeft = true;
+                    } else if (rightOutput.contains(slot)) {
+                        hasRight = true;
+                    }
+                }
+                if (hasLeft && hasRight) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Translate Aggregate(HashJoin) pattern into a GroupJoinNode fragment. */
+    private PlanFragment translateToGroupJoinNode(
+            Aggregate<?> aggregate,
+            PhysicalHashJoin<?, ?> join,
+            PlanTranslatorContext context) {
+        PhysicalHashJoin<PhysicalPlan, PhysicalPlan> physicalJoin
+                = (PhysicalHashJoin<PhysicalPlan, PhysicalPlan>) join;
+
+        // Visit children right-to-left (right = build, left = probe)
+        PlanFragment rightFragment = join.child(1).accept(this, context);
+        PlanFragment leftFragment = join.child(0).accept(this, context);
+        PlanNode leftPlanRoot = leftFragment.getPlanRoot();
+        PlanNode rightPlanRoot = rightFragment.getPlanRoot();
+
+        // Create GroupJoinNode
+        GroupJoinNode groupJoinNode = new GroupJoinNode(
+                context.nextPlanNodeId(), leftPlanRoot, rightPlanRoot);
+        groupJoinNode.setNereidsId(join.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(join.getId(), groupJoinNode.getId());
+
+        // Join operator
+        groupJoinNode.setJoinOp(JoinType.toJoinOperator(join.getJoinType()));
+
+        // Distribute expr lists
+        List<List<Expr>> distributeExprLists = getDistributeExprs(
+                physicalJoin.left(), physicalJoin.right());
+        groupJoinNode.setChildrenDistributeExprLists(distributeExprLists);
+
+        // Equi-join conjuncts
+        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+        for (Expression hashConjunct : hashJoinConjuncts) {
+            EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
+                    (EqualPredicate) hashConjunct, join.left().getOutputSet());
+            groupJoinNode.addEqJoinConjunct(
+                    (BinaryPredicate) ExpressionTranslator.translate(equalTo, context));
+        }
+
+        // Group-by expressions
+        List<Expr> groupingExprs = new ArrayList<>();
+        for (Expression e : aggregate.getGroupByExpressions()) {
+            groupingExprs.add(ExpressionTranslator.translate(e, context));
+        }
+        groupJoinNode.setGroupingExprs(groupingExprs);
+
+        // Aggregate functions with side annotations
+        List<Expr> aggFuncExprs = new ArrayList<>();
+        List<TGroupJoinAggSide> aggSides = new ArrayList<>();
+        Set<Slot> rightOutput = join.right().getOutputSet();
+        Set<AggregateExpression> seen = new HashSet<>();
+        for (NamedExpression outputExpr : aggregate.getOutputExpressions()) {
+            for (AggregateExpression aggExpr : outputExpr
+                    .collect(AggregateExpression.class::isInstance).stream()
+                    .map(AggregateExpression.class::cast)
+                    .collect(Collectors.toList())) {
+                if (seen.add(aggExpr)) {
+                    aggFuncExprs.add(ExpressionTranslator.translate(aggExpr, context));
+                    boolean fromBuild = aggExpr.getInputSlots().stream()
+                            .anyMatch(rightOutput::contains);
+                    aggSides.add(fromBuild
+                            ? TGroupJoinAggSide.BUILD : TGroupJoinAggSide.PROBE);
+                }
+            }
+        }
+        groupJoinNode.setAggregateFunctions(aggFuncExprs);
+        groupJoinNode.setAggSides(aggSides);
+        groupJoinNode.setAggOutputMode(TGroupJoinAggOutputMode.FINAL_RESULT);
+
+        // Connect fragments
+        PlanFragment currentFragment = connectGroupJoinNode(
+                groupJoinNode, leftFragment, rightFragment, context, join);
+
+        // Distribution mode
+        if (JoinUtils.shouldColocateJoin(physicalJoin)) {
+            groupJoinNode.setColocate(true);
+            leftFragment.setHasColocatePlanNode(true);
+        } else if (JoinUtils.shouldBroadcastJoin(physicalJoin)) {
+            Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
+                    "right child of broadcast GroupJoin must be ExchangeNode");
+            ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
+            groupJoinNode.setDistributionMode(DistributionMode.BROADCAST);
+        } else if (JoinUtils.shouldBucketShuffleJoin(physicalJoin)) {
+            groupJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        } else {
+            groupJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
+        }
+
+        // Runtime filters
+        context.getRuntimeTranslator().ifPresent(rt ->
+                rt.createLegacyRuntimeFilters(
+                        physicalJoin.getRuntimeFilters(), groupJoinNode, context));
+
+        // Output tuple descriptor
+        createGroupJoinOutputTuple(aggregate, join, groupJoinNode, context);
+
+        if (join.getStats() != null) {
+            groupJoinNode.setCardinality((long) join.getStats().getRowCount());
+        }
+        updateLegacyPlanIdToPhysicalPlan(currentFragment.getPlanRoot(), join);
+        return currentFragment;
+    }
+
+    /** Build output tuple descriptor for GroupJoinNode. */
+    private void createGroupJoinOutputTuple(
+            Aggregate<?> aggregate,
+            PhysicalHashJoin<?, ?> join,
+            GroupJoinNode groupJoinNode,
+            PlanTranslatorContext context) {
+        PlanNode leftNode = groupJoinNode.getChild(0);
+        PlanNode rightNode = groupJoinNode.getChild(1);
+
+        List<TupleDescriptor> leftTuples = context.getTupleDesc(leftNode);
+        List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+        List<TupleDescriptor> rightTuples = context.getTupleDesc(rightNode);
+        List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                .map(TupleDescriptor::getSlots)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        Map<ExprId, SlotReference> outputSlotRefMap = new HashMap<>();
+        for (Slot slot : join.getOutput()) {
+            SlotReference sf = (SlotReference) slot;
+            outputSlotRefMap.putIfAbsent(sf.getExprId(), sf);
+        }
+
+        // Intermediate tuple for hash output slots
+        TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
+        Map<ExprId, SlotReference> leftOutputMap = join.left().getOutput().stream()
+                .map(SlotReference.class::cast)
+                .collect(Collectors.toMap(Slot::getExprId, s -> s,
+                        (existing, replacement) -> existing));
+
+        for (SlotDescriptor leftSlotDesc : leftSlotDescriptors) {
+            SlotReference sf = leftOutputMap.get(
+                    context.findExprId(leftSlotDesc.getId()));
+            if (sf != null && outputSlotRefMap.get(sf.getExprId()) != null) {
+                context.createSlotDesc(intermediateDescriptor, sf);
+                groupJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDesc.getId());
+            }
+        }
+        Map<ExprId, SlotReference> rightOutputMap = join.right().getOutput().stream()
+                .map(SlotReference.class::cast)
+                .collect(Collectors.toMap(Slot::getExprId, s -> s,
+                        (existing, replacement) -> existing));
+        for (SlotDescriptor rightSlotDesc : rightSlotDescriptors) {
+            SlotReference sf = rightOutputMap.get(
+                    context.findExprId(rightSlotDesc.getId()));
+            if (sf != null && outputSlotRefMap.get(sf.getExprId()) != null) {
+                context.createSlotDesc(intermediateDescriptor, sf);
+                groupJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDesc.getId());
+            }
+        }
+
+        // Output tuple
+        TupleDescriptor outputTupleDesc = context.generateTupleDesc();
+        for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
+            if (groupByExpr instanceof SlotReference) {
+                context.createSlotDesc(outputTupleDesc, (SlotReference) groupByExpr);
+            }
+        }
+        for (NamedExpression outputExpr : aggregate.getOutputExpressions()) {
+            if (outputExpr.containsType(AggregateExpression.class)) {
+                Slot slot = outputExpr.toSlot();
+                if (slot instanceof SlotReference) {
+                    context.createSlotDesc(outputTupleDesc, (SlotReference) slot);
+                }
+            }
+        }
+        groupJoinNode.setOutputTupleDesc(outputTupleDesc);
     }
 
     /**
