@@ -135,10 +135,16 @@ public class MetaCacheEntry<K, V> {
     }
 
     public V getIfPresent(K key) {
+        if (!effectiveEnabled) {
+            return null;
+        }
         return data.getIfPresent(key);
     }
 
     public void put(K key, V value) {
+        if (!effectiveEnabled) {
+            return;
+        }
         data.put(key, value);
     }
 
@@ -206,6 +212,11 @@ public class MetaCacheEntry<K, V> {
 
     // Execute slow miss loads outside Caffeine's sync load path and suppress stale write-back after invalidation.
     private V getWithManualLoad(K key, Function<K, V> loadFunction) {
+        if (!effectiveEnabled) {
+            // Bypass cache entirely when the entry is disabled so manual miss load does not relax disable semantics.
+            return loadAndTrack(key, loadFunction);
+        }
+
         V value = data.getIfPresent(key);
         if (value != null) {
             return value;

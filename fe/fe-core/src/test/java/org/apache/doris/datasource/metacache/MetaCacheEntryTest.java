@@ -366,6 +366,36 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void testManualMissLoadDoesNotCacheWhenEntryDisabled() {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> loadCounter.incrementAndGet(),
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            // Verify disabled entries bypass cache entirely even when manual miss load is enabled by config.
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(2, loadCounter.get());
+
+            entry.put("k", 100);
+            Assert.assertNull(entry.getIfPresent("k"));
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     // Keep the loader blocking helper in one place so concurrent tests stay readable.
     private void awaitLatch(CountDownLatch latch) {
         try {
