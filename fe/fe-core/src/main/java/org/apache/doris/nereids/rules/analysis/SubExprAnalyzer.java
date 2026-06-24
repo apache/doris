@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -97,6 +98,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
+        checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
@@ -114,6 +116,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkNoCorrelatedSlotsUnderAgg(analyzedResult);
+        checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
@@ -220,6 +223,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
     }
 
+    private void checkNoCorrelatedSlotsUnderSetOp(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsUnderSetOp()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery with set operation "
+                            + analyzedResult.getLogicalPlan());
+        }
+    }
+
     private void checkRootIsLimit(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
@@ -281,13 +292,19 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                             ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
         }
 
+        public boolean hasCorrelatedSlotsUnderSetOp() {
+            return correlatedSlots.isEmpty() ? false
+                    : hasCorrelatedSlotsUnderNode(logicalPlan,
+                            ImmutableSet.copyOf(correlatedSlots), LogicalSetOperation.class);
+        }
+
         private static <T> boolean hasCorrelatedSlotsUnderNode(Plan rootPlan,
                                                                ImmutableSet<Slot> slots, Class<T> clazz) {
             ArrayDeque<Plan> planQueue = new ArrayDeque<>();
             planQueue.add(rootPlan);
             while (!planQueue.isEmpty()) {
                 Plan plan = planQueue.poll();
-                if (plan.getClass().equals(clazz)) {
+                if (clazz.isInstance(plan)) {
                     if (plan.containsSlots(slots)) {
                         return true;
                     }

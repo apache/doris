@@ -276,6 +276,98 @@ suite("correlated_scalar_subquery") {
         exception "access outer query's column before set operation is not supported"
     }
 
+    test {
+        sql """
+              SELECT o.c1,
+                    (SELECT COUNT(*) FROM (
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        INTERSECT
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        ) u) AS c
+                FROM correlated_scalar_t1 o;
+        """
+        exception "access outer query's column before set operation is not supported"
+    }
+
+    test {
+        sql """
+              SELECT o.c1,
+                    (SELECT COUNT(*) FROM (
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        EXCEPT
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        ) u) AS c
+                FROM correlated_scalar_t1 o;
+        """
+        exception "access outer query's column before set operation is not supported"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE c1 IN (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE c1 IN (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                INTERSECT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE c1 IN (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                EXCEPT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE EXISTS (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE EXISTS (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                INTERSECT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE EXISTS (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                EXCEPT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
     qt_select_agg_project1 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(count(c1) = 0, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_agg_project2 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 = (select if(sum(c1) is null, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_2_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) - min(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
