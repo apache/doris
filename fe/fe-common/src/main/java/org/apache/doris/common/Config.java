@@ -3233,16 +3233,16 @@ public class Config extends ConfigBase {
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
-            "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
-                    + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "
-                    + "non-negated bracket patterns [abc] are expanded to concrete paths. This is useful when only "
-                    + "GetObject permission is granted. Set to false to fall back to the original listing behavior."})
+            "For deterministic S3 paths that can be resolved to a finite set of object keys, "
+                    + "use HEAD requests instead of ListObjects to avoid requiring ListBucket permission. "
+                    + "This is useful when only GetObject permission is granted. "
+                    + "Set to false to fall back to the original listing behavior."})
     public static boolean s3_skip_list_for_deterministic_path = true;
 
     @ConfField(mutable = true, description = {
-            "Maximum number of expanded paths when using HEAD requests instead of ListObjects. "
-                    + "If the expanded path count exceeds this limit, falls back to ListObjects. "
-                    + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."})
+            "Maximum number of deterministic S3 object keys to resolve with HEAD requests instead of ListObjects. "
+                    + "If expanding a deterministic path pattern exceeds this value, fall back to ListObjects. "
+                    + "Set to 0 to disable the HEAD fast path."})
     public static int s3_head_request_max_paths = 100;
     @ConfField(mutable = true, description = {
             "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "

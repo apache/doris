@@ -17,6 +17,7 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -33,7 +34,6 @@ import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -47,7 +47,7 @@ public class SpiSwitchingFileSystemTest {
     private final FileSystem mockDelegate = Mockito.mock(FileSystem.class);
 
     /**
-     * H2: When {@link FileSystemFactory#getFileSystem(StorageProperties)} throws {@link IOException},
+     * H2: When {@link FileSystemFactory#getFileSystemWithEffectiveProperties(Map)} throws {@link IOException},
      * {@link SpiSwitchingFileSystem#forPath(String)} must rethrow it as {@link IOException},
      * not as {@link RuntimeException}.
      *
@@ -73,8 +73,8 @@ public class SpiSwitchingFileSystemTest {
                     });
 
             // Mock FileSystemFactory to throw IOException — this is the scenario under test.
-            mockedFactory.when(() -> FileSystemFactory.getFileSystem(
-                            Mockito.any(StorageProperties.class)))
+            mockedFactory.when(() -> FileSystemFactory.getFileSystemWithEffectiveProperties(
+                            Mockito.anyMap()))
                     .thenThrow(rootCause);
 
             SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(Collections.emptyMap());
@@ -137,8 +137,10 @@ public class SpiSwitchingFileSystemTest {
         props1.put("broker.name", "broker1");
         Map<String, String> props2 = new HashMap<>();
         props2.put("broker.name", "broker2");
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", props1), countingFs);
-        injectIntoCache(spiFs, BrokerProperties.of("broker2", props2), countingFs);
+        injectIntoCache(spiFs, new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(
+                BrokerProperties.of("broker1", props1)), countingFs);
+        injectIntoCache(spiFs, new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(
+                BrokerProperties.of("broker2", props2)), countingFs);
 
         spiFs.close();
 
@@ -160,7 +162,8 @@ public class SpiSwitchingFileSystemTest {
             }
         };
 
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", new HashMap<>()), countingFs);
+        injectIntoCache(spiFs, new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(
+                BrokerProperties.of("broker1", new HashMap<>())), countingFs);
 
         spiFs.close(); // first close — should close the cached FS
         spiFs.close(); // second close — must be a no-op
@@ -198,8 +201,10 @@ public class SpiSwitchingFileSystemTest {
         props1.put("broker.name", "broker1");
         Map<String, String> props2 = new HashMap<>();
         props2.put("broker.name", "broker2");
-        injectIntoCache(spiFs, BrokerProperties.of("broker1", props1), failingFs1);
-        injectIntoCache(spiFs, BrokerProperties.of("broker2", props2), failingFs2);
+        injectIntoCache(spiFs, new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(
+                BrokerProperties.of("broker1", props1)), failingFs1);
+        injectIntoCache(spiFs, new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(
+                BrokerProperties.of("broker2", props2)), failingFs2);
 
         try {
             spiFs.close();
@@ -221,6 +226,44 @@ public class SpiSwitchingFileSystemTest {
         }
     }
 
+    @Test
+    public void testS3CompatibleCacheKeyIncludesRuntimeConfigSnapshot() {
+        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
+        int oldHeadRequestMaxPaths = Config.s3_head_request_max_paths;
+        try {
+            StorageProperties s3Properties = s3Properties();
+            Config.s3_skip_list_for_deterministic_path = true;
+            Config.s3_head_request_max_paths = 100;
+            SpiSwitchingFileSystem.SwitchingFileSystemCacheKey first =
+                    new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(s3Properties);
+
+            Config.s3_skip_list_for_deterministic_path = false;
+            Config.s3_head_request_max_paths = 0;
+            SpiSwitchingFileSystem.SwitchingFileSystemCacheKey second =
+                    new SpiSwitchingFileSystem.SwitchingFileSystemCacheKey(s3Properties);
+
+            Assert.assertNotEquals(first, second);
+            Assert.assertEquals("true",
+                    first.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
+            Assert.assertEquals("100",
+                    first.getEffectiveProperties().get("s3_head_request_max_paths"));
+            Assert.assertEquals("false",
+                    second.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
+            Assert.assertEquals("0",
+                    second.getEffectiveProperties().get("s3_head_request_max_paths"));
+
+            Config.s3_skip_list_for_deterministic_path = true;
+            Config.s3_head_request_max_paths = 5;
+            Assert.assertEquals("false",
+                    second.getEffectiveProperties().get("s3_skip_list_for_deterministic_path"));
+            Assert.assertEquals("0",
+                    second.getEffectiveProperties().get("s3_head_request_max_paths"));
+        } finally {
+            Config.s3_skip_list_for_deterministic_path = oldSkipList;
+            Config.s3_head_request_max_paths = oldHeadRequestMaxPaths;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -231,12 +274,22 @@ public class SpiSwitchingFileSystemTest {
      */
     @SuppressWarnings("unchecked")
     private static void injectIntoCache(SpiSwitchingFileSystem spiFs,
-            StorageProperties key, FileSystem value) throws Exception {
+            SpiSwitchingFileSystem.SwitchingFileSystemCacheKey key, FileSystem value) throws Exception {
         Field cacheField = SpiSwitchingFileSystem.class.getDeclaredField("cache");
         cacheField.setAccessible(true);
-        Map<StorageProperties, FileSystem> cache =
-                (ConcurrentHashMap<StorageProperties, FileSystem>) cacheField.get(spiFs);
+        Map<SpiSwitchingFileSystem.SwitchingFileSystemCacheKey, FileSystem> cache =
+                (Map<SpiSwitchingFileSystem.SwitchingFileSystemCacheKey, FileSystem>) cacheField.get(spiFs);
         cache.put(key, value);
+    }
+
+    private static StorageProperties s3Properties() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put(StorageProperties.FS_S3_SUPPORT, "true");
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+        return StorageProperties.createPrimary(raw);
     }
 
     /**

@@ -19,6 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystem;
 
@@ -29,6 +30,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,7 +75,7 @@ public class FileSystemCache {
 
     private static FileSystem loadFileSystem(FileSystemCacheKey key) {
         try {
-            return FileSystemFactory.getFileSystem(key.properties);
+            return FileSystemFactory.getFileSystemWithEffectiveProperties(key.effectiveProperties);
         } catch (IOException e) {
             throw new RuntimeException("Failed to create filesystem for key: " + key, e);
         }
@@ -208,14 +211,28 @@ public class FileSystemCache {
         // eg: hdfs://nameservices1
         private final String fsIdent;
         private final StorageProperties properties;
+        private final Map<String, String> effectiveProperties;
+        private final boolean s3SkipListForDeterministicPath;
+        private final int s3HeadRequestMaxPaths;
 
         public FileSystemCacheKey(String fsIdent, StorageProperties properties) {
             this.fsIdent = fsIdent;
             this.properties = properties;
+            boolean isS3Compatible = properties instanceof AbstractS3CompatibleProperties;
+            this.s3SkipListForDeterministicPath = isS3Compatible
+                    && Config.s3_skip_list_for_deterministic_path;
+            this.s3HeadRequestMaxPaths = isS3Compatible ? Config.s3_head_request_max_paths : 0;
+            this.effectiveProperties = Collections.unmodifiableMap(FileSystemFactory.withRuntimeFileSystemProperties(
+                    StoragePropertiesConverter.toMap(properties),
+                    s3SkipListForDeterministicPath, s3HeadRequestMaxPaths));
         }
 
         public StorageProperties getProperties() {
             return properties;
+        }
+
+        Map<String, String> getEffectiveProperties() {
+            return effectiveProperties;
         }
 
         @Override
@@ -228,12 +245,14 @@ public class FileSystemCache {
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
             return fsIdent.equals(o.fsIdent)
-                            && properties.equals(o.properties);
+                            && properties.equals(o.properties)
+                            && s3SkipListForDeterministicPath == o.s3SkipListForDeterministicPath
+                            && s3HeadRequestMaxPaths == o.s3HeadRequestMaxPaths;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(properties, fsIdent);
+            return Objects.hash(properties, fsIdent, s3SkipListForDeterministicPath, s3HeadRequestMaxPaths);
         }
     }
 }

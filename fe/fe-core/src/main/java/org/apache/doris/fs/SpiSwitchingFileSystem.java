@@ -17,7 +17,9 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
@@ -34,8 +36,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,8 +52,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * storage-type → {@link StorageProperties} mapping comes from the catalog's
  * {@code storagePropertiesMap}.
  *
- * <p>Resolved {@link FileSystem} instances are cached per {@link StorageProperties} reference
- * (identity-based) to avoid recreating connections on every call.
+ * <p>Resolved {@link FileSystem} instances are cached per {@link StorageProperties} plus
+ * effective S3 runtime controls to avoid recreating connections on every call.
  */
 public class SpiSwitchingFileSystem implements FileSystem {
 
@@ -59,11 +63,11 @@ public class SpiSwitchingFileSystem implements FileSystem {
     /** Non-null only when created via the test constructor — all paths delegate here. */
     private FileSystem testDelegate;
     /**
-     * Cache: StorageProperties → spi.FileSystem.
+     * Cache: effective StorageProperties → spi.FileSystem.
      * Uses value-based equality (via ConnectionProperties.equals/hashCode on origProps),
      * so logically identical configurations share the same FileSystem instance.
      */
-    private final Map<StorageProperties, FileSystem> cache = new ConcurrentHashMap<>();
+    private final Map<SwitchingFileSystemCacheKey, FileSystem> cache = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public SpiSwitchingFileSystem(Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
@@ -91,9 +95,11 @@ public class SpiSwitchingFileSystem implements FileSystem {
             throw new IOException("No StorageProperties found for path: " + uri);
         }
         try {
-            return cache.computeIfAbsent(sp, props -> {
+            SwitchingFileSystemCacheKey key = new SwitchingFileSystemCacheKey(sp);
+            return cache.computeIfAbsent(key, cacheKey -> {
                 try {
-                    return FileSystemFactory.getFileSystem(props);
+                    return FileSystemFactory.getFileSystemWithEffectiveProperties(
+                            cacheKey.getEffectiveProperties());
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
@@ -201,6 +207,48 @@ public class SpiSwitchingFileSystem implements FileSystem {
         }
         if (firstError != null) {
             throw firstError;
+        }
+    }
+
+    @VisibleForTesting
+    static final class SwitchingFileSystemCacheKey {
+        private final StorageProperties properties;
+        private final Map<String, String> effectiveProperties;
+        private final boolean s3SkipListForDeterministicPath;
+        private final int s3HeadRequestMaxPaths;
+
+        SwitchingFileSystemCacheKey(StorageProperties properties) {
+            this.properties = Objects.requireNonNull(properties, "properties");
+            boolean isS3Compatible = properties instanceof AbstractS3CompatibleProperties;
+            this.s3SkipListForDeterministicPath = isS3Compatible
+                    && Config.s3_skip_list_for_deterministic_path;
+            this.s3HeadRequestMaxPaths = isS3Compatible ? Config.s3_head_request_max_paths : 0;
+            this.effectiveProperties = Collections.unmodifiableMap(FileSystemFactory.withRuntimeFileSystemProperties(
+                    StoragePropertiesConverter.toMap(properties),
+                    s3SkipListForDeterministicPath, s3HeadRequestMaxPaths));
+        }
+
+        Map<String, String> getEffectiveProperties() {
+            return effectiveProperties;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof SwitchingFileSystemCacheKey)) {
+                return false;
+            }
+            SwitchingFileSystemCacheKey o = (SwitchingFileSystemCacheKey) obj;
+            return properties.equals(o.properties)
+                    && s3SkipListForDeterministicPath == o.s3SkipListForDeterministicPath
+                    && s3HeadRequestMaxPaths == o.s3HeadRequestMaxPaths;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(properties, s3SkipListForDeterministicPath, s3HeadRequestMaxPaths);
         }
     }
 }

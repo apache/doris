@@ -61,7 +61,7 @@ public class ObsFileSystemProvider implements FileSystemProvider<ObsFileSystemPr
 
     @Override
     public FileSystem create(ObsFileSystemProperties properties) throws IOException {
-        return new ObsFileSystem(new ObsObjStorage(properties));
+        return new ObsFileSystem(properties);
     }
 
     @Override

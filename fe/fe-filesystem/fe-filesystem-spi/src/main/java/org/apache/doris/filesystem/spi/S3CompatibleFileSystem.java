@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -53,12 +55,27 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
+    private static final int DEFAULT_MAX_DETERMINISTIC_HEAD_PATHS =
+            S3CompatibleFileSystemProperties.DEFAULT_HEAD_REQUEST_MAX_PATHS;
 
     private final boolean usePathStyle;
+    private final boolean skipListForDeterministicPath;
+    private final int maxDeterministicHeadPaths;
 
     protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle) {
+        this(objStorage, usePathStyle, true, DEFAULT_MAX_DETERMINISTIC_HEAD_PATHS);
+    }
+
+    protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle,
+            boolean skipListForDeterministicPath, int maxDeterministicHeadPaths) {
         super(objStorage);
+        if (maxDeterministicHeadPaths < 0) {
+            throw new IllegalArgumentException(
+                    "maxDeterministicHeadPaths must be greater than or equal to 0");
+        }
         this.usePathStyle = usePathStyle;
+        this.skipListForDeterministicPath = skipListForDeterministicPath;
+        this.maxDeterministicHeadPaths = maxDeterministicHeadPaths;
     }
 
     @Override
@@ -907,6 +924,322 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return sb.toString();
     }
 
+    private static boolean isDeterministicObjectKeyPattern(String pattern) {
+        if (pattern.isEmpty() || pattern.endsWith(DIR_MARKER_SUFFIX)) {
+            return false;
+        }
+        int i = 0;
+        while (i < pattern.length()) {
+            char c = pattern.charAt(i);
+            if (c == '\\') {
+                if (i + 1 >= pattern.length()) {
+                    return false;
+                }
+                i += 2;
+                continue;
+            }
+            if (c == '*' || c == '?') {
+                return false;
+            }
+            if (c == '{') {
+                if (findMatchingBrace(pattern, i) < 0) {
+                    return false;
+                }
+            }
+            if (c != '[') {
+                i++;
+                continue;
+            }
+            int end = findMatchingBracket(pattern, i);
+            if (end < 0 || end == i + 1) {
+                return false;
+            }
+            char first = pattern.charAt(i + 1);
+            if (first == '!' || first == '^') {
+                return false;
+            }
+            i = end + 1;
+        }
+        return true;
+    }
+
+    private static String unescapeGlobLiterals(String pattern) {
+        StringBuilder result = new StringBuilder(pattern.length());
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c == '\\' && i + 1 < pattern.length()) {
+                result.append(pattern.charAt(i + 1));
+                i++;
+            } else {
+                result.append(c);
+            }
+        }
+        return result.toString();
+    }
+
+    private static String escapeGlobLiteral(char c) {
+        if (c == '*' || c == '?' || c == '[' || c == ']' || c == '{' || c == '}' || c == '\\') {
+            return "\\" + c;
+        }
+        return String.valueOf(c);
+    }
+
+    private static List<Character> expandBracketContent(String content) {
+        List<Character> values = new ArrayList<>();
+        int i = 0;
+        while (i < content.length()) {
+            if (content.charAt(i) == '\\' && i + 1 < content.length()) {
+                char c = content.charAt(i + 1);
+                if (!values.contains(c)) {
+                    values.add(c);
+                }
+                i += 2;
+                continue;
+            }
+            if (i + 2 < content.length() && content.charAt(i + 1) == '-') {
+                char from = content.charAt(i);
+                char to = content.charAt(i + 2);
+                int step = from <= to ? 1 : -1;
+                for (char c = from; step > 0 ? c <= to : c >= to; c += step) {
+                    if (!values.contains(c)) {
+                        values.add(c);
+                    }
+                }
+                i += 3;
+            } else {
+                char c = content.charAt(i);
+                if (!values.contains(c)) {
+                    values.add(c);
+                }
+                i++;
+            }
+        }
+        return values;
+    }
+
+    private static List<String> expandDeterministicKeyPattern(String pattern, int maxPaths) {
+        if (maxPaths <= 0 || !isDeterministicObjectKeyPattern(pattern)) {
+            return null;
+        }
+        List<String> expanded = new ArrayList<>();
+        int expansionLimit = maxPaths == Integer.MAX_VALUE ? Integer.MAX_VALUE : maxPaths + 1;
+        expandDeterministicKeyPatternBounded(pattern, expanded, expansionLimit);
+        if (expanded.size() > maxPaths) {
+            return null;
+        }
+        List<String> keys = new ArrayList<>(new LinkedHashSet<>(expanded));
+        Collections.sort(keys);
+        return keys;
+    }
+
+    private static void expandDeterministicKeyPatternBounded(String pattern, List<String> result,
+            int maxPaths) {
+        if (result.size() >= maxPaths) {
+            return;
+        }
+        int bracketStart = findNextUnescaped(pattern, '[');
+        int braceStart = findNextUnescaped(pattern, '{');
+        if (bracketStart < 0 && braceStart < 0) {
+            result.add(unescapeGlobLiterals(pattern));
+            return;
+        }
+        if (bracketStart >= 0 && (braceStart < 0 || bracketStart < braceStart)) {
+            int bracketEnd = findMatchingBracket(pattern, bracketStart);
+            String prefix = pattern.substring(0, bracketStart);
+            String suffix = pattern.substring(bracketEnd + 1);
+            for (char alternative : expandBracketContent(pattern.substring(bracketStart + 1, bracketEnd))) {
+                if (result.size() >= maxPaths) {
+                    return;
+                }
+                expandDeterministicKeyPatternBounded(prefix + escapeGlobLiteral(alternative) + suffix,
+                        result, maxPaths);
+            }
+            return;
+        }
+        int braceEnd = findMatchingBrace(pattern, braceStart);
+        String prefix = pattern.substring(0, braceStart);
+        String suffix = pattern.substring(braceEnd + 1);
+        for (String alternative : expandBraceAlternatives(pattern.substring(braceStart + 1, braceEnd))) {
+            if (result.size() >= maxPaths) {
+                return;
+            }
+            expandDeterministicKeyPatternBounded(prefix + alternative + suffix, result, maxPaths);
+        }
+    }
+
+    private static List<String> expandBraceAlternatives(String content) {
+        List<String> alternatives = splitBraceContent(content);
+        boolean mixed = alternatives.size() > 1;
+        LinkedHashSet<String> expanded = new LinkedHashSet<>();
+        for (String alternative : alternatives) {
+            expanded.addAll(expandNumericRangeAlternative(alternative, mixed));
+        }
+        return new ArrayList<>(expanded);
+    }
+
+    private static List<String> expandNumericRangeAlternative(String alternative, boolean mixed) {
+        java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
+                "(-?\\d+)\\.\\.(-?\\d+)");
+        String trimmed = alternative.trim();
+        java.util.regex.Matcher matcher = rangeSegment.matcher(trimmed);
+        if (!matcher.matches()) {
+            return List.of(alternative);
+        }
+        int from = Integer.parseInt(matcher.group(1));
+        int to = Integer.parseInt(matcher.group(2));
+        if (!mixed && from < 0) {
+            return List.of(alternative);
+        }
+        List<String> values = new ArrayList<>();
+        int step = from <= to ? 1 : -1;
+        for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
+            values.add(String.valueOf(i));
+        }
+        return values;
+    }
+
+    private static int findNextUnescaped(String pattern, char target) {
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == target) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int findMatchingBracket(String pattern, int start) {
+        for (int i = start + 1; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == ']') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int findMatchingBrace(String pattern, int start) {
+        int depth = 0;
+        for (int i = start; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == '[') {
+                int bracketEnd = findMatchingBracket(pattern, i);
+                if (bracketEnd > i) {
+                    i = bracketEnd;
+                    continue;
+                }
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private static List<String> splitBraceContent(String content) {
+        List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\\') {
+                i++;
+                continue;
+            }
+            if (c == '[') {
+                int bracketEnd = findMatchingBracket(content, i);
+                if (bracketEnd > i) {
+                    i = bracketEnd;
+                    continue;
+                }
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+            } else if (c == ',' && depth == 0) {
+                parts.add(content.substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(content.substring(start));
+        return parts;
+    }
+
+    private RemoteObject headObjectIfPresent(String path) throws IOException {
+        try {
+            return objStorage.headObject(path);
+        } catch (IOException e) {
+            if (isNotFoundError(e)) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
+    private GlobListing globListDeterministicKeys(String bucket, String patternPrefix, String base,
+            List<String> keys, String startAfter, long maxBytes, long maxFiles) throws IOException {
+        List<FileEntry> files = new ArrayList<>();
+        long totalSize = 0L;
+        boolean reachLimit = false;
+        String nextMatchAfterLimit = "";
+        String lastMatchedKey = "";
+        String lastSkippedKey = null;
+        boolean probedKeyAfterStart = false;
+        for (String key : keys) {
+            if (startAfter != null && !startAfter.isEmpty() && key.compareTo(startAfter) <= 0) {
+                lastSkippedKey = key;
+                continue;
+            }
+            probedKeyAfterStart = true;
+            RemoteObject obj = headObjectIfPresent(base + key);
+            if (obj == null) {
+                continue;
+            }
+            String objectKey = obj.getKey();
+            if (reachLimit) {
+                nextMatchAfterLimit = objectKey;
+                break;
+            }
+            files.add(new FileEntry(
+                    Location.of(base + objectKey),
+                    obj.getSize(),
+                    false,
+                    obj.getModificationTime(),
+                    List.of()));
+            totalSize += obj.getSize();
+            lastMatchedKey = objectKey;
+            if ((maxFiles > 0 && files.size() >= maxFiles)
+                    || (maxBytes > 0 && totalSize >= maxBytes)) {
+                reachLimit = true;
+            }
+        }
+        if (!probedKeyAfterStart && lastSkippedKey != null) {
+            // Incremental readers may have consumed all deterministic keys already. Keep a
+            // HEAD probe here so credential changes are still surfaced without requiring ListBucket.
+            headObjectIfPresent(base + lastSkippedKey);
+        }
+        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
+        return new GlobListing(files, bucket, patternPrefix, maxFile);
+    }
+
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
@@ -916,6 +1249,15 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String bucket = parsed.bucket();
         String keyPattern = parsed.key();
         String base = uriBase(uri, parsed);
+
+        if (skipListForDeterministicPath) {
+            List<String> deterministicKeys = expandDeterministicKeyPattern(
+                    keyPattern, maxDeterministicHeadPaths);
+            if (deterministicKeys != null) {
+                return globListDeterministicKeys(bucket, longestNonGlobPrefix(keyPattern), base,
+                        deterministicKeys, startAfter, maxBytes, maxFiles);
+            }
+        }
 
         String expandedKeyPattern = expandNumericRanges(keyPattern);
         // Translate the glob to a regex and match against the raw object storage key. We do NOT

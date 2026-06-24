@@ -33,7 +33,8 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
-        super(objStorage, objStorage.isUsePathStyle());
+        super(objStorage, objStorage.isUsePathStyle(),
+                properties.isSkipListForDeterministicPath(), properties.getHeadRequestMaxPaths());
         this.properties = properties;
     }
 

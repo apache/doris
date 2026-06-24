@@ -62,12 +62,17 @@ public final class S3FileSystemProperties
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
     public static final String USE_PATH_STYLE = "use_path_style";
     public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
+    public static final String SKIP_LIST_FOR_DETERMINISTIC_PATH =
+            S3CompatibleFileSystemProperties.SKIP_LIST_FOR_DETERMINISTIC_PATH;
+    public static final String HEAD_REQUEST_MAX_PATHS = S3CompatibleFileSystemProperties.HEAD_REQUEST_MAX_PATHS;
 
     public static final String DEFAULT_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
     public static final String DEFAULT_CREDENTIALS_PROVIDER_TYPE = "DEFAULT";
     public static final String DEFAULT_REGION = "us-east-1";
+    public static final int DEFAULT_HEAD_REQUEST_MAX_PATHS =
+            S3CompatibleFileSystemProperties.DEFAULT_HEAD_REQUEST_MAX_PATHS;
 
     private static final Pattern[] ENDPOINT_PATTERNS = new Pattern[] {
             Pattern.compile(
@@ -178,6 +183,18 @@ public final class S3FileSystemProperties
             description = "The credentials provider type.")
     private String credentialsProviderType = DEFAULT_CREDENTIALS_PROVIDER_TYPE;
 
+    @ConnectorProperty(names = {SKIP_LIST_FOR_DETERMINISTIC_PATH},
+            required = false,
+            description = "Whether deterministic S3 paths should use HEAD requests instead of ListObjects.")
+    private String skipListForDeterministicPath = "true";
+
+    @Getter
+    @ConnectorProperty(names = {HEAD_REQUEST_MAX_PATHS},
+            required = false,
+            description = "Maximum deterministic S3 object keys to resolve with HEAD "
+                    + "before falling back to ListObjects.")
+    private int headRequestMaxPaths = DEFAULT_HEAD_REQUEST_MAX_PATHS;
+
     private final Map<String, String> rawProperties;
     private final Map<String, String> matchedProperties;
 
@@ -210,6 +227,12 @@ public final class S3FileSystemProperties
                         "Either s3.endpoint or s3.region must be set")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
+                .check(this::hasInvalidSkipListForDeterministicPath,
+                        SKIP_LIST_FOR_DETERMINISTIC_PATH + " must be true or false, got: '"
+                                + skipListForDeterministicPath + "'")
+                .check(() -> headRequestMaxPaths < 0,
+                        HEAD_REQUEST_MAX_PATHS + " must be greater than or equal to 0, got: "
+                                + headRequestMaxPaths)
                 .validate("Invalid S3 filesystem properties");
     }
 
@@ -317,6 +340,15 @@ public final class S3FileSystemProperties
 
     public S3CredentialsProviderType getCredentialsProviderType() {
         return S3CredentialsProviderType.fromString(credentialsProviderType);
+    }
+
+    public boolean isSkipListForDeterministicPath() {
+        return S3CompatibleFileSystemProperties.super.isSkipListForDeterministicPath();
+    }
+
+    @Override
+    public String getSkipListForDeterministicPath() {
+        return skipListForDeterministicPath;
     }
 
     public boolean hasStaticCredentials() {
