@@ -343,6 +343,10 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
         view.values = batch._fixed_values;
     }
 
+    if (_decoded_value_appender != nullptr) {
+        return _decoded_value_appender(column, view);
+    }
+
     {
         SCOPED_TIMER(_profile.materialization_time);
         // 通过 DataTypeSerde 完成类型感知的值写入。
@@ -423,7 +427,8 @@ ParquetLeafReader::ParquetLeafReader(
         DataTypePtr type, std::string name,
         std::shared_ptr<::parquet::internal::RecordReader> record_reader,
         ParquetColumnReaderProfile profile, const cctz::time_zone* timezone,
-        bool enable_strict_mode)
+        bool enable_strict_mode,
+        std::function<Status(MutableColumnPtr&, const DecodedColumnView&)> decoded_value_appender)
         : _descriptor(descriptor),
           _type_descriptor(type_descriptor),
           _type(std::move(type)),
@@ -431,7 +436,8 @@ ParquetLeafReader::ParquetLeafReader(
           _record_reader(std::move(record_reader)),
           _profile(profile),
           _timezone(timezone),
-          _enable_strict_mode(enable_strict_mode) {}
+          _enable_strict_mode(enable_strict_mode),
+          _decoded_value_appender(std::move(decoded_value_appender)) {}
 
 // 从 Arrow RecordReader 读取 batch_rows 行，并将结果捕获到 ParquetLeafBatch 中。
 //
@@ -532,6 +538,17 @@ Status ParquetLeafReader::build_null_map(const ParquetLeafBatch& batch, int64_t 
 Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_slot_definition_level,
                                             ParquetNestedScalarBatch* batch,
                                             int16_t value_slot_repetition_level) const {
+    ParquetLeafBatch leaf_batch;
+    int64_t records_read = 0;
+    RETURN_IF_ERROR(read_batch(batch_rows, &leaf_batch, &records_read));
+    return build_nested_batch_from_leaf_batch(leaf_batch, records_read, value_slot_definition_level,
+                                              batch, value_slot_repetition_level);
+}
+
+Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
+        const ParquetLeafBatch& leaf_batch, int64_t records_read,
+        int16_t value_slot_definition_level, ParquetNestedScalarBatch* batch,
+        int16_t value_slot_repetition_level) const {
     if (batch == nullptr) {
         return Status::InvalidArgument("Nested scalar batch is null for column {}", _name);
     }
@@ -539,8 +556,7 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_sl
     batch->value_slot_definition_level = value_slot_definition_level;
     batch->value_slot_repetition_level = value_slot_repetition_level;
 
-    ParquetLeafBatch leaf_batch;
-    RETURN_IF_ERROR(read_batch(batch_rows, &leaf_batch, &batch->records_read));
+    batch->records_read = records_read;
     if (_type->is_nullable() && leaf_batch.read_dense_for_nullable()) {
         return Status::NotSupported(
                 "Dense nullable parquet nested reader is not supported for column {}", _name);

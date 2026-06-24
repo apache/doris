@@ -256,8 +256,11 @@ Status ParquetColumnReaderFactory::create_scalar_column_reader(
         return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
                                        column_schema.leaf_column_id, column_schema.name);
     }
-    if (!is_nested && (column_schema.descriptor == nullptr ||
-                       column_schema.descriptor->max_repetition_level() != 0 ||
+    if (column_schema.descriptor == nullptr) {
+        return Status::InvalidArgument("Parquet column descriptor is null for column {}",
+                                       column_schema.name);
+    }
+    if (!is_nested && (column_schema.descriptor->max_repetition_level() != 0 ||
                        column_schema.descriptor->max_definition_level() > 1)) {
         return Status::NotSupported(
                 "Current parquet scalar reader only supports flat primitive columns; column {} is "
