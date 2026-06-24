@@ -678,6 +678,15 @@ public abstract class ConnectProcessor {
     }
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
+        ctx.lockSessionVariableForCommand();
+        try {
+            return proxyExecuteWithSessionVariableLock(request);
+        } finally {
+            ctx.unlockSessionVariableForCommand();
+        }
+    }
+
+    private TMasterOpResult proxyExecuteWithSessionVariableLock(TMasterOpRequest request) throws TException {
         ctx.setDatabase(request.db);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.getState().reset();

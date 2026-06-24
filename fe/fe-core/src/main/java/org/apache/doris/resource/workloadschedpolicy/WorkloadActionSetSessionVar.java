@@ -17,10 +17,7 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.VariableMgr;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -41,8 +38,7 @@ public class WorkloadActionSetSessionVar implements WorkloadAction {
     @Override
     public void exec(WorkloadQueryInfo queryInfo) {
         try {
-            SetVar var = new SetVar(varName, new StringLiteral(varValue));
-            VariableMgr.setVar(queryInfo.context.getSessionVariable(), var);
+            queryInfo.context.trySetSessionVariableFromWorkloadPolicy(varName, varValue);
         } catch (Throwable t) {
             LOG.error("error happens when exec {}", WorkloadActionType.SET_SESSION_VARIABLE, t);
         }

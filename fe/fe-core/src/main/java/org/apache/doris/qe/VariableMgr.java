@@ -315,6 +315,14 @@ public class VariableMgr {
     //      setVar: variable information that needs to be set
     public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
+        setVar(sessionVariable, setVar, true);
+    }
+
+    /**
+     * Set a session variable and optionally record its original value for statement-level rollback.
+     */
+    public static void setVar(SessionVariable sessionVariable, SetVar setVar, boolean recordOriginValue)
+            throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             // Silently ignore variables that have been removed from SessionVariable.
@@ -334,7 +342,8 @@ public class VariableMgr {
                     findSimilarSessionVarNames(setVar.getVariable()));
         }
         checkUpdate(setVar, varCtx.getFlag());
-        setVarInternal(sessionVariable, setVar, varCtx);
+        setVarInternal(sessionVariable, setVar, varCtx,
+                recordOriginValue && sessionVariable.getIsSingleSetVar());
     }
 
     /**
@@ -381,7 +390,7 @@ public class VariableMgr {
             }
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        setVarInternal(sessionVariable, setVar, varCtx);
+        setVarInternal(sessionVariable, setVar, varCtx, sessionVariable.getIsSingleSetVar());
     }
 
     @Nullable
@@ -409,7 +418,8 @@ public class VariableMgr {
         return ctx;
     }
 
-    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
+    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx,
+            boolean recordOriginValue)
             throws DdlException {
         // To modify to default value.
         VarAttrDef.VarAttr attr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
@@ -432,7 +442,7 @@ public class VariableMgr {
         Field field = ctx.getField();
         SessionVariableField sessionVariableField = new SessionVariableField(field);
         // if stmt is "Select /*+ SET_VAR(...)*/"
-        if (sessionVariable.getIsSingleSetVar()) {
+        if (recordOriginValue) {
             try {
                 sessionVariable.addSessionOriginValue(sessionVariableField, field.get(sessionVariable).toString());
             } catch (Exception e) {
@@ -792,7 +802,7 @@ public class VariableMgr {
                 LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
                 continue;
             }
-            setVarInternal(sessionVariable, setVar, varCtx);
+            setVarInternal(sessionVariable, setVar, varCtx, sessionVariable.getIsSingleSetVar());
         }
     }
 

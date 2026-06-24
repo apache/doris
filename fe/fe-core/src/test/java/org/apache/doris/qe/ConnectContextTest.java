@@ -56,7 +56,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ConnectContextTest {
     private StmtExecutor executor = Mockito.mock(StmtExecutor.class);
@@ -152,6 +156,40 @@ public class ConnectContextTest {
         processor.handleResetConnection();
 
         Assert.assertEquals(0, ctx.getState().serverStatus);
+    }
+
+    @Test
+    public void testWorkloadPolicySessionVariableUpdatesOnlyIdleConnection() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setCommand(MysqlCommand.COM_SLEEP);
+
+        ctx.lockSessionVariableForCommand();
+        AtomicBoolean updated = new AtomicBoolean();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch finished = new CountDownLatch(1);
+        Thread policyThread = new Thread(() -> {
+            try {
+                updated.set(ctx.trySetSessionVariableFromWorkloadPolicy(SessionVariable.SQL_SELECT_LIMIT, "100"));
+            } catch (Throwable t) {
+                failure.set(t);
+            } finally {
+                finished.countDown();
+            }
+        });
+        policyThread.start();
+        Assert.assertTrue(finished.await(5, TimeUnit.SECONDS));
+        Assert.assertNull(failure.get());
+        Assert.assertFalse(updated.get());
+        ctx.unlockSessionVariableForCommand();
+
+        Assert.assertTrue(ctx.trySetSessionVariableFromWorkloadPolicy(SessionVariable.SQL_SELECT_LIMIT, "100"));
+        Assert.assertEquals(100, ctx.getSessionVariable().getSqlSelectLimit());
+
+        ctx.getSessionVariable().setIsSingleSetVar(true);
+        VariableMgr.setVar(ctx.getSessionVariable(),
+                new SetVar(SessionVariable.SQL_SELECT_LIMIT, new StringLiteral("200")), false);
+        Assert.assertTrue(ctx.getSessionVariable().getSessionOriginValue().isEmpty());
+        Assert.assertEquals(200, ctx.getSessionVariable().getSqlSelectLimit());
     }
 
     @Test

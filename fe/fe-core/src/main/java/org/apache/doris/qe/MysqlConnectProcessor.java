@@ -409,14 +409,19 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
 
-        // dispatch
-        dispatch();
-        // finalize
-        finalizeCommand();
+        ctx.lockSessionVariableForCommand();
+        try {
+            // dispatch
+            dispatch();
+            // finalize
+            finalizeCommand();
 
-        ctx.setCommand(MysqlCommand.COM_SLEEP);
-        ctx.clear();
-        executor = null;
+            ctx.setCommand(MysqlCommand.COM_SLEEP);
+            ctx.clear();
+            executor = null;
+        } finally {
+            ctx.unlockSessionVariableForCommand();
+        }
     }
 
     public void loop() {

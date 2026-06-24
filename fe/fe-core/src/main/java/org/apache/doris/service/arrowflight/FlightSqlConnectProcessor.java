@@ -60,6 +60,7 @@ import java.util.concurrent.TimeoutException;
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
     private Schema arrowSchema;
+    private boolean sessionVariableLocked;
 
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
@@ -86,6 +87,8 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         if (LOG.isDebugEnabled()) {
             LOG.debug("arrow flight sql handle command {}", command);
         }
+        ctx.lockSessionVariableForCommand();
+        sessionVariableLocked = true;
         ctx.setCommand(command);
         ctx.setStartTime();
     }
@@ -195,13 +198,20 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
     @Override
     public void close() throws Exception {
-        ctx.setCommand(MysqlCommand.COM_SLEEP);
-        for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
-            asynExecutor.finalizeQuery();
+        try {
+            ctx.setCommand(MysqlCommand.COM_SLEEP);
+            for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
+                asynExecutor.finalizeQuery();
+            }
+            returnResultFromRemoteExecutor.clear();
+            executor.finalizeQuery();
+            ctx.clear();
+            ConnectContext.remove();
+        } finally {
+            if (sessionVariableLocked) {
+                ctx.unlockSessionVariableForCommand();
+                sessionVariableLocked = false;
+            }
         }
-        returnResultFromRemoteExecutor.clear();
-        executor.finalizeQuery();
-        ctx.clear();
-        ConnectContext.remove();
     }
 }

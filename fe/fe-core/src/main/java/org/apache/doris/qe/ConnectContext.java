@@ -26,6 +26,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.Principal;
@@ -103,6 +104,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 
@@ -181,6 +183,8 @@ public class ConnectContext {
     protected volatile Set<String> authenticatedRoles = Collections.emptySet();
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
+    // Serializes session variable access with workload policies that update idle connections.
+    private final ReentrantLock sessionVariableLock = new ReentrantLock();
     // Store user variable in this connection
     private Map<String, LiteralExpr> userVars = new HashMap<>();
     // Connection attributes provided by the MySQL client during handshake.
@@ -739,6 +743,37 @@ public class ConnectContext {
 
     public void setSessionVariable(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
+    }
+
+    /**
+     * Lock session variables for the complete lifecycle of one command.
+     */
+    public void lockSessionVariableForCommand() {
+        sessionVariableLock.lock();
+    }
+
+    public void unlockSessionVariableForCommand() {
+        sessionVariableLock.unlock();
+    }
+
+    /**
+     * Apply a workload policy session variable only when this connection is idle.
+     *
+     * @return true if the value was applied; false if the connection is executing a command
+     */
+    public boolean trySetSessionVariableFromWorkloadPolicy(String varName, String varValue) throws DdlException {
+        if (!sessionVariableLock.tryLock()) {
+            return false;
+        }
+        try {
+            if (command != MysqlCommand.COM_SLEEP) {
+                return false;
+            }
+            VariableMgr.setVar(sessionVariable, new SetVar(varName, new StringLiteral(varValue)), false);
+            return true;
+        } finally {
+            sessionVariableLock.unlock();
+        }
     }
 
     public ConnectScheduler getConnectScheduler() {
