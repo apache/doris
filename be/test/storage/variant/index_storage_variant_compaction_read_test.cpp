@@ -17,9 +17,15 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/segment/variant/nested_group_provider.h"
 #include "storage/variant/index_storage_variant_test_base.h"
 
 namespace doris::index_storage_test {
+
+static bool nested_group_write_path_available() {
+    auto provider = segment_v2::create_nested_group_read_provider();
+    return provider != nullptr && provider->should_enable_nested_group_read_path();
+}
 
 class IndexStorageVariantCompactionReadTest : public IndexStorageTestFixture {
 protected:
@@ -89,6 +95,10 @@ void IndexStorageVariantCompactionReadTest::run_deep_sparse_variant_lifecycle(
 
 void IndexStorageVariantCompactionReadTest::run_nested_group_variant_lifecycle(
         bool external_segment_meta, int64_t tablet_id) {
+    if (!nested_group_write_path_available()) {
+        GTEST_SKIP() << "NestedGroup write path is not available in this build";
+    }
+
     VariantColumnSpec variant;
     variant.unique_id = 2;
     variant.name = "v";
