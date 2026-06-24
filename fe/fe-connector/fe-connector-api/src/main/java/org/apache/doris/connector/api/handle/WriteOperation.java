@@ -25,8 +25,8 @@ package org.apache.doris.connector.api.handle;
  * {@code planWrite} reads it to pick the connector's Thrift sink dialect (e.g. iceberg's
  * {@code TIcebergTableSink} vs {@code TIcebergDeleteSink} vs {@code TIcebergMergeSink}), and the
  * iceberg transaction reads it to pick the SDK operation (AppendFiles / ReplacePartitions /
- * OverwriteFiles / RowDelta). The default on {@link ConnectorWriteHandle#getWriteOperation()} is
- * {@link #INSERT}, so connectors that only do plain appends (jdbc / maxcompute) need not declare it.</p>
+ * OverwriteFiles / RowDelta / RewriteFiles). The default on {@link ConnectorWriteHandle#getWriteOperation()}
+ * is {@link #INSERT}, so connectors that only do plain appends (jdbc / maxcompute) need not declare it.</p>
  */
 public enum WriteOperation {
     /** Plain INSERT (append rows). */
@@ -38,5 +38,12 @@ public enum WriteOperation {
     /** UPDATE rows (delete + re-insert under merge-on-read). */
     UPDATE,
     /** MERGE INTO (matched/not-matched clauses; insert + delete). */
-    MERGE
+    MERGE,
+    /**
+     * Compaction rewrite ({@code ALTER TABLE ... EXECUTE rewrite_data_files}): atomically replace a set of
+     * existing data files with newly written, larger ones. The iceberg transaction maps it to the SDK
+     * {@code RewriteFiles} op (delete-old + add-new) guarded by {@code validateFromSnapshot} (OCC). Driven by
+     * the rewrite execution half, which holds one transaction across N per-group INSERT-SELECT writes.
+     */
+    REWRITE
 }

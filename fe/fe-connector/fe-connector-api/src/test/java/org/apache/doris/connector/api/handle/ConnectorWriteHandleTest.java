@@ -69,12 +69,12 @@ public class ConnectorWriteHandleTest {
 
     @Test
     public void writeOperationEnumCoversAllDmlKinds() {
-        // Guards parity-by-omission: the iceberg op-selection matrix (T04) and the sink-dialect
-        // switch (T06) depend on exactly these five kinds existing.
+        // Guards parity-by-omission: the iceberg op-selection matrix (T04) and the sink-dialect switch depend on
+        // exactly these kinds existing. REWRITE (P6.4-T06) maps rewrite_data_files onto the SDK RewriteFiles op.
         Assertions.assertArrayEquals(
                 new WriteOperation[] {
                         WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.DELETE,
-                        WriteOperation.UPDATE, WriteOperation.MERGE},
+                        WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE},
                 WriteOperation.values());
     }
 

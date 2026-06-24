@@ -39,6 +39,7 @@ import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
+import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
@@ -130,6 +131,17 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     // Session zone for human-readable TIMESTAMP partition value parsing (DV-T04-f).
     private ZoneId zone = ZoneOffset.UTC;
 
+    // ── REWRITE (rewrite_data_files, P6.4-T06; dormant until the P6.6 cutover) ──
+    // The original data files to remove, fed by updateRewriteFiles (the rewrite execution half hands it the
+    // planner's RewriteDataGroup.getDataFiles() — FileScanTask.file()). The new compacted files arrive on the
+    // shared commitDataList channel (like INSERT) and are materialized into filesToAdd at commit time.
+    private final List<DataFile> filesToDelete = new ArrayList<>();
+    private final List<DataFile> filesToAdd = new ArrayList<>();
+    // OCC anchor: the current snapshot captured at begin time, passed verbatim to
+    // RewriteFiles.validateFromSnapshot (-1 when the table has no snapshot). REWRITE uses this, NOT
+    // baseSnapshotId (which drives the RowDelta path). Ported from legacy IcebergTransaction.startingSnapshotId.
+    private long startingSnapshotId = -1L;
+
     // O5-2: the engine-extracted target-only write constraint (neutral form), stashed by applyWriteConstraint
     // at plan time and converted to an iceberg Expression lazily at commit (the table schema is only known
     // after beginWrite has loaded the table). volatile: applyWriteConstraint and commit may run on different
@@ -181,6 +193,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
 
     private void applyBeginGuards(IcebergWriteContext ctx, String tableName) {
         WriteOperation op = ctx.getWriteOperation();
+        if (op == WriteOperation.REWRITE) {
+            // rewrite_data_files works directly on the main table (legacy IcebergTransaction.beginRewrite:175):
+            // never targets a branch, never pins baseSnapshotId; instead it captures the current snapshot as the
+            // OCC anchor for the commit-time RewriteFiles.validateFromSnapshot (-1 when the table has none).
+            this.branchName = null;
+            this.baseSnapshotId = null;
+            Long current = getSnapshotIdIfPresent(table);
+            this.startingSnapshotId = current != null ? current : -1L;
+            return;
+        }
         if (op == WriteOperation.DELETE || op == WriteOperation.UPDATE || op == WriteOperation.MERGE) {
             // RowDelta path: the merge/delete write never targets a branch (legacy beginMerge forces null).
             this.branchName = null;
@@ -248,6 +270,18 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
      */
     void setRewrittenDeleteFilesByReferencedDataFile(Map<String, List<DeleteFile>> map) {
         this.rewrittenDeleteFilesByReferencedDataFile = map == null ? Collections.emptyMap() : map;
+    }
+
+    /**
+     * REWRITE: registers original data files to remove (the rewrite execution half feeds it one bin-packed
+     * group at a time — {@code RewriteDataGroup.getDataFiles()}). Accumulates across calls. Ported from legacy
+     * {@code IcebergTransaction.updateRewriteFiles}; package-visible because the rewrite coordinator lives in
+     * the connector (fe-core cannot traffic in iceberg {@code DataFile}). Dormant until the P6.6 cutover.
+     */
+    void updateRewriteFiles(List<DataFile> originalFiles) {
+        synchronized (filesToDelete) {
+            filesToDelete.addAll(originalFiles);
+        }
     }
 
     /**
@@ -320,6 +354,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
             case MERGE:
                 updateManifestAfterMerge();
                 break;
+            case REWRITE:
+                commitRewriteTxn();
+                break;
             default:
                 throw new DorisConnectorException("Unsupported iceberg write operation: " + writeOperation);
         }
@@ -333,6 +370,52 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         List<WriteResult> results = new ArrayList<>(1);
         results.add(writeResult);
         return results;
+    }
+
+    /**
+     * REWRITE ({@code rewrite_data_files}): atomically replace the original data files ({@link #filesToDelete},
+     * fed by {@link #updateRewriteFiles}) with the newly written compacted files via the SDK
+     * {@link RewriteFiles} op, guarded by {@code validateFromSnapshot(startingSnapshotId)} (OCC). The new files
+     * arrive on the shared {@link #commitDataList} channel and are materialized here. Ported from legacy
+     * {@code IcebergTransaction.finishRewrite} &rarr; {@code updateManifestAfterRewrite}, folded into
+     * {@code commit()} because the unified {@link ConnectorTransaction} exposes only {@code commit()} (mirroring
+     * how INSERT folded {@code finishInsert} into {@code commitAppendTxn}). When there is nothing to delete and
+     * nothing to add, the op is skipped — the empty SDK transaction still flushes (legacy :248-251).
+     *
+     * <p>Unlike legacy {@code updateManifestAfterRewrite:258}, the {@code scanManifestsWith(threadPool)}
+     * manifest-scan parallelism is dropped, matching the connector's append path ({@link #commitAppendTxn}
+     * also drops it) — a perf-only divergence registered in the deviations log (DV-T06r-scanpool).</p>
+     */
+    private void commitRewriteTxn() {
+        convertCommitDataToFilesToAdd();
+        if (filesToDelete.isEmpty() && filesToAdd.isEmpty()) {
+            return;
+        }
+        RewriteFiles rewriteFiles = transaction.newRewrite();
+        rewriteFiles = rewriteFiles.validateFromSnapshot(startingSnapshotId);
+        for (DataFile dataFile : filesToDelete) {
+            rewriteFiles.deleteFile(dataFile);
+        }
+        for (DataFile dataFile : filesToAdd) {
+            rewriteFiles.addFile(dataFile);
+        }
+        rewriteFiles.commit();
+    }
+
+    /**
+     * Materializes the BE-reported commit fragments into {@link #filesToAdd} through the same {@link WriteResult}
+     * helper INSERT uses (legacy {@code IcebergTransaction.convertCommitDataListToDataFilesToAdd}). No-op when no
+     * fragments were reported (an empty rewrite, or a group whose write produced nothing).
+     */
+    private void convertCommitDataToFilesToAdd() {
+        if (commitDataList.isEmpty()) {
+            return;
+        }
+        WriteResult writeResult =
+                IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList, zone);
+        synchronized (filesToAdd) {
+            filesToAdd.addAll(Arrays.asList(writeResult.dataFiles()));
+        }
     }
 
     private void commitAppendTxn(List<WriteResult> pendingResults) {
@@ -884,5 +967,44 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     /** The snapshot pinned at begin time for a DELETE/MERGE (null for INSERT/OVERWRITE); consumed by T05. */
     Long getBaseSnapshotId() {
         return baseSnapshotId;
+    }
+
+    // ─────────────────── REWRITE accessors (P6.4-T06; consumed by the rewrite coordinator + tests) ───────────────────
+
+    /** REWRITE OCC anchor captured at begin time (-1 when the table had no snapshot); the value passed to
+     *  {@code RewriteFiles.validateFromSnapshot} at commit. */
+    long getStartingSnapshotId() {
+        return startingSnapshotId;
+    }
+
+    /** Number of original data files to remove (legacy {@code getFilesToDeleteCount}); available after
+     *  {@link #updateRewriteFiles}. Feeds the {@code rewritten_data_files_count} result column. */
+    int getFilesToDeleteCount() {
+        synchronized (filesToDelete) {
+            return filesToDelete.size();
+        }
+    }
+
+    /** Number of new compacted data files added — populated DURING {@code commit()}
+     *  ({@link #convertCommitDataToFilesToAdd}), so read it only after commit (legacy {@code getFilesToAddCount},
+     *  which the executor reads after {@code finishRewrite}). Feeds the {@code added_data_files_count} column. */
+    int getFilesToAddCount() {
+        synchronized (filesToAdd) {
+            return filesToAdd.size();
+        }
+    }
+
+    /** Total byte size of the original data files to remove (legacy {@code getFilesToDeleteSize}). */
+    long getFilesToDeleteSize() {
+        synchronized (filesToDelete) {
+            return filesToDelete.stream().mapToLong(DataFile::fileSizeInBytes).sum();
+        }
+    }
+
+    /** Total byte size of the new compacted data files added (legacy {@code getFilesToAddSize}); post-commit. */
+    long getFilesToAddSize() {
+        synchronized (filesToAdd) {
+            return filesToAdd.stream().mapToLong(DataFile::fileSizeInBytes).sum();
+        }
     }
 }
