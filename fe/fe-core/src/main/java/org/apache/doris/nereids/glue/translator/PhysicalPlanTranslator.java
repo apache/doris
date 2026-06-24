@@ -841,7 +841,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
         }
         hudiScanNode.setPartitionSelection(hudiScan.getPartitionSelection());
-        hudiScanNode.setSelectedPartitions(hudiScan.getSelectedPartitions());
         hudiScanNode.setDistributeExprLists(getDistributeExpr(hudiScan));
         return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
     }
