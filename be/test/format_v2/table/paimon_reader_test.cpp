@@ -263,6 +263,42 @@ TTableFormatFileDesc make_paimon_schema_table_format_desc(int64_t schema_id) {
     return table_format_params;
 }
 
+TFileRangeDesc make_paimon_native_range(TFileFormatType::type format_type) {
+    TFileRangeDesc range;
+    range.__set_path(format_type == TFileFormatType::FORMAT_ORC ? "s3://bucket/native.orc"
+                                                                : "s3://bucket/native.parquet");
+    range.__set_format_type(format_type);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("paimon");
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_file_format(format_type == TFileFormatType::FORMAT_ORC ? "orc" : "parquet");
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_NATIVE);
+    table_format_params.__set_paimon_params(paimon_params);
+    range.__set_table_format_params(table_format_params);
+    return range;
+}
+
+TFileRangeDesc make_paimon_jni_range() {
+    TFileRangeDesc range;
+    range.__set_path("/data-placeholder.parquet");
+    range.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TTableFormatFileDesc table_format_params;
+    table_format_params.__set_table_format_type("paimon");
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_file_format("parquet");
+    paimon_params.__set_reader_type(TPaimonReaderType::PAIMON_JNI);
+    paimon_params.__set_paimon_split("serialized-paimon-split");
+    table_format_params.__set_paimon_params(paimon_params);
+    range.__set_table_format_params(table_format_params);
+    return range;
+}
+
+TFileRangeDesc make_paimon_range_without_reader_type(TFileFormatType::type format_type) {
+    TFileRangeDesc range = make_paimon_native_range(format_type);
+    range.table_format_params.paimon_params.__isset.reader_type = false;
+    return range;
+}
+
 // Scenario: PaimonReader shares Hudi's history-schema annotation path. A split whose schema id
 // resolves to a historical schema should use field-id mapping and annotate array/map children so
 // TableColumnMapper can match evolved physical Parquet columns by id instead of by the old names.
@@ -435,6 +471,66 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(PaimonHybridReaderTest, ClassifiesJniSplitByReaderType) {
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
+            make_paimon_native_range(TFileFormatType::FORMAT_PARQUET)));
+    EXPECT_FALSE(paimon::PaimonHybridReader::TEST_is_jni_split(
+            make_paimon_range_without_reader_type(TFileFormatType::FORMAT_JNI)));
+    EXPECT_TRUE(paimon::PaimonHybridReader::TEST_is_jni_split(make_paimon_jni_range()));
+}
+
+TEST(PaimonHybridReaderTest, ConvertsNativeSplitFileFormat) {
+    FileFormat file_format;
+    ASSERT_TRUE(paimon::PaimonHybridReader::TEST_to_file_format(
+                        make_paimon_native_range(TFileFormatType::FORMAT_PARQUET), &file_format)
+                        .ok());
+    EXPECT_EQ(file_format, FileFormat::PARQUET);
+
+    ASSERT_TRUE(paimon::PaimonHybridReader::TEST_to_file_format(
+                        make_paimon_native_range(TFileFormatType::FORMAT_ORC), &file_format)
+                        .ok());
+    EXPECT_EQ(file_format, FileFormat::ORC);
+
+    auto status =
+            paimon::PaimonHybridReader::TEST_to_file_format(make_paimon_jni_range(), &file_format);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("Unsupported native Paimon file format"));
+}
+
+TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+
+    paimon::PaimonHybridReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions native_split;
+    native_split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(reader.prepare_split(native_split).ok());
+
+    SplitReadOptions jni_split;
+    jni_split.current_range = make_paimon_jni_range();
+    auto status = reader.prepare_split(jni_split);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("missing serialized_table"));
+
+    ASSERT_TRUE(reader.close().ok());
 }
 
 } // namespace

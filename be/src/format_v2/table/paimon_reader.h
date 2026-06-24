@@ -49,4 +49,36 @@ private:
     int64_t _split_schema_id = -1;
 };
 
+// Paimon scans can contain both native data-file splits and serialized JNI splits in the same
+// SplitSource. FileScannerV2 owns one table reader for the scanner lifetime, so this reader keeps
+// native and JNI child readers internally and dispatches each split to the matching child reader.
+class PaimonHybridReader final : public format::TableReader {
+public:
+    ~PaimonHybridReader() override = default;
+
+    Status init(format::TableReadOptions&& options) override;
+    Status prepare_split(const format::SplitReadOptions& options) override;
+    Status get_block(Block* block, bool* eos) override;
+    Status close() override;
+
+#ifdef BE_TEST
+    static bool TEST_is_jni_split(const TFileRangeDesc& range) { return _is_jni_split(range); }
+    static Status TEST_to_file_format(const TFileRangeDesc& range,
+                                      format::FileFormat* file_format) {
+        return _to_file_format(range, file_format);
+    }
+#endif
+
+private:
+    Status _ensure_current_split_reader(const format::SplitReadOptions& options);
+    Status _init_child_reader(format::TableReader* reader, format::FileFormat file_format);
+    Status _clone_conjuncts(VExprContextSPtrs* conjuncts) const;
+    static bool _is_jni_split(const TFileRangeDesc& range);
+    static Status _to_file_format(const TFileRangeDesc& range, format::FileFormat* file_format);
+
+    std::unique_ptr<format::TableReader> _native_reader; // handle parquet/orc native splits
+    std::unique_ptr<format::TableReader> _jni_reader;    // handle serialized JNI splits
+    format::TableReader* _current_split_reader = nullptr;
+};
+
 } // namespace doris::format::paimon
