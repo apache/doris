@@ -203,7 +203,7 @@ suite("insert") {
     }
 
     sql "sync"
-    def boolNumericCastRows = sql """
+    order_qt_bool_numeric_stream_load_cast """
         SELECT CONCAT(
             CAST(id AS string),
             ':',
@@ -214,10 +214,4 @@ suite("insert") {
         FROM test_insert_stream_load_bool_numeric_cast
         ORDER BY id
     """
-    assertEquals([
-        ["1:insert_zero:0"],
-        ["2:insert_nonzero:1"],
-        ["3:stream_zero:0"],
-        ["4:stream_nonzero:1"]
-    ], boolNumericCastRows)
 }

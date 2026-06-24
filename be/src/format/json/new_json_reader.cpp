@@ -75,6 +75,21 @@ enum class FileCachePolicy : uint8_t;
 namespace doris {
 using namespace ErrorCode;
 
+namespace json_reader_detail {
+bool is_nonzero_json_number(std::string_view raw_json_number) {
+    // For valid JSON numbers, only digits before the exponent can make zero non-zero.
+    for (char c : raw_json_number) {
+        if (c == 'e' || c == 'E') {
+            return false;
+        }
+        if (c >= '1' && c <= '9') {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace json_reader_detail
+
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
@@ -1161,6 +1176,14 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             }
 
             Slice slice {value_string.data(), value_string.size()};
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
+
+        } else if (primitive_type == TYPE_BOOLEAN &&
+                   value.type() == simdjson::ondemand::json_type::number) {
+            const char* str_value =
+                    json_reader_detail::is_nonzero_json_number(value.raw_json_token()) ? "1" : "0";
+            Slice slice {str_value, 1};
             RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
                                                                        _serde_options));
 

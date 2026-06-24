@@ -66,6 +66,7 @@ namespace json_reader_detail {
 Status append_null_for_malformed_json(Block& block);
 void truncate_block_to_rows(Block& block, size_t num_rows);
 void pop_back_last_inserted_value(Block& block, size_t column_index);
+bool is_nonzero_json_number(std::string_view raw_json_number);
 } // namespace json_reader_detail
 
 /// JSON-specific initialization context.
