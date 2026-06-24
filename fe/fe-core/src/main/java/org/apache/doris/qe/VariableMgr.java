@@ -61,6 +61,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -1117,5 +1118,10 @@ public class VariableMgr {
                     GlobalVariable.VARIABLE_VERSION,
                     String.valueOf(GlobalVariable.CURRENT_VARIABLE_VERSION));
         }
+    }
+
+    public static Set<String> getAllSessionVarNames() {
+        ImmutableMap<String, VarContext> displaySessionVars = getDisplaySessionVars();
+        return ImmutableSet.copyOf(displaySessionVars.keySet());
     }
 }
