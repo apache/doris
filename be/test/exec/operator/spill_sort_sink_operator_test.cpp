@@ -25,7 +25,6 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/spill_sort_test_helper.h"
-#include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_task.h"
 #include "testutil/column_helper.h"
@@ -87,34 +86,6 @@ TEST_F(SpillSortSinkOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
 
     cancel_state(_helper.runtime_state.get());
     expect_cancelled(sink_operator->revoke_memory(_helper.runtime_state.get()));
-}
-
-TEST_F(SpillSortSinkOperatorTest, RunSpillTaskReturnsCancelAtEntry) {
-    cancel_state(_helper.runtime_state.get());
-
-    bool executed = false;
-    expect_cancelled(run_spill_task(_helper.runtime_state.get(), [&]() {
-        executed = true;
-        return Status::OK();
-    }));
-    EXPECT_FALSE(executed);
-}
-
-TEST_F(SpillSortSinkOperatorTest, RunSpillTaskReturnsCancelAfterCallback) {
-    bool finalized = false;
-
-    auto status = run_spill_task(
-            _helper.runtime_state.get(),
-            [&]() {
-                cancel_state(_helper.runtime_state.get());
-                return Status::OK();
-            },
-            [&]() {
-                finalized = true;
-                return Status::OK();
-            });
-    expect_cancelled(status);
-    EXPECT_FALSE(finalized);
 }
 
 TEST_F(SpillSortSinkOperatorTest, Basic) {

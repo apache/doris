@@ -118,7 +118,7 @@ public:
         result_column = std::move(temp_block.get_by_position(num_columns_without_result).column);
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
-            change_null_to_true(result_column->assert_mutable());
+            result_column = change_null_to_true(std::move(result_column));
         }
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();

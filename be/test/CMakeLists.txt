@@ -33,10 +33,12 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     gutil/*.cpp
     io/*.cpp
     load/*.cpp
+    olap/*.cpp
     runtime/*.cpp
     service/*.cpp
     storage/*.cpp
     testutil/*.cpp
+    udf/*.cpp
     tools/*.cpp
     util/*.cpp
     vec/*.cpp

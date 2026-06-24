@@ -19,10 +19,9 @@ import org.apache.doris.regression.util.Http
 
 suite("test_tso_api", "nonConcurrent") {
     def currentTime = System.currentTimeMillis()
-    def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
 
     // Test TSO API endpoint
-    def url = String.format("http://%s/api/tso", masterFeHttpAddress)
+    def url = String.format("http://%s/api/tso", context.config.feHttpAddress)
 
     // Test 1: Basic TSO API access
     def result = Http.GET(url, true, true)

@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -75,18 +76,6 @@ public class SessionVariablesTest extends TestWithFeService {
                 sessionVariable.getInsertVisibleTimeoutReturnMode());
         Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
                 sessionVariable.getInsertVisibleTimeoutReturnModeEnum());
-    }
-
-    @Test
-    public void testCloneSessionVariablesWithSessionOriginValueNotEmpty() throws NoSuchFieldException {
-        Field txIsolation = SessionVariable.class.getField("txIsolation");
-        SessionVariableField txIsolationSessionVariableField = new SessionVariableField(txIsolation);
-        sessionVariable.addSessionOriginValue(txIsolationSessionVariableField, "test");
-
-        SessionVariable sessionVariableClone = VariableMgr.cloneSessionVariable(sessionVariable);
-
-        Assertions.assertEquals("test",
-                sessionVariableClone.getSessionOriginValue().get(txIsolationSessionVariableField));
     }
 
     @Test
@@ -164,6 +153,28 @@ public class SessionVariablesTest extends TestWithFeService {
         ExceptionChecker.expectThrowsWithMsg(UnsupportedOperationException.class,
                 "insertVisibleTimeoutReturnMode value is empty",
                 () -> sessionVar.checkInsertVisibleTimeoutReturnMode(""));
+    }
+
+    @Test
+    public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                "force_eager_agg_hint", new StringLiteral("sum:t1.a=push; count:*=nopush")));
+        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
+        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
+        Assertions.assertEquals(Action.NOPUSH, sessionVar.getForceEagerAggHintMap().get("count:*"));
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid force_eager_agg_hint",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        "force_eager_agg_hint", new StringLiteral("sum:t1.a=unknown"))));
+        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
+        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
+
+        SessionVariable restored = new SessionVariable();
+        restored.readFromJson("{\"force_eager_agg_hint\":\"sum:t2.b=no_push\"}");
+        Assertions.assertEquals(Action.NOPUSH, restored.getForceEagerAggHintMap().get("sum:t2.b"));
     }
 
     @Test
@@ -288,5 +299,34 @@ public class SessionVariablesTest extends TestWithFeService {
                 new StringLiteral("true")));
 
         Assertions.assertTrue(sessionVariable.isEnablePreloadExternalMetadata());
+    }
+
+    @Test
+    public void testAnnSessionVariableChecker() throws Exception {
+        SessionVariable sv = new SessionVariable();
+
+        // hnsw_ef_search: valid value accepted
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.HNSW_EF_SEARCH,
+                new IntLiteral(1)));
+        Assertions.assertEquals(1, sv.hnswEFSearch);
+
+        // hnsw_ef_search: zero rejected
+        DdlException hnswException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.HNSW_EF_SEARCH, new IntLiteral(0))));
+        Assertions.assertTrue(hnswException.getMessage().contains("hnsw_ef_search must be >= 1"));
+        Assertions.assertEquals(1, sv.hnswEFSearch);
+
+        // ivf_nprobe: valid value accepted
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.IVF_NPROBE,
+                new IntLiteral(2)));
+        Assertions.assertEquals(2, sv.ivfNprobe);
+
+        // ivf_nprobe: zero rejected
+        DdlException nprobeException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.IVF_NPROBE, new IntLiteral(0))));
+        Assertions.assertTrue(nprobeException.getMessage().contains("ivf_nprobe must be >= 1"));
+        Assertions.assertEquals(2, sv.ivfNprobe);
     }
 }

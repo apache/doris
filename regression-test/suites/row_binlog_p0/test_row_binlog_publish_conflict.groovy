@@ -41,8 +41,7 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
             "disable_auto_compaction" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
-            "enable_tso" = "true"
+            "binlog.need_historical_value" = "true"
         )
     """
 

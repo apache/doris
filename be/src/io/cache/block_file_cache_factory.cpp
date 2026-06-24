@@ -31,6 +31,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <execution>
 #include <ostream>
 #include <utility>
@@ -246,27 +247,55 @@ FileCacheFactory::get_query_context_holders(const TUniqueId& query_id,
     return holders;
 }
 
-std::string FileCacheFactory::clear_file_caches(bool sync) {
+Status FileCacheFactory::clear_file_caches(bool sync, std::string* ret) {
+    DCHECK(ret != nullptr);
+
+    // Sync clear is an operational action and can synchronously remove many files. Keep a single
+    // process-wide sync clear in flight, so a second HTTP request fails fast instead of piling onto
+    // the same cache instances. Async clear keeps the previous behavior and is not gated here.
+    static std::atomic_bool sync_clear_running {false};
+    struct SyncClearRunningGuard {
+        std::atomic_bool* running = nullptr;
+        ~SyncClearRunningGuard() {
+            if (running != nullptr) {
+                running->store(false, std::memory_order_release);
+            }
+        }
+    } sync_clear_guard;
+    if (sync) {
+        bool expected = false;
+        if (!sync_clear_running.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
+                                                        std::memory_order_acquire)) {
+            return Status::InvalidArgument("sync clear_file_caches is already running");
+        }
+        sync_clear_guard.running = &sync_clear_running;
+    }
+
     std::vector<std::string> results(_caches.size());
 #ifndef USE_LIBCPP
     std::for_each(std::execution::par, _caches.begin(), _caches.end(), [&](const auto& cache) {
         size_t index = &cache - &_caches[0];
-        results[index] =
-                sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async();
+        results[index] = sync ? cache->clear_file_cache_sync() : cache->clear_file_cache_async();
     });
 #else
     // libcpp do not support std::execution::par
     std::for_each(_caches.begin(), _caches.end(), [&](const auto& cache) {
         size_t index = &cache - &_caches[0];
-        results[index] =
-                sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async();
+        results[index] = sync ? cache->clear_file_cache_sync() : cache->clear_file_cache_async();
     });
 #endif
     std::stringstream ss;
-    for (const auto& result : results) {
-        ss << result << "\n";
+    for (const auto& cache_result : results) {
+        ss << cache_result << "\n";
     }
-    return ss.str();
+    *ret = ss.str();
+    return Status::OK();
+}
+
+std::string FileCacheFactory::clear_file_caches(bool sync) {
+    std::string result;
+    auto st = clear_file_caches(sync, &result);
+    return st.ok() ? result : st.to_string();
 }
 
 void FileCacheFactory::dump_all_caches() {

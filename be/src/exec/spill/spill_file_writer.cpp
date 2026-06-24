@@ -97,7 +97,6 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
 
     int64_t meta_size = _part_meta.size();
     _part_written_bytes += meta_size;
-    _total_written_bytes += meta_size;
     COUNTER_UPDATE(_write_file_total_size, meta_size);
     if (_resource_ctx) {
         _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(meta_size);
@@ -118,7 +117,6 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
 
     // Advance to next part
     ++_current_part_index;
-    ++_total_parts;
     if (spill_file) {
         spill_file->increment_part_count();
     }
@@ -251,7 +249,6 @@ Status SpillFileWriter::_write_internal(const Block& block,
                     }
                     COUNTER_UPDATE(_write_block_counter, 1);
                     _part_written_bytes += buff_size;
-                    _total_written_bytes += buff_size;
                     ++_part_written_blocks;
                     // Incrementally update SpillFile so gc() can always
                     // decrement the correct amount from _data_dir.

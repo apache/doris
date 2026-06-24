@@ -21,11 +21,13 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -82,8 +84,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
@@ -295,9 +299,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
             List<ScanNode> tableStreamScanNodes =
                     buildResult.planner.getScanNodes().stream()
-                            .filter(s -> s.getTableIf() instanceof OlapTableStreamWrapper).collect(Collectors.toList());
+                            .filter((s -> (s.getTableIf() instanceof OlapTableStreamWrapper
+                                    || s instanceof OlapScanNode && ((OlapScanNode) s).isIncrementalScan())))
+                            .collect(Collectors.toList());
 
             if (!tableStreamScanNodes.isEmpty()) {
+                if (!Config.enable_feature_binlog) {
+                    throw new AnalysisException("Insert plan with Table stream failed."
+                            + " should enable binlog feature in FE config.");
+                }
                 // stream id -> <partition id, offset>
                 Map<Pair<Long, Long>, AbstractTableStreamUpdate> distinctUpdate =
                         new HashMap<>(tableStreamScanNodes.size());
@@ -305,7 +315,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                     // only support OlapScanNode currently
                     Preconditions.checkArgument(scanNode instanceof OlapScanNode);
                     OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                    OlapTableStreamWrapper wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
+                    OlapTableStreamWrapper wrapper;
+                    if (scanNode.getTableIf() instanceof OlapTableStreamWrapper) {
+                        wrapper = (OlapTableStreamWrapper) scanNode.getTableIf();
+                    } else {
+                        Preconditions.checkArgument(scanNode.getTableIf() instanceof RowBinlogTableWrapper,
+                                "RowBinlogTableWrapper expected");
+                        Preconditions.checkArgument(((RowBinlogTableWrapper) scanNode.getTableIf())
+                                .getParent().isPresent(), "RowBinlogTableWrapper parent expected");
+                        wrapper = ((RowBinlogTableWrapper) scanNode.getTableIf()).getParent().get();
+                    }
                     if (!distinctUpdate.containsKey(
                             Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()))) {
                         distinctUpdate.put(Pair.of(wrapper.getStreamDbId(), wrapper.getStreamId()),
@@ -676,8 +695,18 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             return;
         }
         for (PlanFragment fragment : planner.getFragments()) {
-            if (fragment.getPlanRoot() instanceof FileScanNode) {
-                FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+            // The FE local-shuffle planner may wrap the fragment root with one or more
+            // LocalExchangeNodes (e.g. a PASSTHROUGH fan-out above a serial FileScanNode).
+            // Peel those off before checking the actual operator, otherwise streaming /
+            // S3 INSERTs leave LoadStatistic.fileNum and totalFileSizeB at 0 and tests
+            // like job_p0.streaming_job.test_streaming_insert_job that inspect
+            // loadStatistic.fileNumber / fileSize fail.
+            PlanNode root = fragment.getPlanRoot();
+            while (root instanceof LocalExchangeNode && !root.getChildren().isEmpty()) {
+                root = root.getChild(0);
+            }
+            if (root instanceof FileScanNode) {
+                FileScanNode fileScanNode = (FileScanNode) root;
                 // Prefer distinct file count; fall back to split count for batch-mode scans.
                 int fileNum = fileScanNode.getSelectedFileNum() >= 0
                         ? fileScanNode.getSelectedFileNum()

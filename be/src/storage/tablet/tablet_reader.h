@@ -51,7 +51,6 @@
 namespace doris {
 
 class RuntimeState;
-class BitmapFilterFuncBase;
 class BloomFilterFuncBase;
 class ColumnPredicate;
 class DeleteBitmap;
@@ -180,6 +179,12 @@ public:
         // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
         // For example, use lower rowset version / segment id first.
         bool use_insert_order_when_same = false;
+        // Force a key-ordered merge across all segments even when their key ranges do not
+        // overlap. By default a rowset reader can skip the merge heap if its segments are
+        // mono-ascending and disjoint, but row-binlog scans require strict global key order
+        // (e.g. so MIN_DELTA can group consecutive same-key changes), so this flag is set.
+        // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
+        bool force_key_ordered_read = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key
@@ -215,6 +220,7 @@ public:
 
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
+        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
     };
 
     TabletReader() = default;
@@ -267,6 +273,13 @@ public:
             TabletSharedPtr tablet, ReaderType reader_type,
             const std::vector<RowsetSharedPtr>& input_rowsets,
             TabletReader::ReaderParams* reader_params, Block* block);
+
+    // Remove the delete-condition columns from `all_access_paths` so they fall back to a full
+    // read (a meta-only read would make the storage delete predicate match nothing and leak
+    // deleted rows).
+    static void remove_delete_columns_from_access_paths(
+            const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+            std::map<int32_t, TColumnAccessPaths>& all_access_paths);
 
 protected:
     friend class VCollectIterator;

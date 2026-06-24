@@ -23,6 +23,10 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -98,10 +102,7 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        // If this fragment has another scan node, this exchange node is serial or not should be decided by the scan
-        // node.
-        msg.setIsSerialOperator((isSerialOperator() || fragment.hasSerialScanNode())
-                && fragment.useSerialSource(ConnectContext.get()));
+        msg.setIsSerialOperator(isSerialOperatorOnBe(ConnectContext.get()));
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
         msg.exchange_node = new TExchangeNode();
         for (TupleId tid : tupleIds) {
@@ -150,20 +151,45 @@ public class ExchangeNode extends PlanNode {
      * because this loading job relies on the global ordering of column `k1` and `v1`.
      *
      * So FRAGMENT 0 should not use serial source.
+     *
+     * Important: this method does NOT call fragment.useSerialSource() — that path would
+     * recurse into hasNullAwareLeftAntiJoin and walk the entire plan tree, and was
+     * previously found to blow the stack on deep plans.  The fragment-level gating is
+     * applied in {@link #isSerialOperatorOnBe} instead.
      */
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isUseSerialExchange()
                 || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo == null;
     }
 
     @Override
+    public boolean isSerialOperatorOnBe(ConnectContext context) {
+        return fragment != null
+                && (isSerialNode() || fragment.hasSerialScanNode())
+                && fragment.useSerialSource(context);
+    }
+
+    @Override
     public boolean hasSerialChildren() {
-        return isSerialOperator();
+        return isSerialNode();
     }
 
     @Override
     public boolean hasSerialScanChildren() {
         return false;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        // Report actual distribution. Serial handling is done by the framework
+        // (enforceRequire step 2.5 overrides serial child output to NOOP).
+        if (partitionType == TPartitionType.HASH_PARTITIONED) {
+            return Pair.of(this, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        } else if (partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            return Pair.of(this, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        }
+        return Pair.of(this, LocalExchangeType.NOOP);
     }
 }

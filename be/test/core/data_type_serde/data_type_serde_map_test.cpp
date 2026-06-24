@@ -56,6 +56,12 @@ protected:
     static void SetUpTestSuite() {}
 };
 
+TEST_F(DataTypeMapSerDeTest, GetName) {
+    DataTypeMapSerDe serde_map(serde_str_key, serde_str_value);
+
+    EXPECT_EQ(serde_map.get_name(), "Map(String, String)");
+}
+
 // Run with UBSan enabled to catch misalignment errors.
 TEST_F(DataTypeMapSerDeTest, ArrowMemNotAligned) {
     // 1.Prepare the data.

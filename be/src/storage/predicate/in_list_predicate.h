@@ -23,6 +23,8 @@
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_execute_util.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -199,7 +201,7 @@ public:
     template <bool is_and>
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
@@ -458,7 +460,7 @@ private:
     uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         int16_t new_size = 0;
 
-        if (column.is_nullable()) {
+        if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
             const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
@@ -534,17 +536,12 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto& pred_col =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<Type>>*>(column)
-                            ->get_data();
-            auto pred_col_data = pred_col.data();
-
+            // ptr_at safe: HybridSet::find consumes the pointer synchronously.
+            ColumnElementView<Type> pred_col {*column};
 #define EVALUATE_WITH_NULL_IMPL(IDX) \
-    is_opposite ^                    \
-            (!(*null_map)[IDX] &&    \
-             _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false))
+    is_opposite ^ (!(*null_map)[IDX] && _operator(_values->find(pred_col.ptr_at(IDX)), false))
 #define EVALUATE_WITHOUT_NULL_IMPL(IDX) \
-    is_opposite ^ _operator(_values->find(reinterpret_cast<const T*>(&pred_col_data[IDX])), false)
+    is_opposite ^ _operator(_values->find(pred_col.ptr_at(IDX)), false)
             EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
 #undef EVALUATE_WITH_NULL_IMPL
 #undef EVALUATE_WITHOUT_NULL_IMPL
@@ -595,15 +592,8 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* nested_col_ptr =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column);
-            if (nested_col_ptr == nullptr) {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "InListPredicateBase: _base_evaluate_bit get invalid column type");
-            }
-
-            auto& data_array = nested_col_ptr->get_data();
-
+            // ptr_at safe: HybridSet::find consumes the pointer synchronously.
+            ColumnElementView<Type> view {*column};
             for (uint16_t i = 0; i < size; i++) {
                 if (is_and ^ flags[i]) {
                     continue;
@@ -617,17 +607,13 @@ private:
                         continue;
                     }
                 }
-
+                bool hit = _operator(_values->find(view.ptr_at(idx)), false);
                 if constexpr (!is_opposite) {
-                    if (is_and ^
-                        _operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                  false)) {
+                    if (is_and ^ hit) {
                         flags[i] = !is_and;
                     }
                 } else {
-                    if (is_and ^
-                        !_operator(_values->find(reinterpret_cast<const T*>(&data_array[idx])),
-                                   false)) {
+                    if (is_and ^ !hit) {
                         flags[i] = !is_and;
                     }
                 }
