@@ -23,9 +23,11 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
@@ -689,6 +691,48 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                             Assertions.assertTrue(sink.getOutput().get(0).nullable());
                             return true;
                         })
+                );
+    }
+
+    @Test
+    public void testAggregateOrderByExpressionNeedPushDown() {
+        String windowSql = "select group_concat(k order by row_number() over(order by k)) as s "
+                + "from (select 1 as k union all select 2) t";
+        PlanChecker.from(connectContext)
+                .analyze(windowSql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(ExpressionUtils.containsTypes(
+                                                            project.getProjects(), WindowExpression.class));
+                                                    Assertions.assertTrue(project.getProjects().stream()
+                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+
+        String subquerySql = "select group_concat(id order by (select 1)) from t1";
+        PlanChecker.from(connectContext)
+                .analyze(subquerySql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(project.getProjects().stream()
+                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
                 );
     }
 
