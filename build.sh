@@ -703,6 +703,7 @@ echo "Get params:
 FEAT=()
 FEAT+=($(feature_enabled "tde" && echo "+TDE" || echo "-TDE"))
 FEAT+=($(feature_enabled "tls" && echo "+TLS" || echo "-TLS"))
+FEAT+=($(feature_enabled "variant-nested-group" && echo "+VARIANT_NESTED_GROUP" || echo "-VARIANT_NESTED_GROUP"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))

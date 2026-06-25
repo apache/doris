@@ -145,13 +145,8 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
 
 DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
     return _child && _child->is_serial_operator() && !is_source()
-                   ? DataDistribution(ExchangeType::PASSTHROUGH)
-                   : DataDistribution(ExchangeType::NOOP);
-}
-
-bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
-    return exchange_type == ExchangeType::HASH_SHUFFLE ||
-           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+                   ? DataDistribution(TLocalPartitionType::PASSTHROUGH)
+                   : DataDistribution(TLocalPartitionType::NOOP);
 }
 
 bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {
@@ -163,7 +158,7 @@ bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) cons
     }
     const auto child_distribution = _child->required_data_distribution(state);
     return child_distribution.need_local_exchange() &&
-           !is_hash_shuffle(child_distribution.distribution_type);
+           !is_shuffled_exchange(child_distribution.distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {

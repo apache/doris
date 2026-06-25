@@ -183,6 +183,8 @@ public:
 
     Status check_type_and_column() const;
 
+    Status check_column_and_type_not_null() const;
+
     /// Approximate number of bytes used by column data in memory.
     /// This reflects the actual data footprint (e.g. string contents, numeric arrays)
     /// and is the metric used by adaptive batch size byte budgets.

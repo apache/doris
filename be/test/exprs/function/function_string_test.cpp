@@ -1599,6 +1599,9 @@ TEST(function_string_test, function_from_base64_test) {
             {{std::string("5ZWK5ZOI5ZOI5ZOI8J+YhCDjgILigJTigJQh")},
              std::string("啊哈哈哈😄 。——!")},
             {{std::string("ò&ø")}, Null()},
+            {{std::string("bad@")}, Null()},
+            {{std::string("====")}, Null()},
+            {{std::string("YQ")}, Null()},
             {{std::string("TVl0ZXN0U1RS")}, std::string("MYtestSTR")},
             {{Null()}, Null()},
     };
