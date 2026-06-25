@@ -187,6 +187,8 @@ public:
     // Since segment zone map is stored in metadata, this function is fast without I/O.
     // set matched to true if segment zone map is absent or `cond' could be satisfied, false otherwise.
     Status match_condition(const AndBlockColumnPredicate* col_predicates, bool* matched) const;
+    Status match_condition_with_scan_filter(const AndBlockColumnPredicate* col_predicates,
+                                            int64_t input_rows, bool* matched) const;
 
     Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const;
 
@@ -261,10 +263,14 @@ private:
     Status _get_filtered_pages(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts);
+            const RowRanges& input_row_ranges, std::vector<uint32_t>* page_indexes,
+            const ColumnIteratorOptions& iter_opts);
+    Status _zone_map_page_should_read(
+            const ZoneMapPB& zone_map_pb, const AndBlockColumnPredicate* col_predicates,
+            const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+            bool collect_scan_filter_stats, int64_t page_input_rows, bool* should_read) const;
 
-    Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
-                                 const ColumnIteratorOptions& iter_opts);
+    RowRanges _row_ranges_by_page_indexes(const std::vector<uint32_t>& page_indexes) const;
 
     int64_t _meta_length;
     FieldType _meta_type;

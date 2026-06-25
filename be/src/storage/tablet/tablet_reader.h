@@ -56,6 +56,7 @@ class ColumnPredicate;
 class DeleteBitmap;
 class HybridSetBase;
 class RuntimeProfile;
+class ScanFilterProfile;
 
 class VCollectIterator;
 class Block;
@@ -160,6 +161,8 @@ public:
         std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
+        std::shared_ptr<ScanFilterProfile> scan_filter_profile;
+        ScanFilterHandle key_range_scan_filter;
 
         // use only in vec exec engine
         std::vector<ColumnId>* origin_return_columns = nullptr;

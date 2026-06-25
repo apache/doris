@@ -123,6 +123,7 @@ private:
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
     Status _build_key_ranges_and_filters();
+    void _register_key_range_scan_filter();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<SyncRowsetStats> _sync_statistics;
@@ -134,6 +135,7 @@ private:
     std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
+    ScanFilterHandle _key_range_scan_filter;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _output_column_ids;
 
@@ -337,6 +339,7 @@ private:
     // OlapScanOperatorX (parsed once in OperatorX::prepare()). Cheap: pointer
     // assignment plus a counter set, no parsing work.
     void _attach_partition_boundaries();
+    ScanRuntimeFilterPartitionPruningStats _runtime_filter_partition_pruning_stats() const override;
 
     RuntimeProfile::Counter* _tablets_pruned_by_rf_counter = nullptr;
 };

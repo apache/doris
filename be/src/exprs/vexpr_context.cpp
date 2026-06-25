@@ -162,6 +162,7 @@ Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     // segment_v2::AnnRangeSearchRuntime should be cloned as well.
     // The object of segment_v2::AnnRangeSearchRuntime is not shared by threads.
     new_ctx->_ann_range_search_runtime = this->_ann_range_search_runtime;
+    new_ctx->_scan_filter_handle = _scan_filter_handle;
 
     return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
 }
@@ -203,7 +204,8 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block) {
 }
 
 Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                  size_t column_to_keep) {
+                                  size_t column_to_keep,
+                                  std::optional<ScanFilterStage> scan_filter_stage) {
     if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
     }
@@ -212,13 +214,15 @@ Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block*
     std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
 
     return execute_conjuncts_and_filter_block(expr_contexts, block, columns_to_filter,
-                                              static_cast<int>(column_to_keep));
+                                              static_cast<int>(column_to_keep), scan_filter_stage);
 }
 
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters, Block* block,
-                                       IColumn::Filter* result_filter, bool* can_filter_all) {
-    return execute_conjuncts(ctxs, filters, false, block, result_filter, can_filter_all);
+                                       IColumn::Filter* result_filter, bool* can_filter_all,
+                                       std::optional<ScanFilterStage> scan_filter_stage) {
+    return execute_conjuncts(ctxs, filters, false, block, result_filter, can_filter_all,
+                             scan_filter_stage);
 }
 
 Status VExprContext::execute_filter(const Block* block, uint8_t* __restrict result_filter_data,
@@ -230,14 +234,27 @@ Status VExprContext::execute_filter(const Block* block, uint8_t* __restrict resu
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
                                        bool accept_null, const Block* block,
-                                       IColumn::Filter* result_filter, bool* can_filter_all) {
+                                       IColumn::Filter* result_filter, bool* can_filter_all,
+                                       std::optional<ScanFilterStage> scan_filter_stage) {
     size_t rows = block->rows();
     DCHECK_EQ(result_filter->size(), rows);
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
     for (const auto& ctx : ctxs) {
+        const bool collect_scan_filter_stats =
+                scan_filter_stage.has_value() && ctx->scan_filter_handle();
+        const int64_t input_rows =
+                collect_scan_filter_stats
+                        ? std::count(result_filter_data, result_filter_data + rows, 1)
+                        : 0;
         RETURN_IF_ERROR(
                 ctx->execute_filter(block, result_filter_data, rows, accept_null, can_filter_all));
+        if (collect_scan_filter_stats) {
+            const int64_t output_rows =
+                    *can_filter_all ? 0
+                                    : std::count(result_filter_data, result_filter_data + rows, 1);
+            ctx->scan_filter_handle().stats->record(*scan_filter_stage, input_rows, output_rows);
+        }
         if (*can_filter_all) {
             return Status::OK();
         }
@@ -311,16 +328,16 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, const
 
 // TODO Performance Optimization
 // need exception safety
-Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
-                                                        std::vector<uint32_t>& columns_to_filter,
-                                                        int column_to_keep) {
+Status VExprContext::execute_conjuncts_and_filter_block(
+        const VExprContextSPtrs& ctxs, Block* block, std::vector<uint32_t>& columns_to_filter,
+        int column_to_keep, std::optional<ScanFilterStage> scan_filter_stage) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
 
     _reset_memory_usage(ctxs);
 
-    RETURN_IF_ERROR(
-            execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all));
+    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all,
+                                      scan_filter_stage));
 
     // Accumulate the usage of `result_filter` into the first context.
     if (!ctxs.empty()) {
@@ -356,14 +373,15 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     return Status::OK();
 }
 
-Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
-                                                        std::vector<uint32_t>& columns_to_filter,
-                                                        int column_to_keep,
-                                                        IColumn::Filter& filter) {
+Status VExprContext::execute_conjuncts_and_filter_block(
+        const VExprContextSPtrs& ctxs, Block* block, std::vector<uint32_t>& columns_to_filter,
+        int column_to_keep, IColumn::Filter& filter,
+        std::optional<ScanFilterStage> scan_filter_stage) {
     _reset_memory_usage(ctxs);
     filter.resize_fill(block->rows(), 1);
     bool can_filter_all;
-    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
+    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all,
+                                      scan_filter_stage));
 
     // Accumulate the usage of `result_filter` into the first context.
     if (!ctxs.empty()) {

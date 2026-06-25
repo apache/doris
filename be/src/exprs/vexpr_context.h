@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -35,6 +36,7 @@
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
+#include "runtime/scan_filter_profile.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -263,6 +265,10 @@ public:
 
     std::shared_ptr<IndexExecContext> get_index_context() const { return _index_context; }
 
+    void attach_scan_filter(ScanFilterHandle handle) { _scan_filter_handle = std::move(handle); }
+
+    const ScanFilterHandle& scan_filter_handle() const { return _scan_filter_handle; }
+
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
@@ -293,30 +299,32 @@ public:
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
-    [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                             size_t column_to_keep);
+    [[nodiscard]] static Status filter_block(
+            const VExprContextSPtrs& expr_contexts, Block* block, size_t column_to_keep,
+            std::optional<ScanFilterStage> scan_filter_stage = std::nullopt);
 
-    [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
-                                                  const std::vector<IColumn::Filter*>* filters,
-                                                  bool accept_null, const Block* block,
-                                                  IColumn::Filter* result_filter,
-                                                  bool* can_filter_all);
+    [[nodiscard]] static Status execute_conjuncts(
+            const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters,
+            bool accept_null, const Block* block, IColumn::Filter* result_filter,
+            bool* can_filter_all, std::optional<ScanFilterStage> scan_filter_stage = std::nullopt);
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts,
                                                   const Block* block, ColumnUInt8& null_map,
                                                   IColumn::Filter& result_filter);
 
-    static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
-                                    const std::vector<IColumn::Filter*>* filters, Block* block,
-                                    IColumn::Filter* result_filter, bool* can_filter_all);
+    static Status execute_conjuncts(
+            const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters,
+            Block* block, IColumn::Filter* result_filter, bool* can_filter_all,
+            std::optional<ScanFilterStage> scan_filter_stage = std::nullopt);
 
     [[nodiscard]] static Status execute_conjuncts_and_filter_block(
             const VExprContextSPtrs& ctxs, Block* block, std::vector<uint32_t>& columns_to_filter,
-            int column_to_keep);
+            int column_to_keep, std::optional<ScanFilterStage> scan_filter_stage = std::nullopt);
 
-    static Status execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
-                                                     std::vector<uint32_t>& columns_to_filter,
-                                                     int column_to_keep, IColumn::Filter& filter);
+    static Status execute_conjuncts_and_filter_block(
+            const VExprContextSPtrs& ctxs, Block* block, std::vector<uint32_t>& columns_to_filter,
+            int column_to_keep, IColumn::Filter& filter,
+            std::optional<ScanFilterStage> scan_filter_stage = std::nullopt);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
                                                                      const Block&, Block*,
@@ -356,6 +364,7 @@ public:
 
         _last_result_column_id = other._last_result_column_id;
         _depth_num = other._depth_num;
+        _scan_filter_handle = other._scan_filter_handle;
         return *this;
     }
 
@@ -368,6 +377,7 @@ public:
         _fn_contexts = std::move(other._fn_contexts);
         _last_result_column_id = other._last_result_column_id;
         _depth_num = other._depth_num;
+        _scan_filter_handle = other._scan_filter_handle;
         return *this;
     }
 
@@ -422,6 +432,7 @@ private:
     int _depth_num = 0;
 
     std::shared_ptr<IndexExecContext> _index_context;
+    ScanFilterHandle _scan_filter_handle;
     size_t _memory_usage = 0;
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;

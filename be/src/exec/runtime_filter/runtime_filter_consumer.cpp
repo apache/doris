@@ -22,6 +22,7 @@
 #include "exprs/vbloom_predicate.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/scan_filter_profile.h"
 
 namespace doris {
 Status RuntimeFilterConsumer::_apply_ready_expr(std::vector<RuntimeFilterExprPtr>& push_exprs) {
@@ -235,6 +236,18 @@ void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_oper
     c = parent_operator_profile->add_counter(fmt::format("RF{} AlwaysTrueFilterRows", filter_id),
                                              TUnit::UNIT, "RuntimeFilterInfo", 1);
     c->update(_always_true_counter->value());
+}
+
+void RuntimeFilterConsumer::collect_scan_filter_profile(ScanFilterProfile* scan_filter_profile) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
+    DCHECK(scan_filter_profile != nullptr);
+    scan_filter_profile->set_runtime_filter_profile_stats(
+            {.runtime_filter_id = _wrapper->filter_id(),
+             .input_rows = _rf_input->value(),
+             .filtered_rows = _rf_filter->value(),
+             .wait_time_ns = _wait_timer->value(),
+             .always_true_filter_rows = _always_true_counter->value(),
+             .debug_string = _debug_string_internal()});
 }
 
 } // namespace doris

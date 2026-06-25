@@ -19,6 +19,7 @@
 
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/scan_filter_profile.h"
 
 namespace doris {
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
@@ -129,8 +130,21 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     return Status::OK();
 }
 
-void RuntimeFilterConsumerHelper::collect_realtime_profile(
-        RuntimeProfile* parent_operator_profile) {
+void RuntimeFilterConsumerHelper::collect_realtime_profile(RuntimeProfile* parent_operator_profile,
+                                                           ScanFilterProfile* scan_filter_profile) {
+    if (_consumers.empty()) {
+        return;
+    }
+
+    if (scan_filter_profile != nullptr) {
+        scan_filter_profile->set_runtime_filter_acquire_time(
+                _acquire_runtime_filter_timer->value());
+        for (const auto& consumer : _consumers) {
+            consumer->collect_scan_filter_profile(scan_filter_profile);
+        }
+        return;
+    }
+
     std::ignore = parent_operator_profile->add_counter("RuntimeFilterInfo", TUnit::NONE,
                                                        RuntimeProfile::ROOT_COUNTER, 1);
     RuntimeProfile::Counter* c = parent_operator_profile->add_counter(

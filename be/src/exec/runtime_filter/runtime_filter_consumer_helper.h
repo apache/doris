@@ -24,6 +24,8 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
+class ScanFilterProfile;
+
 // this class used in ScanNode or MultiCastDataStreamSource
 /**
  * init -> acquire_runtime_filter -> try_append_late_arrival_runtime_filter
@@ -49,7 +51,8 @@ public:
 
     // Called by XXXLocalState::close()
     // parent_operator_profile is owned by LocalState so update it is safe at here.
-    void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
+    void collect_realtime_profile(RuntimeProfile* parent_operator_profile,
+                                  ScanFilterProfile* scan_filter_profile = nullptr);
 
     size_t runtime_filter_nums() const { return _runtime_filter_descs.size(); }
 

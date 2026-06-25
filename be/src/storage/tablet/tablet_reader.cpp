@@ -259,6 +259,8 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
     _reader_context.runtime_state = read_params.runtime_state;
+    _reader_context.scan_filter_profile = read_params.scan_filter_profile;
+    _reader_context.key_range_scan_filter = read_params.key_range_scan_filter;
     _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
     RETURN_IF_ERROR(_init_conditions_param(read_params));
@@ -531,8 +533,10 @@ std::shared_ptr<ColumnPredicate> TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
-                                   column.type(), &column);
+    auto predicate = create_column_predicate(
+            index, std::make_shared<FunctionFilter>(function_filter), column.type(), &column);
+    predicate->attach_scan_filter(function_filter._scan_filter_handle);
+    return predicate;
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {

@@ -89,6 +89,17 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_BITMAP || type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT;
 }
 
+namespace {
+
+int64_t row_ranges_intersection_count(const RowRanges& row_ranges, ordinal_t from, ordinal_t to) {
+    RowRanges page_row_ranges(RowRanges::create_single(from, to));
+    RowRanges intersected_row_ranges;
+    RowRanges::ranges_intersection(row_ranges, page_row_ranges, &intersected_row_ranges);
+    return cast_set<int64_t>(intersected_row_ranges.count());
+}
+
+} // namespace
+
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::shared_ptr<ColumnReader>* reader) {
@@ -436,10 +447,12 @@ Status ColumnReader::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
         RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts) {
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(
-            _get_filtered_pages(col_predicates, delete_predicates, &page_indexes, iter_opts));
-    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges, iter_opts));
+    RETURN_IF_ERROR(_get_filtered_pages(col_predicates, delete_predicates, *row_ranges,
+                                        &page_indexes, iter_opts));
+    RowRanges column_zone_map_row_ranges = _row_ranges_by_page_indexes(page_indexes);
+    RowRanges::ranges_intersection(*row_ranges, column_zone_map_row_ranges, row_ranges);
     return Status::OK();
 }
 
@@ -473,6 +486,26 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
     *matched = _zone_map_match_condition(zone_map, col_predicates);
+    return Status::OK();
+}
+
+Status ColumnReader::match_condition_with_scan_filter(const AndBlockColumnPredicate* col_predicates,
+                                                      int64_t input_rows, bool* matched) const {
+    *matched = true;
+    if (_zone_map_index == nullptr) {
+        return Status::OK();
+    }
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+
+    if (zone_map.pass_all) {
+        col_predicates->record_scan_filter(ScanFilterStage::INDEX_ZONE_MAP_SEGMENT, input_rows,
+                                           input_rows);
+        return Status::OK();
+    }
+
+    *matched = col_predicates->evaluate_and_with_scan_filter(
+            zone_map, ScanFilterStage::INDEX_ZONE_MAP_SEGMENT, input_rows);
     return Status::OK();
 }
 
@@ -514,33 +547,30 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
 Status ColumnReader::_get_filtered_pages(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-        std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts) {
+        const RowRanges& input_row_ranges, std::vector<uint32_t>* page_indexes,
+        const ColumnIteratorOptions& iter_opts) {
     RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    const bool collect_scan_filter_stats = col_predicates->has_scan_filter();
 
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
-    size_t page_size = _zone_map_index->num_pages();
-    for (size_t i = 0; i < page_size; ++i) {
-        if (zone_maps[i].pass_all()) {
-            page_indexes->push_back(cast_set<uint32_t>(i));
-        } else {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
-            if (_zone_map_match_condition(zone_map, col_predicates)) {
-                bool should_read = true;
-                if (delete_predicates != nullptr) {
-                    for (auto del_pred : *delete_predicates) {
-                        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
-                        //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map)) {
-                            should_read = false;
-                            break;
-                        }
-                    }
-                }
-                if (should_read) {
-                    page_indexes->push_back(cast_set<uint32_t>(i));
-                }
+    int page_size = cast_set<int>(_zone_map_index->num_pages());
+    for (int i = 0; i < page_size; ++i) {
+        int64_t page_input_rows = 0;
+        if (collect_scan_filter_stats) {
+            const ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
+            const ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i) + 1;
+            page_input_rows =
+                    row_ranges_intersection_count(input_row_ranges, page_first_id, page_last_id);
+            if (page_input_rows == 0) {
+                continue;
             }
+        }
+        bool should_read = false;
+        RETURN_IF_ERROR(_zone_map_page_should_read(zone_maps[i], col_predicates, delete_predicates,
+                                                   collect_scan_filter_stats, page_input_rows,
+                                                   &should_read));
+        if (should_read) {
+            page_indexes->push_back(cast_set<uint32_t>(i));
         }
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
@@ -550,18 +580,57 @@ Status ColumnReader::_get_filtered_pages(
     return Status::OK();
 }
 
-Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes,
-                                           RowRanges* row_ranges,
-                                           const ColumnIteratorOptions& iter_opts) {
-    row_ranges->clear();
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+Status ColumnReader::_zone_map_page_should_read(
+        const ZoneMapPB& zone_map_pb, const AndBlockColumnPredicate* col_predicates,
+        const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+        bool collect_scan_filter_stats, int64_t page_input_rows, bool* should_read) const {
+    *should_read = false;
+    if (zone_map_pb.pass_all()) {
+        if (collect_scan_filter_stats) {
+            col_predicates->record_scan_filter(ScanFilterStage::INDEX_ZONE_MAP_PAGE,
+                                               page_input_rows, page_input_rows);
+        }
+        *should_read = true;
+        return Status::OK();
+    }
+
+    segment_v2::ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(zone_map_pb, _data_type, zone_map));
+    const bool matched =
+            collect_scan_filter_stats
+                    ? col_predicates->evaluate_and_with_scan_filter(
+                              zone_map, ScanFilterStage::INDEX_ZONE_MAP_PAGE, page_input_rows)
+                    : col_predicates->evaluate_and(zone_map);
+    if (!matched) {
+        return Status::OK();
+    }
+
+    *should_read = true;
+    if (delete_predicates == nullptr) {
+        return Status::OK();
+    }
+
+    for (const auto& del_pred : *delete_predicates) {
+        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
+        //  So nullable only need to judge once.
+        if (del_pred->evaluate_del(zone_map)) {
+            *should_read = false;
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+RowRanges ColumnReader::_row_ranges_by_page_indexes(
+        const std::vector<uint32_t>& page_indexes) const {
+    RowRanges row_ranges;
     for (auto i : page_indexes) {
         ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
         ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i);
-        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
-        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
+        row_ranges.add(
+                RowRange(cast_set<int64_t>(page_first_id), cast_set<int64_t>(page_last_id + 1)));
     }
-    return Status::OK();
+    return row_ranges;
 }
 
 Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -574,6 +643,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats));
     size_t range_size = row_ranges->range_size();
+    const bool collect_scan_filter_stats = col_predicates->has_scan_filter();
     // get covered page ids
     std::set<uint32_t> page_ids;
     for (int i = 0; i < range_size; ++i) {
@@ -590,7 +660,19 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
     for (auto& pid : page_ids) {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
-        if (col_predicates->evaluate_and(bf.get())) {
+        if (collect_scan_filter_stats) {
+            const ordinal_t page_first_id = _ordinal_index->get_first_ordinal(pid);
+            const ordinal_t page_last_id = _ordinal_index->get_last_ordinal(pid) + 1;
+            const int64_t page_input_rows =
+                    row_ranges_intersection_count(*row_ranges, page_first_id, page_last_id);
+            if (page_input_rows == 0) {
+                continue;
+            }
+            if (col_predicates->evaluate_and_with_scan_filter(
+                        bf.get(), ScanFilterStage::INDEX_BLOOM_FILTER, page_input_rows)) {
+                bf_row_ranges.add(RowRange(page_first_id, page_last_id));
+            }
+        } else if (col_predicates->evaluate_and(bf.get())) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
                                        _ordinal_index->get_last_ordinal(pid) + 1));
         }
@@ -2505,7 +2587,13 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
         CHECK_NOTNULL(_dict_decoder);
     }
 
-    if (!col_predicates->evaluate_and(_dict_word_info.get(), _dict_decoder->count())) {
+    const bool matched =
+            col_predicates->has_scan_filter()
+                    ? col_predicates->evaluate_and_with_scan_filter(
+                              _dict_word_info.get(), _dict_decoder->count(),
+                              ScanFilterStage::INDEX_DICT, cast_set<int64_t>(row_ranges->count()))
+                    : col_predicates->evaluate_and(_dict_word_info.get(), _dict_decoder->count());
+    if (!matched) {
         row_ranges->clear();
     }
     return Status::OK();

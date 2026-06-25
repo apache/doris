@@ -92,6 +92,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
+                                 .scan_filter_profile {},
+                                 .key_range_scan_filter {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
@@ -400,9 +402,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
-    _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
+    _tablet_reader_params.output_columns = olap_local_state->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
-    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+    for (const auto& ele : olap_local_state->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -447,6 +449,8 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
+    _tablet_reader_params.scan_filter_profile = _local_state->scan_filter_profile();
+    _tablet_reader_params.key_range_scan_filter = olap_local_state->_key_range_scan_filter;
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;

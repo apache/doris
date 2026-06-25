@@ -26,6 +26,7 @@
 #include "exprs/vexpr.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "runtime/scan_filter_profile.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -38,6 +39,7 @@ namespace doris {
 
 class Schema;
 class ColumnPredicate;
+class ScanFilterProfile;
 
 struct IteratorRowRef;
 
@@ -109,6 +111,8 @@ public:
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
+    std::shared_ptr<ScanFilterProfile> scan_filter_profile;
+    ScanFilterHandle key_range_scan_filter;
     bool use_page_cache = false;
     uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
     // Effective adaptive batch size byte budget.

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <butil/macros.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
@@ -102,6 +101,8 @@ public:
     }
 
     ~Segment() override;
+    Segment(const Segment&) = delete;
+    Segment& operator=(const Segment&) = delete;
 
     int64_t get_metadata_size() const override;
     void update_metadata_size();
@@ -233,7 +234,6 @@ public:
             const io::FileReaderSPtr& file_reader);
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
             InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo());
     static Status _open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -256,6 +256,8 @@ private:
     Status _open_index_file_reader();
 
     Status _create_column_meta_once(OlapReaderStatistics* stats);
+    Status _prune_by_segment_zone_map(SchemaSPtr schema, const StorageReadOptions& read_options,
+                                      bool* segment_matched);
 
     virtual Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&,
                                        OlapReaderStatistics* stats);
