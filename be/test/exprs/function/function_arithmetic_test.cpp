@@ -56,54 +56,42 @@ TEST(function_arithmetic_test, function_arithmetic_divide_test) {
 
 TEST(function_arithmetic_test, function_arithmetic_int_divide_min_signed_by_minus_one_test) {
     std::string func_name = "int_divide";
+    const auto min_int32 = std::numeric_limits<int32_t>::min();
     const auto min_int64 = std::numeric_limits<int64_t>::min();
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+        DataSet data_set = {{{int32_t {1}, int32_t {-1}}, int32_t {-1}},
+                            {{min_int32, int32_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
 
     {
         InputTypeSet input_types = {Consted {PrimitiveType::TYPE_BIGINT},
                                     Consted {PrimitiveType::TYPE_BIGINT}};
         DataSet data_set = {{{min_int64, int64_t {-1}}, Null()}};
-        auto st =
-                check_function<DataTypeInt64, true>(func_name, input_types, data_set, -1, -1, true);
-        EXPECT_NE(
-                std::string::npos,
-                st.to_string().find(
-                        "Division of minimal signed number by minus one is an undefined behavior"));
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT,
                                     Consted {PrimitiveType::TYPE_BIGINT}};
         DataSet data_set = {{{min_int64, int64_t {-1}}, Null()}};
-        auto st =
-                check_function<DataTypeInt64, true>(func_name, input_types, data_set, -1, -1, true);
-        EXPECT_NE(
-                std::string::npos,
-                st.to_string().find(
-                        "Division of minimal signed number by minus one is an undefined behavior"));
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     {
         InputTypeSet input_types = {Consted {PrimitiveType::TYPE_BIGINT},
                                     PrimitiveType::TYPE_BIGINT};
         DataSet data_set = {{{min_int64, int64_t {-1}}, Null()}};
-        auto st =
-                check_function<DataTypeInt64, true>(func_name, input_types, data_set, -1, -1, true);
-        EXPECT_NE(
-                std::string::npos,
-                st.to_string().find(
-                        "Division of minimal signed number by minus one is an undefined behavior"));
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT};
         DataSet data_set = {{{int64_t {1}, int64_t {-1}}, int64_t {-1}},
                             {{min_int64, int64_t {-1}}, Null()}};
-        auto st =
-                check_function<DataTypeInt64, true>(func_name, input_types, data_set, -1, -1, true);
-        EXPECT_NE(
-                std::string::npos,
-                st.to_string().find(
-                        "Division of minimal signed number by minus one is an undefined behavior"));
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 }
 

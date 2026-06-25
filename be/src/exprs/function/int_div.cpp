@@ -23,7 +23,6 @@
 #include <limits>
 #include <utility>
 
-#include "common/exception.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/simple_function_factory.h"
 
@@ -122,14 +121,11 @@ struct DivideIntegralImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    static void throw_if_division_leads_to_fpe(Arg a, Arg b) {
+    static bool division_leads_to_fpe(Arg a, Arg b) {
         if constexpr (std::is_signed_v<Arg>) {
-            if (b == -1 && a == std::numeric_limits<Arg>::min()) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Division of minimal signed number by minus one is an undefined "
-                                "behavior, {} DIV {}. ",
-                                a, b);
-            }
+            return b == -1 && a == std::numeric_limits<Arg>::min();
+        } else {
+            return false;
         }
     }
 
@@ -144,8 +140,14 @@ struct DivideIntegralImpl {
             if constexpr (std::is_signed_v<Arg>) {
                 if (b == -1) {
                     for (size_t i = 0; i < size; i++) {
-                        throw_if_division_leads_to_fpe(a[i], b);
+                        null_map[i] = division_leads_to_fpe(a[i], b);
+                        if (!null_map[i]) {
+                            c[i] = typename PrimitiveTypeTraits<ResultType>::CppType(a[i] / b);
+                        } else {
+                            c[i] = {};
+                        }
                     }
+                    return;
                 }
             }
             if constexpr (!std::is_floating_point_v<Arg> && !std::is_same_v<Arg, Int128> &&
@@ -164,9 +166,10 @@ struct DivideIntegralImpl {
 
     static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(Arg a, Arg b,
                                                                           UInt8& is_null) {
-        is_null = b == 0;
-        b += is_null;
-        throw_if_division_leads_to_fpe(a, b);
+        is_null = b == 0 || division_leads_to_fpe(a, b);
+        if (is_null) {
+            return {};
+        }
         return typename PrimitiveTypeTraits<ResultType>::CppType(a / b);
     }
 
