@@ -128,7 +128,7 @@ public class PipelineCoordinator {
                 LOG.info("Generated meta for job {}: {}", fetchReq.getJobId(), meta);
             }
 
-            sourceReader = Env.getCurrentEnv().getReader(fetchReq);
+            sourceReader = Env.getCurrentEnv().getReader(fetchReq, !isLong(fetchReq.getJobId()));
             readResult = sourceReader.prepareAndSubmitSplit(fetchReq);
         } catch (Exception ex) {
             throw new CommonException(ex);
@@ -286,7 +286,9 @@ public class PipelineCoordinator {
 
     /** pull data from api for test */
     public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
-        SourceReader sourceReader = Env.getCurrentEnv().getReader(fetchRecordRequest);
+        SourceReader sourceReader =
+                Env.getCurrentEnv()
+                        .getReader(fetchRecordRequest, !isLong(fetchRecordRequest.getJobId()));
         SplitReadResult readResult = sourceReader.prepareAndSubmitSplit(fetchRecordRequest);
         return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
