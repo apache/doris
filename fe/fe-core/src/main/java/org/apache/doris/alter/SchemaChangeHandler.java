@@ -3257,6 +3257,13 @@ public class SchemaChangeHandler extends AlterHandler {
             return true;
         }
 
+        // Allocate the persistent index id here, in the actual DDL execution path on the
+        // master, instead of during statement analysis (CreateIndexOp.validate). getNextId()
+        // may write an OP_SAVE_NEXTID edit log entry; doing that while merely analyzing a
+        // statement (e.g. when an audit plugin re-parses the SQL on a non-master FE) can crash
+        // the FE.
+        alterIndex.setIndexId(Env.getCurrentEnv().getNextId());
+
         // The restored olap table may not reset the index id, which comes from the upstream,
         // so we need to check and reset the index id here, to avoid confliction.
         // See OlapTable.resetIdsForRestore for details.

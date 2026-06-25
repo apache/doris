@@ -78,7 +78,12 @@ public class CreateIndexOp extends AlterTableOp {
         }
 
         indexDef.validate();
-        index = indexDef.translateToCatalogStyle();
+        // Do not allocate a persistent index id here. validate() runs during statement
+        // analysis, including when an audit plugin re-parses the SQL on a non-master FE, and
+        // allocating an id would write an edit log entry that can crash a follower FE. The real
+        // index id is allocated later in SchemaChangeHandler.processAddIndex(), which only runs
+        // on the master during DDL execution.
+        index = indexDef.translateToCatalogStyleWithoutId();
     }
 
     @Override

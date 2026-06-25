@@ -396,7 +396,24 @@ public class IndexDefinition {
     }
 
     public Index translateToCatalogStyle() {
-        return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
+        Index index = translateToCatalogStyleWithoutId();
+        // Allocating a metadata id calls MetaIdGenerator.getNextId(), which may write an
+        // OP_SAVE_NEXTID edit log entry. This must only be done on the master during real DDL
+        // execution, never during statement analysis.
+        index.setIndexId(Env.getCurrentEnv().getNextId());
+        return index;
+    }
+
+    /**
+     * Translate to a catalog {@link Index} without allocating a persistent index id (the id
+     * keeps {@link Index#INDEX_ID_INIT_VALUE}). Analysis paths (e.g. CreateIndexOp.validate)
+     * must be side-effect free: allocating an id calls MetaIdGenerator.getNextId(), which may
+     * write an edit log entry, and that must not happen on a non-master FE (for example when an
+     * audit plugin re-parses the SQL on a follower). The real id is assigned later in the DDL
+     * execution path on the master.
+     */
+    public Index translateToCatalogStyleWithoutId() {
+        return new Index(Index.INDEX_ID_INIT_VALUE, name, cols, indexType, properties,
                 comment);
     }
 
