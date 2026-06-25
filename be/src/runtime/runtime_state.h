@@ -148,23 +148,25 @@ public:
     }
 
     // Target byte budget per output block (default 8MB when adaptive is enabled).
-    // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
-    // thrift or mixed-version out-of-range value into that range. Returns `kMax` when adaptive
-    // is disabled by BE config so the value is always a legal byte budget; callers that need
-    // to know whether adaptive batch size is active should test
-    // `config::enable_adaptive_batch_size` explicitly.
+    // The public FE/session contract is [1MB, max_preferred_block_size_bytes]; this accessor still
+    // clamps any direct thrift or mixed-version out-of-range value into that range. Returns
+    // max_preferred_block_size_bytes when adaptive is disabled by BE config so the value is always
+    // a legal byte budget; callers that need to know whether adaptive batch size is active should
+    // test `config::enable_adaptive_batch_size` explicitly.
     MOCK_FUNCTION size_t preferred_block_size_bytes() const {
         static constexpr int64_t kDefault = 8388608L; // 8MB
-        static constexpr int64_t kMax = 536870912L;   // 512MB
         static constexpr int64_t kMin = 1048576L;     // 1MB
+        const int64_t max_preferred_block_size_bytes =
+                std::max<int64_t>(kMin, config::max_preferred_block_size_bytes);
         if (!config::enable_adaptive_batch_size) [[unlikely]] {
-            return kMax;
+            return max_preferred_block_size_bytes;
         }
         if (_query_options.__isset.preferred_block_size_bytes) [[likely]] {
-            return std::max<int64_t>(
-                    kMin, std::min<int64_t>(_query_options.preferred_block_size_bytes, kMax));
+            return std::max<int64_t>(kMin,
+                                     std::min<int64_t>(_query_options.preferred_block_size_bytes,
+                                                       max_preferred_block_size_bytes));
         }
-        return kDefault;
+        return std::min<int64_t>(kDefault, max_preferred_block_size_bytes);
     }
 
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }

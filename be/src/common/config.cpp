@@ -436,6 +436,9 @@ DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
 DEFINE_mBool(enable_adaptive_batch_size, "true");
+// Maximum byte budget returned by RuntimeState::preferred_block_size_bytes.
+// Default is 512MB. Increase only for debugging large-block behavior.
+DEFINE_mInt64(max_preferred_block_size_bytes, "536870912");
 
 // be policy
 // whether check compaction checksum

@@ -505,6 +505,9 @@ DECLARE_Bool(enable_low_cardinality_cache_code);
 // so that each output block stays close to preferred_block_size_bytes.
 // When false, the fixed batch_size row behaviour is preserved.
 DECLARE_mBool(enable_adaptive_batch_size);
+// Maximum byte budget returned by RuntimeState::preferred_block_size_bytes.
+// Default is 512MB. Increase only for debugging large-block behavior.
+DECLARE_mInt64(max_preferred_block_size_bytes);
 
 // be policy
 // whether check compaction checksum

@@ -20,6 +20,7 @@
 
 #include "core/data_type/data_type_string.h"
 
+#include <glog/logging.h>
 #include <lz4/lz4.h>
 #include <streamvbyte.h>
 
@@ -29,6 +30,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -87,6 +89,10 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
         size += bytes;
     } else {
         if (bytes > LZ4_MAX_INPUT_SIZE) {
+            LOG(WARNING) << "DataTypeString serialized byte size exceeds LZ4 max input size, "
+                         << "bytes=" << bytes << ", LZ4_MAX_INPUT_SIZE=" << LZ4_MAX_INPUT_SIZE
+                         << ", rows=" << data_column.size()
+                         << ", real_need_copy_num=" << real_need_copy_num;
             throw Exception(ErrorCode::BUFFER_OVERFLOW,
                             "LZ4_compressBound meet invalid input size, input_size={}, "
                             "LZ4_MAX_INPUT_SIZE={}",
@@ -127,9 +133,25 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
         memcpy(buf, string_column.get_chars().data(), value_len);
         buf += value_len;
     } else {
-        auto encode_size = LZ4_compress_fast(string_column.get_chars().raw_data(),
-                                             (buf + sizeof(size_t)), cast_set<Int32>(value_len),
-                                             LZ4_compressBound(cast_set<Int32>(value_len)), 1);
+        if (UNLIKELY(value_len > LZ4_MAX_INPUT_SIZE)) {
+            LOG(WARNING) << "DataTypeString serialize value length exceeds LZ4 max input size, "
+                         << "value_len=" << value_len
+                         << ", LZ4_MAX_INPUT_SIZE=" << LZ4_MAX_INPUT_SIZE
+                         << ", rows=" << string_column.size()
+                         << ", chars_size=" << string_column.get_chars().size();
+        }
+        const auto lz4_value_len = cast_set<Int32>(value_len);
+        const auto lz4_compress_bound = LZ4_compressBound(lz4_value_len);
+        auto encode_size =
+                LZ4_compress_fast(string_column.get_chars().raw_data(), (buf + sizeof(size_t)),
+                                  lz4_value_len, lz4_compress_bound, 1);
+        if (UNLIKELY(encode_size <= 0)) {
+            LOG(WARNING) << "DataTypeString LZ4_compress_fast failed, value_len=" << value_len
+                         << ", lz4_value_len=" << lz4_value_len
+                         << ", lz4_compress_bound=" << lz4_compress_bound
+                         << ", rows=" << string_column.size()
+                         << ", chars_size=" << string_column.get_chars().size();
+        }
         unaligned_store<size_t>(buf, encode_size);
         buf += (sizeof(size_t) + encode_size);
     }
@@ -172,8 +194,15 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
     } else {
         size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
-        LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()), cast_set<Int32>(encode_size),
-                            cast_set<Int32>(value_len));
+        const auto lz4_encode_size = cast_set<Int32>(encode_size);
+        const auto lz4_value_len = cast_set<Int32>(value_len);
+        const auto decoded_size = LZ4_decompress_safe(buf, reinterpret_cast<char*>(data.data()),
+                                                      lz4_encode_size, lz4_value_len);
+        if (UNLIKELY(decoded_size < 0 || decoded_size != lz4_value_len)) {
+            LOG(WARNING) << "DataTypeString LZ4_decompress_safe failed, encode_size=" << encode_size
+                         << ", value_len=" << value_len << ", decoded_size=" << decoded_size
+                         << ", rows=" << real_have_saved_num;
+        }
         buf += encode_size;
     }
     return buf;
