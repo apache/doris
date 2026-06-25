@@ -59,9 +59,12 @@ struct DecodedColumnView {
     DecodedValueKind value_kind = DecodedValueKind::INT32;
     DecodedTimeUnit time_unit = DecodedTimeUnit::UNKNOWN;
     int64_t row_count = 0;
+    // Optional logical integer annotation. value_kind still describes the physical buffer layout.
+    int logical_integer_bit_width = -1;
     int decimal_precision = -1;
     int decimal_scale = -1;
     int fixed_length = -1;
+    bool logical_integer_is_signed = true;
     bool timestamp_is_adjusted_to_utc = false;
     const uint8_t* values = nullptr;
     const uint8_t* null_map = nullptr;

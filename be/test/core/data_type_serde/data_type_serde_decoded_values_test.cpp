@@ -90,6 +90,12 @@ DecodedColumnView make_bool_view(const std::vector<uint8_t>& values,
     return view;
 }
 
+DecodedColumnView with_logical_integer(DecodedColumnView view, int bit_width, bool is_signed) {
+    view.logical_integer_bit_width = bit_width;
+    view.logical_integer_is_signed = is_signed;
+    return view;
+}
+
 ReadColumnResult read_column(const DataTypePtr& type, const DecodedColumnView& view) {
     auto column = type->create_column();
     auto status = type->get_serde()->read_column_from_decoded_values(*column, view);
@@ -355,6 +361,70 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadIntegersFromUnsignedSources) {
         const auto& column = assert_cast<const ColumnInt64&>(*result.column);
         EXPECT_EQ(std::numeric_limits<int64_t>::max(), column.get_element(0));
     }
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, ReadUnsignedLogicalIntegersCastsPhysicalValues) {
+    {
+        std::vector<int32_t> values = {0, 127, 255, 32767, 65535, -1};
+        auto view =
+                with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, false);
+        auto result = read_column(std::make_shared<DataTypeInt16>(), view);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        const auto& column = assert_cast<const ColumnInt16&>(*result.column);
+        ASSERT_EQ(values.size(), column.size());
+        EXPECT_EQ(0, column.get_element(0));
+        EXPECT_EQ(127, column.get_element(1));
+        EXPECT_EQ(255, column.get_element(2));
+        EXPECT_EQ(255, column.get_element(3));
+        EXPECT_EQ(255, column.get_element(4));
+        EXPECT_EQ(255, column.get_element(5));
+    }
+    {
+        std::vector<int32_t> values = {32767, 65535, -1};
+        auto view =
+                with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 16, false);
+        auto result = read_column(std::make_shared<DataTypeInt32>(), view);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        const auto& column = assert_cast<const ColumnInt32&>(*result.column);
+        ASSERT_EQ(values.size(), column.size());
+        EXPECT_EQ(32767, column.get_element(0));
+        EXPECT_EQ(65535, column.get_element(1));
+        EXPECT_EQ(65535, column.get_element(2));
+    }
+    {
+        std::vector<int32_t> values = {-1};
+        auto view =
+                with_logical_integer(make_fixed_view(DecodedValueKind::UINT32, values), 32, false);
+        auto result = read_column(std::make_shared<DataTypeInt64>(), view);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        const auto& column = assert_cast<const ColumnInt64&>(*result.column);
+        ASSERT_EQ(1, column.size());
+        EXPECT_EQ(4294967295LL, column.get_element(0));
+    }
+    {
+        std::vector<int64_t> values = {-1};
+        auto view =
+                with_logical_integer(make_fixed_view(DecodedValueKind::UINT64, values), 64, false);
+        auto result = read_column(std::make_shared<DataTypeInt128>(), view);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        const auto& column = assert_cast<const ColumnInt128&>(*result.column);
+        ASSERT_EQ(1, column.size());
+        EXPECT_EQ(static_cast<__int128_t>(std::numeric_limits<uint64_t>::max()),
+                  column.get_element(0));
+    }
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, ReadSignedLogicalIntegersCastsPhysicalValues) {
+    std::vector<int32_t> values = {127, 128, 255, -1};
+    auto view = with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, true);
+    auto result = read_column(std::make_shared<DataTypeInt8>(), view);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    const auto& column = assert_cast<const ColumnInt8&>(*result.column);
+    ASSERT_EQ(values.size(), column.size());
+    EXPECT_EQ(static_cast<Int8>(127), column.get_element(0));
+    EXPECT_EQ(static_cast<Int8>(-128), column.get_element(1));
+    EXPECT_EQ(static_cast<Int8>(-1), column.get_element(2));
+    EXPECT_EQ(static_cast<Int8>(-1), column.get_element(3));
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadFloatAndDouble) {
@@ -1550,6 +1620,25 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadFieldPrimitiveValues) {
                                 make_fixed_view(DecodedValueKind::DOUBLE, values));
         EXPECT_EQ(TYPE_DOUBLE, field.get_type());
         EXPECT_TRUE(std::isinf(field.get<TYPE_DOUBLE>()));
+    }
+}
+
+TEST(DataTypeSerDeDecodedValuesTest, ReadFieldLogicalIntegerCastsPhysicalValue) {
+    {
+        std::vector<int32_t> values = {32767};
+        auto view =
+                with_logical_integer(make_fixed_view(DecodedValueKind::INT32, values), 8, false);
+        auto field = read_field(std::make_shared<DataTypeInt16>(), view);
+        EXPECT_EQ(TYPE_SMALLINT, field.get_type());
+        EXPECT_EQ(255, field.get<TYPE_SMALLINT>());
+    }
+    {
+        std::vector<int32_t> values = {-1};
+        auto view =
+                with_logical_integer(make_fixed_view(DecodedValueKind::UINT32, values), 32, false);
+        auto field = read_field(std::make_shared<DataTypeInt64>(), view);
+        EXPECT_EQ(TYPE_BIGINT, field.get_type());
+        EXPECT_EQ(4294967295LL, field.get<TYPE_BIGINT>());
     }
 }
 

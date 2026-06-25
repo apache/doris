@@ -104,6 +104,78 @@ Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view
     return Status::OK();
 }
 
+template <PrimitiveType DorisType, typename SourceType, typename LogicalType>
+Status read_logical_integer_decoded_values_as(IColumn& column, const DecodedColumnView& view) {
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data =
+            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    const auto old_size = data.size();
+    const auto* values = decoded_values_as<SourceType>(view);
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DorisCppType());
+            continue;
+        }
+        const auto logical_value = static_cast<LogicalType>(values[row]);
+        if (!decoded_number_value_fits<DorisCppType>(logical_value)) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return Status::DataQualityError(
+                    "Decoded logical integer value is out of range for {} at row {}",
+                    column.get_name(), row);
+        }
+        data.push_back(static_cast<DorisCppType>(logical_value));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType DorisType, typename SourceType>
+Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& view) {
+    if (view.logical_integer_bit_width <= 0) {
+        return read_number_decoded_values<DorisType, SourceType>(column, view);
+    }
+
+    if (view.logical_integer_is_signed) {
+        switch (view.logical_integer_bit_width) {
+        case 8:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int8>(column,
+                                                                                       view);
+        case 16:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int16>(column,
+                                                                                        view);
+        case 32:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int32>(column,
+                                                                                        view);
+        case 64:
+            return read_logical_integer_decoded_values_as<DorisType, SourceType, Int64>(column,
+                                                                                        view);
+        default:
+            return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
+                                        view.logical_integer_bit_width, column.get_name());
+        }
+    }
+
+    switch (view.logical_integer_bit_width) {
+    case 8:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt8>(column, view);
+    case 16:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt16>(column, view);
+    case 32:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt32>(column, view);
+    case 64:
+        return read_logical_integer_decoded_values_as<DorisType, SourceType, UInt64>(column, view);
+    default:
+        return Status::NotSupported("Unsupported decoded logical integer bit width {} for {}",
+                                    view.logical_integer_bit_width, column.get_name());
+    }
+}
+
 } // namespace
 // Type map的基本结构
 template <typename Key, typename Value, typename... Rest>
@@ -229,16 +301,16 @@ Status DataTypeNumberSerDe<T>::read_column_from_decoded_values(
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
                          T == TYPE_BIGINT || T == TYPE_LARGEINT) {
         if (view.value_kind == DecodedValueKind::INT32) {
-            return read_number_decoded_values<T, int32_t>(column, view);
+            return read_integer_decoded_values<T, int32_t>(column, view);
         }
         if (view.value_kind == DecodedValueKind::UINT32) {
-            return read_number_decoded_values<T, uint32_t>(column, view);
+            return read_integer_decoded_values<T, uint32_t>(column, view);
         }
         if (view.value_kind == DecodedValueKind::INT64) {
-            return read_number_decoded_values<T, int64_t>(column, view);
+            return read_integer_decoded_values<T, int64_t>(column, view);
         }
         if (view.value_kind == DecodedValueKind::UINT64) {
-            return read_number_decoded_values<T, uint64_t>(column, view);
+            return read_integer_decoded_values<T, uint64_t>(column, view);
         }
     } else if constexpr (T == TYPE_FLOAT) {
         if (view.value_kind == DecodedValueKind::FLOAT) {

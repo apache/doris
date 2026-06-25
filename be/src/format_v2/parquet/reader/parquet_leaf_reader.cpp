@@ -311,6 +311,8 @@ Status ParquetLeafReader::append_values(const ParquetLeafBatch& batch, int64_t r
     view.value_kind = batch._value_kind;
     view.time_unit = decoded_time_unit(_type_descriptor.time_unit);
     view.row_count = row_count;
+    view.logical_integer_bit_width = _type_descriptor.integer_bit_width;
+    view.logical_integer_is_signed = !_type_descriptor.is_unsigned_integer;
     view.decimal_precision = _type_descriptor.decimal_precision;
     view.decimal_scale = _type_descriptor.decimal_scale;
     view.fixed_length = _type_descriptor.fixed_length;

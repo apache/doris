@@ -99,6 +99,8 @@ Status read_decoded_field(const ParquetColumnSchema& column_schema, DecodedColum
     view.row_count = 1;
     view.null_map = &not_null;
     view.time_unit = decoded_time_unit(column_schema.type_descriptor.time_unit);
+    view.logical_integer_bit_width = column_schema.type_descriptor.integer_bit_width;
+    view.logical_integer_is_signed = !column_schema.type_descriptor.is_unsigned_integer;
     view.decimal_precision = column_schema.type_descriptor.decimal_precision;
     view.decimal_scale = column_schema.type_descriptor.decimal_scale;
     view.fixed_length = column_schema.type_descriptor.fixed_length;
