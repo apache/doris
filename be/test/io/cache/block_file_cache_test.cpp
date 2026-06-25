@@ -42,16 +42,6 @@ public:
     }
 };
 
-void wait_until_cache_ready(BlockFileCache& cache) {
-    for (int i = 0; i < 1000; ++i) {
-        if (cache.get_async_open_success()) {
-            return;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_TRUE(cache.get_async_open_success());
-}
-
 fs::path caches_dir = fs::current_path() / "lru_cache_test";
 std::string cache_base_path = caches_dir / "cache1" / "";
 std::string tmp_file = caches_dir / "tmp_file";
