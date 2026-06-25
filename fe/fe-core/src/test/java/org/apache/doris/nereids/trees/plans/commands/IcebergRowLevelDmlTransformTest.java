@@ -20,8 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -70,11 +75,44 @@ public class IcebergRowLevelDmlTransformTest {
         return new LogicalFilter<>(conjuncts, child);
     }
 
+    /**
+     * A {@link PluginDrivenExternalTable} whose connector reports the given row-level DML capabilities.
+     * Mirrors {@code InsertOverwriteTableCommandTest.pluginTable} — the established way to exercise the
+     * {@code getConnector().getMetadata(buildConnectorSession()).supportsX()} probe.
+     */
+    private static PluginDrivenExternalTable pluginTable(boolean supportsDelete, boolean supportsMerge) {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Connector connector = Mockito.mock(Connector.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
+        Mockito.when(metadata.supportsDelete()).thenReturn(supportsDelete);
+        Mockito.when(metadata.supportsMerge()).thenReturn(supportsMerge);
+        return table;
+    }
+
     @Test
-    public void handlesIcebergTableOnly() {
+    public void handlesLegacyIcebergExternalTable() {
+        // Pre-flip parity: the legacy concrete iceberg table type is admitted unconditionally.
         Assertions.assertTrue(transform.handles(Mockito.mock(IcebergExternalTable.class)));
         Assertions.assertFalse(transform.handles(Mockito.mock(TableIf.class)));
         Assertions.assertFalse(transform.handles(null));
+    }
+
+    @Test
+    public void handlesPluginDrivenTableByRowLevelDmlCapability() {
+        // Post-flip: an iceberg table presents as PluginDrivenExternalTable; it is admitted via the
+        // neutral connector capability (supportsDelete || supportsMerge), NOT a concrete iceberg cast.
+        Assertions.assertTrue(transform.handles(pluginTable(true, false)));
+        Assertions.assertTrue(transform.handles(pluginTable(false, true)));
+        Assertions.assertTrue(transform.handles(pluginTable(true, true)));
+        // A plugin connector with neither capability (e.g. jdbc/es/paimon today) must NOT be admitted,
+        // else its row-level DML would route through the iceberg synthesis path.
+        Assertions.assertFalse(transform.handles(pluginTable(false, false)));
     }
 
     @Test

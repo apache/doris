@@ -19,7 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.WriteConstraintExtractor;
 import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -66,7 +69,29 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public boolean handles(TableIf table) {
-        return table instanceof IcebergExternalTable;
+        return table instanceof IcebergExternalTable
+                || (table instanceof PluginDrivenExternalTable
+                        && pluginConnectorSupportsRowLevelDml((PluginDrivenExternalTable) table));
+    }
+
+    /**
+     * A plugin-driven (SPI connector) table is routed through the iceberg row-level DML synthesis only if
+     * its connector declares row-level DML support ({@code supportsDelete()} or {@code supportsMerge()}).
+     * Mirrors the connector-capability probe in
+     * {@code InsertOverwriteTableCommand.pluginConnectorSupportsInsertOverwrite}.
+     *
+     * <p>This gate is op-agnostic by design: {@code RowLevelDmlRegistry.find} carries no operation, so it
+     * admits "supports any row-level DML"; per-op validity (e.g. UPDATE against a delete-only connector) is
+     * enforced later in {@link #checkMode}.</p>
+     *
+     * <p>Dormant until the C5 cutover: today only the iceberg connector declares these capabilities (every
+     * other SPI connector inherits the {@code ConnectorWriteOps} default {@code false}), and iceberg is not
+     * yet in {@code SPI_READY_TYPES} — so no live table presents as a {@link PluginDrivenExternalTable} here.</p>
+     */
+    private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        ConnectorMetadata metadata = catalog.getConnector().getMetadata(catalog.buildConnectorSession());
+        return metadata.supportsDelete() || metadata.supportsMerge();
     }
 
     @Override
