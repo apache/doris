@@ -42,7 +42,7 @@ arrow::Status to_arrow_status(const Status& status) {
         // percent-encoded (which can expand its size), so an oversized message can break the
         // response or even crash the flight transport status conversion. Truncate it well below
         // 8192 to leave headroom; the full message is already logged above.
-        constexpr size_t kMaxArrowStatusMsgLen = 4096;
+        constexpr size_t kMaxArrowStatusMsgLen = 1024;
         std::string msg = status.to_string_no_stack();
         if (msg.size() > kMaxArrowStatusMsgLen) {
             msg.resize(kMaxArrowStatusMsgLen);
