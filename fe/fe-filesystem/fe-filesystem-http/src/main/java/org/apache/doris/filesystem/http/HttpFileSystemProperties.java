@@ -69,6 +69,11 @@ public class HttpFileSystemProperties implements FileSystemProperties {
         return url;
     }
 
+    @Override
+    public String validateAndNormalizeUri(String url) {
+        return validateUri(url);
+    }
+
     public String getUri() {
         return uri;
     }

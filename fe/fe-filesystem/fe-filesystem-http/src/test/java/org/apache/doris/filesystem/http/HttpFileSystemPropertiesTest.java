@@ -62,6 +62,22 @@ public class HttpFileSystemPropertiesTest {
     }
 
     @Test
+    public void testValidateAndNormalizeUri() {
+        HttpFileSystemProperties p = HttpFileSystemProperties.of(props("http://h/a.csv"));
+        Assertions.assertEquals("https://h/b.csv", p.validateAndNormalizeUri("https://h/b.csv"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> p.validateAndNormalizeUri("s3://b/k"));
+    }
+
+    @Test
+    public void testValidateAndGetUri() {
+        HttpFileSystemProperties p = HttpFileSystemProperties.of(props("http://h/a.csv"));
+        Map<String, String> load = new HashMap<>();
+        load.put("uri", "hf://ds/x");
+        Assertions.assertEquals("hf://ds/x", p.validateAndGetUri(load));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> p.validateAndGetUri(new HashMap<>()));
+    }
+
+    @Test
     public void testTypeAndKindAndRaw() {
         Map<String, String> m = props("http://h/a.csv");
         HttpFileSystemProperties p = HttpFileSystemProperties.of(m);
