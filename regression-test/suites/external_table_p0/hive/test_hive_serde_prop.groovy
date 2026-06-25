@@ -72,6 +72,17 @@ suite("test_hive_serde_prop", "p0,external") {
                    count(case when name is not null and name not in ('', 'non-null') then 1 end)
             from ${catalog_name}.regression.test_single_col_null_format_text;
         """
+
+        qt_test_default_null_format_multi_col_text_count """select count(*) from ${catalog_name}.regression.test_default_null_format_multi_col_text;"""
+        qt_test_default_null_format_multi_col_text_values """
+            select count(*), count(c1), count(c2),
+                   count(case when c1 is null then 1 end),
+                   count(case when c1 = '' then 1 end),
+                   count(case when c2 is null then 1 end),
+                   count(case when c2 = '' then 1 end),
+                   count(case when c1 = 'a' and c2 = 'b' then 1 end)
+            from ${catalog_name}.regression.test_default_null_format_multi_col_text;
+        """
     }
 }
 

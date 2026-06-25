@@ -169,9 +169,9 @@ Status TextReader::_validate_line(const Slice& line, bool* success) {
 }
 
 bool TextReader::_empty_line_as_record() const {
-    return _params.__isset.num_of_columns_from_file && _params.num_of_columns_from_file == 1 &&
-           !(_options.null_len == 2 && _options.null_format[0] == '\\' &&
-             _options.null_format[1] == 'N');
+    // Hive TEXTFILE treats an empty physical line as a record. The splitter maps it
+    // to one empty field and missing trailing fields are filled with null_format.
+    return true;
 }
 
 Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {

@@ -239,3 +239,13 @@ WITH SERDEPROPERTIES (
 )
 STORED AS TEXTFILE
 LOCATION '/user/doris/suites/regression/serde_prop/test_single_col_null_format_text';
+
+drop table if exists test_default_null_format_multi_col_text;
+
+create external table test_default_null_format_multi_col_text (
+  c1 STRING,
+  c2 STRING
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+STORED AS TEXTFILE
+LOCATION '/user/doris/suites/regression/serde_prop/test_default_null_format_multi_col_text';

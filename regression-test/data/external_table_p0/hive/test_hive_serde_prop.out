@@ -74,10 +74,16 @@ b	2.2
 -- !test_empty_null_defined_text3 --
 
 -- !test_single_col_null_format_text_count --
-4
+5
 
 -- !test_single_col_null_format_text_values --
-4	3	1	1	1	1
+5	3	2	1	1	1
+
+-- !test_default_null_format_multi_col_text_count --
+3
+
+-- !test_default_null_format_multi_col_text_values --
+3	2	1	1	1	2	0	1
 
 -- !1 --
 a	1.1
@@ -154,8 +160,14 @@ b	2.2
 -- !test_empty_null_defined_text3 --
 
 -- !test_single_col_null_format_text_count --
-4
+5
 
 -- !test_single_col_null_format_text_values --
-4	3	1	1	1	1
+5	3	2	1	1	1
+
+-- !test_default_null_format_multi_col_text_count --
+3
+
+-- !test_default_null_format_multi_col_text_values --
+3	2	1	1	1	2	0	1
 
