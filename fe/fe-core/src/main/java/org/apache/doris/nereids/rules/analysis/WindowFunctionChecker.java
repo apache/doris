@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -462,12 +463,16 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             // adjust window functions whose result depends on the order within the frame.
             Expression windowFunction = windowExpression.getFunction();
             if (windowFunction instanceof FirstOrLastValue) {
-                // windowExpression = windowExpression.withChildren(
-                //         ImmutableList.of(((FirstOrLastValue) windowFunction).reverse()));
                 windowExpression = windowExpression.withFunction(((FirstOrLastValue) windowFunction).reverse());
             } else if (windowFunction instanceof NthValue) {
                 NthValue nthValue = (NthValue) windowFunction;
-                Expression reversedOffset = new Subtract(new IntegerLiteral(0), nthValue.child(1));
+                Expression reversedOffset;
+                Expression offset = nthValue.getArgument(1);
+                if (offset instanceof BigIntLiteral) {
+                    reversedOffset = new BigIntLiteral(-((BigIntLiteral) offset).getValue());
+                } else {
+                    reversedOffset = new Subtract(new IntegerLiteral(0), nthValue.child(1));
+                }
                 windowExpression = windowExpression.withFunction(
                         nthValue.withChildren(ImmutableList.of(nthValue.child(0), reversedOffset)));
             }
