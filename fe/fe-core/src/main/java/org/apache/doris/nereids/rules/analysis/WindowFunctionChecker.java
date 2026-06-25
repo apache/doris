@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.FirstOrLastValue;
@@ -38,7 +39,9 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -479,9 +482,18 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             // reverse WindowFunction, which is used only for first_value() and last_value()
             Expression windowFunction = windowExpression.getFunction();
             if (windowFunction instanceof FirstOrLastValue) {
-                // windowExpression = windowExpression.withChildren(
-                //         ImmutableList.of(((FirstOrLastValue) windowFunction).reverse()));
                 windowExpression = windowExpression.withFunction(((FirstOrLastValue) windowFunction).reverse());
+            } else if (windowFunction instanceof NthValue) {
+                NthValue nthValue = (NthValue) windowFunction;
+                Expression reversedOffset;
+                Expression offset = nthValue.getArgument(1);
+                if (offset instanceof BigIntLiteral) {
+                    reversedOffset = new BigIntLiteral(-((BigIntLiteral) offset).getValue());
+                } else {
+                    reversedOffset = new Subtract(new IntegerLiteral(0), nthValue.child(1));
+                }
+                windowExpression = windowExpression.withFunction(
+                        nthValue.withChildren(ImmutableList.of(nthValue.child(0), reversedOffset)));
             }
         }
     }
