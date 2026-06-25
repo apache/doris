@@ -69,8 +69,8 @@ public class RowLevelDmlCommand {
     public void run(ConnectContext ctx, StmtExecutor stmtExecutor) throws Exception {
         TableIf table = args.getTable();
         transform.checkMode(table, op);
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(table.getId());
+        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
+        ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
             LogicalPlan plan = transform.synthesize(ctx, args, op);
             executeWithExternalTableBatchModeDisabled(ctx, () -> {
@@ -104,7 +104,7 @@ public class RowLevelDmlCommand {
                 return null;
             });
         } finally {
-            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
     }
 
@@ -112,12 +112,12 @@ public class RowLevelDmlCommand {
     public Plan getExplainPlan(ConnectContext ctx) {
         TableIf table = args.getTable();
         transform.checkMode(table, op);
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(table.getId());
+        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
+        ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
             return transform.synthesize(ctx, args, op);
         } finally {
-            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
     }
 

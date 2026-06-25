@@ -125,8 +125,8 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         //             + "Current format version: " + formatVersion);
         // }
 
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
+        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
+        ctx.setSyntheticWriteColTargetTableId(icebergTable.getId());
         try {
             LogicalPlan deleteQueryPlan = completeQueryPlan(ctx, logicalQuery, icebergTable);
             executeWithExternalTableBatchModeDisabled(ctx, () -> {
@@ -173,7 +173,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
                 return null;
             });
         } finally {
-            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
     }
 
@@ -287,12 +287,12 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         IcebergDmlCommandUtils.checkDeleteMode(icebergTable);
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(table.getId());
+        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
+        ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
             return completeQueryPlan(ctx, logicalQuery, icebergTable);
         } finally {
-            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+            ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
     }
 

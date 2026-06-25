@@ -166,7 +166,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doAnswer(invocation -> {
             List<Column> fullSchema = new ArrayList<>(schema);
             if (ConnectContext.get() != null
-                    && ConnectContext.get().needIcebergRowId()) {
+                    && ConnectContext.get().needsSyntheticWriteCol()) {
                 fullSchema.add(IcebergRowId.createHiddenColumn());
             }
             return fullSchema;
@@ -768,7 +768,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         adapter.setViewDdlSqls(statementContext.getViewDdlSqls());
         statementContext.setParsedStatement(adapter);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        long previousTargetTableId = connectContext.getIcebergRowIdTargetTableId();
+        long previousTargetTableId = connectContext.getSyntheticWriteColTargetTableId();
         DeleteCommandContext deleteContext = null;
         long targetTableId = -1;
         if (plan instanceof LogicalIcebergDeleteSink) {
@@ -781,7 +781,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         if (deleteContext != null
                 && deleteContext.getDeleteFileType() == DeleteCommandContext.DeleteFileType.POSITION_DELETE
                 && previousTargetTableId < 0) {
-            connectContext.setIcebergRowIdTargetTableId(targetTableId);
+            connectContext.setSyntheticWriteColTargetTableId(targetTableId);
         }
         try {
             planner.plan(adapter, connectContext.getSessionVariable().toThrift());
@@ -792,7 +792,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to plan statement: " + sql, exception);
         } finally {
-            connectContext.setIcebergRowIdTargetTableId(previousTargetTableId);
+            connectContext.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
     }
 
@@ -804,7 +804,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         adapter.setViewDdlSqls(statementContext.getViewDdlSqls());
         statementContext.setParsedStatement(adapter);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        long previousTargetTableId = connectContext.getIcebergRowIdTargetTableId();
+        long previousTargetTableId = connectContext.getSyntheticWriteColTargetTableId();
         DeleteCommandContext deleteContext = null;
         long targetTableId = -1;
         if (plan instanceof LogicalIcebergDeleteSink) {
@@ -817,7 +817,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         if (deleteContext != null
                 && deleteContext.getDeleteFileType() == DeleteCommandContext.DeleteFileType.POSITION_DELETE
                 && previousTargetTableId < 0) {
-            connectContext.setIcebergRowIdTargetTableId(targetTableId);
+            connectContext.setSyntheticWriteColTargetTableId(targetTableId);
         }
         try {
             planner.plan(adapter, connectContext.getSessionVariable().toThrift());
@@ -826,7 +826,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to plan statement: " + sql, exception);
         } finally {
-            connectContext.setIcebergRowIdTargetTableId(previousTargetTableId);
+            connectContext.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
     }
 
