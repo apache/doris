@@ -17,11 +17,9 @@
 
 #include "io/cache/fs_file_cache_storage.h"
 
-#include <algorithm>
 #include <filesystem>
 #include <mutex>
 #include <system_error>
-#include <unordered_map>
 
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -35,41 +33,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
-
-namespace {
-
-bool parse_key_dir_name(const std::string& key_dir_name, UInt128Wrapper* hash,
-                        uint64_t* expiration_time) {
-    const auto delim_pos = key_dir_name.find('_');
-    if (delim_pos == std::string::npos || delim_pos != sizeof(uint128_t) * 2 ||
-        delim_pos + 1 >= key_dir_name.size()) {
-        return false;
-    }
-
-    try {
-        auto key_str = key_dir_name.substr(0, delim_pos);
-        auto expiration_time_str = key_dir_name.substr(delim_pos + 1);
-        if (!std::ranges::all_of(key_str, [](char c) {
-                return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F');
-            })) {
-            return false;
-        }
-        size_t parsed_size = 0;
-        *hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
-        *expiration_time = std::stoull(expiration_time_str, &parsed_size);
-        if (parsed_size != expiration_time_str.size()) {
-            return false;
-        }
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-} // namespace
 
 struct BatchLoadArgs {
     UInt128Wrapper hash;
@@ -320,99 +285,6 @@ Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
         }
     }
     return Status::OK();
-}
-
-Status FSFileCacheStorage::list_duplicate_key_dirs(
-        size_t begin_prefix_index, size_t max_prefix_dirs,
-        std::vector<FileCacheDuplicateKeyDirs>* duplicates, size_t* next_prefix_index,
-        size_t* scanned_prefix_dirs) {
-    duplicates->clear();
-    *next_prefix_index = 0;
-    *scanned_prefix_dirs = 0;
-    std::unordered_map<UInt128Wrapper, std::vector<uint64_t>, KeyHash> key_to_expirations;
-
-    auto collect_key_dir = [&](const std::string& key_dir_path) {
-        std::error_code ec;
-        if (!std::filesystem::is_directory(key_dir_path, ec) || ec) {
-            return;
-        }
-
-        UInt128Wrapper hash;
-        uint64_t expiration_time = 0;
-        if (!parse_key_dir_name(std::filesystem::path(key_dir_path).filename().native(), &hash,
-                                &expiration_time)) {
-            return;
-        }
-        key_to_expirations[hash].push_back(expiration_time);
-    };
-
-    std::vector<std::string> first_level_entries;
-    RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, first_level_entries));
-    std::sort(first_level_entries.begin(), first_level_entries.end());
-
-    if constexpr (USE_CACHE_VERSION2) {
-        std::vector<std::string> prefix_dirs;
-        for (const auto& prefix_path : first_level_entries) {
-            std::error_code ec;
-            if (!std::filesystem::is_directory(prefix_path, ec) || ec) {
-                continue;
-            }
-            if (std::filesystem::path(prefix_path).filename().native().size() !=
-                KEY_PREFIX_LENGTH) {
-                continue;
-            }
-            prefix_dirs.push_back(prefix_path);
-        }
-
-        if (prefix_dirs.empty() || max_prefix_dirs == 0) {
-            return Status::OK();
-        }
-
-        const size_t scan_begin = begin_prefix_index % prefix_dirs.size();
-        const size_t scan_count = std::min(max_prefix_dirs, prefix_dirs.size());
-        for (size_t i = 0; i < scan_count; ++i) {
-            const auto& prefix_path = prefix_dirs[(scan_begin + i) % prefix_dirs.size()];
-            ++(*scanned_prefix_dirs);
-
-            std::vector<std::string> key_dir_entries;
-            auto st = collect_directory_entries(prefix_path, key_dir_entries);
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed to collect file cache key dirs under " << prefix_path
-                             << ", error=" << st;
-                continue;
-            }
-            for (const auto& key_dir_path : key_dir_entries) {
-                collect_key_dir(key_dir_path);
-            }
-        }
-        *next_prefix_index = (scan_begin + scan_count) % prefix_dirs.size();
-    } else {
-        *scanned_prefix_dirs = 1;
-        for (const auto& key_dir_path : first_level_entries) {
-            collect_key_dir(key_dir_path);
-        }
-    }
-
-    for (auto& [hash, expiration_times] : key_to_expirations) {
-        std::sort(expiration_times.begin(), expiration_times.end());
-        expiration_times.erase(std::unique(expiration_times.begin(), expiration_times.end()),
-                               expiration_times.end());
-        if (expiration_times.size() <= 1) {
-            continue;
-        }
-        duplicates->push_back({hash, std::move(expiration_times)});
-    }
-    return Status::OK();
-}
-
-Status FSFileCacheStorage::remove_key_dir(const UInt128Wrapper& hash, uint64_t expiration_time) {
-    const auto dir = get_path_in_local_cache(hash, expiration_time);
-    auto st = fs->delete_directory(dir);
-    if (!st.ok()) {
-        LOG(WARNING) << "Failed to remove duplicate file cache dir. dir=" << dir
-                     << ", error=" << st;
-    }
-    return st;
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,

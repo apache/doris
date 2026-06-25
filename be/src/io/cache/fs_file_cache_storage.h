@@ -71,10 +71,6 @@ public:
     Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
-    Status list_duplicate_key_dirs(size_t begin_prefix_index, size_t max_prefix_dirs,
-                                   std::vector<FileCacheDuplicateKeyDirs>* duplicates,
-                                   size_t* next_prefix_index, size_t* scanned_prefix_dirs) override;
-    Status remove_key_dir(const UInt128Wrapper& hash, uint64_t expiration_time) override;
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 

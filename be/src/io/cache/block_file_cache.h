@@ -187,9 +187,6 @@ public:
         if (_cache_background_ttl_gc_thread.joinable()) {
             _cache_background_ttl_gc_thread.join();
         }
-        if (_cache_background_ttl_repair_checker_thread.joinable()) {
-            _cache_background_ttl_repair_checker_thread.join();
-        }
         if (_cache_background_gc_thread.joinable()) {
             _cache_background_gc_thread.join();
         }
@@ -315,7 +312,6 @@ public:
 
     // for be UTs
     std::map<std::string, double> get_stats_unsafe();
-    size_t repair_duplicate_ttl_dirs_once_for_test() { return repair_duplicate_ttl_dirs_once(); }
     [[nodiscard]] size_t need_update_lru_blocks_size_unsafe() const {
         return _need_update_lru_blocks.size();
     }
@@ -466,8 +462,6 @@ private:
 
     void run_background_monitor();
     void run_background_ttl_gc();
-    void run_background_ttl_repair_checker();
-    size_t repair_duplicate_ttl_dirs_once();
     void run_background_gc();
     void run_background_lru_log_replay();
     size_t replay_lru_logs_once();
@@ -526,14 +520,12 @@ private:
     std::condition_variable _close_cv;
     std::thread _cache_background_monitor_thread;
     std::thread _cache_background_ttl_gc_thread;
-    std::thread _cache_background_ttl_repair_checker_thread;
     std::thread _cache_background_gc_thread;
     std::thread _cache_background_evict_in_advance_thread;
     std::thread _cache_background_lru_dump_thread;
     std::thread _cache_background_lru_log_replay_thread;
     std::thread _cache_background_block_lru_update_thread;
     std::atomic_bool _async_open_done {false};
-    size_t _ttl_repair_checker_next_prefix_index = 0;
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
     bool _need_evict_cache_in_advance {false};
@@ -626,11 +618,6 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_produce_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_consume_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
-    std::shared_ptr<bvar::LatencyRecorder> _ttl_repair_checker_latency_us;
-    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_scanned_prefix_dirs;
-    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_suspect_hashes;
-    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_repaired_dirs;
-    std::shared_ptr<bvar::Adder<size_t>> _ttl_repair_checker_skipped_hashes;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
     std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <vector>
-
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
@@ -27,11 +25,6 @@ namespace doris::io {
 class BlockFileCache;
 
 using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
-
-struct FileCacheDuplicateKeyDirs {
-    UInt128Wrapper hash;
-    std::vector<uint64_t> expiration_times;
-};
 
 enum FileCacheStorageType { DISK = 0, MEMORY = 1 };
 
@@ -69,11 +62,6 @@ public:
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
-    virtual Status list_duplicate_key_dirs(size_t, size_t, std::vector<FileCacheDuplicateKeyDirs>*,
-                                           size_t*, size_t*) {
-        return Status::OK();
-    }
-    virtual Status remove_key_dir(const UInt128Wrapper&, uint64_t) { return Status::OK(); }
     // force clear all current data in the cache
     virtual Status clear(std::string& msg) = 0;
     virtual FileCacheStorageType get_type() = 0;

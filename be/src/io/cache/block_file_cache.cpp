@@ -20,7 +20,6 @@
 
 #include "io/cache/block_file_cache.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -393,16 +392,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_update_lru_blocks_latency_us");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
                                                                  "file_cache_ttl_gc_latency_us");
-    _ttl_repair_checker_latency_us = std::make_shared<bvar::LatencyRecorder>(
-            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_latency_us");
-    _ttl_repair_checker_scanned_prefix_dirs = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_scanned_prefix_dirs");
-    _ttl_repair_checker_suspect_hashes = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_suspect_hashes");
-    _ttl_repair_checker_repaired_dirs = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_repaired_dirs");
-    _ttl_repair_checker_skipped_hashes = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_ttl_repair_checker_skipped_hashes");
     _shadow_queue_levenshtein_distance = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_shadow_queue_levenshtein_distance");
     for (FileCacheType type : {FileCacheType::DISPOSABLE, FileCacheType::NORMAL,
@@ -539,8 +528,6 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     RETURN_IF_ERROR(_storage->init(this));
     _cache_background_monitor_thread = std::thread(&BlockFileCache::run_background_monitor, this);
     _cache_background_ttl_gc_thread = std::thread(&BlockFileCache::run_background_ttl_gc, this);
-    _cache_background_ttl_repair_checker_thread =
-            std::thread(&BlockFileCache::run_background_ttl_repair_checker, this);
     _cache_background_gc_thread = std::thread(&BlockFileCache::run_background_gc, this);
     _cache_background_evict_in_advance_thread =
             std::thread(&BlockFileCache::run_background_evict_in_advance, this);
@@ -2233,154 +2220,6 @@ void BlockFileCache::run_background_ttl_gc() {
             }
         }
         *_ttl_gc_latency_us << (duration_ns / 1000);
-    }
-}
-
-size_t BlockFileCache::repair_duplicate_ttl_dirs_once() {
-    if (!config::enable_file_cache_ttl_repair_checker ||
-        _storage->get_type() != FileCacheStorageType::DISK || !_async_open_done) {
-        return 0;
-    }
-
-    const int64_t max_scan_prefix_dirs = std::max<int64_t>(
-            0, config::file_cache_ttl_repair_checker_max_scan_prefix_dirs_per_round);
-    if (max_scan_prefix_dirs == 0) {
-        return 0;
-    }
-
-    int64_t duration_ns = 0;
-    std::vector<FileCacheDuplicateKeyDirs> duplicate_dirs;
-    size_t next_prefix_index = _ttl_repair_checker_next_prefix_index;
-    size_t scanned_prefix_dirs = 0;
-    {
-        SCOPED_RAW_TIMER(&duration_ns);
-        auto st = _storage->list_duplicate_key_dirs(_ttl_repair_checker_next_prefix_index,
-                                                    max_scan_prefix_dirs, &duplicate_dirs,
-                                                    &next_prefix_index, &scanned_prefix_dirs);
-        if (!st.ok()) {
-            LOG(WARNING) << "Failed to scan duplicate ttl dirs for file cache " << _cache_base_path
-                         << ", error=" << st;
-            *_ttl_repair_checker_latency_us << (duration_ns / 1000);
-            return 0;
-        }
-        _ttl_repair_checker_next_prefix_index = next_prefix_index;
-    }
-    *_ttl_repair_checker_scanned_prefix_dirs << scanned_prefix_dirs;
-    *_ttl_repair_checker_suspect_hashes << duplicate_dirs.size();
-
-    const int64_t max_repairs =
-            std::max<int64_t>(0, config::file_cache_ttl_repair_checker_max_repairs_per_round);
-    const int64_t repair_sleep_ms =
-            std::max<int64_t>(0, config::file_cache_ttl_repair_checker_repair_sleep_ms);
-    if (max_repairs == 0) {
-        *_ttl_repair_checker_latency_us << (duration_ns / 1000);
-        return 0;
-    }
-
-    const auto sleep_per_repair = std::chrono::milliseconds(repair_sleep_ms);
-    size_t repaired_dirs = 0;
-    size_t skipped_hashes = 0;
-    for (const auto& duplicate : duplicate_dirs) {
-        if (_close || repaired_dirs >= static_cast<size_t>(max_repairs)) {
-            break;
-        }
-
-        uint64_t canonical_expiration_time = 0;
-        bool should_repair = false;
-        {
-            SCOPED_CACHE_LOCK(_mutex, this);
-            auto file_iter = _files.find(duplicate.hash);
-            if (file_iter == _files.end() || file_iter->second.empty()) {
-                ++skipped_hashes;
-                continue;
-            }
-
-            bool has_canonical = false;
-            bool has_unstable_block = false;
-            bool has_multiple_expiration_times = false;
-            for (auto& [_, cell] : file_iter->second) {
-                std::lock_guard block_lock(cell.file_block->_mutex);
-                if (cell.file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADED) {
-                    has_unstable_block = true;
-                    break;
-                }
-
-                const auto block_expiration_time = cell.file_block->expiration_time();
-                if (!has_canonical) {
-                    canonical_expiration_time = block_expiration_time;
-                    has_canonical = true;
-                } else if (canonical_expiration_time != block_expiration_time) {
-                    has_multiple_expiration_times = true;
-                    break;
-                }
-            }
-
-            should_repair =
-                    has_canonical && !has_unstable_block && !has_multiple_expiration_times &&
-                    std::find(duplicate.expiration_times.begin(), duplicate.expiration_times.end(),
-                              canonical_expiration_time) != duplicate.expiration_times.end();
-            if (!should_repair) {
-                ++skipped_hashes;
-            }
-        }
-
-        if (!should_repair) {
-            continue;
-        }
-
-        for (auto expiration_time : duplicate.expiration_times) {
-            if (_close || repaired_dirs >= static_cast<size_t>(max_repairs)) {
-                break;
-            }
-            if (expiration_time == canonical_expiration_time) {
-                continue;
-            }
-
-            int64_t remove_duration_ns = 0;
-            Status st;
-            {
-                SCOPED_RAW_TIMER(&remove_duration_ns);
-                st = _storage->remove_key_dir(duplicate.hash, expiration_time);
-            }
-            duration_ns += remove_duration_ns;
-            if (st.ok()) {
-                ++repaired_dirs;
-                *_ttl_repair_checker_repaired_dirs << 1;
-                if (repair_sleep_ms > 0) {
-                    std::this_thread::sleep_for(sleep_per_repair);
-                }
-            } else {
-                ++skipped_hashes;
-            }
-        }
-    }
-
-    *_ttl_repair_checker_skipped_hashes << skipped_hashes;
-    *_ttl_repair_checker_latency_us << (duration_ns / 1000);
-    return repaired_dirs;
-}
-
-void BlockFileCache::run_background_ttl_repair_checker() {
-    Thread::set_self_name("run_ttl_repair_checker");
-    while (!_close) {
-        int64_t interval_ms = config::file_cache_ttl_repair_checker_interval_ms;
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_ttl_repair_checker_sleep_time", &interval_ms);
-        {
-            std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock,
-                               std::chrono::milliseconds(std::max<int64_t>(interval_ms, 1)));
-            if (_close) {
-                break;
-            }
-        }
-        if (!config::enable_file_cache_ttl_repair_checker) {
-            continue;
-        }
-        size_t repaired_dirs = repair_duplicate_ttl_dirs_once();
-        if (repaired_dirs > 0) {
-            LOG(INFO) << "File cache ttl repair checker removed duplicate dirs. path="
-                      << _cache_base_path << " repaired_dirs=" << repaired_dirs;
-        }
     }
 }
 
