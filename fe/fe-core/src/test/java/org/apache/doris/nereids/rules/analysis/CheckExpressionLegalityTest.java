@@ -52,6 +52,16 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    public void testArraySortLambdaArgumentCount() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "the lambda must be a binary comparator lambda", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select array_sort(x -> x, [1, 2, 3])");
+                });
+    }
+
+    @Test
     public void testCountDistinctBitmap() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         PlanChecker.from(connectContext)
