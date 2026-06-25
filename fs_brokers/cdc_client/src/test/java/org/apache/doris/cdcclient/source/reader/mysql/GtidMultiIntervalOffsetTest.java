@@ -65,6 +65,8 @@ class GtidMultiIntervalOffsetTest {
                 2, new GtidSet(reSerialized).getUUIDSet(SERVER_UUID).getIntervals().size());
     }
 
+    // BinlogOffset-layer guard only; the real generateMySqlConfig resume path is covered by
+    // MySqlSourceReaderTest / MySqlStartupGtidOffsetITCase.
     @Test
     void splitIntervalSurvivesFeOffsetMapRoundTrip() {
         // FE persists/restores the binlog offset as a string-valued map; rebuild from it.
