@@ -25,6 +25,20 @@ index 74654a4..4065297 100644
          if(_paimon_objlib_deps)
              add_dependencies(${LIB_NAME}_objlib ${_paimon_objlib_deps})
 
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 57f6c50..d8e3cd0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -38,6 +38,8 @@ string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPERCASE_BUILD_TYPE)
+ 
+-set(CMAKE_CXX_STANDARD 17)
++if(NOT DEFINED CMAKE_CXX_STANDARD)
++    set(CMAKE_CXX_STANDARD 17)
++endif()
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
 --- a/cmake_modules/ThirdpartyToolchain.cmake
 +++ b/cmake_modules/ThirdpartyToolchain.cmake
