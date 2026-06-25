@@ -195,6 +195,10 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
 
 template <typename T>
 void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    if (length == 0) {
+        return;
+    }
+
     const auto& string_column = assert_cast<const ColumnStr<T>&>(src);
     auto [data_val, data_length] = string_column.get_data_at(position);
 

@@ -152,6 +152,10 @@ public:
     }
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        if (length == 0) {
+            return;
+        }
+
         if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,

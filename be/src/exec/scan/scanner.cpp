@@ -32,7 +32,6 @@
 #include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "storage/segment/adaptive_block_size_predictor.h"
 #include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 
@@ -89,69 +88,26 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     // columns. Record the source column ids once here so the hot projection path can move the
     // existing ColumnPtr instead of executing VSlotRef and then mutating it, which would clone
     // the column when the input block still shares the same pointer.
-    if (!_projections.empty() && _intermediate_projections.empty()) {
-        _direct_slot_ref_projection_column_ids.reserve(_projections.size());
+    if (!_projections.empty() && _intermediate_projections.empty() && _conjuncts.empty() &&
+        _limit <= 0 && _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
+        _output_row_descriptor->num_materialized_slots() == _projections.size()) {
+        std::vector<int> direct_slot_ref_projection_column_ids;
+        direct_slot_ref_projection_column_ids.reserve(_projections.size());
         for (const auto& projection : _projections) {
             auto slot_ref = std::dynamic_pointer_cast<VSlotRef>(projection->root());
             if (slot_ref == nullptr) {
-                _direct_slot_ref_projection_column_ids.clear();
+                direct_slot_ref_projection_column_ids.clear();
                 break;
             }
-            _direct_slot_ref_projection_column_ids.push_back(slot_ref->column_id());
+            direct_slot_ref_projection_column_ids.push_back(slot_ref->column_id());
         }
-        if (!_direct_slot_ref_projection_column_ids.empty() && _conjuncts.empty() && _limit <= 0 &&
-            _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
-            _output_row_descriptor->num_materialized_slots() ==
-                    _direct_slot_ref_projection_column_ids.size()) {
-            size_t row_bytes = 0;
-            bool all_fixed_width = true;
-            for (const auto& tuple_desc : _output_row_descriptor->tuple_descriptors()) {
-                for (const auto* slot_desc : tuple_desc->slots()) {
-                    const auto& type = slot_desc->get_data_type_ptr();
-                    if (!type->have_maximum_size_of_value()) {
-                        all_fixed_width = false;
-                        break;
-                    }
-                    row_bytes += std::max<size_t>(1, type->get_size_of_value_in_memory());
-                }
-                if (!all_fixed_width) {
-                    break;
-                }
-            }
-            if (all_fixed_width && row_bytes > 0) {
-                // This enables OLAP storage to produce fewer, larger blocks for the hot arithmetic
-                // scan shape. Do it before page decoding rather than by merging blocks later:
-                // MutableBlock::merge() appends through generic Column APIs and would materialize
-                // the page-backed fixed-width spans that the storage decoder can otherwise forward
-                // without copying. Varlen and complex slots stay on the session batch size because
-                // their per-row memory is data-dependent and large blocks can amplify memory spikes.
-                _direct_slot_ref_projection_row_bytes = row_bytes;
-            }
+        if (!direct_slot_ref_projection_column_ids.empty()) {
+            _direct_slot_ref_projection_column_ids =
+                    std::move(direct_slot_ref_projection_column_ids);
         }
     }
 
     return Status::OK();
-}
-
-int Scanner::_storage_read_batch_size(RuntimeState* state) const {
-    const int session_batch_size = state->batch_size();
-    if (_direct_slot_ref_projection_row_bytes == 0) {
-        return session_batch_size;
-    }
-
-    // Keep the same hard upper bound used by the segment adaptive reader and by the public
-    // batch_size contract. The byte budget decides whether a fixed-width scan can safely use that
-    // many rows; the session batch size remains the lower bound so this path never shrinks existing
-    // scans.
-    static constexpr size_t kMaxReadBatchRows = AdaptiveBlockSizePredictor::kDefaultBlockSizeRows;
-    const size_t rows_by_bytes =
-            state->preferred_block_size_bytes() / _direct_slot_ref_projection_row_bytes;
-    if (rows_by_bytes == 0) {
-        return session_batch_size;
-    }
-    const size_t target_rows =
-            std::max<size_t>(session_batch_size, std::min(kMaxReadBatchRows, rows_by_bytes));
-    return static_cast<int>(target_rows);
 }
 
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {

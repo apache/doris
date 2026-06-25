@@ -185,12 +185,9 @@ Status OlapScanner::_prepare_impl() {
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
-    // Batch size is passed down to segment iterator. Use the scanner-selected storage batch
-    // instead of _parent->limit(): tiny LIMIT values would make segment iteration very slow. For a
-    // pure fixed-width slot-ref scan, Scanner may raise the storage batch up to the byte-budgeted
-    // session maximum so the reader directly produces large page-backed blocks; doing this in the
-    // storage reader preserves the zero-copy fixed-width page spans.
-    _tablet_reader->set_batch_size(_storage_read_batch_size(_state));
+    // Batch size is passed down to segment iterator. Use session batch size instead of
+    // _parent->limit(): tiny LIMIT values would make segment iteration very slow.
+    _tablet_reader->set_batch_size(_state->batch_size());
     // Adaptive batch size: pass byte-budget settings to the storage reader.
     // The reader still uses batch_size() as the row ceiling.
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());

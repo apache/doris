@@ -514,6 +514,11 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
 
 template <PrimitiveType T>
 void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    if (length == 0) {
+        // Empty insertion is a valid no-op even when position points one past the source end.
+        return;
+    }
+
     materialize_external_data();
     auto old_size = data.size();
     data.resize(old_size + length);
