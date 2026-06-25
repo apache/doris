@@ -137,7 +137,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 continue;
             }
 
-            MaterializedIndex rollup = new MaterializedIndex(indexId, IndexState.NORMAL);
+            MaterializedIndex rollup = new MaterializedIndex(indexId,
+                    indexIdToMeta.get(indexId).isRowBinlogIndex() ? IndexState.ROW_BINLOG : IndexState.NORMAL);
             indexMap.put(indexId, rollup);
         }
 

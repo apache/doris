@@ -40,7 +40,7 @@ import java.util.Set;
 public class IndexInfoProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>().add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
-                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").build();
+                    .add("ShortKeyColumnCount").add("StorageType").add("Keys").add("IsRowBinlog").build();
 
     private DatabaseIf db;
     private TableIf table;
@@ -65,12 +65,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 // indices order
                 List<Long> indices = Lists.newArrayList();
                 indices.add(olapTable.getBaseIndexId());
-                indices.addAll(olapTable.getIndexIdListExceptBaseIndex());
+                indices.addAll(olapTable.getIndexIdListWithRowBinlogExceptBaseIndex());
 
                 for (long indexId : indices) {
-                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMeta().get(indexId);
+                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMetaWithRowBinlog().get(indexId);
 
-                    String type = olapTable.getIndexMetaByIndexId(indexId).getKeysType().name();
+                    String type = indexMeta.getKeysType().name();
                     StringBuilder builder = new StringBuilder();
                     builder.append(type).append("(");
                     List<String> columnNames = Lists.newArrayList();
@@ -88,10 +88,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
                             String.valueOf(indexMeta.getSchemaHash()),
                             String.valueOf(indexMeta.getShortKeyColumnCount()),
                             indexMeta.getStorageType().name(),
-                            builder.toString()));
+                            builder.toString(),
+                            String.valueOf(indexMeta.isRowBinlogIndex())));
                 }
             } else {
-                result.addRow(Lists.newArrayList(String.valueOf(table.getId()), table.getName(), "", "", "", "", ""));
+                result.addRow(Lists.newArrayList(String.valueOf(table.getId()), table.getName(), "", "", "", "", "",
+                        "false"));
             }
 
             return result;

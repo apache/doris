@@ -1024,7 +1024,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             // check if schema change
             Partition recoverPartition = recoverPartitionInfo.getPartition();
-            Set<Long> tableIndex = table.getIndexIdToMeta().keySet();
+            Set<Long> tableIndex = table.getIndexIdToMetaWithRowBinlog().keySet();
             Set<Long> partitionIndex = recoverPartition.getMaterializedIndices(IndexExtState.ALL).stream()
                     .map(i -> i.getId()).collect(Collectors.toSet());
             if (!tableIndex.equals(partitionIndex)) {

@@ -561,8 +561,8 @@ void AsyncTabletPublishTask::handle() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>> tablet_related_txn_infos;
-    _engine.txn_manager()->get_txn_related_tablets(
-            _transaction_id, _partition_id, &tablet_related_rs, &tablet_related_txn_infos);
+    _engine.txn_manager()->get_txn_related_tablets(_transaction_id, _partition_id,
+                                                   &tablet_related_rs, &tablet_related_txn_infos);
     auto iter = tablet_related_rs.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
     if (iter == tablet_related_rs.end()) {
         return;

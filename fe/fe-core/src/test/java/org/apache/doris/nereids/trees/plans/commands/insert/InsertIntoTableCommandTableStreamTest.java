@@ -270,7 +270,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             long newVer = 5000L + partition.getId() % 1000;
             partition.setVisibleVersionAndTime(newVer, newVer, newVer);
             partition.setNextVersion(newVer + 1);
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
                         replica.updateVersion(newVer);

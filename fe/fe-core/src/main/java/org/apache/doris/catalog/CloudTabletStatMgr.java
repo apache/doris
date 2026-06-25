@@ -182,7 +182,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 try {
                     OlapTable tbl = (OlapTable) table;
                     for (Partition partition : tbl.getAllPartitions()) {
-                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex index
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                             for (Tablet tablet : index.getTablets()) {
                                 if (filter != null && !filter.apply((CloudTablet) tablet)) {
                                     continue;
@@ -353,14 +354,18 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             dynamicPartitionNearLimitCount++;
                         }
                     }
+                    long tableBinlogSize = 0L;
+                    long tableTotalBinlogSize = 0L;
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
-                        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex index
+                                : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                             long indexRowCount = 0L;
                             List<Tablet> tablets = index.getTablets();
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
                                 long tabletDataSize = 0L;
+                                long tabletBinlogSize = 0L;
 
                                 long tabletRowCount = 0L;
                                 long tabletIndexSize = 0L;
@@ -371,6 +376,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                     if (replica.getDataSize() > tabletDataSize) {
                                         tabletDataSize = replica.getDataSize();
                                         tableTotalReplicaDataSize += replica.getDataSize();
+                                    }
+
+                                    if (index.isRowBinlog()) {
+                                        if (replica.getDataSize() > tabletBinlogSize) {
+                                            tabletBinlogSize = replica.getDataSize();
+                                        }
+                                        tableTotalBinlogSize += replica.getDataSize();
                                     }
 
                                     if (replica.getRowCount() > tabletRowCount) {
@@ -389,6 +401,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                                 tableDataSize += tabletDataSize;
                                 partitionDataSize += tabletDataSize;
+                                tableBinlogSize += tabletBinlogSize;
                                 if (maxTabletSize.second <= tabletDataSize) {
                                     maxTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
                                 }
@@ -396,8 +409,10 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                     minTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
                                 }
 
-                                tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
+                                if (!index.isRowBinlog()) {
+                                    tableRowCount += tabletRowCount;
+                                }
 
                                 tableTotalLocalIndexSize += tabletIndexSize;
                                 tableTotalLocalSegmentSize += tabletSegmentSize;
@@ -423,7 +438,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     tableStats = new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, 0L, 0L,
-                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L, 0L, 0L);
+                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L,
+                            tableBinlogSize, tableTotalBinlogSize);
                     olapTable.setStatistics(tableStats);
                     LOG.debug("finished to set row num for table: {} in database: {}",
                             table.getName(), db.getFullName());

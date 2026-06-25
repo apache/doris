@@ -722,11 +722,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<MaterializedIndex> getVisibleIndex() {
+        return getVisibleIndexWithRowBinlog().stream()
+                .filter(index -> !index.isRowBinlog())
+                .collect(Collectors.toList());
+    }
+
+    public List<MaterializedIndex> getVisibleIndexWithRowBinlog() {
         Optional<Partition> partition = idToPartition.values().stream().findFirst();
         if (!partition.isPresent()) {
             partition = tempPartitions.getAllPartitions().stream().findFirst();
         }
-        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE)
+        return partition.isPresent() ? partition.get().getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)
                 : Collections.emptyList();
     }
 
@@ -1082,6 +1088,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getIndexIdToMeta().size();
     }
 
+    public int getIndexNumberWithRowBinlog() {
+        return indexIdToMeta.size();
+    }
+
     public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
         return ImmutableMap.copyOf(Maps.filterValues(indexIdToMeta, meta -> !meta.isRowBinlogIndex()));
     }
@@ -1098,6 +1108,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return new HashMap<>(getIndexIdToMeta());
     }
 
+    // Includes the hidden row binlog index meta (which getIndexIdToMeta filters out).
+    // Used by partition creation paths that need to create the companion binlog tablet.
+    // For tables without row binlog this equals getIndexIdToMeta.
+    public Map<Long, MaterializedIndexMeta> getIndexIdToMetaWithRowBinlog() {
+        return ImmutableMap.copyOf(indexIdToMeta);
+    }
+
+    public Map<Long, MaterializedIndexMeta> getCopiedIndexIdToMetaWithRowBinlog() {
+        return new HashMap<>(indexIdToMeta);
+    }
+
     public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
         return indexIdToMeta.get(indexId);
     }
@@ -1112,12 +1133,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return result;
     }
 
+    public List<Long> getIndexIdListWithRowBinlogExceptBaseIndex() {
+        List<Long> result = Lists.newArrayList();
+        for (Long indexId : getIndexIdToMetaWithRowBinlog().keySet()) {
+            if (indexId != baseIndexId) {
+                result.add(indexId);
+            }
+        }
+        return result;
+    }
+
     public List<Long> getIndexIdList() {
         List<Long> result = Lists.newArrayList();
         for (Long indexId : getIndexIdToMeta().keySet()) {
             result.add(indexId);
         }
         return result;
+    }
+
+    public List<Long> getIndexIdListWithRowBinlog() {
+        return Lists.newArrayList(indexIdToMeta.keySet());
     }
 
     // schema

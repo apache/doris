@@ -262,10 +262,12 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // if there have create rollup tablet C(assume on shard-2) from tablet D(assume on shard-1) at the same time, we will meet deadlock
     std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
     bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
-    bool is_schema_change_or_atomic_restore =
-            request.__isset.base_tablet_id && request.base_tablet_id > 0;
+    bool has_base_tablet = request.__isset.base_tablet_id && request.base_tablet_id > 0;
+    bool is_colocated_row_binlog =
+            has_base_tablet && request.__isset.is_row_binlog_tablet && request.is_row_binlog_tablet;
+    bool is_schema_change_or_atomic_restore = has_base_tablet && !is_colocated_row_binlog;
     bool need_two_lock =
-            is_schema_change_or_atomic_restore &&
+            has_base_tablet &&
             ((_tablets_shards_mask & request.base_tablet_id) != (_tablets_shards_mask & tablet_id));
     if (need_two_lock) {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTwoTableLock"));
@@ -294,8 +296,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     }
 
     TabletSharedPtr base_tablet = nullptr;
-    // If the CreateTabletReq has base_tablet_id then it is a alter-tablet request
-    if (is_schema_change_or_atomic_restore) {
+    // base_tablet_id is used by alter/restore and colocated row-binlog creation.
+    if (has_base_tablet) {
         // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
         if (need_two_lock) {
             SCOPED_TIMER(ADD_TIMER(profile, "GetBaseTablet"));
@@ -317,7 +319,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         // entering this method
         //
         // ATTN: Since all restored replicas will be saved to HDD, so no storage_medium check here.
-        if (in_restore_mode ||
+        // Row-binlog tablet must be on the same disk as its base tablet.
+        if (in_restore_mode || is_colocated_row_binlog ||
             request.storage_medium == base_tablet->data_dir()->storage_medium()) {
             LOG(INFO) << "create tablet use the base tablet data dir. tablet_id=" << tablet_id
                       << ", base tablet_id=" << request.base_tablet_id
@@ -327,9 +330,9 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         }
     }
 
-    // set alter type to schema-change. it is useless
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
-            request, is_schema_change_or_atomic_restore, base_tablet.get(), stores, profile);
+            request, is_schema_change_or_atomic_restore, is_colocated_row_binlog, base_tablet.get(),
+            stores, profile);
     if (tablet == nullptr) {
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
@@ -342,11 +345,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
 }
 
 TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
-        const TCreateTabletReq& request, const bool is_schema_change, const Tablet* base_tablet,
+        const TCreateTabletReq& request, const bool is_schema_change,
+        const bool is_colocated_row_binlog, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs, RuntimeProfile* profile) {
-    // If in schema-change state, base_tablet must also be provided.
-    // i.e., is_schema_change and base_tablet are either assigned or not assigned
-    DCHECK((is_schema_change && base_tablet) || (!is_schema_change && !base_tablet));
+    DCHECK((is_schema_change && base_tablet) ||
+           (!is_schema_change && (base_tablet == nullptr || is_colocated_row_binlog)));
 
     // NOTE: The existence of tablet_id and schema_hash has already been checked,
     // no need check again here.

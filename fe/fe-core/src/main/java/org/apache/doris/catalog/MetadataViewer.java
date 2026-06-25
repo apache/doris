@@ -80,7 +80,8 @@ public class MetadataViewer {
                 short replicationNum = olapTable.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(
+                        IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
@@ -187,7 +188,8 @@ public class MetadataViewer {
                 short replicationNum = olapTable.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(
+                        IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                     for (Tablet tablet : index.getTablets()) {
                         long tabletId = tablet.getId();
@@ -343,7 +345,8 @@ public class MetadataViewer {
             long totalReplicaSize = 0;
             for (long partId : partitionIds) {
                 Partition partition = olapTable.getPartition(partId);
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(
+                        IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
                             long beId = replica.getBackendIdWithoutException();

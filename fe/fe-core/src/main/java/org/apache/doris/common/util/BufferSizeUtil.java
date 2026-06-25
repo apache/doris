@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -37,6 +38,10 @@ public class BufferSizeUtil {
         long partitionNum = createTableInfo.getPartitionDesc() == null ? 1 :
                 createTableInfo.getPartitionDesc().getSinglePartitionDescs().size();
         long indexNum = createTableInfo.getAddRollupOps().size() + 1;
+        // The row binlog companion index needs its own index/tablet/replica ids reserved.
+        if (BinlogConfig.fromProperties(createTableInfo.getProperties()).isEnableForStreaming()) {
+            indexNum++;
+        }
         long bucketNum = createTableInfo.getDistributionDesc().toDistributionInfo(createTableInfo.getColumns())
                 .getBucketNum();
         bufferSize = bufferSize + partitionNum + indexNum;
@@ -48,8 +53,6 @@ public class BufferSizeUtil {
                 bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
             }
         }
-        // Reserve one extra id for binlog index id.
-        bufferSize += 1;
         return bufferSize;
     }
 
@@ -58,12 +61,10 @@ public class BufferSizeUtil {
         for (Long partitionId : partitionIds) {
             bufferSize = bufferSize + 1;
             long replicaNum = table.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
-            long indexNum = table.getIndexIdToMeta().size();
+            long indexNum = table.getIndexNumberWithRowBinlog();
             long bucketNum = table.getPartition(partitionId).getDistributionInfo().getBucketNum();
             bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
         }
-        // Reserve one extra id for binlog index id.
-        bufferSize += 1;
         return bufferSize;
     }
 

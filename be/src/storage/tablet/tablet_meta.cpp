@@ -158,8 +158,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
                        TEncryptionAlgorithm::type tde_algorithm,
                        TStorageFormat::type storage_format,
-                       int32_t vertical_compaction_num_columns_per_group,
-                       bool is_row_binlog_tablet)
+                       int32_t vertical_compaction_num_columns_per_group, bool is_row_binlog_tablet)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)),
@@ -899,7 +898,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_encryption_algorithm()) {
         _encryption_algorithm = tablet_meta_pb.encryption_algorithm();
     }
-
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta) {

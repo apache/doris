@@ -366,7 +366,7 @@ public class TabletChecker extends MasterDaemon {
         /*
          * Tablet in SHADOW index can not be repaired of balanced
          */
-        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+        for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
             for (Tablet tablet : idx.getTablets()) {
                 counter.totalTabletNum++;
 

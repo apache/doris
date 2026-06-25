@@ -57,11 +57,11 @@ public:
     static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                   RowsetMetaSharedPtr rowset_meta);
     // TODO(Drogon): refactor save && _save_with_binlog to one, adapt to ut temperately
-    static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                       const RowsetMetaPB& rowset_meta_pb,
-                       std::optional<BinlogFormatPB> binlog_format = std::nullopt,
-                       const std::optional<RowsetMetaPB>& attach_row_binlog_rowset_meta =
-                               std::nullopt);
+    static Status save(
+            OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+            const RowsetMetaPB& rowset_meta_pb,
+            std::optional<BinlogFormatPB> binlog_format = std::nullopt,
+            const std::optional<RowsetMetaPB>& attach_row_binlog_rowset_meta = std::nullopt);
 
     // STATEMENT_AND_SNAPSHOT
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
