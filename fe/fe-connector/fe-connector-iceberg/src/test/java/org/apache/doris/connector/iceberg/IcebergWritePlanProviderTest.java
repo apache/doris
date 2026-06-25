@@ -286,6 +286,25 @@ public class IcebergWritePlanProviderTest {
                 "INSERT OVERWRITE ... PARTITION must pass the static partition values to BE");
     }
 
+    @Test
+    public void planWriteThreadsBranchFromHandleToTransaction() {
+        // WHY: INSERT INTO t@branch threads the target branch onto the write handle; planWrite must hand it
+        // to IcebergConnectorTransaction.beginWrite, which validates it against the table refs and points
+        // the commit at the branch. A freshly created table has no "no_such_branch" ref, so a threaded
+        // branch surfaces as a fail-loud "not founded" — proving the branch reached beginWrite.
+        // MUTATION: passing Optional.empty() instead of handle.getBranchName() (the DV-T06-branch bug) drops
+        // the branch -> no validation -> planWrite succeeds silently (write would land on the default ref)
+        // -> this assertThrows turns red.
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        // beginWrite validates the branch against the table refs and wraps the failure as a
+        // DorisConnectorException ("Failed to begin write ... no_such_branch is not founded").
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "t2")).branch("no_such_branch")));
+        Assertions.assertTrue(ex.getMessage().contains("no_such_branch"),
+                "the branch threaded onto the write handle must reach beginWrite's ref validation");
+    }
+
     // ───────────────────────────── sort info (engine-built, stamped) ─────────────────────────────
 
     @Test
@@ -538,9 +557,20 @@ public class IcebergWritePlanProviderTest {
         private Map<String, String> writeContext = Collections.emptyMap();
         private TSortInfo sortInfo;
         private WriteOperation writeOperation = WriteOperation.INSERT;
+        private Optional<String> branchName = Optional.empty();
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
+        }
+
+        WriteHandle branch(String v) {
+            this.branchName = Optional.ofNullable(v);
+            return this;
+        }
+
+        @Override
+        public Optional<String> getBranchName() {
+            return branchName;
         }
 
         WriteHandle overwrite(boolean v) {

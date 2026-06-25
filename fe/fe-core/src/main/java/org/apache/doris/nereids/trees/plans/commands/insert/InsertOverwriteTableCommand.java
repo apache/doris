@@ -218,8 +218,12 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             partitionNames = new ArrayList<>();
         }
 
-        // check branch
-        if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)) {
+        // check branch: only iceberg supports INSERT OVERWRITE into a named branch. Pre-cutover this is
+        // the legacy PhysicalIcebergTableSink; post-cutover an iceberg table is plugin-driven, so admit it
+        // via the connector's supportsWriteBranch() capability — without which the branch would be silently
+        // dropped and the overwrite would land on the table's default ref.
+        if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)
+                && !pluginConnectorSupportsWriteBranch(targetTable)) {
             throw new AnalysisException(
                     "Only support insert overwrite into iceberg table's branch");
         }
@@ -337,6 +341,22 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 .supportsInsertOverwrite();
     }
 
+    /**
+     * A plugin-driven (SPI connector) table accepts an {@code INSERT OVERWRITE t@branch(name)} only if
+     * its connector declares {@code supportsWriteBranch()}. Connectors with no branch concept must be
+     * rejected here (fail loud) instead of reaching the generic sink, which would silently drop the
+     * branch and overwrite the table's default ref. Mirrors {@code pluginConnectorSupportsInsertOverwrite}.
+     */
+    private static boolean pluginConnectorSupportsWriteBranch(TableIf targetTable) {
+        if (!(targetTable instanceof PluginDrivenExternalTable)) {
+            return false;
+        }
+        PluginDrivenExternalCatalog catalog =
+                (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) targetTable).getCatalog();
+        return catalog.getConnector().getMetadata(catalog.buildConnectorSession())
+                .supportsWriteBranch();
+    }
+
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
             ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
@@ -422,6 +442,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                     sink.getStaticPartitionKeyValues());
             PluginDrivenInsertCommandContext pluginCtx = new PluginDrivenInsertCommandContext();
             pluginCtx.setOverwrite(true);
+            // Thread the @branch target onto the generic write context (the inner InsertIntoTableCommand
+            // reuses this ctx) so the connector points the overwrite commit at the branch. The guard above
+            // already rejected @branch for connectors without supportsWriteBranch().
+            branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
             if (sink.hasStaticPartition()) {
                 Map<String, String> staticSpec = Maps.newHashMap();
                 for (Map.Entry<String, Expression> e : sink.getStaticPartitionKeyValues().entrySet()) {

@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -114,6 +115,25 @@ public class PluginDrivenTableSinkTest {
         sink.bindDataSink(Optional.empty());
 
         Assert.assertSame(engineBuilt, provider.seenHandle.getSortInfo());
+    }
+
+    @Test
+    public void bindDataSinkThreadsBranchNameToHandle() throws AnalysisException {
+        // WHY: INSERT INTO t@branch carries the target branch on the PluginDrivenInsertCommandContext;
+        // bindDataSink must thread it onto the write handle so a versioned-table connector (iceberg)
+        // points the commit at the branch. Without this, the branch is silently dropped and the write
+        // lands on the table's default ref. MUTATION: dropping `branchName = ctx.getBranchName()` ->
+        // handle carries Optional.empty() -> assertion red.
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+        PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
+        ctx.setBranchName(Optional.of("br_1"));
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>());
+        sink.bindDataSink(Optional.of(ctx));
+
+        Assert.assertEquals(Optional.of("br_1"), provider.seenHandle.getBranchName());
     }
 
     @Test

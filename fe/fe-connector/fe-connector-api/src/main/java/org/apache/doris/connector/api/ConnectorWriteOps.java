@@ -61,6 +61,17 @@ public interface ConnectorWriteOps {
         return false;
     }
 
+    /**
+     * Returns {@code true} if this connector supports writing into a named table branch
+     * ({@code INSERT INTO t@branch(name) ...}). A connector declaring this must also thread the
+     * branch through its write path (the branch rides {@code ConnectorWriteHandle.getBranchName}).
+     * Connectors that cannot target a branch keep this {@code false} so the command is rejected up
+     * front (fail loud) rather than silently writing to the table's default ref.
+     */
+    default boolean supportsWriteBranch() {
+        return false;
+    }
+
     // ──────────────────── TRANSACTION ────────────────────
 
     /**

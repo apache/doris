@@ -87,6 +87,33 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(metadata.supportsMerge(), "iceberg must declare MERGE support");
     }
 
+    @Test
+    public void declaresInsertOverwriteCapability() {
+        // WHY: iceberg's write path fully implements OVERWRITE (the overwrite flag rides the write handle
+        // into IcebergWritePlanProvider, which promotes INSERT->OVERWRITE, and IcebergConnectorTransaction
+        // maps it to ReplacePartitions/OverwriteFiles at commit). Post-cutover an iceberg table is a
+        // PluginDrivenExternalTable, so InsertOverwriteTableCommand.allowInsertOverwrite admits it ONLY when
+        // the connector declares this capability; the SPI default false would fail the command up front.
+        // MUTATION: dropping the override (default false) -> allowInsertOverwrite rejects iceberg INSERT
+        // OVERWRITE post-flip -> red.
+        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
+        Assertions.assertTrue(metadata.supportsInsertOverwrite(),
+                "iceberg must declare INSERT OVERWRITE support");
+    }
+
+    @Test
+    public void declaresWriteBranchCapability() {
+        // WHY: iceberg's write path threads a target branch (INSERT INTO t@branch) onto the write handle,
+        // and IcebergConnectorTransaction.beginWrite validates+commits to it. Post-cutover an iceberg table
+        // is a PluginDrivenExternalTable, so the generic INSERT @branch guard admits it ONLY when the
+        // connector declares this capability; the SPI default false would reject the branch up front (and
+        // dropping the guard entirely would silently write to the default ref). MUTATION: dropping the
+        // override (default false) -> @branch INSERT rejected post-flip -> red.
+        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
+        Assertions.assertTrue(metadata.supportsWriteBranch(),
+                "iceberg must declare write-branch support");
+    }
+
     // ---------------------------------------------------------------------
     // list / exists delegation
     // ---------------------------------------------------------------------

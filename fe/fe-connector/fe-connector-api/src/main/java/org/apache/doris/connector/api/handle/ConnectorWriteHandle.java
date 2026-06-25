@@ -22,6 +22,7 @@ import org.apache.doris.thrift.TSortInfo;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A bound write request passed to
@@ -75,5 +76,16 @@ public interface ConnectorWriteHandle {
      */
     default TSortInfo getSortInfo() {
         return null;
+    }
+
+    /**
+     * The named table branch this write targets ({@code INSERT INTO t@branch(name)}), or
+     * {@link Optional#empty()} when the write goes to the table's default ref. Threaded from the
+     * generic insert command context onto this handle; a versioned-table connector (iceberg / paimon)
+     * reads it in {@code planWrite} to point the commit at the branch. Defaults to empty so connectors
+     * with no branch concept (jdbc / maxcompute) keep their byte-identical default-ref write.
+     */
+    default Optional<String> getBranchName() {
+        return Optional.empty();
     }
 }

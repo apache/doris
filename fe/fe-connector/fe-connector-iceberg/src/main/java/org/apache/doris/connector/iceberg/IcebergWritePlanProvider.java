@@ -192,9 +192,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (op == WriteOperation.INSERT && handle.isOverwrite()) {
             op = WriteOperation.OVERWRITE;
         }
-        // Branch-targeted INSERT (INSERT INTO tbl@branch) is threaded at the P6.6 cutover via the generic
-        // command context; the generic write handle carries no branch (DV-T06-branch).
-        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getWriteContext(), Optional.empty());
+        // Branch-targeted INSERT (INSERT INTO tbl@branch): the branch is threaded from the generic insert
+        // command context onto the write handle; beginWrite validates it against the table refs and points
+        // the commit at the branch. Empty for a default-ref write.
+        return new IcebergWriteContext(op, handle.isOverwrite(), handle.getWriteContext(), handle.getBranchName());
     }
 
     private TIcebergTableSink buildSink(Table table, IcebergTableHandle tableHandle,

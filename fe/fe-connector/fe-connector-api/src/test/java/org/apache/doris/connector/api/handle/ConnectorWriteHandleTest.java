@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Pins the {@link ConnectorWriteHandle#getWriteOperation()} default (P6.3-T03, deferred from T01).
@@ -86,5 +87,16 @@ public class ConnectorWriteHandleTest {
         // byte-identical unsorted sink output — the engine sets sort_info only for sorted iceberg tables.
         Assertions.assertNull(new BareWriteHandle().getSortInfo(),
                 "a write handle that declares no write sort must default to a null TSortInfo");
+    }
+
+    @Test
+    public void branchNameDefaultsToEmpty() {
+        // WHY: an INSERT INTO t@branch threads the target branch onto the write handle so a
+        // versioned-table connector (iceberg/paimon) points the commit at the branch. The default MUST
+        // be empty so every existing write handle (jdbc/maxcompute, which never sets it) keeps its
+        // byte-identical default-ref write. MUTATION: a non-empty default would make a branchless write
+        // appear branch-targeted.
+        Assertions.assertEquals(Optional.empty(), new BareWriteHandle().getBranchName(),
+                "a write handle that declares no branch must default to Optional.empty()");
     }
 }

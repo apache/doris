@@ -120,7 +120,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, false, Collections.emptyMap(), null);
+                tableHandle, connectorColumns, false, Collections.emptyMap(), null, Optional.empty());
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -138,13 +138,15 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             throws AnalysisException {
         boolean overwrite = false;
         Map<String, String> writeContext = Collections.emptyMap();
+        Optional<String> branchName = Optional.empty();
         if (insertCtx.isPresent() && insertCtx.get() instanceof PluginDrivenInsertCommandContext) {
             PluginDrivenInsertCommandContext ctx = (PluginDrivenInsertCommandContext) insertCtx.get();
             overwrite = ctx.isOverwrite();
             writeContext = ctx.getStaticPartitionSpec();
+            branchName = ctx.getBranchName();
         }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo);
+                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo, branchName);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -163,19 +165,27 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final boolean overwrite;
         private final Map<String, String> writeContext;
         private final TSortInfo sortInfo;
+        private final Optional<String> branchName;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
-                boolean overwrite, Map<String, String> writeContext, TSortInfo sortInfo) {
+                boolean overwrite, Map<String, String> writeContext, TSortInfo sortInfo,
+                Optional<String> branchName) {
             this.tableHandle = tableHandle;
             this.columns = columns;
             this.overwrite = overwrite;
             this.writeContext = writeContext;
             this.sortInfo = sortInfo;
+            this.branchName = branchName == null ? Optional.empty() : branchName;
         }
 
         @Override
         public TSortInfo getSortInfo() {
             return sortInfo;
+        }
+
+        @Override
+        public Optional<String> getBranchName() {
+            return branchName;
         }
 
         @Override
