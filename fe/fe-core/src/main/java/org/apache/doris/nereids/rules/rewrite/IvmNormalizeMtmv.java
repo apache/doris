@@ -229,7 +229,9 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         normalizeResult.addRowId(rowIdAlias.toSlot(), rowId.second);
         List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
                 .add(rowIdAlias)
-                .addAll(scan.getOutput())
+                .addAll(scan.getOutput().stream()
+                        .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
+                        .collect(ImmutableList.toImmutableList()))
                 .build();
         return new LogicalProject<>(outputs, scan);
     }
@@ -726,7 +728,9 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     }
 
     private Pair<Expression, Boolean> buildDeterministicRowIdFromBaseKeys(OlapTable table, LogicalOlapScan scan) {
-        Set<String> keyColNames = table.getBaseSchemaKeyColumns().stream()
+        // Use full schema because MTMV key columns (row-id) are hidden.
+        Set<String> keyColNames = table.getBaseSchema(true).stream()
+                .filter(Column::isKey)
                 .map(Column::getName)
                 .collect(Collectors.toSet());
         List<Expression> keySlots = scan.getOutput().stream()
