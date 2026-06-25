@@ -130,6 +130,14 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::Error<ErrorCode::NETWORK_ERROR>("receive body don't equal with body bytes");
     }
+    // For a chunked / unknown-Content-Length body smaller than the schema buffer, the schema
+    // has not been sniffed yet (on_chunk_data could not tell when the body was complete, so it
+    // deferred to here). Now that the whole request body has been received, trigger it on the
+    // full buffer before finishing the pipe.
+    if (ctx->is_read_schema) {
+        ctx->is_read_schema = false;
+        RETURN_IF_ERROR(process_put(http_req, ctx));
+    }
     RETURN_IF_ERROR(ctx->body_sink->finish());
 
     // wait stream load finish
@@ -286,10 +294,16 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
         }
         ctx->receive_bytes += remove_bytes;
     }
-    // after all the data has been read and it has not reached 1M, it will execute here
-    if (ctx->is_read_schema) {
-        LOG(INFO) << "after all the data has been read and it has not reached 1M, it will execute "
-                  << "here";
+    // The schema is sniffed from `schema_buffer`. `on_chunk_data` is a per-chunk callback,
+    // so a body that spans multiple callbacks would otherwise be schema-sniffed on a partial
+    // buffer. That is harmless for uncompressed data, but for a compressed body a partial
+    // buffer is an incomplete compressed stream and schema sniffing fails with
+    // "Compressed file has been truncated". So only trigger here once the whole body has been
+    // received (Content-Length known). The chunked / unknown-length case is handled at
+    // request completion in `_handle`.
+    if (ctx->is_read_schema && ctx->body_bytes > 0 && ctx->receive_bytes >= ctx->body_bytes) {
+        LOG(INFO) << "all the data has been read and it has not reached 1M, request fe to obtain "
+                  << "column information. id=" << ctx->id;
         ctx->is_read_schema = false;
         ctx->status = process_put(req, ctx);
     }

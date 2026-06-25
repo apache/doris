@@ -1003,6 +1003,30 @@ struct ArrayVal : public ContainerVal {
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 };
 
+namespace jsonb_detail {
+
+inline bool array_contains_value(const ArrayVal* target_array, const JsonbValue* candidate) {
+    const int target_num = target_array->numElem();
+    for (int i = 0; i < target_num; ++i) {
+        if (target_array->get(i)->contains(candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool array_contains_array(const ArrayVal* target_array, const ArrayVal* candidate_array) {
+    const int candidate_num = candidate_array->numElem();
+    for (int i = 0; i < candidate_num; ++i) {
+        if (!array_contains_value(target_array, candidate_array->get(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace jsonb_detail
+
 inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
@@ -1154,29 +1178,11 @@ inline bool JsonbValue::contains(const JsonbValue* rhs) const {
         return false;
     }
     case JsonbType::T_Array: {
-        int lhs_num = unpack<ArrayVal>()->numElem();
+        const auto* lhs_array = unpack<ArrayVal>();
         if (rhs->isArray()) {
-            int rhs_num = rhs->unpack<ArrayVal>()->numElem();
-            if (rhs_num > lhs_num) {
-                return false;
-            }
-            int contains_num = 0;
-            for (int i = 0; i < lhs_num; ++i) {
-                for (int j = 0; j < rhs_num; ++j) {
-                    if (unpack<ArrayVal>()->get(i)->contains(rhs->unpack<ArrayVal>()->get(j))) {
-                        contains_num++;
-                        break;
-                    }
-                }
-            }
-            return contains_num == rhs_num;
+            return jsonb_detail::array_contains_array(lhs_array, rhs->unpack<ArrayVal>());
         }
-        for (int i = 0; i < lhs_num; ++i) {
-            if (unpack<ArrayVal>()->get(i)->contains(rhs)) {
-                return true;
-            }
-        }
-        return false;
+        return jsonb_detail::array_contains_value(lhs_array, rhs);
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {

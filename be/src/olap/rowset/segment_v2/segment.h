@@ -247,6 +247,9 @@ private:
 
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
+    // Relative path passed to `open`, used to derive the inverted index path (see
+    // _open_index_file_reader).
+    std::string _seg_path;
     uint32_t _segment_id;
     uint32_t _num_rows;
     AtomicStatus _healthy_status;

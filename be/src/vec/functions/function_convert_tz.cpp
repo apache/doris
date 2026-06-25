@@ -216,6 +216,19 @@ private:
         }
     }
 
+    static std::pair<int64_t, int64_t> unix_timestamp_for_convert_tz(
+            const DateValueType& ts_value, const cctz::time_zone& from_tz) {
+        cctz::civil_second civil_time(ts_value.year(), ts_value.month(), ts_value.day(),
+                                      ts_value.hour(), ts_value.minute(), ts_value.second());
+        const auto lookup = from_tz.lookup(civil_time);
+        const bool skipped = lookup.kind == cctz::time_zone::civil_lookup::SKIPPED;
+        const auto tp = skipped ? lookup.trans : lookup.pre;
+
+        // Skipped civil times map to the transition instant. Do not keep the
+        // input fractional part inside a local time interval that never existed.
+        return {tp.time_since_epoch().count(), skipped ? 0 : ts_value.microsecond()};
+    }
+
     static void execute_tz_const_with_state(ConvertTzState* convert_tz_state,
                                             const ColumnType* date_column,
                                             ColumnType* result_column, NullMap& result_null_map,
@@ -243,9 +256,7 @@ private:
             DateValueType ts_value = date_column->get_element(i);
             DateValueType ts_value2;
 
-            std::pair<int64_t, int64_t> timestamp;
-            ts_value.unix_timestamp(&timestamp, from_tz);
-            ts_value2.from_unixtime(timestamp, to_tz);
+            ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(i),
@@ -296,9 +307,7 @@ private:
                             to_tz_name);
         }
 
-        std::pair<int64_t, int64_t> timestamp;
-        ts_value.unix_timestamp(&timestamp, from_tz);
-        ts_value2.from_unixtime(timestamp, to_tz);
+        ts_value2.from_unixtime(unix_timestamp_for_convert_tz(ts_value, from_tz), to_tz);
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
             throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(index_now),
