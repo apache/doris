@@ -239,7 +239,10 @@ TEST_F(OrcReaderFillDataTest, NestedTimestampRoundsOrcNanosToMicros) {
     ASSERT_TRUE(status.ok()) << status.to_string();
     const auto& struct_column = assert_cast<const ColumnStruct&>(*doris_column);
     const auto& array_column = assert_cast<const ColumnArray&>(struct_column.get_column(0));
-    const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(array_column.get_data());
+    const auto& nullable_timestamp_column =
+            assert_cast<const ColumnNullable&>(array_column.get_data());
+    const auto& timestamp_column =
+            assert_cast<const ColumnDateTimeV2&>(nullable_timestamp_column.get_nested_column());
 
     ASSERT_EQ(timestamp_column.size(), 1);
     EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 321000);
