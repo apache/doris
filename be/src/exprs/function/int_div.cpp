@@ -20,8 +20,10 @@
 
 #include <libdivide.h>
 
+#include <limits>
 #include <utility>
 
+#include "common/exception.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/simple_function_factory.h"
 
@@ -120,6 +122,17 @@ struct DivideIntegralImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
+    static void throw_if_division_leads_to_fpe(Arg a, Arg b) {
+        if constexpr (std::is_signed_v<Arg>) {
+            if (b == -1 && a == std::numeric_limits<Arg>::min()) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Division of minimal signed number by minus one is an undefined "
+                                "behavior, {} DIV {}. ",
+                                a, b);
+            }
+        }
+    }
+
     static void apply(const typename ColumnType::Container& a, Arg b,
                       typename PrimitiveTypeTraits<ResultType>::ColumnType::Container& c,
                       PaddedPODArray<UInt8>& null_map) {
@@ -128,6 +141,13 @@ struct DivideIntegralImpl {
         memset(null_map.data(), is_null, size);
 
         if (!is_null) {
+            if constexpr (std::is_signed_v<Arg>) {
+                if (b == -1) {
+                    for (size_t i = 0; i < size; i++) {
+                        throw_if_division_leads_to_fpe(a[i], b);
+                    }
+                }
+            }
             if constexpr (!std::is_floating_point_v<Arg> && !std::is_same_v<Arg, Int128> &&
                           !std::is_same_v<Arg, Int8> && !std::is_same_v<Arg, UInt8>) {
                 const auto divider = libdivide::divider<Arg>(Arg(b));
@@ -145,7 +165,9 @@ struct DivideIntegralImpl {
     static inline typename PrimitiveTypeTraits<ResultType>::CppType apply(Arg a, Arg b,
                                                                           UInt8& is_null) {
         is_null = b == 0;
-        return typename PrimitiveTypeTraits<ResultType>::CppType(a / (b + is_null));
+        b += is_null;
+        throw_if_division_leads_to_fpe(a, b);
+        return typename PrimitiveTypeTraits<ResultType>::CppType(a / b);
     }
 
     static ColumnPtr constant_constant(Arg a, Arg b) {
