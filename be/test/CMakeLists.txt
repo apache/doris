@@ -23,6 +23,12 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
+if (ENABLE_VARIANT_NESTED_GROUP)
+    file(GLOB_RECURSE VARIANT_NESTED_GROUP_UT_FILES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${VARIANT_NESTED_GROUP_UT_FILES})
+endif()
+
 # Remove all cpp files from vector search (ANN index) subdirectory
 # Since cpp files in vector search subdirs use header files from faiss.
 # The compile check used by doris can not be applied to faiss headers.

@@ -148,6 +148,12 @@ message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
 
 option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
 set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+option(ENABLE_VARIANT_NESTED_GROUP "Enable Variant NestedGroup feature module" OFF)
+set(VARIANT_NESTED_GROUP_MODULE_DIR "" CACHE STRING "Variant NestedGroup feature module directory under be/src")
+
+if (ENABLE_VARIANT_NESTED_GROUP AND "${VARIANT_NESTED_GROUP_MODULE_DIR}" STREQUAL "")
+    message(FATAL_ERROR "ENABLE_VARIANT_NESTED_GROUP requires VARIANT_NESTED_GROUP_MODULE_DIR")
+endif()
 
 # Allow env to override when reconfiguring (avoid picking /usr/local).
 if (DEFINED ENV{ENABLE_PAIMON_CPP})
