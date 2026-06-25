@@ -89,17 +89,13 @@ bool is_recursively_exclusive(const IColumn& column) {
     }
 
     bool exclusive = true;
-    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
         if (!exclusive) {
             return;
         }
-        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        DCHECK(subcolumn_ptr);
-        exclusive = is_recursively_exclusive(*subcolumn_ptr);
+        exclusive = is_recursively_exclusive(subcolumn);
     };
-    // `for_each_subcolumn` only exposes a mutable callback type. This callback
-    // only reads the wrapped pointers and never calls the non-const accessors.
-    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    column.for_each_subcolumn(callback);
     return exclusive;
 }
 
@@ -340,6 +336,21 @@ Status Block::check_type_and_column() const {
         }
     }
 #endif
+    return Status::OK();
+}
+
+Status Block::check_column_and_type_not_null() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        if (!elem.column) {
+            return Status::InternalError("Column in block is nullptr, column index: {}, name: {}",
+                                         i, elem.name);
+        }
+        if (!elem.type) {
+            return Status::InternalError("Type in block is nullptr, column index: {}, name: {}", i,
+                                         elem.name);
+        }
+    }
     return Status::OK();
 }
 

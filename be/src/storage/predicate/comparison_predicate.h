@@ -630,12 +630,14 @@ private:
                     }
                 }
                 uint16_t new_size = 0;
-#define EVALUATE_WITH_NULL_IMPL(IDX) \
-    _opposite ^ (!null_map[IDX] && _operator(pred_col_data[IDX], dict_code))
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col_data[IDX], dict_code)
-                EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
-#undef EVALUATE_WITH_NULL_IMPL
-#undef EVALUATE_WITHOUT_NULL_IMPL
+                auto with_null = [&](uint16_t idx) {
+                    return _opposite ^ (!null_map[idx] && _operator(pred_col_data[idx], dict_code));
+                };
+                auto without_null = [&](uint16_t idx) {
+                    return _opposite ^ _operator(pred_col_data[idx], dict_code);
+                };
+                evaluate_by_selector<is_nullable>(pred_col, size, sel, new_size, with_null,
+                                                  without_null);
 
                 return new_size;
             } else {
@@ -645,12 +647,14 @@ private:
         } else {
             uint16_t new_size = 0;
             ColumnElementView<Type> pred_col {*column};
-#define EVALUATE_WITH_NULL_IMPL(IDX) \
-    _opposite ^ (!null_map[IDX] && _operator(pred_col[IDX], _value))
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col[IDX], _value)
-            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
-#undef EVALUATE_WITH_NULL_IMPL
-#undef EVALUATE_WITHOUT_NULL_IMPL
+            auto with_null = [&](uint16_t idx) {
+                return _opposite ^ (!null_map[idx] && _operator(pred_col.get_element(idx), _value));
+            };
+            auto without_null = [&](uint16_t idx) {
+                return _opposite ^ _operator(pred_col.get_element(idx), _value);
+            };
+            evaluate_by_selector<is_nullable>(pred_col, size, sel, new_size, with_null,
+                                              without_null);
             return new_size;
         }
     }

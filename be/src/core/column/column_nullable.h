@@ -250,7 +250,7 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
+    void for_each_subcolumn(MutableColumnCallback callback) override {
         callback(_nested_column);
 
         IColumn::WrappedPtr null_map(std::move(static_cast<ColumnUInt8::Ptr&>(_null_map)));
@@ -258,6 +258,11 @@ public:
             _null_map = cast_to_column<ColumnUInt8>(static_cast<const IColumn::Ptr&>(null_map));
         });
         callback(null_map);
+    }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const IColumn::Ptr&>(_nested_column));
+        callback(*static_cast<const ColumnUInt8::Ptr&>(_null_map));
     }
 
     bool structure_equals(const IColumn& rhs) const override {

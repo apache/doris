@@ -174,7 +174,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     EXPECT_TRUE(rowset_writer->flush().ok());
     EXPECT_TRUE(rowset_writer->build(rowset).ok());
 
-    auto check_result = [&](InvertedIndexReader* reader, bool is_null, int expected_result) {
+    auto check_result = [&](InvertedIndexReader* reader, ColumnId column_id, bool is_null,
+                            int expected_result) {
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         io::IOContext io_ctx;
@@ -227,8 +228,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         auto index_meta = index_metas[0];
         auto bkd_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         EXPECT_TRUE(bkd_reader);
-        check_result(bkd_reader.get(), true, 1);
-        check_result(bkd_reader.get(), false, 2);
+        check_result(bkd_reader.get(), 0, true, 1);
+        check_result(bkd_reader.get(), 0, false, 2);
 
         auto index_metas2 = _tablet_schema->inverted_indexs(1);
         EXPECT_FALSE(index_metas2.empty());
@@ -236,8 +237,8 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         auto string_reader =
                 StringTypeInvertedIndexReader::create_shared(index_meta2, index_file_reader);
         EXPECT_TRUE(string_reader);
-        check_result(string_reader.get(), true, 2);
-        check_result(string_reader.get(), false, 1);
+        check_result(string_reader.get(), 1, true, 2);
+        check_result(string_reader.get(), 1, false, 1);
     }
 }
 
