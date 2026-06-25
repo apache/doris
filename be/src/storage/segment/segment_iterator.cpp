@@ -3162,7 +3162,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     _selected_size = 0;
     RETURN_IF_ERROR(_read_columns_by_index(_predicate_column_ids, nrows_read_limit, _selected_size,
-                                          /*read_rowids=*/true));
+                                           /*read_rowids=*/true));
     _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
     _update_lsn_col_if_needed(_predicate_column_ids, _selected_size);
     _update_tso_col_if_needed(_predicate_column_ids, _selected_size);
@@ -3238,7 +3238,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                 uint16_t stage1_size =
                         _evaluate_vectorization_predicate(_sel_rowid_idx_stage1.data(), rows_read);
                 stage1_size = _evaluate_short_circuit_predicate(_sel_rowid_idx_stage1.data(),
-                                                               stage1_size);
+                                                                stage1_size);
                 _selected_size = stage1_size;
 
                 _opts.stats->predicate_lm_stage1_input_rows += rows_read;
@@ -3304,8 +3304,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             _opts.stats->predicate_lm_stage2_rows_read += stage2_rows_read;
 
                             RETURN_IF_ERROR(_read_columns_by_index(_late_predicate_column_ids,
-                                                                  rows_read, stage2_rows_read,
-                                                                  /*read_rowids=*/false));
+                                                                   rows_read, stage2_rows_read,
+                                                                   /*read_rowids=*/false));
                             _replace_version_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
                             _update_lsn_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
                             _update_tso_col_if_needed(_late_predicate_column_ids, stage2_rows_read);

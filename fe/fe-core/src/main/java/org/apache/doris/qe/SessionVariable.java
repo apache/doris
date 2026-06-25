@@ -3038,21 +3038,21 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableShuffleKeyPrune = true;
 
     @VarAttrDef.VarAttr(
-        name = ENABLE_MULTI_STAGE_PREDICATE_LM,
-        fuzzy = true,
-        description = {"控制 SegmentIterator 是否启用多阶段谓词延迟物化(实验特性)。默认为 false。",
-            "Controls whether to enable multi-stage predicate lazy materialization in SegmentIterator "
-                + "(experimental). The default value is false."},
-        needForward = true)
+            name = ENABLE_MULTI_STAGE_PREDICATE_LM,
+            fuzzy = true,
+            description = {"控制 SegmentIterator 是否启用多阶段谓词延迟物化(实验特性)。默认为 false。",
+                    "Controls whether to enable multi-stage predicate lazy materialization in SegmentIterator "
+                        + "(experimental). The default value is false."},
+            needForward = true)
     public boolean enableMultiStagePredicateLm = false;
 
     @VarAttrDef.VarAttr(
-        name = PREDICATE_LM_STAGE1_COLS,
-        fuzzy = true,
-        description = {"人工指定的多阶段谓词延迟物化中 stage1 参与过滤的列名列表，逗号分隔，例如 'a,b,c'。默认为空。",
-            "Stage1 predicate columns for multi-stage predicate LM, comma-separated, e.g. 'a,b,c'. "
-                + "Default is empty."},
-        needForward = true)
+            name = PREDICATE_LM_STAGE1_COLS,
+            fuzzy = true,
+            description = {"人工指定的多阶段谓词延迟物化中 stage1 参与过滤的列名列表，逗号分隔，例如 'a,b,c'。默认为空。",
+                    "Stage1 predicate columns for multi-stage predicate LM, comma-separated, e.g. 'a,b,c'. "
+                        + "Default is empty."},
+            needForward = true)
     public String predicateLmStage1Cols = "";
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
