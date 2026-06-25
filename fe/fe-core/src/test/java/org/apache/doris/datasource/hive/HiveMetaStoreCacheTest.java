@@ -24,6 +24,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 
+import com.google.common.collect.HashBiMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -121,6 +122,20 @@ public class HiveMetaStoreCacheTest {
             executor.shutdownNow();
             listExecutor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testHivePartitionValuesNextPartitionIdIsCopiedAndMonotonic() {
+        HiveExternalMetaCache.HivePartitionValues partitionValues =
+                new HiveExternalMetaCache.HivePartitionValues(
+                        new HashMap<>(), HashBiMap.create(), new HashMap<>(), 2L);
+
+        Assertions.assertEquals(2L, partitionValues.getAndIncrementNextPartitionId());
+        Assertions.assertEquals(3L, partitionValues.getAndIncrementNextPartitionId());
+
+        HiveExternalMetaCache.HivePartitionValues copy = partitionValues.copy();
+        Assertions.assertEquals(4L, copy.getAndIncrementNextPartitionId());
+        Assertions.assertEquals(4L, partitionValues.getAndIncrementNextPartitionId());
     }
 
     private void putCache(

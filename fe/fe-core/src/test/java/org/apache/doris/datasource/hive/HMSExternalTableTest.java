@@ -304,7 +304,8 @@ public class HMSExternalTableTest {
             this.partitionValues = new HiveExternalMetaCache.HivePartitionValues(
                     idToPartitionItem,
                     HashBiMap.create(ImmutableMap.of("dt=" + partitionValue, partitionId)),
-                    ImmutableMap.of(partitionId, Collections.singletonList(partitionValue)));
+                    ImmutableMap.of(partitionId, Collections.singletonList(partitionValue)),
+                    partitionId + 1);
         }
 
         @Override

@@ -291,17 +291,16 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
         BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
-        String localDbName = nameMapping.getLocalDbName();
-        String localTblName = nameMapping.getLocalTblName();
+        long nextPartitionId = 0;
         for (String partitionName : partitionNames) {
-            long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
+            long partitionId = nextPartitionId++;
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
             idToPartitionItem.put(partitionId, listPartitionItem);
             partitionNameToIdMap.put(partitionName, partitionId);
         }
 
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        return new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap);
+        return new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap, nextPartitionId);
     }
 
     private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types, String catalogName) {
@@ -733,7 +732,6 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
 
             HMSExternalCatalog catalog = hmsCatalog(catalogId);
-            String localDbName = nameMapping.getLocalDbName();
             String localTblName = nameMapping.getLocalTblName();
             for (String partitionName : partitionNames) {
                 if (partitionNameToIdMapBefore.containsKey(partitionName)) {
@@ -741,7 +739,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                             partitionName, localTblName);
                     continue;
                 }
-                long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
+                long partitionId = copy.getAndIncrementNextPartitionId();
                 ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
                 idToPartitionItemBefore.put(partitionId, listPartitionItem);
                 idToPartitionItem.put(partitionId, listPartitionItem);
@@ -1063,6 +1061,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private BiMap<String, Long> partitionNameToIdMap;
         private Map<Long, PartitionItem> idToPartitionItem;
         private Map<Long, List<String>> partitionValuesMap;
+        private long nextPartitionId;
 
         // Sorted partition ranges for binary search filtering.
         private SortedPartitionRanges<String> sortedPartitionRanges;
@@ -1072,10 +1071,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         public HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
                 BiMap<String, Long> partitionNameToIdMap,
-                Map<Long, List<String>> partitionValuesMap) {
+                Map<Long, List<String>> partitionValuesMap,
+                long nextPartitionId) {
             this.idToPartitionItem = idToPartitionItem;
             this.partitionNameToIdMap = partitionNameToIdMap;
             this.partitionValuesMap = partitionValuesMap;
+            this.nextPartitionId = nextPartitionId;
             this.sortedPartitionRanges = buildSortedPartitionRanges();
         }
 
@@ -1084,11 +1085,16 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             copy.setPartitionNameToIdMap(partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap));
             copy.setIdToPartitionItem(idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem));
             copy.setPartitionValuesMap(partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap));
+            copy.setNextPartitionId(nextPartitionId);
             return copy;
         }
 
         public void rebuildSortedPartitionRanges() {
             this.sortedPartitionRanges = buildSortedPartitionRanges();
+        }
+
+        public long getAndIncrementNextPartitionId() {
+            return nextPartitionId++;
         }
 
         public java.util.Optional<SortedPartitionRanges<String>> getSortedPartitionRanges() {
