@@ -146,8 +146,10 @@ TEST_F(TestVTabletWriterV2, load_stream_reply_profile_should_be_collected) {
     auto stub = std::make_shared<LoadStreamStub>(load_id, src_id, schema_map, mow_map);
 
     RuntimeProfile remote_profile("LoadStream");
-    remote_profile.create_child("DeltaWriterV2 10001", true, true);
-    remote_profile.create_child("MemTableWriter 10001", true, true);
+    auto* delta_writer_profile = remote_profile.create_child("DeltaWriterV2 10001", true, true);
+    auto* memtable_writer_profile = remote_profile.create_child("MemTableWriter 10001", true, true);
+    COUNTER_SET(ADD_TIMER(delta_writer_profile, "WriteMemTableTime"), 1);
+    COUNTER_SET(ADD_TIMER(memtable_writer_profile, "MemTableSortTime"), 1);
     TRuntimeProfileTree remote_profile_tree;
     remote_profile.to_thrift(&remote_profile_tree);
 
@@ -177,6 +179,8 @@ TEST_F(TestVTabletWriterV2, load_stream_reply_profile_should_be_collected) {
     collected_profile.pretty_print(&profile_string);
     ASSERT_NE(std::string::npos, profile_string.str().find("DeltaWriterV2 10001"));
     ASSERT_NE(std::string::npos, profile_string.str().find("MemTableWriter 10001"));
+    ASSERT_NE(std::string::npos, profile_string.str().find("WriteMemTableTime"));
+    ASSERT_NE(std::string::npos, profile_string.str().find("MemTableSortTime"));
     ASSERT_EQ(nullptr, stub->collect_load_stream_profile(2));
 }
 
