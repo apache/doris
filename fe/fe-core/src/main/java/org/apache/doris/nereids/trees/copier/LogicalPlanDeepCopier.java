@@ -251,7 +251,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> newProjects = project.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(newProjects, project.isDistinct(), child);
+        List<NamedExpression> newAsteriskOutputs = project.getAsteriskOutputs().stream()
+                .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalProject<>(newProjects, project.isDistinct(), newAsteriskOutputs, child);
     }
 
     @Override
