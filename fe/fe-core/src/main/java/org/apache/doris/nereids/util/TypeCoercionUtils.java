@@ -653,7 +653,13 @@ public class TypeCoercionUtils {
                     && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
             } else if (dataType.isTimeStampTzType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) dataType, value);
+                // Signature search can pass TIMESTAMPTZ(*) here. TimestampTzLiteral rounds by scale,
+                // so derive a concrete scale from the literal before parsing.
+                TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
+                if (timeStampTzType.getScale() < 0 || dataType == TimeStampTzType.MAX) {
+                    timeStampTzType = TimeStampTzType.forTypeFromString(value);
+                }
+                ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
