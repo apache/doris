@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/common/variant_util.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
@@ -115,6 +116,28 @@ protected:
 
         offsets->insert_value(0);
         offsets->insert_value(2);
+
+        return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    }
+
+    ColumnPtr create_sparse_map_column_for_limit_test() {
+        auto keys = ColumnString::create();
+        auto values = ColumnString::create();
+        auto offsets = ColumnArray::ColumnOffsets::create();
+
+        offsets->insert_value(0);
+
+        keys->insert_data("hot", 3);
+        values->insert_data("h0", 2);
+        keys->insert_data("warm", 4);
+        values->insert_data("w0", 2);
+        offsets->insert_value(2);
+
+        keys->insert_data("hot", 3);
+        values->insert_data("h1", 2);
+        keys->insert_data("cold", 4);
+        values->insert_data("c1", 2);
+        offsets->insert_value(4);
 
         return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     }
@@ -231,6 +254,27 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     // Check that variant statistics were updated
     auto& column_meta = _footer->columns(1);
     EXPECT_TRUE(column_meta.has_variant_statistics());
+}
+
+TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsStopsAddingKeysAtSparseStatsLimit) {
+    auto map_column = create_sparse_map_column_for_limit_test();
+    VariantStatisticsPB stats;
+
+    variant_util::VariantCompactionUtil::calculate_variant_stats(*map_column, &stats, 2, 1, 2);
+
+    ASSERT_EQ(stats.sparse_column_non_null_size_size(), 2);
+    EXPECT_EQ(stats.sparse_column_non_null_size().at("hot"), 2);
+    EXPECT_EQ(stats.sparse_column_non_null_size().at("warm"), 1);
+    EXPECT_FALSE(stats.sparse_column_non_null_size().contains("cold"));
+}
+
+TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithZeroSparseStatsLimitDropsAllNewKeys) {
+    auto map_column = create_sparse_map_column_for_limit_test();
+    VariantStatisticsPB stats;
+
+    variant_util::VariantCompactionUtil::calculate_variant_stats(*map_column, &stats, 0, 1, 2);
+
+    EXPECT_TRUE(stats.sparse_column_non_null_size().empty());
 }
 
 TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingFooterEntry) {
