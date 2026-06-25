@@ -303,8 +303,12 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         Status st = Status::OK();
         try {
             st = _parse_next_json(&size, &_reader_eof);
-            if (st.ok() && !_reader_eof && size > 0) {
-                st = _extract_json_value(size, &_reader_eof, &is_empty_row);
+            if (st.ok() && !_reader_eof) {
+                if (size == 0) {
+                    is_empty_row = true;
+                } else {
+                    st = _extract_json_value(size, &_reader_eof, &is_empty_row);
+                }
             }
             if (st.ok() && !_reader_eof && !is_empty_row) {
                 st = _append_rows_from_current_value(file_block, &is_empty_row, &_reader_eof);
@@ -559,7 +563,7 @@ Status JsonReader::_read_one_document_from_pipe(size_t* read_size) {
 
 Status JsonReader::_parse_next_json(size_t* size, bool* eof) {
     RETURN_IF_ERROR(_read_one_document(size, eof));
-    if (*eof) {
+    if (*eof || *size == 0) {
         return Status::OK();
     }
     if (*size >= 3 && static_cast<unsigned char>(_document_buffer[0]) == 0xEF &&
@@ -863,7 +867,9 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
     if (is_column_nullable(*column_ptr)) {
         nullable_column = assert_cast<ColumnNullable*>(column_ptr);
         data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
-        data_serde = serde->get_nested_serdes()[0];
+        if (type_desc->is_nullable()) {
+            data_serde = serde->get_nested_serdes()[0];
+        }
         if (value_type == simdjson::ondemand::json_type::null) {
             nullable_column->insert_default();
             *valid = true;
@@ -969,7 +975,9 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
                 auto* nullable_key = assert_cast<ColumnNullable*>(key_column);
                 nullable_key->get_null_map_data().push_back(0);
                 key_column = nullable_key->get_nested_column().get_ptr().get();
-                key_serde = key_serde->get_nested_serdes()[0];
+                if (map_type->get_key_type()->is_nullable()) {
+                    key_serde = key_serde->get_nested_serdes()[0];
+                }
             }
             std::string_view key_view = member_value.unescaped_key().value();
             Slice key_slice(key_view.data(), key_view.size());
@@ -1028,32 +1036,16 @@ Status JsonReader::_fill_missing_column(const RequestedColumn& column, IColumn* 
             column.slot_desc->col_name());
 }
 
-Status JsonReader::_append_null_for_malformed_json(Block* block) {
-    DORIS_CHECK(block != nullptr);
-    for (int i = 0; i < block->columns(); ++i) {
-        auto& column_with_type = block->get_by_position(i);
-        if (!is_column_nullable(*column_with_type.column)) {
-            return Status::DataQualityError("malformed json, but the column `{}` is not nullable.",
-                                            column_with_type.column->get_name());
-        }
-        auto column = IColumn::mutate(std::move(column_with_type.column));
-        assert_cast<ColumnNullable*>(column.get())->insert_default();
-        column_with_type.column = std::move(column);
-    }
-    return Status::OK();
-}
-
 Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t original_rows,
                                       bool* is_empty_row) {
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
     // Deserialization can fail after several columns have already appended data. Always restore the
-    // block to the row count before this document before either surfacing the error or appending
-    // the ignore-malformed null row.
+    // block to the row count before this document before either surfacing the error or skipping the
+    // ignored malformed document.
     _truncate_block_to_rows(block, original_rows);
     if (_openx_json_ignore_malformed && status.is<ErrorCode::DATA_QUALITY_ERROR>()) {
-        RETURN_IF_ERROR(_append_null_for_malformed_json(block));
-        *is_empty_row = false;
+        *is_empty_row = true;
         return Status::OK();
     }
     return status;

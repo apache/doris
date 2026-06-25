@@ -333,6 +333,20 @@ TEST(JsonReaderTest, ReturnsErrorForMissingRequiredColumn) {
     EXPECT_FALSE(result.status.ok());
 }
 
+TEST(JsonReaderTest, ReadsPresentRequiredColumn) {
+    ObjectPool pool;
+    auto slots = build_slots_with_required_name(&pool);
+    auto result = read_once("present_required.jsonl",
+                            R"({"id":14,"name":"mallory"})"
+                            "\n",
+                            json_scan_params(), slots, {0, 1});
+
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    ASSERT_EQ(result.rows, 1);
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 14);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "mallory");
+}
+
 TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {
     ObjectPool pool;
     auto slots = build_slots(&pool);
@@ -345,7 +359,7 @@ TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {
     EXPECT_FALSE(result.status.ok());
 }
 
-TEST(JsonReaderTest, IgnoresMalformedJsonAsNullRowsWhenConfigured) {
+TEST(JsonReaderTest, IgnoresMalformedJsonWhenConfigured) {
     ObjectPool pool;
     auto slots = build_slots(&pool);
     auto result = read_once("ignore_malformed.jsonl",
@@ -355,11 +369,24 @@ TEST(JsonReaderTest, IgnoresMalformedJsonAsNullRowsWhenConfigured) {
                             json_scan_params(true, false, "", "", true), slots, {0, 1});
 
     ASSERT_TRUE(result.status.ok()) << result.status.to_string();
-    ASSERT_EQ(result.rows, 2);
-    EXPECT_TRUE(nullable_is_null_at(*result.block.get_by_position(0).column, 0));
-    EXPECT_TRUE(nullable_is_null_at(*result.block.get_by_position(1).column, 0));
-    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 1), 11);
-    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "judy");
+    ASSERT_EQ(result.rows, 1);
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 11);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "judy");
+}
+
+TEST(JsonReaderTest, SkipsEmptyJsonLine) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    auto result = read_once("empty_line.jsonl",
+                            "\n"
+                            R"({"id":15,"name":"nancy"})"
+                            "\n",
+                            json_scan_params(), slots, {0, 1});
+
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    ASSERT_EQ(result.rows, 1);
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 15);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "nancy");
 }
 
 } // namespace doris::format::json
