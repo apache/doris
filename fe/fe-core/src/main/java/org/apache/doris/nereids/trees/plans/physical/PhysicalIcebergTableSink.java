@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -45,8 +45,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     /**
      * constructor
      */
-    public PhysicalIcebergTableSink(IcebergExternalDatabase database,
-                                    IcebergExternalTable targetTable,
+    public PhysicalIcebergTableSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
@@ -59,8 +59,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     /**
      * constructor
      */
-    public PhysicalIcebergTableSink(IcebergExternalDatabase database,
-                                    IcebergExternalTable targetTable,
+    public PhysicalIcebergTableSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
@@ -75,7 +75,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     @Override
     public Plan withChildren(List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
+                database, targetTable,
                 cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
@@ -88,7 +88,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs,
                 groupExpression, getLogicalProperties(), child()));
     }
 
@@ -96,14 +96,14 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs,
                 groupExpression, logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
