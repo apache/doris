@@ -356,17 +356,23 @@ public class SessionVariablesTest extends TestWithFeService {
                 SessionVariable.ENABLE_MULTI_STAGE_PREDICATE_LM, new StringLiteral("true")));
         VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
                 SessionVariable.PREDICATE_LM_STAGE1_COLS, new StringLiteral("a,b")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD, new StringLiteral("0.9")));
 
         Map<String, String> forwardVars = sv.getForwardVariables();
         Assertions.assertEquals("true",
                 forwardVars.get(SessionVariable.ENABLE_MULTI_STAGE_PREDICATE_LM));
         Assertions.assertEquals("a,b",
                 forwardVars.get(SessionVariable.PREDICATE_LM_STAGE1_COLS));
+        Assertions.assertEquals("0.9",
+                forwardVars.get(SessionVariable.PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD));
 
         TQueryOptions opts = sv.toThrift();
         Assertions.assertTrue(opts.isSetEnableMultiStagePredicateLm());
         Assertions.assertTrue(opts.isEnableMultiStagePredicateLm());
         Assertions.assertTrue(opts.isSetPredicateLmStage1Cols());
         Assertions.assertEquals("a,b", opts.getPredicateLmStage1Cols());
+        Assertions.assertTrue(opts.isSetPredicateLmStage1SurvivalRatioThreshold());
+        Assertions.assertEquals(0.9, opts.getPredicateLmStage1SurvivalRatioThreshold());
     }
 }

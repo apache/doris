@@ -902,6 +902,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MULTI_STAGE_PREDICATE_LM = "enable_multi_stage_predicate_lm";
     public static final String PREDICATE_LM_STAGE1_COLS = "predicate_lm_stage1_cols";
+    public static final String PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD =
+            "predicate_lm_stage1_survival_ratio_threshold";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VarAttrDef.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -3054,6 +3056,19 @@ public class SessionVariable implements Serializable, Writable {
                         + "Default is empty."},
             needForward = true)
     public String predicateLmStage1Cols = "";
+
+    @VarAttrDef.VarAttr(
+        name = PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD,
+        fuzzy = true,
+        description = {"多阶段谓词延迟物化中 stage1 的存活率阈值，用于选择 stage2 策略。"
+            + "当 stage1 存活率 <= 阈值时倾向按 rowids 读取 stage2 谓词列；"
+            + "当 stage1 存活率 > 阈值时倾向读全量行以避免随机读。范围 [0,1]，默认 0.8。",
+            "Stage1 survival ratio threshold for multi-stage predicate LM. "
+                + "If survival_ratio <= threshold, stage2 prefers by-rowids; otherwise by-all-rows. "
+                + "Range [0,1], default 0.8."},
+        needForward = true,
+        checker = "checkPredicateLmStage1SurvivalRatioThreshold")
+    public double predicateLmStage1SurvivalRatioThreshold = 0.8;
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",
@@ -5783,6 +5798,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableMultiStagePredicateLm(enableMultiStagePredicateLm);
         tResult.setPredicateLmStage1Cols(predicateLmStage1Cols);
+        tResult.setPredicateLmStage1SurvivalRatioThreshold(predicateLmStage1SurvivalRatioThreshold);
 
         tResult.setEnableExtendedRegex(enableExtendedRegex);
         if (fileCacheQueryLimitPercent > 0) {
@@ -6328,6 +6344,20 @@ public class SessionVariable implements Serializable, Writable {
         } catch (NumberFormatException e) {
             throw new InvalidParameterException(
                     SKEW_REWRITE_AGG_BUCKET_NUM + " must be a valid number between 1 and 65535");
+        }
+    }
+
+    public void checkPredicateLmStage1SurvivalRatioThreshold(String value) {
+        final double v;
+        try {
+            v = Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " must be a valid number in range [0, 1]");
+        }
+        if (Double.isNaN(v) || v < 0.0 || v > 1.0) {
+            throw new InvalidParameterException(
+                PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD + " should be in range [0, 1], got " + v);
         }
     }
 

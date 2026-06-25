@@ -512,6 +512,8 @@ struct TQueryOptions {
 
   228: optional string predicate_lm_stage1_cols = ""
 
+  228: optional double predicate_lm_stage1_survival_ratio_threshold = 0.8
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

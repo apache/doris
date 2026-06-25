@@ -228,6 +228,12 @@ Status OlapScanner::_prepare_impl() {
                     qopts.enable_multi_stage_predicate_lm;
         }
 
+        // Map FE session variable predicate_lm_stage1_survival_ratio_threshold -> stage2 strategy threshold.
+        if (qopts.__isset.predicate_lm_stage1_survival_ratio_threshold) {
+            _tablet_reader_params.predicate_lm_stage1_survival_ratio_threshold =
+                    qopts.predicate_lm_stage1_survival_ratio_threshold;
+        }
+
         // Map FE session variable predicate_lm_stage1_cols -> ColumnId list
         // NOTE: only meaningful when multi-stage predicate LM is enabled.
         if (_tablet_reader_params.enable_multi_stage_predicate_lazy_materialization) {
