@@ -25,7 +25,6 @@ import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
-import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
@@ -40,28 +39,47 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Regression test for cross-lock deadlock (issue 1675416).
  *
- * <p>Deadlock cycle:
+ * <p>Two locks are involved in production:
+ * <ul>
+ *   <li><b>A</b> = {@code ExternalDatabase} instance monitor.</li>
+ *   <li><b>B</b> = a CHM bin lock inside the db-level {@code MetaCache}
+ *       (held by Caffeine while running the cache loader / removal listener).</li>
+ * </ul>
+ *
+ * <p>The deadlock occurs when:
  * <pre>
- *   T1: holds synchronized(ExternalDatabase.this), waits for Caffeine's internal CHM bin lock
- *   T2: holds the CHM bin lock (inside loader), waits for synchronized(ExternalDatabase.this)
+ *   T1 (refresh): holds A inside resetMetaToUninitialized, then waits for B
+ *                 because metaCache.invalidateAll() needs the bin lock.
+ *   T2 (query):   holds B inside the cache loader, then waits for A
+ *                 because the loader calls makeSureInitialized().
  * </pre>
  *
- * <p>Fix: {@code metaCache.invalidateAll()} in {@code ExternalDatabase#resetMetaToUninitialized()}
- * must be moved out of the {@code synchronized(this)} block.
+ * <p>Fix: move {@code metaCache.invalidateAll()} <em>out</em> of
+ * {@code synchronized(this)} in {@code ExternalDatabase#resetMetaToUninitialized()}.
  *
- * <p>This UT orchestrates the AB-BA scenario via the real {@code getTableNullable} and
- * {@code resetMetaToUninitialized}. If anyone moves {@code invalidateAll()} back inside
- * {@code synchronized(this)}, this UT will time out.
+ * <p>This UT does <b>not</b> rely on Caffeine's internal CHM bin lock (which
+ * makes timing brittle). Instead it substitutes the db's {@code MetaCache}
+ * with a subclass whose {@code invalidateAll()} acquires an external lock
+ * <b>B</b>. Then we orchestrate exactly the AB-BA topology:
+ * <ul>
+ *   <li>T1 holds B and waits for A (mimics the loader path).</li>
+ *   <li>T2 calls {@code resetMetaToUninitialized()} (which would acquire A
+ *       and then call {@code invalidateAll()} that needs B).</li>
+ * </ul>
+ *
+ * <p>With the fix, T2 releases A before calling {@code invalidateAll()}, so
+ * T1 can finish; without the fix the test deterministically deadlocks.
  */
 public class MetaCacheCrossLockDeadlockTest {
 
     @Test(timeout = 30_000)
-    public void testNoDeadlockBetweenResetAndGetTableNullable() throws Exception {
-        // 1) mock TestExternalCatalog to bypass Env / catalog provider
+    public void testNoDeadlockBetweenResetAndInvalidateAll() throws Exception {
+        // ----- Mock catalog (avoid pulling in Env's catalog wiring) -----
         TestExternalCatalog catalog = Mockito.mock(TestExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(1001L);
         Mockito.when(catalog.getName()).thenReturn("test_catalog");
@@ -70,38 +88,26 @@ public class MetaCacheCrossLockDeadlockTest {
         Mockito.when(catalog.getMetaNamesMapping()).thenReturn("");
         Mockito.doNothing().when(catalog).makeSureInitialized();
 
-        // 2) real TestExternalDatabase
+        // Real ExternalDatabase under test.
         TestExternalDatabase db = new TestExternalDatabase(catalog, 2002L, "test_db", "test_db");
 
-        // 3) custom loader: blocks on a latch to orchestrate AB-BA
-        final CountDownLatch loaderEntered = new CountDownLatch(1);
-        final CountDownLatch resetInFlight = new CountDownLatch(1);
-
-        CacheLoader<String, List<Pair<String, String>>> namesLoader =
-                key -> Lists.newArrayList(Pair.of("t1", "t1"));
-        CacheLoader<String, Optional<TestExternalTable>> objLoader = key -> {
-            // CHM bin lock is already held here
-            loaderEntered.countDown();
-            try {
-                resetInFlight.await(15, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            // simulate production path: buildTableForInit -> getTableNamesWithLock -> makeSureInitialized
-            // acquire db monitor while still holding the bin lock to form the second leg of AB-BA
-            synchronized (db) {
-                // no-op
-            }
-            return Optional.of(new TestExternalTable(
-                    System.identityHashCode(key), key, key, catalog, db));
-        };
+        // ----- Build a MetaCache subclass whose invalidateAll() acquires lock B -----
+        final ReentrantLock lockB = new ReentrantLock();
+        final CountDownLatch t1HoldsB = new CountDownLatch(1);
+        final CountDownLatch t2InvalidateAllStarted = new CountDownLatch(1);
 
         ExecutorService cacheExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "metacache-deadlock-ut-cache-exec");
             t.setDaemon(true);
             return t;
         });
-        MetaCache<TestExternalTable> metaCache = new MetaCache<>(
+
+        CacheLoader<String, List<Pair<String, String>>> namesLoader =
+                key -> java.util.Collections.emptyList();
+        CacheLoader<String, Optional<TestExternalTable>> objLoader =
+                key -> Optional.empty();
+
+        MetaCache<TestExternalTable> spyCache = new MetaCache<TestExternalTable>(
                 "deadlock-ut",
                 cacheExecutor,
                 OptionalLong.empty(),
@@ -109,23 +115,37 @@ public class MetaCacheCrossLockDeadlockTest {
                 64,
                 namesLoader,
                 objLoader,
-                (k, v, c) -> { /* no-op */ });
+                (k, v, c) -> { /* no-op */ }) {
+            @Override
+            public void invalidateAll() {
+                // Mark that T2 has reached invalidateAll so T1 can release B in time.
+                t2InvalidateAllStarted.countDown();
+                // Acquire lock B (this is the bin-lock in production). If T2 still
+                // holds A here (i.e. fix has been reverted), and T1 holds B waiting
+                // for A, this lock() will block forever.
+                lockB.lock();
+                try {
+                    // no-op
+                } finally {
+                    lockB.unlock();
+                }
+            }
+        };
 
-        // inject metaCache and initialized=true via reflection, skipping buildMetaCache() (which depends on Env)
+        // Inject MetaCache and initialized=true via reflection.
         Field metaCacheField = org.apache.doris.datasource.ExternalDatabase.class
                 .getDeclaredField("metaCache");
         metaCacheField.setAccessible(true);
-        metaCacheField.set(db, metaCache);
+        metaCacheField.set(db, spyCache);
 
         Field initializedField = org.apache.doris.datasource.ExternalDatabase.class
                 .getDeclaredField("initialized");
         initializedField.setAccessible(true);
         initializedField.setBoolean(db, true);
 
-        // 4) mock Env.getCurrentEnv() so the invalidateDb at the tail of resetMetaToUninitialized is a no-op
+        // ----- Mock Env so the tail-call invalidateDb is a no-op -----
         ExternalMetaCacheMgr mgr = Mockito.mock(ExternalMetaCacheMgr.class);
         Mockito.doNothing().when(mgr).invalidateDb(Mockito.anyLong(), Mockito.anyString());
-
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(mgr);
 
@@ -135,34 +155,53 @@ public class MetaCacheCrossLockDeadlockTest {
             return t;
         });
 
-        AtomicReference<Throwable> threadAError = new AtomicReference<>();
-        AtomicReference<Throwable> threadBError = new AtomicReference<>();
+        AtomicReference<Throwable> t1Error = new AtomicReference<>();
+        AtomicReference<Throwable> t2Error = new AtomicReference<>();
 
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
             envMock.when(Env::getCurrentEnv).thenReturn(env);
 
-            // Thread A: getTableNullable -> MetaCache.getMetaObj -> custom loader blocks
+            // ----- T1: hold B, then ask for A -----
+            // Mirrors the production cache-loader path that holds the bin lock and
+            // calls makeSureInitialized(), which acquires synchronized(db).
             runner.submit(() -> {
                 try {
-                    Object t = db.getTableNullable("t1");
-                    if (t == null) {
-                        threadAError.set(new AssertionError("getTableNullable returned null"));
+                    lockB.lock();
+                    try {
+                        t1HoldsB.countDown();
+                        // Wait until T2 has entered resetMetaToUninitialized and reached
+                        // the point of calling invalidateAll(). With the fix, T2 must
+                        // already have released A here.
+                        if (!t2InvalidateAllStarted.await(10, TimeUnit.SECONDS)) {
+                            t1Error.set(new AssertionError(
+                                    "T2 did not reach invalidateAll() in time"));
+                            return;
+                        }
+                        // Now try to acquire A. If reset still holds A while waiting
+                        // for B, this would deadlock.
+                        synchronized (db) {
+                            // no-op; just prove we can acquire A while holding B.
+                        }
+                    } finally {
+                        lockB.unlock();
                     }
                 } catch (Throwable e) {
-                    threadAError.set(e);
+                    t1Error.set(e);
                 }
             });
 
-            Assert.assertTrue("Loader did not enter in time",
-                    loaderEntered.await(10, TimeUnit.SECONDS));
+            // Make sure T1 is holding B before T2 starts.
+            Assert.assertTrue("T1 failed to acquire lock B in time",
+                    t1HoldsB.await(5, TimeUnit.SECONDS));
 
-            // Thread B: resetMetaToUninitialized -> synchronized(this) -> metaCache.invalidateAll()
+            // ----- T2: resetMetaToUninitialized() -----
+            // With the fix, the synchronized(this) section is short and is released
+            // before invalidateAll() is invoked, so it must not block on T1.
             runner.submit(() -> {
                 try {
-                    resetInFlight.countDown();
                     db.resetMetaToUninitialized();
                 } catch (Throwable e) {
-                    threadBError.set(e);
+                    t2Error.set(e);
                 }
             });
 
@@ -170,7 +209,7 @@ public class MetaCacheCrossLockDeadlockTest {
             boolean terminated = runner.awaitTermination(20, TimeUnit.SECONDS);
             Assert.assertTrue(
                     "Cross-lock deadlock detected: resetMetaToUninitialized must not call "
-                            + "invalidateAll() while holding synchronized(this)",
+                            + "invalidateAll() while still holding synchronized(this)",
                     terminated);
         } finally {
             if (!runner.isTerminated()) {
@@ -179,11 +218,11 @@ public class MetaCacheCrossLockDeadlockTest {
             cacheExecutor.shutdownNow();
         }
 
-        if (threadAError.get() != null) {
-            throw new AssertionError("getTableNullable thread failed", threadAError.get());
+        if (t1Error.get() != null) {
+            throw new AssertionError("T1 failed", t1Error.get());
         }
-        if (threadBError.get() != null) {
-            throw new AssertionError("resetMetaToUninitialized thread failed", threadBError.get());
+        if (t2Error.get() != null) {
+            throw new AssertionError("T2 (resetMetaToUninitialized) failed", t2Error.get());
         }
     }
 }
