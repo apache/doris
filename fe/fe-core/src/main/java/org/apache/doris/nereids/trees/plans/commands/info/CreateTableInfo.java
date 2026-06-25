@@ -93,8 +93,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.TableProperties;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -387,9 +385,6 @@ public class CreateTableInfo {
             return;
         }
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog == null) {
-            return;
-        }
         if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
         } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
@@ -1138,32 +1133,12 @@ public class CreateTableInfo {
     }
 
     private int getEffectiveIcebergFormatVersion() {
-        String formatVersion = null;
         CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
                 : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         if (catalog instanceof IcebergExternalCatalog) {
-            Map<String, String> catalogProperties = catalog.getProperties();
-            formatVersion = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX
-                    + TableProperties.FORMAT_VERSION);
-            if (formatVersion == null) {
-                formatVersion = properties.get(TableProperties.FORMAT_VERSION);
-                if (formatVersion == null) {
-                    formatVersion = catalogProperties.get(CatalogProperties.TABLE_DEFAULT_PREFIX
-                            + TableProperties.FORMAT_VERSION);
-                }
-            }
+            return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
         }
-        if (formatVersion == null) {
-            formatVersion = properties.get(TableProperties.FORMAT_VERSION);
-        }
-        if (formatVersion == null) {
-            return 2;
-        }
-        try {
-            return Integer.parseInt(formatVersion);
-        } catch (NumberFormatException ignored) {
-            return 2;
-        }
+        return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());
     }
 
     /**

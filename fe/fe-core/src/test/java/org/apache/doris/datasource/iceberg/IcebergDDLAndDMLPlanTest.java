@@ -336,6 +336,54 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateIcebergTableUsesCatalogDefaultFormatVersion() throws Exception {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String defaultV3CatalogName = "iceberg_default_v3_" + suffix;
+        String defaultV3DbName = "iceberg_default_v3_db_" + suffix;
+        String defaultV3TableName = "iceberg_default_v3_tbl_" + suffix;
+        Path warehousePath = Files.createTempDirectory("iceberg_default_v3_warehouse_");
+        String defaultV3Warehouse = "file://" + warehousePath.toAbsolutePath() + "/";
+
+        String createCatalogSql = "create catalog " + defaultV3CatalogName
+                + " properties('type'='iceberg',"
+                + " 'iceberg.catalog.type'='hadoop',"
+                + " 'warehouse'='" + defaultV3Warehouse + "',"
+                + " 'table-default.format-version'='3')";
+        createCatalog(createCatalogSql);
+
+        IcebergExternalCatalog defaultV3Catalog = (IcebergExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog(defaultV3CatalogName);
+        defaultV3Catalog.setInitializedForTest(true);
+        IcebergExternalDatabase database = new IcebergExternalDatabase(
+                defaultV3Catalog, Env.getCurrentEnv().getNextId(), defaultV3DbName, defaultV3DbName);
+        defaultV3Catalog.addDatabaseForTest(database);
+
+        Catalog icebergCatalog = defaultV3Catalog.getCatalog();
+        if (icebergCatalog instanceof SupportsNamespaces) {
+            SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
+            Namespace namespace = Namespace.of(defaultV3DbName);
+            if (!nsCatalog.namespaceExists(namespace)) {
+                nsCatalog.createNamespace(namespace);
+            }
+        }
+
+        try {
+            switchCatalog(defaultV3CatalogName);
+            useDatabase(defaultV3DbName);
+            String sql = "create table " + defaultV3TableName + " (id int)";
+            LogicalPlan plan = parseStmt(sql);
+            Assertions.assertTrue(plan instanceof CreateTableCommand);
+            Assertions.assertDoesNotThrow(() -> ((CreateTableCommand) plan).run(connectContext, null));
+            Table table = defaultV3Catalog.getCatalog().loadTable(TableIdentifier.of(defaultV3DbName,
+                    defaultV3TableName));
+            Assertions.assertEquals("3", table.properties().get(TableProperties.FORMAT_VERSION));
+        } finally {
+            defaultV3Catalog.getCatalog().dropTable(TableIdentifier.of(defaultV3DbName, defaultV3TableName), true);
+            Env.getCurrentEnv().getCatalogMgr().dropCatalog(defaultV3CatalogName, true);
+        }
+    }
+
+    @Test
     public void testIcebergV3CtasRejectsRowLineageReservedColumn() throws Exception {
         useIceberg();
         String ctasTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");

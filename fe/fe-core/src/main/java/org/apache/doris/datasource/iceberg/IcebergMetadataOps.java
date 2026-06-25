@@ -59,7 +59,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
@@ -374,11 +373,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        properties.putIfAbsent(TableProperties.FORMAT_VERSION, "2");
+        Map<String, String> catalogProperties = dorisCatalog.getProperties();
+        if (!properties.containsKey(TableProperties.FORMAT_VERSION)
+                && !IcebergUtils.hasIcebergCatalogFormatVersion(catalogProperties)) {
+            properties.put(TableProperties.FORMAT_VERSION, "2");
+        }
         properties.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
-        createTableInfo.validateIcebergRowLineageColumns(getEffectiveFormatVersion(properties));
+        createTableInfo.validateIcebergRowLineageColumns(
+                IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalogProperties));
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
                 schema);
         // Build and create table with optional sort order
@@ -393,26 +397,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
         }
         return false;
-    }
-
-    private int getEffectiveFormatVersion(Map<String, String> tableProperties) {
-        String formatVersion = dorisCatalog.getProperties().get(CatalogProperties.TABLE_OVERRIDE_PREFIX
-                + TableProperties.FORMAT_VERSION);
-        if (formatVersion == null) {
-            formatVersion = tableProperties.get(TableProperties.FORMAT_VERSION);
-            if (formatVersion == null) {
-                formatVersion = dorisCatalog.getProperties().get(CatalogProperties.TABLE_DEFAULT_PREFIX
-                        + TableProperties.FORMAT_VERSION);
-            }
-        }
-        if (formatVersion == null) {
-            return 2;
-        }
-        try {
-            return Integer.parseInt(formatVersion);
-        } catch (NumberFormatException ignored) {
-            return 2;
-        }
     }
 
     @Override
