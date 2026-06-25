@@ -18,11 +18,12 @@
 package org.apache.doris.cdcclient.source.deserialize;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.doris.cdcclient.common.Constants;
 
+import org.apache.flink.cdc.connectors.postgres.source.schema.PostgresSchemaRecord;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
@@ -31,9 +32,8 @@ import org.junit.jupiter.api.Test;
 
 import java.sql.Types;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.Set;
 
 import io.debezium.data.Envelope;
 import io.debezium.relational.Column;
@@ -43,8 +43,9 @@ import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 
 /**
- * Unit tests for {@link PostgresDebeziumJsonDeserializer}'s WAL-based ADD/DROP column detection: the
- * various branches it takes when the record's column set diverges from the stored schema.
+ * Unit tests for {@link PostgresDebeziumJsonDeserializer}'s event-driven ADD/DROP column detection.
+ * Schema changes are driven by pgoutput Relation messages surfaced as {@link PostgresSchemaRecord};
+ * DML records are emitted directly without per-record schema comparison.
  */
 class PostgresSchemaChangeDeserializeTest {
 
@@ -53,53 +54,64 @@ class PostgresSchemaChangeDeserializeTest {
             Map.of(Constants.DORIS_TARGET_DB, "doris_db");
 
     @Test
-    void noStoredSchema_passesThroughAsDml() throws Exception {
-        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(null, tid -> null);
+    void noBaseline_dmlPassesThrough() throws Exception {
+        // A DML with no stored baseline must still be emitted (the missing-baseline warn path).
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(null);
 
         DeserializeResult result =
-                deserializer.deserialize(CONTEXT, createRecord(afterSchema("id", "name")));
+                deserializer.deserialize(CONTEXT, createDmlRecord(afterSchema("id", "name")));
 
         assertEquals(DeserializeResult.Type.DML, result.getType());
         assertEquals(1, result.getRecords().size());
     }
 
     @Test
-    void noColumnChange_passesThroughAsDml() throws Exception {
-        PostgresDebeziumJsonDeserializer deserializer =
-                newDeserializer(storedTable("id", "name"), tid -> change(storedTable("id", "name")));
+    void relationFirstAppearance_establishesBaselineNoDdl() throws Exception {
+        // No stored baseline: the table's first Relation adopts the schema as baseline, no DDL.
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(null);
 
         DeserializeResult result =
-                deserializer.deserialize(CONTEXT, createRecord(afterSchema("id", "name")));
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name")));
 
-        assertEquals(DeserializeResult.Type.DML, result.getType());
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertTrue(result.getDdls().isEmpty(), "baseline registration must not emit DDL");
+        assertTrue(result.getRecords().isEmpty());
+        assertTrue(result.getUpdatedSchemas().containsKey(TABLE));
     }
 
     @Test
-    void addColumn_emitsAddDdl() throws Exception {
-        PostgresDebeziumJsonDeserializer deserializer =
-                newDeserializer(
-                        storedTable("id", "name"), tid -> change(storedTable("id", "name", "age")));
+    void relationUnchanged_isNoop() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id", "name"));
 
         DeserializeResult result =
-                deserializer.deserialize(CONTEXT, createRecord(afterSchema("id", "name", "age")));
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name")));
+
+        assertEquals(DeserializeResult.Type.EMPTY, result.getType());
+    }
+
+    @Test
+    void relationAddColumn_emitsAddDdl() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id", "name"));
+
+        DeserializeResult result =
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name", "age")));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertEquals(1, result.getDdls().size());
         String ddl = result.getDdls().get(0).toUpperCase();
         assertTrue(ddl.contains("ADD COLUMN"), ddl);
         assertTrue(ddl.contains("AGE"), ddl);
-        // the triggering DML record is still carried so it gets written after the DDL
-        assertEquals(1, result.getRecords().size());
+        // The Relation event carries no DML record of its own.
+        assertTrue(result.getRecords().isEmpty());
     }
 
     @Test
-    void dropColumn_emitsDropDdl() throws Exception {
+    void relationDropColumn_emitsDropDdl() throws Exception {
         PostgresDebeziumJsonDeserializer deserializer =
-                newDeserializer(
-                        storedTable("id", "name", "age"), tid -> change(storedTable("id", "name")));
+                newDeserializer(storedTable("id", "name", "age"));
 
         DeserializeResult result =
-                deserializer.deserialize(CONTEXT, createRecord(afterSchema("id", "name")));
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name")));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertEquals(1, result.getDdls().size());
@@ -109,42 +121,126 @@ class PostgresSchemaChangeDeserializeTest {
     }
 
     @Test
-    void simultaneousAddAndDrop_skipsDdlToAvoidRenameDataLoss() throws Exception {
-        // stored has [id,name]; WAL record has [id,nick] -> name dropped + nick added.
-        PostgresDebeziumJsonDeserializer deserializer =
-                newDeserializer(
-                        storedTable("id", "name"), tid -> change(storedTable("id", "nick")));
+    void relationSimultaneousAddAndDrop_skipsDdlToAvoidRenameDataLoss() throws Exception {
+        // stored [id,name]; Relation [id,nick] -> name dropped + nick added -> treated as RENAME.
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id", "name"));
 
         DeserializeResult result =
-                deserializer.deserialize(CONTEXT, createRecord(afterSchema("id", "nick")));
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "nick")));
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertTrue(result.getDdls().isEmpty(), "rename must not emit DDL");
-        assertEquals(1, result.getRecords().size());
     }
 
     @Test
-    void columnChangeWithoutRefresher_throws() throws Exception {
-        PostgresDebeziumJsonDeserializer deserializer = new PostgresDebeziumJsonDeserializer();
-        deserializer.init(new HashMap<>());
-        deserializer.setTableSchemas(Map.of(TABLE, change(storedTable("id", "name"))));
-        // no pgSchemaRefresher set
+    void relationAddColumn_stringLiteralDefaultWithParens_keepsLiteral() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
+        Table fresh =
+                tableWith(
+                        column("id", "int4", true, null),
+                        column("note", "text", false, "'foo(bar)'::text"));
 
-        SourceRecord record = createRecord(afterSchema("id", "name", "age"));
-        assertThrows(NullPointerException.class, () -> deserializer.deserialize(CONTEXT, record));
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        String ddl = result.getDdls().get(0);
+        assertTrue(ddl.contains("ADD COLUMN"), ddl);
+        // parenthesised string literal kept verbatim, not mistaken for a function expression
+        assertTrue(ddl.contains("DEFAULT 'foo(bar)'"), ddl);
+        // usable default present -> NOT NULL preserved
+        assertTrue(ddl.toUpperCase().contains("NOT NULL"), ddl);
+    }
+
+    @Test
+    void relationAddColumn_unrecognizedKeywordDefault_omitsDefault() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
+        Table fresh =
+                tableWith(
+                        column("id", "int4", true, null),
+                        column("d", "date", false, "current_date"));
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        String ddl = result.getDdls().get(0).toUpperCase();
+        assertTrue(ddl.contains("ADD COLUMN"), ddl);
+        // current_date is not statically mapped -> no DEFAULT (never a wrong 'current_date' literal)
+        assertFalse(ddl.contains("DEFAULT"), ddl);
+        // NOT NULL without a usable default -> downgraded to nullable
+        assertFalse(ddl.contains("NOT NULL"), ddl);
+    }
+
+    @Test
+    void relationAddColumn_castInsideStringLiteralDefault_keepsLiteral() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
+        Table fresh =
+                tableWith(
+                        column("id", "int4", true, null),
+                        column("note", "text", false, "'a::b'::text"));
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        String ddl = result.getDdls().get(0);
+        // the :: inside the literal is part of the value, not a cast — literal kept intact
+        assertTrue(ddl.contains("DEFAULT 'a::b'"), ddl);
+    }
+
+    @Test
+    void relationAddExcludedColumn_skipsAddDdl() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id", "name"));
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("age"));
+
+        DeserializeResult result =
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name", "age")));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertTrue(result.getDdls().isEmpty(), "excluded ADD column must not emit DDL");
+        // baseline still advances so the excluded column is not re-detected on every Relation
+        assertTrue(result.getUpdatedSchemas().containsKey(TABLE));
+    }
+
+    @Test
+    void relationDropExcludedColumn_skipsDropDdl() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer =
+                newDeserializer(storedTable("id", "name", "age"));
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("age"));
+
+        DeserializeResult result =
+                deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name")));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertTrue(result.getDdls().isEmpty(), "excluded DROP column must not emit DDL");
     }
 
     // ─── helpers ───────────────────────────────────────────────────────────────
 
-    private PostgresDebeziumJsonDeserializer newDeserializer(
-            Table storedTable, Function<TableId, TableChanges.TableChange> refresher) {
+    private static Column column(String name, String type, boolean optional, String defaultExpr) {
+        io.debezium.relational.ColumnEditor editor =
+                Column.editor().name(name).type(type).jdbcType(Types.OTHER).optional(optional);
+        if (defaultExpr != null) {
+            editor.defaultValueExpression(defaultExpr);
+        }
+        return editor.create();
+    }
+
+    private static Table tableWith(Column... cols) {
+        TableEditor editor = Table.editor().tableId(TABLE);
+        for (Column col : cols) {
+            editor.addColumns(col);
+        }
+        return editor.create();
+    }
+
+    private PostgresDebeziumJsonDeserializer newDeserializer(Table storedTable) {
         PostgresDebeziumJsonDeserializer deserializer = new PostgresDebeziumJsonDeserializer();
         deserializer.init(new HashMap<>());
         if (storedTable != null) {
             deserializer.setTableSchemas(Map.of(TABLE, change(storedTable)));
         }
-        deserializer.setPgSchemaRefresher(refresher);
         return deserializer;
+    }
+
+    private static SourceRecord schemaRecord(Table freshTable) {
+        return new PostgresSchemaRecord(freshTable);
     }
 
     private static TableChanges.TableChange change(Table table) {
@@ -174,7 +270,7 @@ class PostgresSchemaChangeDeserializeTest {
         return builder.build();
     }
 
-    private SourceRecord createRecord(Schema afterSchema) {
+    private SourceRecord createDmlRecord(Schema afterSchema) {
         Schema sourceSchema =
                 SchemaBuilder.struct()
                         .name("source")

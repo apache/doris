@@ -61,7 +61,6 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -99,17 +98,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public PostgresSourceReader() {
         super();
         this.setSerializer(new PostgresDebeziumJsonDeserializer());
-    }
-
-    @Override
-    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
-        super.initialize(jobId, dataSource, config);
-        // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
-        if (serializer instanceof PostgresDebeziumJsonDeserializer) {
-            ((PostgresDebeziumJsonDeserializer) serializer)
-                    .setPgSchemaRefresher(
-                            tableId -> refreshSingleTableSchema(tableId, config, jobId));
-        }
     }
 
     // First open only, NOT initialize: a rebuilt reader must not recreate a dropped slot.
@@ -270,7 +258,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
         configFactory.schemaList(new String[] {schema});
-        configFactory.includeSchemaChanges(false);
+        configFactory.includeSchemaChanges(true);
 
         // Set table list
         String[] tableList = ConfigUtil.getTableList(schema, cdcConfig);
@@ -580,29 +568,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             }
         } catch (Exception ex) {
             throw new RuntimeException(ex);
-        }
-    }
-
-    /**
-     * Fetch the current schema for a single table directly from PostgreSQL via JDBC.
-     *
-     * <p>Called by {@link PostgresDebeziumJsonDeserializer} when a schema change (ADD/DROP column)
-     * is detected, to obtain accurate PG column types for DDL generation.
-     *
-     * @return the fresh {@link TableChanges.TableChange}
-     */
-    private TableChanges.TableChange refreshSingleTableSchema(
-            TableId tableId, Map<String, String> config, String jobId) {
-        PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
-        PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
-            CustomPostgresSchema customPostgresSchema =
-                    new CustomPostgresSchema((PostgresConnection) jdbcConnection, sourceConfig);
-            Map<TableId, TableChanges.TableChange> schemas =
-                    customPostgresSchema.getTableSchema(Collections.singletonList(tableId));
-            return schemas.get(tableId);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 
