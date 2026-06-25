@@ -18,6 +18,8 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/base/phdr_cache.cpp
 // and modified by Doris
 
+#include "common/phdr_cache.h"
+
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wreserved-identifier"
 #endif
@@ -71,6 +73,9 @@ DLIterateFunction getOriginalDLIteratePHDR() {
 
 using PHDRCache = std::vector<dl_phdr_info>;
 std::atomic<PHDRCache*> phdr_cache {};
+// This flag is flipped inside the stack-trace signal handler. Force a static TLS access model so
+// reading it from our dl_iterate_phdr interposer does not call into the dynamic loader's TLS path.
+__thread bool use_phdr_cache __attribute__((tls_model("initial-exec"))) = false;
 
 } // namespace
 
@@ -80,9 +85,12 @@ extern "C"
 #endif
         int
         dl_iterate_phdr(int (*callback)(dl_phdr_info* info, size_t size, void* data), void* data) {
+    if (!use_phdr_cache) {
+        return getOriginalDLIteratePHDR()(callback, data);
+    }
+
     auto* current_phdr_cache = phdr_cache.load(std::memory_order_acquire);
     if (!current_phdr_cache) {
-        // Cache is not yet populated, pass through to the original function.
         return getOriginalDLIteratePHDR()(callback, data);
     }
 
@@ -124,6 +132,14 @@ bool hasPHDRCache() {
     return phdr_cache.load(std::memory_order_acquire) != nullptr;
 }
 
+ScopedPHDRCacheRead::ScopedPHDRCacheRead() : _previous(use_phdr_cache) {
+    use_phdr_cache = true;
+}
+
+ScopedPHDRCacheRead::~ScopedPHDRCacheRead() {
+    use_phdr_cache = _previous;
+}
+
 #else
 
 void updatePHDRCache() {}
@@ -138,5 +154,9 @@ bool hasPHDRCache() {
     return false;
 }
 #endif
+
+ScopedPHDRCacheRead::ScopedPHDRCacheRead() = default;
+
+ScopedPHDRCacheRead::~ScopedPHDRCacheRead() = default;
 
 #endif

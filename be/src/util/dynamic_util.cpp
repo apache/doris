@@ -46,8 +46,8 @@ Status dynamic_open(const char* library, void** handle) {
         return Status::InternalError("Unable to load {}\ndlerror: {}", library, dlerror());
     }
 
-    // The process-wide dl_iterate_phdr override serves unwinders from a PHDR snapshot. Refresh it
-    // after Doris-controlled dlopen so stack traces and exceptions can see newly loaded UDF libs.
+    // Refresh the signal-handler PHDR snapshot after Doris-controlled dlopen so diagnostic stack
+    // traces can see newly loaded UDF libraries without taking the loader lock in the handler.
     updatePHDRCache();
     return Status::OK();
 }
@@ -57,8 +57,8 @@ void dynamic_close(void* handle) {
 // https://github.com/google/sanitizers/issues/89
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER)
     dlclose(handle);
-    // dlclose changes the loader object list. Refresh after the close so later unwinding does not
-    // consult stale PHDR entries for Doris-controlled dynamic libraries.
+    // dlclose changes the loader object list. Refresh after the close so the next stack-trace
+    // signal handler does not consult stale PHDR entries for Doris-controlled dynamic libraries.
     updatePHDRCache();
 #endif
 }

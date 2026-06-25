@@ -23,17 +23,33 @@
 /// This code was based on the code by Fedor Korotkiy https://www.linkedin.com/in/fedor-korotkiy-659a1838/
 
 /** Collects all dl_phdr_info items and caches them in a static array.
-  * Also rewrites dl_iterate_phdr with a lock-free version which consults the above cache
-  * thus eliminating scalability bottleneck in C++ exception unwinding.
-  * The cache has to be refreshed after Doris-controlled dlopen/dlclose calls; otherwise unwinding
-  * can miss newly loaded objects or keep stale unloaded ones. The function is thread-safe because
-  * old cache snapshots are intentionally leaked and remain readable by concurrent unwinders.
+  * Doris uses this snapshot only inside the BE stack-trace signal handler. That handler may
+  * interrupt a target thread while the dynamic loader lock is already held, so libunwind must not
+  * call glibc dl_iterate_phdr from that interrupted context.
+  *
+  * Normal code paths must keep using the original glibc dl_iterate_phdr. Process-wide use of a
+  * snapshot can hide libraries loaded after the last refresh from sanitizers, JVM/Jindo native
+  * code, C++ exception handling, and ordinary libunwind callers. Use ScopedPHDRCacheRead only
+  * around the minimal signal-handler unwind section.
+  *
+  * Old cache snapshots are intentionally leaked and remain readable by concurrent signal-handler
+  * unwinders.
   *
   * NOTE: It is disabled with Thread Sanitizer because TSan can only use original "dl_iterate_phdr" function.
   */
 void updatePHDRCache();
 
-/** Check if "dl_iterate_phdr" will be lock-free
-  * to determine if some features like Query Profiler can be used.
-  */
+/** Check if a PHDR snapshot is available for ScopedPHDRCacheRead. */
 bool hasPHDRCache();
+
+class ScopedPHDRCacheRead {
+public:
+    ScopedPHDRCacheRead();
+    ~ScopedPHDRCacheRead();
+
+    ScopedPHDRCacheRead(const ScopedPHDRCacheRead&) = delete;
+    ScopedPHDRCacheRead& operator=(const ScopedPHDRCacheRead&) = delete;
+
+private:
+    bool _previous = false;
+};

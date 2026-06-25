@@ -586,10 +586,9 @@ int main(int argc, char** argv) {
     LOG(INFO) << doris::DiskInfo::debug_string();
     LOG(INFO) << doris::MemInfo::debug_string();
 
-    // The BE stack trace signal handler uses libunwind on interrupted thread contexts. Populate
-    // the lock-free PHDR cache before daemon threads start so those unwinders do not enter glibc's
-    // loader-lock based dl_iterate_phdr path. Later Doris-controlled dlopen/dlclose calls refresh
-    // this cache in their wrappers.
+    // The BE stack trace signal handler uses libunwind on interrupted thread contexts. Populate an
+    // initial PHDR snapshot before daemon threads start; normal code still uses glibc's live
+    // dl_iterate_phdr, and only the signal handler reads this snapshot while unwinding.
     updatePHDRCache();
     LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
     if (!doris::BackendOptions::init()) {

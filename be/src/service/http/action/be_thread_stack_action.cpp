@@ -196,9 +196,9 @@ void capture_signal_context_unwind(const ucontext_t* context, SignalContextCaptu
 
 // SAFETY: this handler only runs libunwind against the kernel-provided signal context and writes
 // raw PCs into a preallocated process-wide slot. It never symbolicates, logs, allocates strings, or
-// opens /proc. This is deliberately different from the old coordinator fallback: the target thread
-// leaves the handler as soon as PCs are copied, so it cannot hold a loader/unwinder lock while an
-// HTTP worker tries to unwind it.
+// opens /proc. The PHDR cache scope is deliberately limited to this handler: a target thread may be
+// interrupted while already holding glibc's loader lock, but normal sanitizer/JVM/exception paths
+// must still see the live loader list through the original dl_iterate_phdr implementation.
 void stack_trace_signal_handler(int /*sig*/, siginfo_t* info, void* context) {
     auto saved_errno = errno;
 
@@ -220,7 +220,10 @@ void stack_trace_signal_handler(int /*sig*/, siginfo_t* info, void* context) {
     }
 
     const auto* signal_context = reinterpret_cast<const ucontext_t*>(context);
-    capture_signal_context_unwind(signal_context, &g_signal_capture);
+    {
+        ScopedPHDRCacheRead phdr_cache_scope;
+        capture_signal_context_unwind(signal_context, &g_signal_capture);
+    }
     g_data_ready_sequence.store(notification_sequence, std::memory_order_release);
 
     if (g_notification_pipe[1] >= 0) {
@@ -468,8 +471,8 @@ bool finish_signal_capture_and_wait(int timeout_ms) {
 }
 
 bool prepare_signal_capture(int timeout_ms, std::string* error) {
-    // Refresh PHDR cache before sending signals. Doing this outside the handler can safely take the
-    // original glibc loader lock and picks up dynamic libraries loaded outside Doris wrappers.
+    // Refresh before sending signals. This may take glibc's loader lock, so it must happen on the
+    // coordinator thread rather than in the interrupted target thread's signal handler.
     g_active_sequence.store(0, std::memory_order_release);
     if (!wait_for_signal_handler_idle(timeout_ms)) {
         *error = "previous stack trace signal handler is still running";

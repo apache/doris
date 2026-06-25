@@ -351,9 +351,9 @@ TEST_F(BeThreadStackActionTest, BlockingReadSyscallCanBeSkippedExplicitly) {
     reader.stop();
 }
 
-// Covers the dynamic-library refresh hook used by UDF loading. The PHDR override serves unwinders
-// from a cached snapshot, so every Doris-controlled dlopen/dlclose wrapper must refresh that
-// snapshot outside the signal handler before sampled threads rely on it.
+// Covers the dynamic-library refresh hook used by UDF loading. The stack-trace signal handler opts
+// in to a cached PHDR snapshot, so every Doris-controlled dlopen/dlclose wrapper must refresh that
+// snapshot outside the handler before sampled threads rely on it.
 TEST_F(BeThreadStackActionTest, DynamicOpenRefreshesPhdrCache) {
     void* handle = nullptr;
     Status status = dynamic_open("libm.so.6", &handle);

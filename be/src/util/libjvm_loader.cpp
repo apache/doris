@@ -100,8 +100,8 @@ Status LibJVMLoader::load() {
             status = Status::RuntimeError(dlerror());
             return;
         }
-        // libjvm is loaded outside the generic UDF dynamic_open wrapper. Refresh the PHDR cache so
-        // signal-context unwinding can resolve frames through the JVM native library.
+        // libjvm is loaded outside the generic UDF dynamic_open wrapper. Refresh the diagnostic
+        // PHDR snapshot so signal-context unwinding can resolve frames through JVM native code.
         ::updatePHDRCache();
 
         if (status = resolve_symbol(JNI_GetCreatedJavaVMs, _handle.get(), "JNI_GetCreatedJavaVMs");
