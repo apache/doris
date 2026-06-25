@@ -33,7 +33,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cpp/token_bucket_rate_limiter.h"
 #include "io/cache/cache_lru_dumper.h"
+#include "io/cache/disk_scan_common.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
@@ -187,6 +189,9 @@ public:
         if (_cache_background_ttl_gc_thread.joinable()) {
             _cache_background_ttl_gc_thread.join();
         }
+        if (_cache_background_disk_scan_thread.joinable()) {
+            _cache_background_disk_scan_thread.join();
+        }
         if (_cache_background_gc_thread.joinable()) {
             _cache_background_gc_thread.join();
         }
@@ -312,6 +317,7 @@ public:
 
     // for be UTs
     std::map<std::string, double> get_stats_unsafe();
+    DiskScanRoundResult run_disk_scan_repair_once_for_test() { return run_disk_scan_repair_once(); }
     [[nodiscard]] size_t need_update_lru_blocks_size_unsafe() const {
         return _need_update_lru_blocks.size();
     }
@@ -462,6 +468,26 @@ private:
 
     void run_background_monitor();
     void run_background_ttl_gc();
+    void run_background_disk_scan_repair();
+    DiskScanRoundResult run_disk_scan_repair_once();
+    void run_disk_scan_checkers(const DiskScanKeyDirEntry& entry,
+                                std::vector<DiskScanRepairAction>* actions,
+                                std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>,
+                                                   KeyHash>* ttl_dirs_by_hash,
+                                DiskScanRoundResult* result);
+    void run_disk_scan_checkers(const DiskScanBlockFileEntry& entry,
+                                std::vector<DiskScanRepairAction>* actions,
+                                DiskScanRoundResult* result);
+    void finalize_disk_scan_ttl_checker(
+            std::unordered_map<UInt128Wrapper, std::vector<DiskScanKeyDirEntry>, KeyHash>*
+                    ttl_dirs_by_hash,
+            std::vector<DiskScanRepairAction>* actions, DiskScanRoundResult* result);
+    void drain_disk_scan_actions(std::vector<DiskScanRepairAction>* actions,
+                                 DiskScanRoundResult* result);
+    bool disk_scan_file_is_deletable(const DiskScanRepairAction& action);
+    bool disk_scan_dir_is_deletable(const DiskScanRepairAction& action);
+    bool disk_scan_hash_has_stable_canonical_expiration(const UInt128Wrapper& hash,
+                                                        uint64_t* canonical_expiration_time);
     void run_background_gc();
     void run_background_lru_log_replay();
     size_t replay_lru_logs_once();
@@ -520,6 +546,7 @@ private:
     std::condition_variable _close_cv;
     std::thread _cache_background_monitor_thread;
     std::thread _cache_background_ttl_gc_thread;
+    std::thread _cache_background_disk_scan_thread;
     std::thread _cache_background_gc_thread;
     std::thread _cache_background_evict_in_advance_thread;
     std::thread _cache_background_lru_dump_thread;
@@ -618,12 +645,25 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_produce_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_consume_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _disk_scan_latency_us;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_rounds;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_scanned_prefix_dirs;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_scanned_key_dirs;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_scanned_files;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_candidates;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_repaired_files;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_repaired_dirs;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_skipped_candidates;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_rate_limited_ns;
+    std::shared_ptr<bvar::Adder<size_t>> _disk_scan_deleted_bytes;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
     std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
+    std::unique_ptr<TokenBucketRateLimiterHolder> _disk_scan_scan_limiter;
+    std::unique_ptr<TokenBucketRateLimiterHolder> _disk_scan_repair_limiter;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash
     // coz it will use other members of BlockFileCache

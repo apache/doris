@@ -71,6 +71,13 @@ public:
     Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
+    Status scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
+                           DiskScanBlockFileCallback on_block_file,
+                           TokenBucketRateLimiterHolder* scan_limiter) override;
+    bool has_active_writer(const UInt128Wrapper& hash, size_t offset) override;
+    bool has_active_writer_for_hash(const UInt128Wrapper& hash) override;
+    Status delete_file_for_disk_scan(const std::filesystem::path& path) override;
+    Status delete_dir_for_disk_scan(const std::filesystem::path& path) override;
     Status clear(std::string& msg) override;
     std::string get_local_file(const FileCacheKey& key) override;
 
@@ -105,7 +112,8 @@ private:
     Status parse_filename_suffix_to_cache_type(const std::shared_ptr<LocalFileSystem>& fs,
                                                const Path& file_path, long expiration_time,
                                                size_t size, size_t* offset, bool* is_tmp,
-                                               FileCacheType* cache_type) const;
+                                               FileCacheType* cache_type,
+                                               bool delete_empty_file = true) const;
 
     Status write_file_cache_version() const;
 

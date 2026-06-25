@@ -17,6 +17,9 @@
 
 #include "io/cache/fs_file_cache_storage.h"
 
+#include <sys/stat.h>
+
+#include <algorithm>
 #include <filesystem>
 #include <mutex>
 #include <system_error>
@@ -33,8 +36,58 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "vec/common/hex.h"
 
 namespace doris::io {
+
+namespace {
+
+bool parse_hex_hash(std::string_view key_str, UInt128Wrapper* hash) {
+    if (key_str.size() != sizeof(uint128_t) * 2 || !std::ranges::all_of(key_str, [](char c) {
+            return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F');
+        })) {
+        return false;
+    }
+    *hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(std::string(key_str).c_str()));
+    return true;
+}
+
+bool parse_key_dir_name(const std::string& key_dir_name, UInt128Wrapper* hash,
+                        uint64_t* expiration_time) {
+    const auto delim_pos = key_dir_name.find('_');
+    if (delim_pos == std::string::npos || delim_pos + 1 >= key_dir_name.size()) {
+        return false;
+    }
+
+    if (!parse_hex_hash(std::string_view(key_dir_name).substr(0, delim_pos), hash)) {
+        return false;
+    }
+
+    try {
+        auto expiration_time_str = key_dir_name.substr(delim_pos + 1);
+        size_t parsed_size = 0;
+        *expiration_time = std::stoull(expiration_time_str, &parsed_size);
+        return parsed_size == expiration_time_str.size();
+    } catch (...) {
+        return false;
+    }
+}
+
+std::optional<DiskScanFileIdentity> get_file_identity(const std::filesystem::path& path,
+                                                      int64_t /* size */) {
+    struct stat stat_buf;
+    if (::stat(path.c_str(), &stat_buf) != 0) {
+        return std::nullopt;
+    }
+    DiskScanFileIdentity identity;
+    identity.dev = static_cast<uint64_t>(stat_buf.st_dev);
+    identity.ino = static_cast<uint64_t>(stat_buf.st_ino);
+    identity.size = static_cast<uint64_t>(std::max<off_t>(stat_buf.st_size, 0));
+    identity.mtime_sec = static_cast<int64_t>(stat_buf.st_mtime);
+    return identity;
+}
+
+} // namespace
 
 struct BatchLoadArgs {
     UInt128Wrapper hash;
@@ -285,6 +338,142 @@ Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
         }
     }
     return Status::OK();
+}
+
+Status FSFileCacheStorage::scan_disk_cache(DiskScanKeyDirCallback on_key_dir,
+                                           DiskScanBlockFileCallback on_block_file,
+                                           TokenBucketRateLimiterHolder* scan_limiter) {
+    auto consume_scan_token = [&]() {
+        if (scan_limiter != nullptr) {
+            scan_limiter->add(1);
+        }
+    };
+
+    auto scan_key_dir = [&](const std::string& prefix,
+                            const std::filesystem::path& key_dir_path) -> Status {
+        std::error_code ec;
+        if (!std::filesystem::is_directory(key_dir_path, ec) || ec) {
+            return Status::OK();
+        }
+
+        UInt128Wrapper hash;
+        uint64_t expiration_time = 0;
+        if (!parse_key_dir_name(key_dir_path.filename().native(), &hash, &expiration_time)) {
+            return Status::OK();
+        }
+
+        DiskScanKeyDirEntry key_dir_entry;
+        key_dir_entry.prefix = prefix;
+        key_dir_entry.hash = hash;
+        key_dir_entry.expiration_time = expiration_time;
+        key_dir_entry.key_dir = key_dir_path;
+        RETURN_IF_ERROR(on_key_dir(key_dir_entry));
+
+        std::vector<std::string> block_files;
+        consume_scan_token();
+        auto st = collect_directory_entries(key_dir_path, block_files);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to list file cache key dir " << key_dir_path
+                         << ", error=" << st;
+            return Status::OK();
+        }
+        for (const auto& block_file : block_files) {
+            consume_scan_token();
+            std::filesystem::path block_file_path(block_file);
+            if (!std::filesystem::is_regular_file(block_file_path, ec) || ec) {
+                continue;
+            }
+            int64_t file_size = 0;
+            auto identity = get_file_identity(block_file_path, 0);
+            if (!identity) {
+                continue;
+            }
+            file_size = static_cast<int64_t>(identity->size);
+            size_t offset = 0;
+            bool is_tmp = false;
+            FileCacheType cache_type = FileCacheType::NORMAL;
+            if (!parse_filename_suffix_to_cache_type(fs, block_file_path.filename().native(),
+                                                     expiration_time, file_size, &offset, &is_tmp,
+                                                     &cache_type, false)) {
+                continue;
+            }
+
+            DiskScanBlockFileEntry block_entry;
+            block_entry.hash = hash;
+            block_entry.offset = offset;
+            block_entry.expiration_time = expiration_time;
+            block_entry.cache_type = cache_type;
+            block_entry.is_tmp = is_tmp;
+            block_entry.identity = *identity;
+            block_entry.file_path = block_file_path;
+            block_entry.key_dir = key_dir_path;
+            RETURN_IF_ERROR(on_block_file(block_entry));
+        }
+        return Status::OK();
+    };
+
+    if constexpr (USE_CACHE_VERSION2) {
+        std::vector<std::string> prefix_entries;
+        consume_scan_token();
+        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, prefix_entries));
+        std::sort(prefix_entries.begin(), prefix_entries.end());
+        for (const auto& prefix_path_str : prefix_entries) {
+            std::filesystem::path prefix_path(prefix_path_str);
+            std::error_code ec;
+            if (!std::filesystem::is_directory(prefix_path, ec) || ec) {
+                continue;
+            }
+            auto prefix = prefix_path.filename().native();
+            if (prefix.size() != KEY_PREFIX_LENGTH) {
+                continue;
+            }
+
+            std::vector<std::string> key_dir_entries;
+            consume_scan_token();
+            auto st = collect_directory_entries(prefix_path, key_dir_entries);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to list file cache prefix dir " << prefix_path
+                             << ", error=" << st;
+                continue;
+            }
+            std::sort(key_dir_entries.begin(), key_dir_entries.end());
+            for (const auto& key_dir : key_dir_entries) {
+                RETURN_IF_ERROR(scan_key_dir(prefix, key_dir));
+            }
+        }
+    } else {
+        std::vector<std::string> key_dir_entries;
+        consume_scan_token();
+        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, key_dir_entries));
+        std::sort(key_dir_entries.begin(), key_dir_entries.end());
+        for (const auto& key_dir : key_dir_entries) {
+            RETURN_IF_ERROR(scan_key_dir("", key_dir));
+        }
+    }
+    return Status::OK();
+}
+
+bool FSFileCacheStorage::has_active_writer(const UInt128Wrapper& hash, size_t offset) {
+    std::lock_guard lock(_mtx);
+    return _key_to_writer.contains(std::make_pair(hash, offset));
+}
+
+bool FSFileCacheStorage::has_active_writer_for_hash(const UInt128Wrapper& hash) {
+    std::lock_guard lock(_mtx);
+    for (const auto& [key, _] : _key_to_writer) {
+        if (key.first == hash) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Status FSFileCacheStorage::delete_file_for_disk_scan(const std::filesystem::path& path) {
+    return fs->delete_file(path);
+}
+
+Status FSFileCacheStorage::delete_dir_for_disk_scan(const std::filesystem::path& path) {
+    return fs->delete_directory(path);
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, size_t offset,
@@ -595,7 +784,8 @@ std::string FSFileCacheStorage::get_version_path() const {
 
 Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
         const std::shared_ptr<LocalFileSystem>& fs, const Path& file_path, long expiration_time,
-        size_t size, size_t* offset, bool* is_tmp, FileCacheType* cache_type) const {
+        size_t size, size_t* offset, bool* is_tmp, FileCacheType* cache_type,
+        bool delete_empty_file) const {
     std::error_code ec;
     std::string offset_with_suffix = file_path.native();
     auto delim_pos1 = offset_with_suffix.find('_');
@@ -649,7 +839,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
                                      offset_with_suffix, ec.message());
     }
 
-    if (size == 0 && !(*is_tmp)) {
+    if (delete_empty_file && size == 0 && !(*is_tmp)) {
         auto st = fs->delete_file(file_path);
         if (!st.ok()) {
             LOG_WARNING("delete file {} error", file_path.native()).error(st);
