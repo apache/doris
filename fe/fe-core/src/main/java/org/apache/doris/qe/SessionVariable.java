@@ -258,6 +258,8 @@ public class SessionVariable implements Serializable, Writable {
             "runtime_filter_broadcast_join_producer_num";
 
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+    public static final String RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES =
+            "runtime_filter_tree_publish_max_send_bytes";
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
@@ -1744,6 +1746,10 @@ public class SessionVariable implements Serializable, Writable {
                     + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
                     + "The legacy Coordinator path keeps the existing behavior."})
     private int runtimeFilterBroadcastJoinProducerNum = 3;
+
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES, needForward = true, fuzzy = true,
+            checker = "checkRuntimeFilterTreePublishMaxSendBytes")
+    private long runtimeFilterTreePublishMaxSendBytes = 256L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
@@ -3747,6 +3753,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
         this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
+        this.runtimeFilterTreePublishMaxSendBytes =
+                Util.getRandomLong(0, 64L * 1024L * 1024L, 128L * 1024L * 1024L,
+                        256L * 1024L * 1024L);
 
         switch (randomInt) {
             case 0:
@@ -4706,6 +4715,10 @@ public class SessionVariable implements Serializable, Writable {
         this.runtimeFilterBroadcastJoinProducerNum = runtimeFilterBroadcastJoinProducerNum;
     }
 
+    public long getRuntimeFilterTreePublishMaxSendBytes() {
+        return runtimeFilterTreePublishMaxSendBytes;
+    }
+
     public void setEnableLocalShuffle(boolean enableLocalShuffle) {
         this.enableLocalShuffle = enableLocalShuffle;
     }
@@ -5502,6 +5515,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
+        tResult.setRuntimeFilterTreePublishMaxSendBytes(runtimeFilterTreePublishMaxSendBytes);
         tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
 
         if (cpuResourceLimit > 0) {
@@ -6449,6 +6463,18 @@ public class SessionVariable implements Serializable, Writable {
                     new UnsupportedOperationException("Profile level can not be set to " + profileLevel
                             + ", it must be in the range of 1-3");
             LOG.warn("Check profile_level failed", exception);
+            throw exception;
+        }
+    }
+
+    public void checkRuntimeFilterTreePublishMaxSendBytes(String maxSendBytes) {
+        long value = Long.valueOf(maxSendBytes);
+        if (value < 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                            "runtime_filter_tree_publish_max_send_bytes can not be set to "
+                                    + maxSendBytes + ", it must be greater or equal to 0");
+            LOG.warn("Check runtime_filter_tree_publish_max_send_bytes failed", exception);
             throw exception;
         }
     }
