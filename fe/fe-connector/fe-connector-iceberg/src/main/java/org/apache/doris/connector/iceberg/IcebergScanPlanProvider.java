@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -126,6 +127,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // the generic split framework's non-null-path contract.
     private static final String SYS_TABLE_DUMMY_PATH = "/dummyPath";
 
+    // Special-column names for classifyColumn (C2 WS-SYNTH-READ). The connector cannot import fe-core
+    // (org.apache.doris.catalog.Column / IcebergUtils are forbidden), so these literals are duplicated here
+    // and pinned to the fe-core constants by IcebergScanPlanProviderClassifyColumnTest (DORIS_ICEBERG_ROWID_COL
+    // == Column.ICEBERG_ROWID_COL) and the row-lineage names == IcebergUtils.ICEBERG_ROW_ID_COL /
+    // ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL. The hidden row-id column is SYNTHESIZED (never in the data
+    // file, materialized by IcebergParquet/OrcReader); the v3 row-lineage columns are GENERATED (read from the
+    // file when present, otherwise backfilled). The engine-wide __DORIS_GLOBAL_ROWID_COL__ is NOT handled here
+    // (a generic Doris lazy-materialization mechanism owned by the generic node).
+    private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+    private static final String ICEBERG_ROW_ID_COL = "_row_id";
+    private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+
     // FIX-SCHEMA-EVOLUTION (T06): scan-level prop carrying the base64 TBinaryProtocol-serialized schema
     // dictionary (current_schema_id + the single history_schema_info entry). getScanNodeProperties builds it
     // from the live table + requested columns; populateScanLevelParams applies it to the real params.
@@ -195,6 +208,26 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean supportsSystemTableTimeTravel() {
         return true;
+    }
+
+    /**
+     * Classifies iceberg's special columns for the generic {@code PluginDrivenScanNode} (C2 WS-SYNTH-READ),
+     * porting the legacy {@code IcebergScanNode.classifyColumn} mapping minus the engine-wide
+     * {@code __DORIS_GLOBAL_ROWID_COL__} prefix (which the generic node handles itself): the hidden row-id
+     * column is SYNTHESIZED (a debug/DML metadata column never present in the data file), and the v3
+     * row-lineage columns are GENERATED (read from the file when present, otherwise backfilled). Every other
+     * column returns {@code DEFAULT} so the generic node applies its own partition-key / regular classification.
+     */
+    @Override
+    public ConnectorColumnCategory classifyColumn(String columnName) {
+        if (DORIS_ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)) {
+            return ConnectorColumnCategory.SYNTHESIZED;
+        }
+        if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(columnName)
+                || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(columnName)) {
+            return ConnectorColumnCategory.GENERATED;
+        }
+        return ConnectorColumnCategory.DEFAULT;
     }
 
     @Override

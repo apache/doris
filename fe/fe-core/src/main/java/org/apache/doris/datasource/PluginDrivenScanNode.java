@@ -20,8 +20,10 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
@@ -37,6 +39,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
+import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
@@ -48,6 +51,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
@@ -400,6 +404,54 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return Arrays.asList(keys.split(","));
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * Classifies a query slot's column for the BE reader (C2 WS-SYNTH-READ). This is the generic,
+     * connector-agnostic port of the per-connector overrides (legacy {@code IcebergScanNode.classifyColumn},
+     * {@code HiveScanNode}, {@code TVFScanNode}): it must keep the synthesized / generated special columns
+     * out of the file-read set so they are materialized by the connector reader rather than read from a data
+     * file where they do not exist.
+     *
+     * <p>Two sources, no connector-type branching:</p>
+     * <ul>
+     *   <li>{@code __DORIS_GLOBAL_ROWID_COL__*} — the engine-wide lazy-materialization row-id (injected by
+     *       {@code LazyMaterializeTopN}, also classified by {@code HiveScanNode}/{@code TVFScanNode}) is a
+     *       generic Doris mechanism, so it is classified here as {@code SYNTHESIZED} directly.</li>
+     *   <li>connector special columns (e.g. iceberg's hidden row-id / v3 row-lineage) are classified by the
+     *       connector through {@link ConnectorScanPlanProvider#classifyColumn(String)}, so no iceberg (or any
+     *       connector) knowledge leaks into the generic node.</li>
+     * </ul>
+     * Everything else falls through to {@code super} (partition key / regular).
+     */
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        String name = slot.getColumn().getName();
+        if (name.startsWith(Column.GLOBAL_ROWID_COL)) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        ConnectorColumnCategory category = classifyColumnByConnector(name);
+        if (category == ConnectorColumnCategory.SYNTHESIZED) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        if (category == ConnectorColumnCategory.GENERATED) {
+            return TColumnCategory.GENERATED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
+    }
+
+    /**
+     * Asks the connector how to classify a special column (iceberg's hidden row-id / v3 row-lineage), so no
+     * connector knowledge leaks into {@link #classifyColumn}. Package-private + overridable so the mapping is
+     * unit-testable on a Mockito mock without a live connector (mirrors {@link #sysTableSupportsTimeTravel}).
+     * A connector with no scan provider (no scan capability) contributes no special columns ({@code DEFAULT}).
+     */
+    ConnectorColumnCategory classifyColumnByConnector(String columnName) {
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        if (scanProvider == null) {
+            return ConnectorColumnCategory.DEFAULT;
+        }
+        return scanProvider.classifyColumn(columnName);
     }
 
     @Override

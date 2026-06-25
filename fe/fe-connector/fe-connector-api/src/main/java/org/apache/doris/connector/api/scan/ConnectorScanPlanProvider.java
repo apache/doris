@@ -89,6 +89,25 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Classifies a SPECIAL (synthesized / generated) column that this connector owns, by name. Consulted by
+     * the generic {@code PluginDrivenScanNode.classifyColumn} so the engine can tag a connector's hidden /
+     * metadata columns (e.g. iceberg's {@code __DORIS_ICEBERG_ROWID_COL__} row-id and v3 row-lineage columns)
+     * with the right BE column category WITHOUT the generic node importing any connector-specific code.
+     *
+     * <p>Returning {@link ConnectorColumnCategory#DEFAULT} (the default — for every regular data column and
+     * for connectors with no special columns, e.g. paimon/jdbc/es) means "not mine": the generic node falls
+     * through to its own partition-key / regular classification. The engine-wide lazy-materialization row-id
+     * column ({@code __DORIS_GLOBAL_ROWID_COL__*}) is NOT classified here — it is a generic Doris mechanism
+     * handled by the generic node itself.</p>
+     *
+     * @param columnName the (already identifier-mapped) Doris column name of a query slot
+     * @return the special-column category, or {@link ConnectorColumnCategory#DEFAULT} if not a special column
+     */
+    default ConnectorColumnCategory classifyColumn(String columnName) {
+        return ConnectorColumnCategory.DEFAULT;
+    }
+
+    /**
      * Plans the scan for the given table, returning a list of scan ranges.
      *
      * @param session the current session
