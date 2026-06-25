@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -43,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -130,14 +130,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         if (cachedOutput.isPresent()) {
             return cachedOutput.get();
         }
-        // RESET and DUP_KEYS SNAPSHOT are rebuilt from the base table directly (no binlog union),
-        // so use the full schema to expose hidden columns like ROW_LSN_COL. Others only need visible.
-        boolean useFullSchemaScan = readMode == StreamReadMode.RESET
-                || (readMode == StreamReadMode.SNAPSHOT
-                        && table instanceof OlapTable
-                        && ((OlapTable) table).getKeysType() == KeysType.DUP_KEYS);
-        List<Column> baseSchema = table.getBaseSchema(useFullSchemaScan);
+        // use full schema, and filter hidden columns except IVM row-id during IVM rewrite below
+        List<Column> baseSchema = table.getBaseSchema(true);
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
+
+        boolean ivmRewriteEnabled = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableIvmNormalRewrite();
 
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -148,17 +146,25 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
                 continue;
             }
+            // Keep visible columns, and IVM row-id during IVM rewrite. Skip all other hidden columns.
+            // for reset, we could use get full schema of base table;
+            // otherwise, we only need to get the schema without hidden columns
+            if (!col.isVisible()
+                    && !isReset()
+                    && !(Column.IVM_ROW_ID_COL.equals(col.getName()) && ivmRewriteEnabled)) {
+                continue;
+            }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
-            // For INCREMENTAL / SNAPSHOT(MOW) reads, non-key value columns are materialized from
-            // the base table row-binlog whose after/before value columns are always nullable (see
+            // For INCREMENTAL / SNAPSHOT reads, non-key value columns are materialized from the
+            // base table row-binlog whose after/before value columns are always nullable (see
             // Column.generateAfterValueColumn / generateBeforeValueColumn). Declare these value
             // columns as nullable here so the stream scan output stays consistent with the plan
             // expanded in NormalizeOlapTableStreamScan, otherwise AdjustNullable reports a
-            // not-nullable -> nullable conflict. Full base scans (RESET / SNAPSHOT(DUP)) do a full
-            // base-table scan, so keep their original nullability.
+            // not-nullable -> nullable conflict. RESET does a full base-table scan, so keep its
+            // original nullability.
             Slot slot = cacheSlotWithSlotName.computeIfAbsent(key, k -> {
                 SlotReference slotRef = slotFromColumn.get(index);
-                boolean forceNullable = !useFullSchemaScan && !baseSchema.get(index).isKey();
+                boolean forceNullable = readMode != StreamReadMode.RESET && !baseSchema.get(index).isKey();
                 return forceNullable ? slotRef.withNullable(true) : slotRef;
             });
             slots.add(slot);
