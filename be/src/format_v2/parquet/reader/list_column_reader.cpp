@@ -111,7 +111,8 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
             break;
         }
         ++level_idx;
-        if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
+        if (rep_level > _repetition_level ||
+            (!starts_parent && def_level < _repeated_ancestor_definition_level)) {
             continue;
         }
         if (rep_level == _repetition_level) {
