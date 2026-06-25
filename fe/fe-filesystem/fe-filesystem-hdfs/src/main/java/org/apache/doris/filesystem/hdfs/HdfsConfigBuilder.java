@@ -21,6 +21,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Builds a Hadoop {@link Configuration} from a {@code Map<String, String>} of properties.
@@ -30,20 +31,29 @@ public class HdfsConfigBuilder {
     static final String KEY_PRINCIPAL = "hadoop.kerberos.principal";
     static final String KEY_KEYTAB = "hadoop.kerberos.keytab";
 
+    /**
+     * Schemes whose Hadoop FS cache must be disabled so {@link DFSFileSystem#close()} only closes
+     * instances this module owns. This is the union of every scheme served by a DFSFileSystem in
+     * this module, including {@code oss} for the OSS-HDFS (JindoFS) path — note this is broader
+     * than {@link HdfsFileSystemProvider#SUPPORTED_SCHEMES}, which is the plain-HDFS routing set
+     * and intentionally excludes {@code oss} (owned by {@link OssHdfsFileSystemProvider}).
+     */
+    static final Set<String> CACHE_DISABLE_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
+
     private HdfsConfigBuilder() {
     }
 
     /**
      * Builds a Hadoop Configuration from the given properties map.
-     * FS caching is disabled for every scheme the provider claims to support so that
+     * FS caching is disabled for every scheme this module can serve so that
      * {@link DFSFileSystem#close()} only closes the FileSystem instances owned by this
-     * provider — never a globally-cached instance that another catalog is still using.
+     * module — never a globally-cached instance that another catalog is still using.
      */
     public static Configuration build(Map<String, String> properties) {
         Configuration conf = new HdfsConfiguration();
         conf.setBoolean("fs.hdfs.impl.disable.cache", true);
         conf.setBoolean("fs.AbstractFileSystem.hdfs.impl.disable.cache", true);
-        for (String scheme : HdfsFileSystemProvider.SUPPORTED_SCHEMES) {
+        for (String scheme : CACHE_DISABLE_SCHEMES) {
             conf.setBoolean("fs." + scheme + ".impl.disable.cache", true);
             conf.setBoolean("fs.AbstractFileSystem." + scheme + ".impl.disable.cache", true);
         }
