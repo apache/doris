@@ -696,7 +696,15 @@ message PPublishFilterRequestV2 {
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
     optional uint32 stage = 15;
+    repeated PPublishFilterForwardTarget forward_targets = 16;
+    optional int32 tree_publish_fanout = 17;
+    optional int32 publish_rpc_timeout_ms = 18;
 };
+
+message PPublishFilterForwardTarget {
+    optional PNetworkAddress target_addr = 1;
+    repeated int32 fragment_ids = 2;
+}
 
 message PPublishFilterResponse {
     required PStatus status = 1;
@@ -1267,4 +1275,3 @@ service PBackendService {
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
-
