@@ -3406,11 +3406,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
                 }
-            } else {
-                _fill_column_nothing();
-                if (_is_need_expr_eval) {
-                    RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
-                }
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_predicate_column_ids.empty());

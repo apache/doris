@@ -103,6 +103,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
+                                 .predicate_lm_stage1_column_ids {},
                                  .binlog_scan_type = params.binlog_scan_type}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
