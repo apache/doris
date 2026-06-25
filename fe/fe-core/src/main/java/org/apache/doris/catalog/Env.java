@@ -2098,7 +2098,6 @@ public class Env {
 
         dnsCache.start();
 
-        workloadSchedPolicyMgr.start();
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
         splitSourceManager.start();
