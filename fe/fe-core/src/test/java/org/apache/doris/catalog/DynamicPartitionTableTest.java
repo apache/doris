@@ -2056,7 +2056,7 @@ public class DynamicPartitionTableTest {
         int partitionCount = table.getPartitionNames().size();
         Assert.assertEquals(7, partitionCount);
 
-        // Verify partition names are clean (no timezone suffix, follow pattern "p" + yyyyMMdd)
+        // Verify partition names are clean and partition values are UTC timestamps
         RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
         for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getIdToItem(false).entrySet()) {
             RangePartitionItem item = (RangePartitionItem) entry.getValue();
@@ -2065,7 +2065,6 @@ public class DynamicPartitionTableTest {
             String partitionName = table.getPartition(entry.getKey()).getName();
             Assert.assertTrue("Partition name should start with 'p': " + partitionName,
                     partitionName.startsWith("p"));
-            // Should be exactly "p" + 8 digits (yyyyMMdd) — no timezone suffix
             Assert.assertEquals("Partition name should be exactly 9 chars (p + yyyyMMdd): " + partitionName,
                     9, partitionName.length());
 
@@ -2076,21 +2075,26 @@ public class DynamicPartitionTableTest {
             Assert.assertTrue("lower must be < upper: " + range,
                     lower.compareTo(upper) < 0);
 
-            // The lower key value should represent a valid UTC datetime
+            // Verify partition keys are UTC timestamps (with +00:00 suffix)
             List<LiteralExpr> lowerKeys = lower.getKeys();
             Assert.assertEquals(1, lowerKeys.size());
             String lowerStr = lowerKeys.get(0).getStringValue();
-            // Legacy DateLiteral format should be "yyyy-MM-dd HH:mm:ss" with optional "+00:00" suffix
-            Assert.assertTrue("Lower key should match datetime pattern: " + lowerStr,
-                    lowerStr.matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}([.]\\d+)?([+]\\d{2}:\\d{2})?"));
+            Assert.assertTrue("Lower key must be UTC with +00:00 suffix: " + lowerStr,
+                    lowerStr.contains("+00:00"));
+
+            List<LiteralExpr> upperKeys = upper.getKeys();
+            Assert.assertEquals(1, upperKeys.size());
+            String upperStr = upperKeys.get(0).getStringValue();
+            Assert.assertTrue("Upper key must be UTC with +00:00 suffix: " + upperStr,
+                    upperStr.contains("+00:00"));
+
+            // The lower key hour should NOT be 0 for America/New_York timezone
+            // (America/New_York midnight = 04:00/05:00 UTC depending on DST)
+            String lowerHour = lowerStr.substring(11, 13);
+            Assert.assertFalse("Lower key hour should not be 00 for non-UTC timezone: " + lowerStr,
+                    "00".equals(lowerHour));
         }
 
-        // Verify that the timezone was correctly applied by checking a specific partition.
-        // The America/New_York timezone (UTC-5 in January) vs Asia/Shanghai session (UTC+8).
-        // If the scheduler incorrectly used the session timezone, the values would differ.
-        // Since scheduler runs without ConnectContext, it would fallback to UTC without our fix.
-        // With our fix, it uses the partition's timezone correctly.
-        // Just check that no exception occurs and the ranges are consistent.
         for (Partition partition : table.getPartitions()) {
             RangePartitionItem item = (RangePartitionItem) partitionInfo.getItem(partition.getId());
             Assert.assertNotNull("Each partition should have a range item", item);
@@ -2196,10 +2200,17 @@ public class DynamicPartitionTableTest {
             Assert.assertEquals("Hour partition name length: " + partitionName,
                     11, partitionName.length());
 
-            // Verify range validity
+            // Verify range validity and UTC boundaries
             Range<PartitionKey> range = item.getItems();
             Assert.assertTrue("lower must be < upper",
                     range.lowerEndpoint().compareTo(range.upperEndpoint()) < 0);
+
+            // With time_zone = "+00:00", partition boundaries should be UTC timestamps
+            List<LiteralExpr> lowerKeys = range.lowerEndpoint().getKeys();
+            Assert.assertEquals(1, lowerKeys.size());
+            String lowerStr = lowerKeys.get(0).getStringValue();
+            Assert.assertTrue("Lower key must have +00:00 suffix: " + lowerStr,
+                    lowerStr.contains("+00:00"));
         }
     }
 }
