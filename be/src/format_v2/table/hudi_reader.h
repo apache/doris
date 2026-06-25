@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "format_v2/table_reader.h"
@@ -44,6 +45,34 @@ protected:
 
 private:
     int64_t _split_schema_id = -1;
+};
+
+// Hudi MOR scans can contain both JNI splits that need log-file merge semantics and native
+// data-file splits without delta logs in the same SplitSource. FileScannerV2 owns one table reader
+// for the scanner lifetime, so this reader keeps native and JNI child readers internally and
+// dispatches each split to the matching child reader.
+class HudiHybridReader final : public format::TableReader {
+public:
+    ~HudiHybridReader() override = default;
+
+    Status init(format::TableReadOptions&& options) override;
+    Status prepare_split(const format::SplitReadOptions& options) override;
+    Status get_block(Block* block, bool* eos) override;
+    Status close() override;
+
+private:
+    Status _ensure_current_split_reader(const format::SplitReadOptions& options);
+    Status _init_child_reader(format::TableReader* reader, format::FileFormat file_format);
+    Status _clone_conjuncts(VExprContextSPtrs* conjuncts) const;
+    static TFileFormatType::type _range_format_type(const TFileScanRangeParams& params,
+                                                    const TFileRangeDesc& range);
+    static bool _is_jni_split(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    static Status _to_file_format(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                                  format::FileFormat* file_format);
+
+    std::unique_ptr<format::TableReader> _native_reader; // handle native parquet/orc splits
+    std::unique_ptr<format::TableReader> _jni_reader;    // handle MOR JNI splits
+    format::TableReader* _current_split_reader = nullptr;
 };
 
 } // namespace doris::format::hudi

@@ -40,7 +40,6 @@ std::string JdbcJniReader::connector_class() const {
 
 Status JdbcJniReader::prepare_split(const format::SplitReadOptions& options) {
     _jdbc_params.clear();
-    _current_range = options.current_range;
     if (options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.table_format_type == "jdbc") {
         _jdbc_params = std::map<std::string, std::string>(
@@ -110,10 +109,6 @@ Status JdbcJniReader::finalize_jni_block(Block* jni_block, Block* output_block, 
     }
     *rows = output_block->rows();
     return Status::OK();
-}
-
-int64_t JdbcJniReader::self_split_weight() const {
-    return _current_range.__isset.self_split_weight ? _current_range.self_split_weight : -1;
 }
 
 std::string JdbcJniReader::_replace_type_for(PrimitiveType type) const {

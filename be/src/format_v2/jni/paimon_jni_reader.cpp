@@ -27,8 +27,7 @@ constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
 
 } // namespace
 
-Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range,
-                                            const TFileScanRangeParams* scan_params) {
+Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range) const {
     if (!range.__isset.table_format_params) {
         return Status::InternalError("missing table_format_params for paimon jni reader");
     }
@@ -47,24 +46,18 @@ Status PaimonJniReader::validate_scan_range(const TFileRangeDesc& range,
                 "invalid reader_type for paimon jni reader, possibly caused by FE/BE protocol "
                 "mismatch");
     }
-    if (scan_params == nullptr || !scan_params->__isset.serialized_table ||
-        scan_params->serialized_table.empty()) {
+    if (_scan_params == nullptr || !_scan_params->__isset.serialized_table ||
+        _scan_params->serialized_table.empty()) {
         return Status::InternalError(
                 "missing serialized_table for paimon jni reader, possibly caused by FE/BE "
                 "protocol mismatch");
     }
-    if (!scan_params->__isset.paimon_predicate || scan_params->paimon_predicate.empty()) {
+    if (!_scan_params->__isset.paimon_predicate || _scan_params->paimon_predicate.empty()) {
         return Status::InternalError(
                 "missing paimon_predicate for paimon jni reader, possibly caused by FE/BE "
                 "protocol mismatch");
     }
     return Status::OK();
-}
-
-Status PaimonJniReader::prepare_split(const format::SplitReadOptions& options) {
-    _current_range = options.current_range;
-    RETURN_IF_ERROR(validate_scan_range(_current_range, _scan_params));
-    return format::JniTableReader::prepare_split(options);
 }
 
 std::string PaimonJniReader::connector_class() const {
@@ -95,10 +88,6 @@ Status PaimonJniReader::build_scanner_params(std::map<std::string, std::string>*
     // after all readers stop using them. Format V2 Paimon JNI consumes the scan-level fields
     // planned by current FE and intentionally does not fall back to deprecated split-level fields.
     return Status::OK();
-}
-
-int64_t PaimonJniReader::self_split_weight() const {
-    return _current_range.__isset.self_split_weight ? _current_range.self_split_weight : -1;
 }
 
 } // namespace doris::format::paimon

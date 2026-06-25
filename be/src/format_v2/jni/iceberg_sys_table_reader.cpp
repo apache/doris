@@ -29,7 +29,7 @@ constexpr std::string_view HADOOP_OPTION_PREFIX = "hadoop.";
 
 } // namespace
 
-Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range) {
+Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range) const {
     if (!range.__isset.table_format_params) {
         return Status::InternalError(
                 "missing table_format_params for iceberg sys table jni reader");
@@ -44,12 +44,6 @@ Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range
                 "possibly caused by FE/BE protocol mismatch");
     }
     return Status::OK();
-}
-
-Status IcebergSysTableJniReader::prepare_split(const format::SplitReadOptions& options) {
-    _current_range = options.current_range;
-    RETURN_IF_ERROR(validate_scan_range(_current_range));
-    return format::JniTableReader::prepare_split(options);
 }
 
 std::string IcebergSysTableJniReader::connector_class() const {
@@ -77,10 +71,6 @@ Status IcebergSysTableJniReader::build_scanner_params(
         }
     }
     return Status::OK();
-}
-
-int64_t IcebergSysTableJniReader::self_split_weight() const {
-    return _current_range.__isset.self_split_weight ? _current_range.self_split_weight : -1;
 }
 
 } // namespace doris::format::iceberg

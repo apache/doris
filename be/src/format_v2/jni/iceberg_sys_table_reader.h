@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -32,17 +31,10 @@ class IcebergSysTableJniReader final : public format::JniTableReader {
 public:
     ~IcebergSysTableJniReader() override = default;
 
-    static Status validate_scan_range(const TFileRangeDesc& range);
-
-    Status prepare_split(const format::SplitReadOptions& options) override;
-
 protected:
     std::string connector_class() const override;
+    Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
-    int64_t self_split_weight() const override;
-
-private:
-    TFileRangeDesc _current_range;
 };
 
 } // namespace doris::format::iceberg

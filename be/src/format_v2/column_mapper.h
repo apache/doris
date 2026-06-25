@@ -168,6 +168,8 @@ struct TableColumnMapperOptions {
 };
 
 Status clone_table_expr_tree(const VExprSPtr& expr, VExprSPtr* cloned_expr);
+const Field* find_partition_value(const ColumnDefinition& table_column,
+                                  const std::map<std::string, Field>& partition_values);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this

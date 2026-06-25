@@ -43,6 +43,8 @@ Status JniTableReader::init(TableReadOptions&& options) {
 }
 
 Status JniTableReader::prepare_split(const SplitReadOptions& options) {
+    _current_range = options.current_range;
+    RETURN_IF_ERROR(validate_scan_range(options.current_range));
     RETURN_IF_ERROR(TableReader::prepare_split(options));
     DORIS_CHECK(!_closed);
     DORIS_CHECK(!_scanner_opened);
@@ -188,6 +190,10 @@ Status JniTableReader::build_jni_columns(std::vector<JniColumn>* columns) const 
         });
     }
     return Status::OK();
+}
+
+int64_t JniTableReader::self_split_weight() const {
+    return _current_range.__isset.self_split_weight ? _current_range.self_split_weight : -1;
 }
 
 Status JniTableReader::close() {
