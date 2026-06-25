@@ -390,10 +390,9 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
             // }};
             std::shared_ptr<Block> flush_block;
             RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
-            if (flush_writer->context().write_binlog_opt().enable) {
+            if (flush_writer->context().write_binlog_opt().enable && flush_block->rows() > 0) {
                 const auto& memtable_lsns = memtable->row_binlog_lsns();
-                CHECK_EQ(memtable_lsns.size(), flush_block->rows());
-                CHECK(!memtable_lsns.empty());
+                DCHECK_EQ(memtable_lsns.size(), flush_block->rows());
                 auto lsn_ids = std::make_shared<std::vector<int64_t>>(memtable_lsns.begin(),
                                                                       memtable_lsns.end());
                 const_cast<RowsetWriterContext&>(flush_writer->context())
