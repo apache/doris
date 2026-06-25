@@ -5,13 +5,13 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **P6.6 翻闸 = 用户签 D3–D7 → 进 C1（WS-PIN）实现**
+# 🎯 下一个 session 的任务 = **P6.6 翻闸 → 进 C1（WS-PIN）实现**（D1–D7 全签）
 
-**P6.1–P6.5 = ✅ 全 DONE**。**本 session = P6.6 起步：recon + holistic RFC 已起草**（`research/p6.6-flip-recon.md` + `tasks/designs/P6.6-flip-rfc.md`），**D1/D2 用户已锁**（① 分步多 commit、最后翻闸；② rewrite 这次接 PluginDriven），**D3–D7 待用户签字**（见 RFC §3）。**未写产品码、未碰 `SPI_READY_TYPES`。**
+**P6.1–P6.5 = ✅ 全 DONE**。**P6.6 RFC 已起草 + D1–D7 全签**（`research/p6.6-flip-recon.md` + `tasks/designs/P6.6-flip-rfc.md`）：D1 分步多 commit、D2 rewrite 接 PluginDriven、D3 不建中立 scan-range SPI、D4 WS-PIN 用时序修非 SPI 重载、D5 sys MvccTable 委派源表、D6 GSON 同翻闸 commit、D7 paimon top-N 留 C2 查证。**起步至此 0 产品码、0 `SPI_READY_TYPES`。**
 
 ## P6.6 起步指引（先做这个）
 1. **读 `tasks/designs/P6.6-flip-rfc.md`**（编排全集，已 supersede 旧「4 阻塞」框架）+ `research/p6.6-flip-recon.md`（code-grounded recon，含对 HANDOFF/T08-design §5 的 **5 处纠正**）。
-2. **若 D3–D7 未签** → 先向用户要签字（RFC §3 表，中文先讲背景）。**已签** → 进 **C1 WS-PIN**（地基）。
+2. **D1–D7 已签** → 直接进 **C1 WS-PIN**（地基）。先判 C1 是否要独立子设计 vs 直接 TDD（C1 触 live paimon 共享 seam，须 paimon-parity UT 先行）。
 3. **翻闸 = 5 commit-stream 原子合流**（RFC §2，每 C dormant/parity、自带 UT+mutation、最后翻闸）：
    - **C1 WS-PIN**：buildColumnHandles 时序修（pinMvccSnapshot 提前）+ getColumnHandles 读 handle.schemaId（**非**新 SPI 重载）+ `PluginDrivenSysExternalTable implements MvccTable` 委派源表。
    - **C2 WS-SYNTH-READ**：`PluginDrivenScanNode.classifyColumn` SYNTHESIZED override（移植 `IcebergScanNode:907-919`，connector-guard）+ BE `iceberg_reader.cpp` 合成列 `add_not_exist_children`。
@@ -43,14 +43,14 @@
 
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。
 - **⚠️ 推送状态**：`origin/catalog-spi-10-iceberg` = `bdc38b14810`（P6.4-T06）；**P6.4 T07/T08/T09 + P6.5 T01–T08 + 本 session P6.6-RFC（doc-only）已 commit 未 push（13 commit）**。**用户未要求 push**——留用户裁量。工作树 tracked 干净。
-- **P6.1–P6.5 = ✅ DONE**。**P6.6 翻闸 = 进行中（RFC 已起草，D1/D2 锁、D3–D7 待签 → C1 实现）**。
+- **P6.1–P6.5 = ✅ DONE**。**P6.6 翻闸 = 进行中（RFC 已起草、D1–D7 全签 → 下个 session 进 C1 WS-PIN）**。
 - iceberg **不在** `SPI_READY_TYPES`（仍走 switch-case `:137 case "iceberg"`，pre-flip 零行为变更）。metastore 子线已 CLOSED（勿读）。
 
 ## 本 session 完成 = P6.6 起步 recon + holistic RFC（**0 产品码、0 SPI_READY_TYPES**）
 
 - **recon wf `wf_2e6efc57-e20`**（10 agent / 741k token：5 area Explore reader + 每 area 对抗 verify cross-connector 破坏论断）+ 2 深挖 recon（WS-5 rewrite dispatch / WS-PIN paimon 模板）+ 主 session 亲验 4 决策性 finding → `research/p6.6-flip-recon.md`。
 - **holistic RFC** → `tasks/designs/P6.6-flip-rfc.md`（编排 altitude，仿 P6.3 write RFC）：翻闸 = **5 commit-stream**（C1 WS-PIN / C2 WS-SYNTH-READ / C3 WS-WRITE / C4 WS-REWRITE / C5 FLIP），每 C dormant-for-iceberg / live-connector parity / 自带 UT+mutation，**最后翻闸**（唯一不可逆点）。
-- **决策**：D1（分步多 commit）+ D2（rewrite 接 PluginDriven）= 用户锁；**D3–D7 = RFC 荐方案待签**（D3 不建中立 scan-range SPI / D4 WS-PIN 用时序修非 SPI 重载 / D5 sys MvccTable 委派 / D6 GSON 同翻闸 commit / D7 paimon top-N C2 查证）。
+- **决策 D1–D7 全签**（2026-06-25）：D1 分步多 commit / D2 rewrite 接 PluginDriven / D3 不建中立 scan-range SPI / D4 WS-PIN 用时序修非 SPI 重载 / D5 sys MvccTable 委派 / D6 GSON 同翻闸 commit / D7 paimon top-N 留 C2 查证。
 - **recon 对旧 HANDOFF/T08-design §5 的 5 处纠正**（见「🔴🔴 开放问题」）：classifyColumn 非现归错（真问题=通用路无 override）/ pin-threading 真缺口=时序+sys-MvccTable（连接器 resolveTimeTravel/applySnapshot 已实现）/ rewrite 不能纯 defer（ClassCast）/ GSON 8 类非 7 / instanceof 78 非 49。
 - **验证**：全程 code-grounded（recon wf 对抗 verify + 亲验 `IcebergScanNode:907-919`/`StatementContext:987`/`GsonUtils:375-411`/`IcebergRewriteDataFilesAction:173,196`）。**0 产品码、0 测、0 `SPI_READY_TYPES`**；本 commit = doc-only（recon + RFC + HANDOFF）。**0 新 DV**；D1–D7 入 RFC（非 decisions-log，翻闸后随 C 落地再登记）。
 
@@ -83,4 +83,4 @@
 - **HANDOFF/设计/audit-spec 的依赖名/行号/不变式/测试前提可能过时或错** —— 动码前先 recon（grep + 实证）再信文档。**P6.5 实证纠 audit test-6 spec 1 处**（「sys 元数据列谓词 FE 行裁」实为 BE-applied residual），写完即 run、红则 root-cause 不硬凑。
 - **大文件用 subagent/workflow 总结**；PROGRESS.md 巨行（§一 6191 字符 + §二 board mega-row + §四 dynamics）编辑前先 grep 定位精确子串再 surgical Edit（Edit 前必先 Read 一次）。
 - **文档同步五步**：tasks 表 + 实现记录 / PROGRESS〔§一 + §二 board + §四 dynamics〕 / connectors/iceberg.md〔完成度 + 进度日志〕 / decisions-log / deviations-log；HANDOFF 覆盖式。**本 session = RFC-draft 轮**：仅 recon + RFC + HANDOFF（无产品码 → PROGRESS/tasks/connectors 大同步留 C1 落地起）。
-- **P6.6 进行中**：RFC `tasks/designs/P6.6-flip-rfc.md` 已起草、D1/D2 锁、**D3–D7 待用户签字**。签后进 **C1 WS-PIN**（先看是否要 C1 子设计/直接 TDD）。**大阶段分多 session**，每 C 完即更 HANDOFF + commit。翻闸（C5）是全有或全无不可逆点，C5 前须 4 stream 全绿 + 用户二签。
+- **P6.6 进行中**：RFC `tasks/designs/P6.6-flip-rfc.md` 已起草、**D1–D7 全签**。下个 session 进 **C1 WS-PIN**（先看是否要 C1 子设计/直接 TDD）。**大阶段分多 session**，每 C 完即更 HANDOFF + commit。翻闸（C5）是全有或全无不可逆点，C5 前须 4 stream 全绿 + 用户二签。
