@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.hdfs.properties.HdfsProperties;
+import org.apache.doris.filesystem.hdfs.properties.OssHdfsProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
@@ -27,19 +28,34 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * SPI provider for HDFS-family filesystems: hdfs, viewfs, ofs, jfs, oss.
+ * SPI provider for plain HDFS-family filesystems: hdfs, viewfs, ofs, jfs.
  * Registered via META-INF/services for Java ServiceLoader discovery.
+ *
+ * <p>Aliyun OSS-HDFS ({@code oss://}, JindoFS) is intentionally NOT handled here — it has its own
+ * {@link OssHdfsFileSystemProvider}. Routing is kept strictly disjoint: the authoritative
+ * {@code _STORAGE_TYPE_} marker wins, and the heuristic fallback excludes anything
+ * {@link OssHdfsProperties#guessIsMe} claims. {@code oss} is therefore absent from
+ * {@link #SUPPORTED_SCHEMES}.</p>
  */
 public class HdfsFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
-    public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
+    public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs");
 
     @Override
     public boolean supports(Map<String, String> properties) {
         // Authoritative match: StoragePropertiesConverter always sets this key for HDFS storage,
         // including Hive catalog properties that may not carry explicit HDFS connection keys.
-        if ("HDFS".equals(properties.get("_STORAGE_TYPE_"))) {
+        String storageType = properties.get("_STORAGE_TYPE_");
+        if ("HDFS".equals(storageType)) {
             return true;
+        }
+        if ("OSS_HDFS".equals(storageType)) {
+            // An explicit OSS-HDFS marker belongs to OssHdfsFileSystemProvider, never here.
+            return false;
+        }
+        // No authoritative marker: never claim a configuration that OSS-HDFS owns.
+        if (OssHdfsProperties.guessIsMe(properties)) {
+            return false;
         }
         String uri = properties.get("HDFS_URI");
         if (uri == null) {

@@ -16,3 +16,4 @@
 #
 #
 org.apache.doris.filesystem.hdfs.HdfsFileSystemProvider
+org.apache.doris.filesystem.hdfs.OssHdfsFileSystemProvider
