@@ -64,6 +64,9 @@ DataTypePtr json_file_type_from_slot_type(const DataTypePtr& type) {
         return nullptr;
     }
 
+    // Text-like file readers expose CHAR/VARCHAR as STRING and let the table column mapper cast to
+    // the destination slot type. JSON follows the same file-schema convention so that v2 mapping
+    // behaves consistently across text formats.
     const bool is_nullable = type->is_nullable();
     const auto nested_type = remove_nullable(type);
     DataTypePtr file_type;
@@ -214,6 +217,8 @@ Status JsonReader::init(RuntimeState* state) {
     _source_serdes = create_data_type_serdes(_source_file_slot_descs);
     _file_schema.clear();
     _file_schema.reserve(_source_file_slot_descs.size());
+    // JSON has no physical footer schema. The FE file slots are therefore the authoritative schema
+    // for both field names and source local ids.
     for (size_t idx = 0; idx < _source_file_slot_descs.size(); ++idx) {
         const auto* slot = _source_file_slot_descs[idx];
         DORIS_CHECK(slot != nullptr);
@@ -311,6 +316,8 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         if (!st.ok()) {
             RETURN_IF_ERROR(_handle_json_error(st, file_block, original_rows, &is_empty_row));
         }
+        // An ignored or empty JSON object can produce no row. Avoid spinning forever on a document
+        // that was consumed but produced no materialized value.
         if (!is_empty_row && file_block->rows() == original_rows) {
             break;
         }
@@ -345,6 +352,9 @@ Status JsonReader::_build_requested_columns(const FileScanRequest& request,
                                             std::vector<RequestedColumn>* columns) const {
     DORIS_CHECK(columns != nullptr);
     columns->clear();
+    // FileScanRequest stores a map from file-local id to output block position. Materialization is
+    // position-driven, so normalize it into a dense vector ordered by block position while keeping
+    // the original source index for jsonpaths.
     std::vector<RequestedColumn> by_position(request.local_positions.size());
     for (const auto& [file_column_id, block_position] : request.local_positions) {
         if (file_column_id.value() < 0 ||
@@ -431,6 +441,8 @@ Status JsonReader::_create_decompressor() {
 Status JsonReader::_create_line_reader() {
     int64_t size = _reader_range.size;
     if (_reader_range.start_offset != 0) {
+        // Start one byte earlier and discard the first partial line, matching split semantics used
+        // by text readers.
         ++size;
         _skip_first_line = true;
     } else {
@@ -491,6 +503,8 @@ Status JsonReader::_read_one_document(size_t* size, bool* eof) {
         _document_buffer.assign(reinterpret_cast<const char*>(line), *size);
         return Status::OK();
     }
+    // Non-line mode treats the split as one JSON document. This supports a single object or an
+    // array with strip_outer_array=true.
     if (_single_document_read) {
         *eof = true;
         return Status::OK();
@@ -558,6 +572,8 @@ Status JsonReader::_parse_next_json(size_t* size, bool* eof) {
         _padded_size = *size + simdjson::SIMDJSON_PADDING;
         _padding_buffer.resize(_padded_size);
     }
+    // Ondemand values reference the input buffer. Keep the padded bytes in a member buffer until the
+    // current document is fully materialized.
     std::memcpy(_padding_buffer.data(), _document_buffer.data(), *size);
     _original_doc_size = *size;
     const auto error =
@@ -592,6 +608,8 @@ Status JsonReader::_extract_json_value(size_t size, bool* eof, bool* is_empty_ro
     }
     _parsed_from_json_root = false;
     if (!_parsed_json_root.empty() && type == simdjson::ondemand::json_type::object) {
+        // In object mode json_root can be applied once here. In outer-array mode each array element
+        // needs its own root extraction, which is handled while iterating the array.
         simdjson::ondemand::object object = _original_json_doc;
         Status st = JsonFunctions::extract_from_object(object, _parsed_json_root, &_json_value);
         if (!st.ok()) {
@@ -672,6 +690,8 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
     while (_array_iter != _array.end()) {
         simdjson::ondemand::object object_value = (*_array_iter).get_object();
         if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
+            // For strip_outer_array, json_root is evaluated against each element. Elements without
+            // the requested root do not produce rows, matching the load reader behavior.
             simdjson::ondemand::value rooted_value;
             Status st = JsonFunctions::extract_from_object(object_value, _parsed_json_root,
                                                            &rooted_value);
@@ -727,6 +747,8 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         }
         if (seen_columns[column_index]) {
             if (_is_hive_table) {
+                // Hive JSON keeps the last duplicate key ignoring case. The earlier value has
+                // already been appended, so remove it before writing the replacement.
                 _pop_back_last_inserted_value(block, column_index);
             } else {
                 continue;
@@ -785,6 +807,8 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
             }
         }
         if (_is_root_path_for_column(requested)) {
+            // A root jsonpath means "materialize the whole current JSON document" instead of a
+            // field under it. Use the original bytes so callers receive the same document text.
             if (is_column_nullable(*column_ptr)) {
                 auto* nullable_column = assert_cast<ColumnNullable*>(column_ptr);
                 nullable_column->get_null_map_data().push_back(0);
@@ -816,6 +840,8 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
     }
 
     if (!has_valid_value) {
+        // jsonpaths can legally match nothing. Roll the row back so an all-missing path set does
+        // not create a synthetic row of nulls.
         _truncate_block_to_rows(block, cur_row_count);
         *valid = false;
         return Status::OK();
@@ -903,6 +929,8 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             const auto sub_column_idx = it->second;
             auto sub_column_ptr = struct_column_ptr->get_column(sub_column_idx).get_ptr();
             if (has_value[sub_column_idx]) {
+                // Struct fields follow Hive-style duplicate handling: the last matching nested key
+                // wins. Remove the earlier nested value before appending the new one.
                 sub_column_ptr->pop_back(1);
             }
             has_value[sub_column_idx] = true;
@@ -1019,6 +1047,9 @@ Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t
                                       bool* is_empty_row) {
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
+    // Deserialization can fail after several columns have already appended data. Always restore the
+    // block to the row count before this document before either surfacing the error or appending
+    // the ignore-malformed null row.
     _truncate_block_to_rows(block, original_rows);
     if (_openx_json_ignore_malformed && status.is<ErrorCode::DATA_QUALITY_ERROR>()) {
         RETURN_IF_ERROR(_append_null_for_malformed_json(block));
@@ -1082,6 +1113,8 @@ size_t JsonReader::_column_index(std::string_view key, size_t key_index) {
         lookup_key = hive_key;
     }
     if (key_index < _previous_positions.size()) {
+        // Most JSON lines share field order. Reuse the previous line's key-position mapping before
+        // falling back to the hash table lookup.
         const auto previous = _previous_positions[key_index];
         if (previous < _requested_columns.size()) {
             const auto previous_name = _requested_columns[previous].slot_desc->col_name();

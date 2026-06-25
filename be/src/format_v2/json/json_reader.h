@@ -49,6 +49,9 @@ namespace doris::format::json {
 // v2 file-local columns and performs JSON parsing/materialization directly in the v2 path.
 class JsonReader final : public FileReader {
 public:
+    // `file_slot_descs` is the FE-planned file schema. JSON has no physical schema, so the reader
+    // exposes these slots as synthetic file-local columns and materializes only the columns
+    // requested by FileScanRequest.
     JsonReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                std::unique_ptr<io::FileDescription>& file_description,
                std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
@@ -58,15 +61,23 @@ public:
                std::optional<TUniqueId> stream_load_id = std::nullopt);
     ~JsonReader() override;
 
+    // Initializes scan attributes and builds the synthetic schema from FE slots.
     Status init(RuntimeState* state) override;
     Status get_schema(std::vector<ColumnDefinition>* file_schema) const override;
     std::unique_ptr<TableColumnMapper> create_column_mapper(
             TableColumnMapperOptions options) const override;
+    // Opens the underlying file or stream and binds requested local column ids to output block
+    // positions. After this call, `get_block` can be called until it returns eof.
     Status open(std::shared_ptr<FileScanRequest> request) override;
+    // Appends rows into `file_block` according to the FileScanRequest order. The block must already
+    // contain columns matching the requested positions.
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status close() override;
 
 private:
+    // A requested column keeps both identities:
+    // - `source_index`: index in FE file slots, used for jsonpaths and SerDe lookup.
+    // - `block_position`: index in the caller's output block, used for materialization.
     struct RequestedColumn {
         LocalColumnId file_column_id = LocalColumnId::invalid();
         LocalIndex block_position;
@@ -77,14 +88,19 @@ private:
 
     Status _build_requested_columns(const FileScanRequest& request,
                                     std::vector<RequestedColumn>* columns) const;
+    // Reconciles TableReader's split/range descriptor with FileReader's concrete file description.
     TFileRangeDesc _json_range() const;
     Status _open_file_reader();
     Status _create_decompressor();
     Status _create_line_reader();
     Status _parse_jsonpath_and_json_root();
+    // Reads one logical JSON document: one line for JSON Lines, or the whole range/pipe payload for
+    // single-document mode.
     Status _read_one_document(size_t* size, bool* eof);
     Status _read_one_document_from_pipe(size_t* read_size);
+    // Moves the logical document into a simdjson-padded buffer and creates an ondemand document.
     Status _parse_next_json(size_t* size, bool* eof);
+    // Applies json_root and validates the object/array shape required by strip_outer_array.
     Status _extract_json_value(size_t size, bool* eof, bool* is_empty_row);
     Status _append_rows_from_current_value(Block* block, bool* is_empty_row, bool* eof);
     Status _append_simple_json_rows(Block* block, bool* is_empty_row, bool* eof);
@@ -99,6 +115,8 @@ private:
                                  IColumn* column_ptr, const std::string& column_name,
                                  const DataTypeSerDeSPtr& serde, bool* valid);
     Status _fill_missing_column(const RequestedColumn& column, IColumn* column_ptr, bool* valid);
+    // Implements openx_json_ignore_malformed by appending a null row after rolling back any partial
+    // writes for the malformed document.
     Status _append_null_for_malformed_json(Block* block);
     Status _handle_json_error(const Status& status, Block* block, size_t original_rows,
                               bool* is_empty_row);
@@ -146,6 +164,8 @@ private:
     bool _parsed_from_json_root = false;
     DataTypeSerDe::FormatOptions _serde_options;
 
+    // simdjson ondemand values point into `_padding_buffer`, so the buffer must outlive all values
+    // created from the current document.
     std::unique_ptr<simdjson::ondemand::parser> _json_parser;
     simdjson::ondemand::document _original_json_doc;
     simdjson::ondemand::value _json_value;
