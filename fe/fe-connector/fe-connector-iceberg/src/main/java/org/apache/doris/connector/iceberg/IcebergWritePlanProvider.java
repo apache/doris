@@ -24,6 +24,8 @@ import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
+import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
+import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -42,6 +44,8 @@ import org.apache.doris.thrift.TSortField;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.NullOrder;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
@@ -185,6 +189,45 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             }
         }
         return result;
+    }
+
+    @Override
+    public ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        Table table = resolveTable((IcebergTableHandle) tableHandle);
+        PartitionSpec spec = table.spec();
+        if (spec == null || !spec.isPartitioned()) {
+            // null == "unpartitioned" (legacy PhysicalIcebergMergeSink.buildInsertPartitionFields gates on
+            // spec().isPartitioned()) -> the engine uses its non-partitioned merge distribution.
+            return null;
+        }
+        Schema schema = table.schema();
+        List<ConnectorWritePartitionField> fields = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            // sourceColumnName mirrors the legacy schema.findField(field.sourceId()).name() lookup the engine
+            // used to map a partition field back to a bound output expr id. transform/param mirror
+            // field.transform().toString() + parseTransformParam (kept connector-side so fe-core never parses).
+            NestedField sourceField = schema.findField(field.sourceId());
+            String sourceColumnName = sourceField == null ? null : sourceField.name();
+            String transform = field.transform().toString();
+            fields.add(new ConnectorWritePartitionField(
+                    transform, parseTransformParam(transform), sourceColumnName, field.name(), field.sourceId()));
+        }
+        return new ConnectorWritePartitionSpec(spec.specId(), fields);
+    }
+
+    /** Parses the bracket argument of an iceberg transform string ({@code bucket[16] -> 16}); null when absent. */
+    private static Integer parseTransformParam(String transform) {
+        int start = transform.indexOf('[');
+        int end = transform.indexOf(']');
+        if (start < 0 || end <= start) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(transform.substring(start + 1, end));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private IcebergWriteContext buildWriteContext(ConnectorWriteHandle handle) {

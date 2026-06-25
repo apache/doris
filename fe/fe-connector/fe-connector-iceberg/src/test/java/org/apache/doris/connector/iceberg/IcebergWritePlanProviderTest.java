@@ -25,6 +25,8 @@ import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
+import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
+import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -378,6 +380,75 @@ public class IcebergWritePlanProviderTest {
                         new IcebergTableHandle("db1", "t3"));
         Assertions.assertNotNull(cols, "a sorted table (even by a non-identity transform) has a write sort order");
         Assertions.assertTrue(cols.isEmpty(), "no identity column resolves -> empty list -> empty TSortInfo");
+    }
+
+    // ───────────────────────────── getWritePartitioning (connector declares, ② C3b-core) ─────────────────────────────
+    //
+    // WHY: post-flip the iceberg merge-write distribution (DistributionSpecMerge) is built fe-core-side, but
+    // its native partition-spec walk (PhysicalIcebergMergeSink.buildInsertPartitionFields ->
+    // icebergTable.getIcebergTable().spec()) is DEAD once iceberg is a PluginDrivenExternalCatalog (the native
+    // table is unreachable across the connector's isolated classloader). The connector therefore declares the
+    // partitioning in an engine-neutral carrier; the engine resolves source-column names to expr ids locally.
+    // These pins guard byte-parity of the carried (transform, param, sourceColumnName, fieldName, sourceId,
+    // specId) tuple against the legacy native walk.
+
+    /** A bucket(id, 16)-partitioned table: distinct partition field name ("id_bucket") vs source column ("id"). */
+    private static Table bucketPartitionedTable(InMemoryCatalog catalog) {
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.data.path", "oss://bucket/wh/db1/tb/data");
+        return catalog.createTable(TableIdentifier.of("db1", "tb"), SCHEMA,
+                PartitionSpec.builderFor(SCHEMA).bucket("id", 16).build(), tableProps);
+    }
+
+    @Test
+    public void getWritePartitioningForIdentityPartitionMapsField() {
+        Table table = partitionedSortedTable(freshCatalog());
+        ConnectorWritePartitionSpec spec = providerFor(table, contextWithStorage())
+                .getWritePartitioning(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t1"));
+
+        Assertions.assertNotNull(spec, "a partitioned table must declare its write partitioning");
+        Assertions.assertEquals(table.spec().specId(), spec.getSpecId());
+        Assertions.assertEquals(1, spec.getFields().size());
+        ConnectorWritePartitionField f = spec.getFields().get(0);
+        Assertions.assertEquals("identity", f.getTransform());
+        Assertions.assertNull(f.getTransformParam(), "identity has no bracket argument");
+        Assertions.assertEquals("id", f.getSourceColumnName(), "source column resolved from sourceId via the schema");
+        Assertions.assertEquals("id", f.getFieldName(), "identity partition field name equals the source column");
+        Assertions.assertEquals(table.schema().findField("id").fieldId(), f.getSourceId());
+    }
+
+    @Test
+    public void getWritePartitioningNullForUnpartitionedTable() {
+        // null == "unpartitioned" (legacy gates on spec().isPartitioned()) -> the engine uses its
+        // non-partitioned merge distribution, keeping byte-parity for unpartitioned MERGE/UPDATE.
+        InMemoryCatalog catalog = freshCatalog();
+        partitionedSortedTable(catalog);
+        Table table = unpartitionedUnsortedTable(catalog);
+        Assertions.assertNull(providerFor(table, contextWithStorage())
+                .getWritePartitioning(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2")));
+    }
+
+    @Test
+    public void getWritePartitioningBucketTransformCarriesParamAndDistinctNames() {
+        // MUTATION: this is the field that distinguishes the carrier's three name-ish bits. A walk that
+        // carried fieldName ("id_bucket") where sourceColumnName ("id") is needed would resolve the wrong
+        // (or no) expr id fe-core-side; dropping the parsed param would lose the bucket count BE needs.
+        Table table = bucketPartitionedTable(freshCatalog());
+        ConnectorWritePartitionSpec spec = providerFor(table, contextWithStorage())
+                .getWritePartitioning(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "tb"));
+
+        Assertions.assertNotNull(spec);
+        Assertions.assertEquals(1, spec.getFields().size());
+        ConnectorWritePartitionField f = spec.getFields().get(0);
+        Assertions.assertEquals("bucket[16]", f.getTransform(), "transform string is the native PartitionField.transform().toString()");
+        Assertions.assertEquals(Integer.valueOf(16), f.getTransformParam(), "the bracket argument [16] must be parsed out");
+        Assertions.assertEquals("id", f.getSourceColumnName(), "source column is the base column, not the partition field");
+        Assertions.assertEquals("id_bucket", f.getFieldName(), "partition field name is iceberg's derived 'id_bucket'");
+        Assertions.assertEquals(table.schema().findField("id").fieldId(), f.getSourceId());
     }
 
     // ───────────────────────────── fail-loud ─────────────────────────────

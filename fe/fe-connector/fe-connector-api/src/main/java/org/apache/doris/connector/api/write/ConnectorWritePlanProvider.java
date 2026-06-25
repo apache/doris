@@ -92,4 +92,27 @@ public interface ConnectorWritePlanProvider {
             ConnectorTableHandle tableHandle) {
         return null;
     }
+
+    /**
+     * Declares the target's write-time partitioning, in an engine-neutral form, so the engine can reproduce
+     * the connector's write distribution (the iceberg merge-write {@code DistributionSpecMerge}) without
+     * importing the connector's native partition-spec types. The engine resolves each
+     * {@link ConnectorWritePartitionField#getSourceColumnName()} to a bound output expr id locally and builds
+     * the distribution from the field tuple + {@link ConnectorWritePartitionSpec#getSpecId()}.
+     *
+     * <p>{@code null} (not an empty spec) means the target is unpartitioned, mirroring the legacy
+     * {@code spec().isPartitioned()} gate — the engine then falls back to its non-partitioned merge
+     * distribution. Depends only on the target table (not the bound write), so it takes the
+     * {@link ConnectorTableHandle}. Default: {@code null} — jdbc / maxcompute / paimon keep their
+     * byte-identical non-partitioned write distribution.</p>
+     *
+     * @param session     the current session
+     * @param tableHandle the target table handle
+     * @return the current spec id + ordered partition fields if the target is partitioned, or {@code null}
+     *         if it is unpartitioned
+     */
+    default ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return null;
+    }
 }

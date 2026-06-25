@@ -37,6 +37,11 @@ public final class ConnectorColumn {
     // legacy PaimonExternalTable/PaimonSysExternalTable/IcebergUtils which set it from the SOURCE type
     // root regardless of the timestamp_tz mapping flag. Defaults false; set via withTimeZone().
     private final boolean withTimeZone;
+    // Marks a hidden (non-visible) column. fe-core's ConnectorColumnConverter translates this into
+    // Column.setIsVisible(false). Used by synthetic write columns a connector declares through the schema
+    // SPI (e.g. iceberg's __DORIS_ICEBERG_ROWID_COL__ / v3 row-lineage), which must stay hidden. Defaults
+    // true (visible); set via invisible().
+    private final boolean visible;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -56,12 +61,12 @@ public final class ConnectorColumn {
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
-        this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false);
+        this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
-            boolean isAggregated, boolean withTimeZone) {
+            boolean isAggregated, boolean withTimeZone, boolean visible) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -71,6 +76,7 @@ public final class ConnectorColumn {
         this.isAutoInc = isAutoInc;
         this.isAggregated = isAggregated;
         this.withTimeZone = withTimeZone;
+        this.visible = visible;
     }
 
     /**
@@ -80,7 +86,16 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, true);
+                isKey, isAutoInc, isAggregated, true, visible);
+    }
+
+    /**
+     * Returns a copy of this column marked hidden (non-visible). See {@link #isVisible()}; used to declare
+     * synthetic write columns through the schema SPI so the converter re-applies {@code setIsVisible(false)}.
+     */
+    public ConnectorColumn invisible() {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, false);
     }
 
     public String getName() {
@@ -119,6 +134,10 @@ public final class ConnectorColumn {
         return withTimeZone;
     }
 
+    public boolean isVisible() {
+        return visible;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -133,6 +152,7 @@ public final class ConnectorColumn {
                 && isAutoInc == that.isAutoInc
                 && isAggregated == that.isAggregated
                 && withTimeZone == that.withTimeZone
+                && visible == that.visible
                 && name.equals(that.name)
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
@@ -142,7 +162,7 @@ public final class ConnectorColumn {
     @Override
     public int hashCode() {
         return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated,
-                withTimeZone);
+                withTimeZone, visible);
     }
 
     @Override

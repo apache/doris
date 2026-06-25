@@ -74,6 +74,13 @@ public final class ConnectorColumnConverter {
         if (cc.isWithTimeZone()) {
             column.setWithTZExtraInfo();
         }
+        // Re-apply the hidden marker the connector carried across the SPI boundary
+        // (ConnectorColumn.invisible()), so synthetic write columns a connector declares through the schema
+        // SPI (iceberg __DORIS_ICEBERG_ROWID_COL__ / v3 row-lineage) stay hidden, matching legacy
+        // Column.setIsVisible(false). A Doris Column defaults to visible, so only the false case is re-applied.
+        if (!cc.isVisible()) {
+            column.setIsVisible(false);
+        }
         return column;
     }
 

@@ -185,4 +185,27 @@ class ConnectorColumnConverterTest {
         Assertions.assertTrue(varcharBack instanceof ScalarType);
         Assertions.assertEquals(255, ((ScalarType) varcharBack).getLength());
     }
+
+    @Test
+    void convertColumnDefaultsToVisible() {
+        ConnectorType intType = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("c", intType, null, true, null));
+        Assertions.assertTrue(col.isVisible(),
+                "a ConnectorColumn not marked invisible converts to a visible Doris column");
+    }
+
+    @Test
+    void convertColumnPropagatesInvisibleMarker() {
+        // WHY: the iceberg synthetic write columns (__DORIS_ICEBERG_ROWID_COL__ + the v3 row-lineage
+        // columns) are hidden (Column.setIsVisible(false)). Post-flip they are declared through the
+        // connector schema SPI, so the neutral ConnectorColumn must carry the invisible marker across the
+        // boundary and the converter must re-apply it (mirroring the withTimeZone marker).
+        // MUTATION: dropping the setIsVisible(false) re-apply leaves the column visible -> this turns red.
+        ConnectorType intType = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("rowid", intType, null, true, null).invisible());
+        Assertions.assertFalse(col.isVisible(),
+                "an invisible ConnectorColumn must convert to a hidden (isVisible=false) Doris column");
+    }
 }
