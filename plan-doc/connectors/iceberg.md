@@ -90,6 +90,11 @@
 
 ## 进度日志
 
+### 2026-06-25（P6.6-C1 WS-PIN：起步 recon 推翻 D4/D5 + sys 表时间旅行 pin-feed，TDD+mutation）
+- **起步 recon（独立读码 + 6-agent 对抗 wf `wf_b1bd42e4-675`/526k token）证伪 RFC §6.WS-PIN，用户 AskUserQuestion 双裁（[D-068]）**：① 普通表 pin reorder **移出 C1→P6.7**（iceberg 普通表 TT 已靠 `IcebergScanPlanProvider:705-714` workaround 正确；全局 reorder 打破 paimon `@branch` 读）；② sys 表**改用 `getQueryTableSnapshot()` 线程**而非 `implements MvccTable`（D5 因 `MvccTableInfo` key 不匹配 + `loadSnapshots(sysTable)` 从不被调用而行不通）。
+- **实现 = fe-core 唯一改点** `PluginDrivenScanNode.pinMvccSnapshot`：context 无 snapshot（sys 恒空）时 fallback `resolveSysTableSnapshotPin()` 委派**源表** `MvccTable.loadSnapshot(...)`→经既有 `applyMvccSnapshotPin` 落 sys handle。**零 SPI / 零 MvccTable-on-sys / 零 StatementContext / 零连接器改**（连接器 `getSysTableHandle`+`buildScan:338-342` useRef/useSnapshot 已 ready）。三处 pin 点自动覆盖。实现 [D-067] 所记「休眠翻闸接线」follow-up。
+- **验证**：新 `PluginDrivenScanNodeSysTablePinTest` 5 UT，全 `PluginDrivenScanNode*Test` 家族绿；mutation：fallback→empty 令 T1/T2 双红、去 both-null 短路令 T3（verifyNoInteractions）红。设计 `tasks/designs/P6.6-C1-ws-pin-design.md`。e2e（真 `t$snapshots FOR TIME AS OF`）留 P6.8 docker。**仍 pre-flip dormant**（iceberg 不在 `SPI_READY_TYPES`）。
+
 ### 2026-06-25（P6.5-T07 parity 审计 + 2 现修 + 9 gap-fill + DV 中央登记，TDD+mutation）
 
 - **对抗 byte-parity 审计 wf** `wf_d530d760-ccf`（8 area finder 覆 T02–T06 sys 路 + DESCRIBE/SHOW/info_schema parity；refute-by-default skeptic〔effort=high〕+ completeness critic；31 agent/1.6M token）= **22 finding/19 confirmed**（3 refuted 全对）。**主 session 独立读码交叉核**揭出关键 finding。

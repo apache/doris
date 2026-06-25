@@ -41,6 +41,7 @@ import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -608,7 +609,51 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private void pinMvccSnapshot() throws UserException {
         ConnectorMetadata metadata = connector.getMetadata(connectorSession);
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable());
+        if (!snapshot.isPresent()) {
+            // A normal MVCC table's snapshot is materialized into the StatementContext during analysis
+            // (StatementContext.loadSnapshots, keyed by the table); a plugin SYSTEM table's is NOT —
+            // the sys table is not an MvccTable and BindRelation short-circuits loadSnapshots for the
+            // $-suffixed relation, so getSnapshotFromContext returns empty above. Resolve the sys-table
+            // FOR TIME AS OF / @branch / @tag pin directly off the source table here so the sys handle
+            // reads at the pin (legacy IcebergScanNode.createTableScan parity) instead of silently
+            // reading latest. Returns empty for every other case, so the normal-table path is unchanged.
+            snapshot = resolveSysTableSnapshotPin();
+        }
         currentHandle = applyMvccSnapshotPin(metadata, connectorSession, currentHandle, snapshot);
+    }
+
+    /**
+     * Resolves the time-travel pin for a {@link PluginDrivenSysExternalTable} query whose pin never
+     * enters the {@link org.apache.doris.nereids.StatementContext} MVCC map (the sys table is not an
+     * {@link MvccTable}; see {@link #pinMvccSnapshot}). Delegates to the SOURCE table's
+     * {@link MvccTable#loadSnapshot} — the same resolution a normal-table read uses — so the connector's
+     * point-in-time conversion ({@code FOR VERSION/TIME AS OF} {@link org.apache.doris.analysis.TableSnapshot},
+     * {@code @branch}/{@code @tag} {@link org.apache.doris.analysis.TableScanParams}), not-found messages and
+     * mutual-exclusion check are reused verbatim. The resolved snapshot is then threaded onto the sys handle
+     * by {@link #applyMvccSnapshotPin}, which {@code IcebergConnectorMetadata.applySnapshot} preserves as a
+     * pinned SYSTEM handle (the connector's {@code planSystemTableScan} applies it).
+     *
+     * <p>Returns empty (no pin) when the target is not a sys table, when there is no time-travel selector,
+     * or — defensively — when the source is not MVCC-capable (the guard
+     * {@link #checkSysTableScanConstraints} already rejects that case for the relevant connectors).
+     *
+     * <p>Package-private + overridable so the resolution is unit-testable on a Mockito mock without a live
+     * connector (mirrors {@link #applyMvccSnapshotPin} / {@link #checkSysTableScanConstraints}).
+     */
+    Optional<MvccSnapshot> resolveSysTableSnapshotPin() throws UserException {
+        if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
+            return Optional.empty();
+        }
+        if (getQueryTableSnapshot() == null && getScanParams() == null) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalTable source = ((PluginDrivenSysExternalTable) getTargetTable()).getSourceTable();
+        if (!(source instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        return Optional.of(((MvccTable) source).loadSnapshot(
+                Optional.ofNullable(getQueryTableSnapshot()),
+                Optional.ofNullable(getScanParams())));
     }
 
     /**
