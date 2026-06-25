@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
@@ -131,6 +132,7 @@ public class NereidsPlanner extends Planner {
     private DescriptorTable descTable;
 
     private FragmentIdMapping<DistributedPlan> distributedPlans;
+    private PlanTranslatorContext planTranslatorContext;
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
@@ -634,7 +636,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
@@ -740,6 +742,19 @@ public class NereidsPlanner extends Planner {
 
         splitFragments(physicalPlan);
         doDistribute(canUseNereidsDistributePlanner, explainLevel);
+
+        addLocalExchangeAfterDistribute();
+    }
+
+    private void addLocalExchangeAfterDistribute() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        if (!sessionVariable.isEnableLocalShufflePlanner() || !sessionVariable.isEnableLocalShuffle()) {
+            return;
+        }
+        AddLocalExchange adder = new AddLocalExchange();
+        if (distributedPlans != null && !distributedPlans.isEmpty()) {
+            adder.addLocalExchange(distributedPlans, planTranslatorContext);
+        }
     }
 
     protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {

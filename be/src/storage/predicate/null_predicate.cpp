@@ -71,11 +71,9 @@ uint16_t NullPredicate::_evaluate_inner(const IColumn& column, uint16_t* sel, ui
         }
         auto& pred_col = nullable->get_null_map_data();
         constexpr bool is_nullable = true;
-#define EVALUATE_WITH_NULL_IMPL(IDX) pred_col[IDX] == _is_null
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) true
-        EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
-#undef EVALUATE_WITH_NULL_IMPL
-#undef EVALUATE_WITHOUT_NULL_IMPL
+        auto with_null = [&](uint16_t idx) { return pred_col[idx] == _is_null; };
+        auto without_null = [](uint16_t) { return true; };
+        evaluate_by_selector<is_nullable>(pred_col, size, sel, new_size, with_null, without_null);
         return new_size;
     } else {
         if (_is_null) return 0;

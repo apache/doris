@@ -31,6 +31,7 @@
 #include <google/protobuf/stubs/callback.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 
 #include <atomic>
@@ -524,6 +525,14 @@ public:
                       std::unordered_set<int64_t> unfinished_node_channel_ids,
                       bool need_wait_after_quorum_success);
 
+    int64_t close_wait_version() const {
+        return _close_wait_version.load(std::memory_order_acquire);
+    }
+
+    void wait_for_close_event(int64_t observed_version, int64_t timeout_ms);
+
+    void notify_close_wait();
+
     Status check_each_node_channel_close(
             std::unordered_set<int64_t>* unfinished_node_channel_ids,
             std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
@@ -614,6 +623,10 @@ private:
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
 
     int64_t _start_time = 0;
+
+    std::atomic<int64_t> _close_wait_version {0};
+    bthread::Mutex _close_wait_mutex;
+    bthread::ConditionVariable _close_wait_cv;
 };
 } // namespace doris
 

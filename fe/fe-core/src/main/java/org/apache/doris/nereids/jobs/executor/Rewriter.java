@@ -604,7 +604,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
                                 topDown(new MergeOneRowRelationIntoUnion()),
-                                costBased(topDown(new InferSetOperatorDistinct())),
+                                topDown(new InferSetOperatorDistinct()),
                                 topDown(new BuildAggForUnion()),
                                 bottomUp(new EliminateEmptyRelation()),
                                 // when union has empty relation child and constantExprsList is not empty,

@@ -563,9 +563,10 @@ public:
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
-    using ColumnCallback = std::function<void(WrappedPtr&)>;
-    using ImutableColumnCallback = std::function<void(const IColumn&)>;
-    virtual void for_each_subcolumn(ColumnCallback) {}
+    using MutableColumnCallback = std::function<void(WrappedPtr&)>;
+    using ColumnCallback = std::function<void(const IColumn&)>;
+    virtual void for_each_subcolumn(MutableColumnCallback) {}
+    virtual void for_each_subcolumn(ColumnCallback) const {}
 
     /// Columns have equal structure.
     /// If true - you can use "compare_at", "insert_from", etc. methods.

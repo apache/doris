@@ -321,6 +321,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
                 read_options.stats->filtered_segment_number++;
+                read_options.stats->rows_stats_filtered += num_rows();
                 return Status::OK();
             }
         }
