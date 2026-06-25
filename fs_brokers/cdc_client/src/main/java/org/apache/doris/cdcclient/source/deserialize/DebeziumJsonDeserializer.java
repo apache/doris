@@ -34,15 +34,18 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -413,50 +416,26 @@ public class DebeziumJsonDeserializer
     }
 
     // Format a since-midnight time value given as total microseconds (may be negative or exceed
-    // 24h) as MySQL TIME literal text: ±HH:MM:SS[.ffffff], stripping trailing fractional zeros.
-    // Built by hand instead of String.format/regex so the per-row path stays allocation-light and
-    // locale-independent (always ASCII digits, never localized by the JVM default locale). MySQL/PG
-    // TIME stays well within the long range, so negating microsTotal cannot overflow.
+    // 24h) as MySQL TIME literal text: ±HH:MM:SS[.ffffff], with trailing fractional zeros removed.
     private static String formatTimeText(long microsTotal) {
-        long abs = microsTotal < 0 ? -microsTotal : microsTotal;
-        long hours = abs / 3_600_000_000L;
-        long rem = abs % 3_600_000_000L;
-        long minutes = rem / 60_000_000L;
-        rem %= 60_000_000L;
-        long seconds = rem / 1_000_000L;
-        long frac = rem % 1_000_000L;
-        StringBuilder sb = new StringBuilder(16);
-        if (microsTotal < 0) {
-            sb.append('-');
-        }
-        // hours keeps a minimum of two digits but may be longer (e.g. 838); minutes/seconds are
-        // always < 60, so exactly two digits.
-        appendAtLeastTwoDigits(sb, hours).append(':');
-        appendAtLeastTwoDigits(sb, minutes).append(':');
-        appendAtLeastTwoDigits(sb, seconds);
-        if (frac != 0) {
-            sb.append('.');
-            int start = sb.length();
+        String sign = microsTotal < 0 ? "-" : "";
+        Duration d = Duration.of(Math.abs(microsTotal), ChronoUnit.MICROS);
+        StringBuilder sb = new StringBuilder(sign);
+        // toHours may exceed two digits (e.g. 838); minute/second parts are always < 60.
+        sb.append(
+                String.format(
+                        Locale.ROOT,
+                        "%02d:%02d:%02d",
+                        d.toHours(),
+                        d.toMinutesPart(),
+                        d.toSecondsPart()));
+        long micros = d.toNanosPart() / 1000L;
+        if (micros > 0) {
             // six-digit zero-padded micros, then drop trailing zeros (e.g. 500000 -> "5").
-            String f = Long.toString(frac);
-            for (int pad = 6 - f.length(); pad > 0; pad--) {
-                sb.append('0');
-            }
-            sb.append(f);
-            int end = sb.length();
-            while (end > start + 1 && sb.charAt(end - 1) == '0') {
-                end--;
-            }
-            sb.setLength(end);
+            sb.append('.')
+                    .append(StringUtils.stripEnd(String.format(Locale.ROOT, "%06d", micros), "0"));
         }
         return sb.toString();
-    }
-
-    private static StringBuilder appendAtLeastTwoDigits(StringBuilder sb, long value) {
-        if (value < 10) {
-            sb.append('0');
-        }
-        return sb.append(value);
     }
 
     protected Object convertToTime(Object dbzObj, Schema schema) {
