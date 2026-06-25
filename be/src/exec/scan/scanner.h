@@ -117,6 +117,13 @@ protected:
     // Update the counters before closing this scanner
     virtual void _collect_profile_before_close();
 
+    // Whether rows filtered/unselected by this scanner should be reported to the load
+    // counters in RuntimeState. Only the scanner reading the load source data should
+    // report, otherwise rows filtered by query predicates (e.g. in INSERT INTO ... SELECT
+    // or DELETE FROM ... WHERE) would be mixed into load counters and make
+    // num_rows_load_success() negative.
+    virtual bool _should_update_load_counters() const { return _is_load; }
+
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
 
