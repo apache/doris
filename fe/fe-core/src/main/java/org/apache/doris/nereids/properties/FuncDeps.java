@@ -146,7 +146,7 @@ public class FuncDeps {
      * Given:
      * - Initial slots: {{A}, {B}, {C}, {D}, {E}}
      * - Required outputs: {}
-     * - validItems: {A} -> {B}, {B} -> {C}, {C} -> {D}, {D} -> {A}, {A} -> {E}
+     * - validItems: {A} -> {B}, {B} -> {C}, {C} -> {D}, {D} -> {E}, {A} -> {E}
      *
      * Process:
      * 1. Start with minSlotSet = {{A}, {B}, {C}, {D}, {E}}
@@ -163,7 +163,8 @@ public class FuncDeps {
      * </p>
      *
      * @param slots the initial set of slot sets to be reduced
-     * @param requireOutputs the set of slots that must be preserved in the output
+     * @param requireOutputs output-required slots; used in circular-dependency
+     *        resolution to avoid eliminating FD edges that originate from these slots
      * @return the minimal set of slot sets after applying all possible reductions
      */
     public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots, Set<Slot> requireOutputs) {

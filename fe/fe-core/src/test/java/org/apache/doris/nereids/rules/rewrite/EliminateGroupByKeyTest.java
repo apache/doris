@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.FuncDeps;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -99,7 +101,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
     void testEliminateByUniform() {
         PlanChecker.from(connectContext)
                 .analyze("select count(name) from t1 where id = 1 group by name, id")
-                .rewrite()
+                .customRewrite(new EliminateGroupByKey())
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
@@ -109,7 +111,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
     void testProjectAlias() {
         PlanChecker.from(connectContext)
                 .analyze("select id as c from t1 where id = 1 group by name, id")
-                .rewrite()
+                .customRewrite(new EliminateGroupByKey())
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1));
@@ -179,6 +181,25 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1
                                 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
+    }
+
+    @Test
+    void testEliminateByPkWithOutputNeeded() throws Exception {
+        // Regression: when a group-by key (name) is FD-redundant (id -> name)
+        // but still appears in SELECT, it should be removed from group-by
+        // and wrapped with ANY_VALUE in the output.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        PlanChecker.from(connectContext)
+                .analyze("select id, name, count(*) from t1 group by id, name")
+                .customRewrite(new EliminateGroupByKey())
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("id")
+                                && agg.getOutputExpressions().stream().anyMatch(
+                                        e -> e instanceof Alias
+                                                && e.child(0) instanceof AnyValue)));
+        dropConstraint("alter table t1 drop constraint pk2");
     }
 
     @Test
