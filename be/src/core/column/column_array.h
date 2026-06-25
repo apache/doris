@@ -216,7 +216,7 @@ public:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
+    void for_each_subcolumn(MutableColumnCallback callback) override {
         IColumn::WrappedPtr offsets_column(std::move(static_cast<ColumnOffsets::Ptr&>(offsets)));
         Defer defer([&] {
             static_cast<ColumnOffsets::Ptr&>(offsets) =
@@ -224,6 +224,11 @@ public:
         });
         callback(offsets_column);
         callback(data);
+    }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const ColumnOffsets::Ptr&>(offsets));
+        callback(*static_cast<const IColumn::Ptr&>(data));
     }
 
     ColumnPtr convert_column_if_overflow() override {
