@@ -93,7 +93,7 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
             .put(WorkloadConditionOperator.LESS_EQUAl, TCompareOperator.LESS_EQUAL).build();
 
     public static final ImmutableSet<WorkloadActionType> FE_ACTION_SET
-            = new ImmutableSet.Builder<WorkloadActionType>().add(WorkloadActionType.SET_SESSION_VARIABLE).build();
+            = new ImmutableSet.Builder<WorkloadActionType>().build();
 
     public static final ImmutableSet<WorkloadMetricType> FE_METRIC_SET
             = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.USERNAME)
@@ -285,7 +285,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
 
         Set<WorkloadActionType> actionTypeSet = new HashSet<>();
-        Set<String> setSessionVarSet = new HashSet<>();
         boolean containsFeAction = false;
         boolean containsBeAction = false;
         for (WorkloadAction action : actionList) {
@@ -300,14 +299,7 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
                         "one policy can not contains fe and be action, FE action list is " + FE_ACTION_SET
                                 + ", BE action list is " + BE_ACTION_SET);
             }
-            // set session var cmd can be duplicate, but args can not be duplicate
-            if (action.getWorkloadActionType().equals(WorkloadActionType.SET_SESSION_VARIABLE)) {
-                WorkloadActionSetSessionVar setAction = (WorkloadActionSetSessionVar) action;
-                if (!setSessionVarSet.add(setAction.getVarName())) {
-                    throw new UserException(
-                            "duplicate set_session_variable action args one policy, " + setAction.getVarName());
-                }
-            } else if (!actionTypeSet.add(action.getWorkloadActionType())) {
+            if (!actionTypeSet.add(action.getWorkloadActionType())) {
                 throw new UserException("duplicate action in one policy");
             }
         }
