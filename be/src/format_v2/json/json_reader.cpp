@@ -54,11 +54,6 @@
 namespace doris::format::json {
 namespace {
 
-DataTypePtr nullable_type(DataTypePtr type) {
-    return type != nullptr && type->is_nullable() ? std::move(type)
-                                                  : make_nullable(std::move(type));
-}
-
 DataTypePtr json_file_type_from_slot_type(const DataTypePtr& type) {
     if (type == nullptr) {
         return nullptr;
@@ -226,7 +221,7 @@ Status JsonReader::init(RuntimeState* state) {
         field.identifier = Field::create_field<TYPE_STRING>(slot->col_name());
         field.local_id = cast_set<int32_t>(idx);
         field.name = slot->col_name();
-        field.type = nullable_type(json_file_type_from_slot_type(slot->get_data_type_ptr()));
+        field.type = json_file_type_from_slot_type(slot->get_data_type_ptr());
         field.children = synthesize_file_children_from_type(field.type);
         _file_schema.push_back(std::move(field));
     }

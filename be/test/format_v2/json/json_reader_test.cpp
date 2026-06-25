@@ -200,6 +200,11 @@ std::string nullable_string_at(const IColumn& column, size_t row) {
     return nested.get_data_at(row).to_string();
 }
 
+std::string string_at(const IColumn& column, size_t row) {
+    const auto& nested = assert_cast<const ColumnString&>(column);
+    return nested.get_data_at(row).to_string();
+}
+
 int32_t nullable_int_at(const IColumn& column, size_t row) {
     const auto& nullable = assert_cast<const ColumnNullable&>(column);
     const auto& nested = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
@@ -342,9 +347,12 @@ TEST(JsonReaderTest, ReadsPresentRequiredColumn) {
                             json_scan_params(), slots, {0, 1});
 
     ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    ASSERT_EQ(result.schema.size(), 2);
+    EXPECT_TRUE(result.schema[0].type->is_nullable());
+    EXPECT_FALSE(result.schema[1].type->is_nullable());
     ASSERT_EQ(result.rows, 1);
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 14);
-    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "mallory");
+    EXPECT_EQ(string_at(*result.block.get_by_position(1).column, 0), "mallory");
 }
 
 TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {
