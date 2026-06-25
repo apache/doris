@@ -24,6 +24,9 @@ import java.util.Objects;
  */
 public final class ConnectorColumn {
 
+    /** Sentinel for "no reserved field id declared"; mirrors Doris Column's default uniqueId. */
+    public static final int UNSET_UNIQUE_ID = -1;
+
     private final String name;
     private final ConnectorType type;
     private final String comment;
@@ -42,6 +45,12 @@ public final class ConnectorColumn {
     // SPI (e.g. iceberg's __DORIS_ICEBERG_ROWID_COL__ / v3 row-lineage), which must stay hidden. Defaults
     // true (visible); set via invisible().
     private final boolean visible;
+    // Reserved Doris field id (Column uniqueId). fe-core's ConnectorColumnConverter re-applies it via
+    // Column.setUniqueId() only when set (>= 0). Used by synthetic write columns whose Doris column identity
+    // must equal a connector-reserved field id (e.g. iceberg v3 row-lineage _row_id=2147483540 /
+    // _last_updated_sequence_number=2147483539, matched by field id BE-side). Defaults UNSET_UNIQUE_ID (-1),
+    // leaving the Doris default untouched; set via withUniqueId().
+    private final int uniqueId;
 
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue) {
@@ -61,12 +70,13 @@ public final class ConnectorColumn {
     public ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
             boolean isAggregated) {
-        this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true);
+        this(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated, false, true,
+                UNSET_UNIQUE_ID);
     }
 
     private ConnectorColumn(String name, ConnectorType type, String comment,
             boolean nullable, String defaultValue, boolean isKey, boolean isAutoInc,
-            boolean isAggregated, boolean withTimeZone, boolean visible) {
+            boolean isAggregated, boolean withTimeZone, boolean visible, int uniqueId) {
         this.name = Objects.requireNonNull(name, "name");
         this.type = Objects.requireNonNull(type, "type");
         this.comment = comment;
@@ -77,6 +87,7 @@ public final class ConnectorColumn {
         this.isAggregated = isAggregated;
         this.withTimeZone = withTimeZone;
         this.visible = visible;
+        this.uniqueId = uniqueId;
     }
 
     /**
@@ -86,7 +97,7 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn withTimeZone() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, true, visible);
+                isKey, isAutoInc, isAggregated, true, visible, uniqueId);
     }
 
     /**
@@ -95,7 +106,18 @@ public final class ConnectorColumn {
      */
     public ConnectorColumn invisible() {
         return new ConnectorColumn(name, type, comment, nullable, defaultValue,
-                isKey, isAutoInc, isAggregated, withTimeZone, false);
+                isKey, isAutoInc, isAggregated, withTimeZone, false, uniqueId);
+    }
+
+    /**
+     * Returns a copy of this column carrying the given reserved field id. See {@link #getUniqueId()}; the
+     * converter re-applies it via {@code Column.setUniqueId()} only when set (&gt;= 0). Used to declare
+     * synthetic write columns whose Doris column identity must equal a connector-reserved field id
+     * (iceberg v3 row-lineage).
+     */
+    public ConnectorColumn withUniqueId(int uniqueId) {
+        return new ConnectorColumn(name, type, comment, nullable, defaultValue,
+                isKey, isAutoInc, isAggregated, withTimeZone, visible, uniqueId);
     }
 
     public String getName() {
@@ -138,6 +160,10 @@ public final class ConnectorColumn {
         return visible;
     }
 
+    public int getUniqueId() {
+        return uniqueId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -153,6 +179,7 @@ public final class ConnectorColumn {
                 && isAggregated == that.isAggregated
                 && withTimeZone == that.withTimeZone
                 && visible == that.visible
+                && uniqueId == that.uniqueId
                 && name.equals(that.name)
                 && type.equals(that.type)
                 && Objects.equals(comment, that.comment)
@@ -162,7 +189,7 @@ public final class ConnectorColumn {
     @Override
     public int hashCode() {
         return Objects.hash(name, type, comment, nullable, defaultValue, isKey, isAutoInc, isAggregated,
-                withTimeZone, visible);
+                withTimeZone, visible, uniqueId);
     }
 
     @Override

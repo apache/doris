@@ -208,4 +208,35 @@ class ConnectorColumnConverterTest {
         Assertions.assertFalse(col.isVisible(),
                 "an invisible ConnectorColumn must convert to a hidden (isVisible=false) Doris column");
     }
+
+    @Test
+    void convertColumnDefaultsToUnsetUniqueId() {
+        // Regression guard: a ConnectorColumn that does not carry a reserved field id must leave the Doris
+        // Column at its default unset (-1) uniqueId — the converter must not stamp an id where none was
+        // declared. Mirrors convertColumnDefaultsToVisible.
+        ConnectorType bigintType = ConnectorColumnConverter.toConnectorType(ScalarType.BIGINT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("c", bigintType, null, true, null));
+        Assertions.assertEquals(-1, col.getUniqueId(),
+                "a ConnectorColumn without withUniqueId() converts to a Doris column with the default -1 uniqueId");
+    }
+
+    @Test
+    void convertColumnPropagatesUniqueId() {
+        // WHY: the iceberg v3 row-lineage columns must keep their reserved field ids across the SPI boundary
+        // (_row_id=2147483540, _last_updated_sequence_number=2147483539), which BE matches by field id when
+        // reading lineage from iceberg data files. Post-flip the connector declares them through the schema
+        // SPI as invisible() + withUniqueId(reservedId), so both markers must survive the immutable-copy
+        // chain AND the converter must re-apply Column.setUniqueId(). The .withUniqueId(...).invisible()
+        // chaining order verifies invisible() preserves the carried uniqueId.
+        // MUTATION: dropping the setUniqueId(cc.getUniqueId()) re-apply leaves the id at -1 -> this turns red.
+        ConnectorType bigintType = ConnectorColumnConverter.toConnectorType(ScalarType.BIGINT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("_row_id", bigintType, null, true, null)
+                        .withUniqueId(2147483540).invisible());
+        Assertions.assertEquals(2147483540, col.getUniqueId(),
+                "an invisible ConnectorColumn carrying a reserved uniqueId must convert to a Doris column with that id");
+        Assertions.assertFalse(col.isVisible(),
+                "the invisible marker must survive alongside the carried uniqueId");
+    }
 }

@@ -81,6 +81,14 @@ public final class ConnectorColumnConverter {
         if (!cc.isVisible()) {
             column.setIsVisible(false);
         }
+        // Re-apply the reserved field id the connector carried across the SPI boundary
+        // (ConnectorColumn.withUniqueId()), so synthetic write columns whose Doris identity must equal a
+        // connector-reserved field id keep it (iceberg v3 row-lineage _row_id=2147483540 /
+        // _last_updated_sequence_number=2147483539, matched by field id BE-side). A Doris Column defaults to
+        // an unset (-1) uniqueId, so only a set (>= 0) id is re-applied.
+        if (cc.getUniqueId() >= 0) {
+            column.setUniqueId(cc.getUniqueId());
+        }
         return column;
     }
 
