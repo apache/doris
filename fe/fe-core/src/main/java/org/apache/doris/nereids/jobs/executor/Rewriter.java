@@ -675,7 +675,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
-                        topDown(new EliminateGroupByKey()),
+                        custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
