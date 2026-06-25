@@ -46,6 +46,7 @@ public:
     }
 
     std::string debug_string() override {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         return fmt::format(
                 "Merger: ({}, expected_producer_num: {}, received_producer_num: {}, "
                 "received_rf_size_num: {}, received_sum_size: {})",
@@ -54,12 +55,15 @@ public:
     }
 
     // If input is a disabled predicate, the final result is a disabled predicate.
-    Status merge_from(const RuntimeFilter* other) {
+    // Returns true only for the call that makes the merger ready.
+    Status merge_from(const RuntimeFilter* other, bool* ready) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         _received_producer_num++;
         if (_expected_producer_num < _received_producer_num) {
             return Status::InternalError(
                     "runtime filter merger input product more than expected, {}", debug_string());
         }
+        *ready = _received_producer_num == _expected_producer_num;
         if (_received_producer_num == _expected_producer_num) {
             _rf_state = State::READY;
         }
@@ -72,6 +76,7 @@ public:
     }
 
     void set_expected_producer_num(int num) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_received_producer_num > 0 || _received_rf_size_num > 0) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "runtime filter merger set expected producer after receive data, {}",
@@ -80,9 +85,13 @@ public:
         _expected_producer_num = num;
     }
 
-    int get_expected_producer_num() const { return _expected_producer_num; }
+    int get_expected_producer_num() {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        return _expected_producer_num;
+    }
 
     bool add_rf_size(uint64_t size) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         _received_rf_size_num++;
         if (_expected_producer_num < _received_rf_size_num) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -93,18 +102,9 @@ public:
         return (_received_rf_size_num == _expected_producer_num);
     }
 
-    uint64_t get_received_sum_size() const { return _received_sum_size; }
-
-    bool ready() const { return _rf_state == State::READY; }
-
-    void set_wrapper_state_and_ready_to_apply(RuntimeFilterWrapper::State state,
-                                              std::string reason = "") {
+    uint64_t get_received_sum_size() {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
-        if (_rf_state == State::READY) {
-            return;
-        }
-        _wrapper->set_state(state, reason);
-        _rf_state = State::READY;
+        return _received_sum_size;
     }
 
 private:

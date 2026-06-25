@@ -53,20 +53,20 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
-        LocalMergeContext* context = nullptr;
-        RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                _wrapper->filter_id(), &context));
-        if (context == nullptr) {
+        LocalMergeContextSnapshot snapshot;
+        RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_snapshot(
+                _wrapper->filter_id(), _stage, &snapshot));
+        if (!snapshot.merger) {
             // Filter was removed during a recursive CTE stage reset; this producer is stale.
             return Status::OK();
         }
-        std::lock_guard l(context->mtx);
-        RETURN_IF_ERROR(context->merger->merge_from(this));
-        if (context->merger->ready()) {
+        bool ready = false;
+        RETURN_IF_ERROR(snapshot.merger->merge_from(this, &ready));
+        if (ready) {
             if (_has_remote_target) {
-                RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
+                RETURN_IF_ERROR(_send_to_remote_targets(state, snapshot.merger.get()));
             } else {
-                RETURN_IF_ERROR(_send_to_local_targets(state, context->merger.get(), true));
+                RETURN_IF_ERROR(_send_to_local_targets(state, snapshot.merger.get(), true));
             }
         }
         return Status::OK();
@@ -123,26 +123,26 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
     if (_need_do_merge(state)) {
-        LocalMergeContext* merger_context = nullptr;
-        RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                _wrapper->filter_id(), &merger_context));
-        if (merger_context == nullptr) {
+        LocalMergeContextSnapshot snapshot;
+        RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_snapshot(
+                _wrapper->filter_id(), _stage, &snapshot));
+        if (!snapshot.merger) {
             // Filter was removed during a recursive CTE stage reset; this producer is stale.
             return Status::OK();
         }
-        std::lock_guard merger_lock(merger_context->mtx);
-        if (merger_context->merger->add_rf_size(local_filter_size)) {
-            if (!_has_remote_target) {
-                for (auto filter : merger_context->producers) {
-                    filter->set_synced_size(merger_context->merger->get_received_sum_size());
-                }
-                return Status::OK();
-            } else {
-                local_filter_size = merger_context->merger->get_received_sum_size();
-            }
-        } else {
+        uint64_t received_sum_size = 0;
+        bool ready_to_sync = snapshot.merger->add_rf_size(local_filter_size);
+        if (!ready_to_sync) {
             return Status::OK();
         }
+        received_sum_size = snapshot.merger->get_received_sum_size();
+        if (!_has_remote_target) {
+            for (const auto& filter : snapshot.producers) {
+                filter->set_synced_size(received_sum_size);
+            }
+            return Status::OK();
+        }
+        local_filter_size = received_sum_size;
 
     } else if (!_has_remote_target) {
         set_synced_size(local_filter_size);

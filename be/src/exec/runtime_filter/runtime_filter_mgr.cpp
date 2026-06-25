@@ -104,27 +104,60 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
 Status LocalMergeContext::register_producer(const QueryContext* query_ctx,
                                             const TRuntimeFilterDesc* desc,
                                             std::shared_ptr<RuntimeFilterProducer> producer) {
-    std::lock_guard<std::mutex> l(mtx);
-    if (producer->stage() > stage) {
+    std::lock_guard<std::mutex> l(_mtx);
+    if (producer->stage() > _stage) {
         // New recursive CTE round: discard stale merger and producers from
         // the previous round and recreate the merger for the new round.
-        merger.reset();
-        producers.clear();
-        stage = producer->stage();
+        _merger.reset();
+        _producers.clear();
+        _stage = producer->stage();
     }
-    if (!merger) {
-        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, desc, &merger));
+    if (!_merger) {
+        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, desc, &_merger));
     }
-    producers.emplace_back(producer);
-    merger->set_expected_producer_num(cast_set<int>(producers.size()));
+    _producers.emplace_back(producer);
+    _merger->set_expected_producer_num(cast_set<int>(_producers.size()));
     // Sync the local merger's stage from the producer so that outgoing merge RPCs
     // (via _push_to_remote) carry the correct recursive CTE round number.
-    merger->set_stage(producer->stage());
+    _merger->set_stage(producer->stage());
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
-                                                          LocalMergeContext** local_merge_filters) {
+Status LocalMergeContext::snapshot(uint32_t expected_stage, LocalMergeContextSnapshot* snapshot) {
+    std::lock_guard<std::mutex> l(_mtx);
+    if (expected_stage != _stage) {
+        return Status::OK();
+    }
+    if (!_merger) {
+        return Status::InternalError("local merge context merger is nullptr");
+    }
+    snapshot->merger = _merger;
+    snapshot->producers = _producers;
+    return Status::OK();
+}
+
+std::string LocalMergeContext::debug_string() {
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+    uint32_t stage = 0;
+    {
+        std::lock_guard<std::mutex> l(_mtx);
+        merger = _merger;
+        producers = _producers;
+        stage = _stage;
+    }
+
+    std::string result =
+            fmt::format("stage: {}, {}\n", stage,
+                        merger ? merger->debug_string() : "local merge context merger is nullptr");
+    for (const auto& producer : producers) {
+        result += fmt::format("{}\n", producer->debug_string());
+    }
+    return result;
+}
+
+Status RuntimeFilterMgr::get_local_merge_snapshot(int filter_id, uint32_t expected_stage,
+                                                  LocalMergeContextSnapshot* snapshot) {
     if (!_is_global) [[unlikely]] {
         return Status::InternalError(
                 "A local merge filter can not be registered in Local RuntimeFilterMgr");
@@ -132,17 +165,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_map.find(filter_id);
     if (iter == _local_merge_map.end()) {
-        // Filter may have been removed during a recursive CTE stage reset.
         // Return OK with nullptr to let the caller skip gracefully.
-        *local_merge_filters = nullptr;
         return Status::OK();
     }
-    *local_merge_filters = &iter->second;
-    if (!iter->second.merger) {
-        return Status::InternalError("local merge context merger is nullptr for filter_id: {}",
-                                     filter_id);
-    }
-    return Status::OK();
+    return iter->second.snapshot(expected_stage, snapshot);
 }
 
 Status RuntimeFilterMgr::register_producer_filter(
@@ -260,6 +286,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     Status st = Status::OK();
     // After all runtime filters' size are collected, we should send response to all producers.
     if (cnt_val.merger->add_rf_size(request->filter_size())) {
+        uint64_t received_sum_size = cnt_val.merger->get_received_sum_size();
         cnt_val.sync_size_callbacks.resize(cnt_val.source_addrs.size());
         for (size_t i = 0; i < cnt_val.source_addrs.size(); ++i) {
             auto& addr = cnt_val.source_addrs[i];
@@ -294,7 +321,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
             }
 
             closure->request_->set_filter_id(filter_id);
-            closure->request_->set_filter_size(cnt_val.merger->get_received_sum_size());
+            closure->request_->set_filter_size(received_sum_size);
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
                                    closure->response_.get(), closure.get());
             closure.release();
@@ -304,13 +331,13 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 }
 
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
-    LocalMergeContext* local_merge_filters = nullptr;
-    RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
-    if (local_merge_filters == nullptr) {
+    LocalMergeContextSnapshot snapshot;
+    RETURN_IF_ERROR(get_local_merge_snapshot(request->filter_id(), request->stage(), &snapshot));
+    if (!snapshot.merger) {
         // Filter was removed during a recursive CTE stage reset; discard stale request.
         return Status::OK();
     }
-    for (auto producer : local_merge_filters->producers) {
+    for (const auto& producer : snapshot.producers) {
         producer->set_synced_size(request->filter_size());
     }
     return Status::OK();
@@ -318,18 +345,23 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 
 std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Local Merger Info:\n";
-    std::lock_guard l(_lock);
-    for (const auto& [filter_id, ctx] : _local_merge_map) {
-        result += fmt::format("{}\n", ctx.merger->debug_string());
-        for (const auto& producer : ctx.producers) {
-            result += fmt::format("{}\n", producer->debug_string());
+    std::vector<std::pair<int32_t, LocalMergeContext*>> local_merge_contexts;
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> consumers;
+    {
+        std::lock_guard l(_lock);
+        for (auto& [filter_id, ctx] : _local_merge_map) {
+            local_merge_contexts.emplace_back(filter_id, &ctx);
+        }
+        for (const auto& [filter_id, filter_consumers] : _consumer_map) {
+            consumers.insert(consumers.end(), filter_consumers.begin(), filter_consumers.end());
         }
     }
+    for (const auto& [filter_id, ctx] : local_merge_contexts) {
+        result += fmt::format("filter_id: {}, {}", filter_id, ctx->debug_string());
+    }
     result += "Consumer Info:\n";
-    for (const auto& [filter_id, consumers] : _consumer_map) {
-        for (const auto& consumer : consumers) {
-            result += fmt::format("{}\n", consumer->debug_string());
-        }
+    for (const auto& consumer : consumers) {
+        result += fmt::format("{}\n", consumer->debug_string());
     }
     return result;
 }
@@ -373,10 +405,9 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
 
         RETURN_IF_ERROR(tmp_filter->assign(*request, attach_data));
 
-        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get()));
+        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get(), &is_ready));
 
         cnt_val.arrive_id.insert(UniqueId(request->fragment_instance_id()));
-        is_ready = cnt_val.merger->ready(); // update is_ready in locked scope
     }
 
     if (is_ready) {

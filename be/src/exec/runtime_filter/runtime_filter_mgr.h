@@ -55,16 +55,25 @@ template <typename Response>
 class HandleErrorBrpcCallback;
 class SyncSizeCallback;
 
-struct LocalMergeContext {
-    std::mutex mtx;
+struct LocalMergeContextSnapshot {
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
-    // Tracks the recursive CTE round.  When a producer from a newer round
-    // registers, the context is reset (merger recreated, old producers dropped).
-    uint32_t stage = 0;
+};
 
+class LocalMergeContext {
+public:
     Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                              std::shared_ptr<RuntimeFilterProducer> producer);
+    Status snapshot(uint32_t expected_stage, LocalMergeContextSnapshot* snapshot);
+    std::string debug_string();
+
+private:
+    std::mutex _mtx;
+    std::shared_ptr<RuntimeFilterMerger> _merger;
+    std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
+    // Tracks the recursive CTE round.  When a producer from a newer round
+    // registers, the context is reset (merger recreated, old producers dropped).
+    uint32_t _stage = 0;
 };
 
 struct GlobalMergeContext {
@@ -102,7 +111,8 @@ public:
                                                  const TRuntimeFilterDesc& desc,
                                                  std::shared_ptr<RuntimeFilterProducer> producer);
 
-    Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
+    Status get_local_merge_snapshot(int filter_id, uint32_t expected_stage,
+                                    LocalMergeContextSnapshot* snapshot);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
     Status register_producer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
