@@ -648,7 +648,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
 }
 
 TEST(DataTypeSerDePbTest, DataTypeTimeStampTzToProtobufKeepsScale) {
-    auto data_type = std::make_shared<DataTypeTimeStampTz>(6);
+    DataTypePtr data_type(std::make_shared<DataTypeTimeStampTz>(6));
     PTypeDesc type_desc;
     data_type->to_protobuf(&type_desc);
 
