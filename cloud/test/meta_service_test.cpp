@@ -2078,6 +2078,7 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
 
     // commit txn
     CommitTxnRequest req;
+    int64_t version_update_time_ms = 0;
     {
         brpc::Controller cntl;
         req.set_cloud_unique_id("test_cloud_unique_id");
@@ -2110,6 +2111,9 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_version_update_time_ms());
+        ASSERT_GT(res.version_update_time_ms(), 0);
+        version_update_time_ms = res.version_update_time_ms();
         // std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
 
@@ -2211,18 +2215,24 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         std::string ver_val;
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
         VersionPB version;
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p2});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 2);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         ver_key = partition_version_key({mock_instance, db_id, t1, t1_p1});
         ASSERT_EQ(txn->get(ver_key, &ver_val), TxnErrorCode::TXN_OK);
-        version.ParseFromString(ver_val);
+        ASSERT_TRUE(version.ParseFromString(ver_val));
         ASSERT_EQ(version.version(), 3);
+        ASSERT_TRUE(version.has_update_time_ms());
+        ASSERT_EQ(version.update_time_ms(), version_update_time_ms);
 
         // table version
         std::string table_ver_key = table_version_key({mock_instance, db_id, t1});
