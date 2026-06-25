@@ -342,6 +342,14 @@ struct OlapReaderStatistics {
     int64_t vec_cond_input_rows = 0;
     int64_t short_circuit_cond_input_rows = 0;
     int64_t expr_cond_input_rows = 0;
+
+    // Multi-stage predicate lazy materialization stats (SegmentIterator)
+    int64_t predicate_lm_stage1_input_rows = 0;
+    int64_t predicate_lm_stage1_output_rows = 0;
+    int64_t predicate_lm_stage2_by_rowids_batches = 0;
+    int64_t predicate_lm_stage2_by_all_rows_batches = 0;
+    int64_t predicate_lm_stage2_rows_read = 0;
+
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;

@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
+#include "exec/scan/predicate_lm_utils.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/function_filter.h"
 #include "exprs/vexpr.h"
@@ -154,61 +155,6 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
            stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
-}
-
-static Status parse_predicate_lm_stage1_cols_to_column_ids(const std::string& cols,
-                                                          const TabletSchemaSPtr& tablet_schema,
-                                                          std::vector<ColumnId>* column_ids) {
-    column_ids->clear();
-    if (cols.empty()) {
-        return Status::OK();
-    }
-
-    std::vector<std::string> parts = doris::split(cols, ",");
-    std::vector<std::string> missing;
-    missing.reserve(parts.size());
-
-    for (const auto& part : parts) {
-        std::string_view name_sv = doris::trim(std::string_view(part));
-        if (name_sv.empty()) {
-            continue;
-        }
-
-        // allow backticks: `col`
-        if (name_sv.size() >= 2 && name_sv.front() == '`' && name_sv.back() == '`') {
-            name_sv = name_sv.substr(1, name_sv.size() - 2);
-            name_sv = doris::trim(name_sv);
-        }
-        if (name_sv.empty()) {
-            continue;
-        }
-
-        std::string name(name_sv);
-
-        // TabletSchema stores names as-is (not guaranteed lower-case).
-        // Try exact match first, then fall back to lower-case.
-        int32_t cid = tablet_schema->field_index(name);
-        if (cid < 0) {
-            cid = tablet_schema->field_index(doris::to_lower(name));
-        }
-
-        if (cid < 0) {
-            missing.emplace_back(std::move(name));
-            continue;
-        }
-
-        column_ids->push_back(static_cast<ColumnId>(cid));
-    }
-
-    if (!missing.empty()) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "predicate_lm_stage1_cols contains non-existing columns: {}",
-                doris::join(missing, ","));
-    }
-
-    std::sort(column_ids->begin(), column_ids->end());
-    column_ids->erase(std::unique(column_ids->begin(), column_ids->end()), column_ids->end());
-    return Status::OK();
 }
 
 Status OlapScanner::_prepare_impl() {
@@ -1010,6 +956,18 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
+
+    COUNTER_UPDATE(local_state->_predicate_lm_stage1_input_rows_counter,
+                   stats.predicate_lm_stage1_input_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage1_output_rows_counter,
+                   stats.predicate_lm_stage1_output_rows);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_by_rowids_batches_counter,
+                   stats.predicate_lm_stage2_by_rowids_batches);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_by_all_rows_batches_counter,
+                   stats.predicate_lm_stage2_by_all_rows_batches);
+    COUNTER_UPDATE(local_state->_predicate_lm_stage2_rows_read_counter,
+                   stats.predicate_lm_stage2_rows_read);
+
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
     COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,

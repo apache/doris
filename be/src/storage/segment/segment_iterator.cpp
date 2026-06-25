@@ -3241,6 +3241,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                                                stage1_size);
                 _selected_size = stage1_size;
 
+                _opts.stats->predicate_lm_stage1_input_rows += rows_read;
+                _opts.stats->predicate_lm_stage1_output_rows += stage1_size;
+
                 if (stage1_size > 0) {
                     bool do_stage2 = _enable_multi_stage_predicate_lazy_materialization &&
                                      !_late_predicate_column_ids.empty() &&
@@ -3255,6 +3258,10 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                 survival_ratio <= _predicate_lm_stage1_survival_ratio_threshold;
 
                         if (stage2_by_rowids) {
+
+                            _opts.stats->predicate_lm_stage2_by_rowids_batches += 1;
+                            _opts.stats->predicate_lm_stage2_rows_read += stage1_size;
+
                             RETURN_IF_ERROR(_read_columns_by_rowids(
                                     _late_predicate_column_ids, _block_rowids,
                                     _sel_rowid_idx_stage1.data(), stage1_size,
@@ -3292,6 +3299,10 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             _selected_size = stage2_size;
                         } else {
                             uint16_t stage2_rows_read = rows_read;
+
+                            _opts.stats->predicate_lm_stage2_by_all_rows_batches += 1;
+                            _opts.stats->predicate_lm_stage2_rows_read += stage2_rows_read;
+
                             RETURN_IF_ERROR(_read_columns_by_index(_late_predicate_column_ids,
                                                                   rows_read, stage2_rows_read,
                                                                   /*read_rowids=*/false));

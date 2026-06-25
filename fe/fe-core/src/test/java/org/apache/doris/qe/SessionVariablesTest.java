@@ -27,6 +27,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -344,5 +345,28 @@ public class SessionVariablesTest extends TestWithFeService {
                         SessionVariable.IVF_NPROBE, new IntLiteral(0))));
         Assertions.assertTrue(nprobeException.getMessage().contains("ivf_nprobe must be >= 1"));
         Assertions.assertEquals(2, sv.ivfNprobe);
+    }
+
+    @Test
+    public void testMultiStagePredicateLmSessionVariablesForwardToThrift() throws Exception {
+        connectContext.setThreadLocalInfo();
+        SessionVariable sv = connectContext.getSessionVariable();
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_MULTI_STAGE_PREDICATE_LM, new StringLiteral("true")));
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                SessionVariable.PREDICATE_LM_STAGE1_COLS, new StringLiteral("a,b")));
+
+        Map<String, String> forwardVars = sv.getForwardVariables();
+        Assertions.assertEquals("true",
+                forwardVars.get(SessionVariable.ENABLE_MULTI_STAGE_PREDICATE_LM));
+        Assertions.assertEquals("a,b",
+                forwardVars.get(SessionVariable.PREDICATE_LM_STAGE1_COLS));
+
+        TQueryOptions opts = sv.toThrift();
+        Assertions.assertTrue(opts.isSetEnableMultiStagePredicateLm());
+        Assertions.assertTrue(opts.isEnableMultiStagePredicateLm());
+        Assertions.assertTrue(opts.isSetPredicateLmStage1Cols());
+        Assertions.assertEquals("a,b", opts.getPredicateLmStage1Cols());
     }
 }
