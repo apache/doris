@@ -733,6 +733,29 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 );
     }
 
+    @Test
+    public void testDistinctAggregateOrderByExpressionNeedPushDown() {
+        String sql = "select group_concat(distinct name order by id + no) from t1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matchesFromRoot(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalProject().when(project -> {
+                                                    Assertions.assertTrue(ExpressionUtils.containsTypes(
+                                                            project.getProjects(), Add.class));
+                                                    Assertions.assertTrue(project.getProjects().stream()
+                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    return true;
+                                                })
+                                        ).when(agg -> ExpressionUtils.containsTypes(
+                                                agg.getOutputExpressions(), OrderExpression.class))
+                                )
+                        )
+                );
+    }
+
     private void checkExprsToSql(Collection<? extends Expression> expressions, String... exprsToSql) {
         Assertions.assertEquals(Arrays.asList(exprsToSql),
                 expressions.stream().map(Expression::toSql).collect(Collectors.toList()));

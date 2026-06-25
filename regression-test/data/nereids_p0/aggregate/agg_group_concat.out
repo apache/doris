@@ -5,6 +5,9 @@
 -- !group_concat_order_by_subquery --
 1,1,1,1,2,2
 
+-- !group_concat_distinct_order_by_expr --
+string1,string2,string3
+
 -- !test --
 abc,abcd,eee
 

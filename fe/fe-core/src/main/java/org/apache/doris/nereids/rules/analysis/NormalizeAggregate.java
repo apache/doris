@@ -196,8 +196,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
 
-                    Collection<? extends Expression> inputSlots
-                            = arg instanceof OrderExpression ? arg.getInputSlots() : ImmutableList.of(arg);
+                    Collection<? extends Expression> inputSlots = arg instanceof OrderExpression
+                            ? ImmutableList.of(((OrderExpression) arg).child()) : ImmutableList.of(arg);
                     for (Expression input : inputSlots) {
                         if (input instanceof SlotReference) {
                             needPushDownInputs.add(input);

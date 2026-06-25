@@ -112,6 +112,11 @@ suite("agg_group_concat") {
         from agg_group_concat_table;
     """
 
+    order_qt_group_concat_distinct_order_by_expr """
+        select group_concat(distinct kstr order by kint + kbint) as s
+        from agg_group_concat_table;
+    """
+
     sql "drop table if exists test_distinct_multi"
     sql """
     create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1'); 
