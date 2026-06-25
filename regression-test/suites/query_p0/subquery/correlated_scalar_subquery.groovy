@@ -442,4 +442,41 @@ suite("correlated_scalar_subquery") {
             ) u ORDER BY 1
         ) ORDER BY c1
     """
+
+    // EXISTS over a scalar aggregate wrapped in a derived-table alias:
+    //   WHERE EXISTS (SELECT * FROM (SELECT COUNT(*) FROM (<union>) u) a)
+    // hasTopLevelScalarAgg() must see through LogicalSubQueryAlias to fold.
+    qt_exists_correlated_scalar_agg_union_derived """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+                ) u
+            ) a
+        ) ORDER BY c1
+    """
+    qt_exists_scalar_agg_union_derived """
+        SELECT EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t2
+                ) u
+            ) a
+        ) AS result
+    """
+    qt_not_exists_scalar_agg_union_derived """
+        SELECT NOT EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t2
+                ) u
+            ) a
+        ) AS result
+    """
 }

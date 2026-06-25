@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -255,13 +256,16 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
      * (aggregate without GROUP BY).  Such an aggregate is guaranteed to return
      * exactly one row regardless of its input, so EXISTS over it is always TRUE
      * and NOT EXISTS is always FALSE.  Sorting the single row cannot change
-     * EXISTS semantics, so we also strip leading LogicalSort wrappers.
+     * EXISTS semantics, so we also strip leading LogicalSort and
+     * LogicalSubQueryAlias wrappers (the latter appears during analysis before
+     * LogicalSubQueryAliasToLogicalProject is applied).
      */
     private boolean hasTopLevelScalarAgg(AnalyzedResult analyzedResult) {
         LogicalPlan plan = analyzedResult.getLogicalPlan();
-        // Strip leading projects and sorts — analysis may wrap the aggregate
-        // in a project or sort wrapper.
-        while (plan instanceof LogicalProject || plan instanceof LogicalSort) {
+        // Strip leading projects, sorts, and subquery-alias wrappers —
+        // analysis may wrap the aggregate in any of these.
+        while (plan instanceof LogicalProject || plan instanceof LogicalSort
+                || plan instanceof LogicalSubQueryAlias) {
             plan = (LogicalPlan) plan.child(0);
         }
         if (plan instanceof LogicalAggregate) {

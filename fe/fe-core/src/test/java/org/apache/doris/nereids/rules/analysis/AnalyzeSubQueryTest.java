@@ -303,6 +303,36 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext).analyze(sql);
     }
 
+    @Test
+    public void testExistsOverScalarAggUnionDerivedTable() {
+        // EXISTS over a scalar aggregate wrapped in a derived-table alias:
+        //   WHERE EXISTS (SELECT * FROM (SELECT COUNT(*) FROM (<union>) u) a)
+        // hasTopLevelScalarAgg() must see through LogicalSubQueryAlias to fold.
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T2 t2 WHERE t1.id = t2.id"
+                + " UNION ALL "
+                + "SELECT id FROM T3 t3 WHERE t1.id = t3.id"
+                + ") u"
+                + ") a"
+                + ") ORDER BY id";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testExistsOverScalarAggUnionDerivedTableNotCorrelated() {
+        // Non-correlated variant of the derived-table shape.
+        String sql = "SELECT EXISTS ("
+                + "SELECT * FROM ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T1 UNION ALL SELECT id FROM T2"
+                + ") u"
+                + ") a"
+                + ") AS result";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql)
