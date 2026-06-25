@@ -330,6 +330,61 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void getTableSchemaEmitsPartitionColumnsForIdentityPartition() {
+        // Unpartitioned: no partition_columns key.
+        RecordingIcebergCatalogOps unpartOps = new RecordingIcebergCatalogOps();
+        unpartOps.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+        ConnectorTableSchema unpartSchema =
+                metadataWith(unpartOps).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        // WHY: post-cutover, PluginDrivenExternalTable derives its partition columns SOLELY from the
+        // generic "partition_columns" CSV property (toSchemaCacheValue), the same key MaxCompute/paimon
+        // emit. An unpartitioned table must NOT emit it, or isPartitionedTable() would be wrong post-flip.
+        // MUTATION: always emitting partition_columns -> red.
+        Assertions.assertNull(unpartSchema.getProperties().get("partition_columns"),
+                "an unpartitioned table must not carry a partition_columns property");
+
+        // Partitioned (identity on name): the source column name is surfaced under partition_columns.
+        Schema schema = idNameSchema();
+        PartitionSpec partSpec = PartitionSpec.builderFor(schema).identity("name").build();
+        RecordingIcebergCatalogOps partOps = new RecordingIcebergCatalogOps();
+        partOps.table = new FakeIcebergTable(
+                "t2", schema, partSpec, "s3://bucket/db1/t2", Collections.emptyMap());
+        ConnectorTableSchema partSchema =
+                metadataWith(partOps).getTableSchema(null, new IcebergTableHandle("db1", "t2"));
+
+        // WHY: post-flip getPartitionColumns() reads this CSV and must report the SAME partition columns
+        // legacy IcebergExternalTable did (IcebergUtils.loadTableSchemaCacheValue: spec source columns).
+        // MUTATION: dropping the partition_columns emission -> the key is absent -> red.
+        Assertions.assertEquals("name",
+                partSchema.getProperties().get("partition_columns"),
+                "a partitioned table must surface its partition source columns as a CSV");
+    }
+
+    @Test
+    public void getTableSchemaEmitsNonIdentityPartitionSourceColumns() {
+        // bucket(id) is a NON-identity transform. Legacy IcebergUtils.loadTableSchemaCacheValue walks the
+        // CURRENT spec with NO identity filter, collecting the SOURCE column ("id"). The connector must
+        // replicate THAT (not the identity-only IcebergPartitionUtils.getIdentityPartitionColumns helper),
+        // or post-flip a bucket-partitioned table would report no partition columns (parity break).
+        Schema schema = idNameSchema();
+        PartitionSpec partSpec = PartitionSpec.builderFor(schema).bucket("id", 4).build();
+        RecordingIcebergCatalogOps partOps = new RecordingIcebergCatalogOps();
+        partOps.table = new FakeIcebergTable(
+                "t3", schema, partSpec, "s3://bucket/db1/t3", Collections.emptyMap());
+        ConnectorTableSchema partSchema =
+                metadataWith(partOps).getTableSchema(null, new IcebergTableHandle("db1", "t3"));
+
+        // WHY: a bucket/truncate/day transform still has a source column that legacy treats as a partition
+        // column. MUTATION: filtering to identity transforms -> "id" absent -> red.
+        Assertions.assertEquals("id",
+                partSchema.getProperties().get("partition_columns"),
+                "a non-identity transform must still surface its source column as a partition column");
+    }
+
+    @Test
     public void getTableSchemaReadsFormatVersionFromTableProperty() {
         // WHY (T09 parity fix): legacy IcebergUtils.getFormatVersion reads the REAL table format version
         // — from BaseTable.operations().current().formatVersion(), else from the `format-version` table

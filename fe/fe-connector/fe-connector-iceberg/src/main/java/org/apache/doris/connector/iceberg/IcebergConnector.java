@@ -225,8 +225,14 @@ public class IcebergConnector implements Connector {
         // reproduces that projection only under this capability; without it a reordered/partial column
         // list (and the write-sort columnIndex, a full-schema position) would resolve against a
         // user-ordered sink output. Mirrors MaxComputeDorisConnector. Inert pre-cutover (P6.6).
+        // SUPPORTS_PARALLEL_WRITE: legacy iceberg INSERT runs through PhysicalIcebergTableSink, whose
+        // partition-hash branch is dead code (getPartitionNames() is the empty TableIf default for iceberg),
+        // so at runtime every iceberg INSERT returns SINK_RANDOM_PARTITIONED (parallel writers). The generic
+        // PhysicalConnectorTableSink reproduces that ONLY under this capability; without it it falls through
+        // to GATHER (single writer), a parallelism regression. NOT SINK_REQUIRE_PARTITION_LOCAL_SORT: legacy
+        // never sorts on write. Inert pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
-                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
+                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE);
     }
 
     private Catalog getOrCreateCatalog() {

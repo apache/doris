@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TTableType;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
@@ -234,6 +235,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         if (!table.spec().isUnpartitioned()) {
             tableProps.put("iceberg.partition-spec", table.spec().toString());
+            // Generic FE partition-column contract: post-cutover, PluginDrivenExternalTable derives the
+            // table's partition columns SOLELY from a "partition_columns" CSV property (toSchemaCacheValue),
+            // the same key MaxCompute/paimon emit. Mirror legacy IcebergUtils.loadTableSchemaCacheValue:
+            // walk the CURRENT spec, resolve each partition field's SOURCE column name (NO identity filter,
+            // NO dedupe), lowercased to match parseSchema's lowercased column names (fromRemoteColumnName is
+            // identity for iceberg, so the FE consumer looks the names up case-sensitively).
+            List<String> partitionColumns = new ArrayList<>();
+            for (PartitionField field : table.spec().fields()) {
+                Types.NestedField source = table.schema().findField(field.sourceId());
+                if (source != null) {
+                    partitionColumns.add(source.name().toLowerCase(Locale.ROOT));
+                }
+            }
+            if (!partitionColumns.isEmpty()) {
+                tableProps.put("partition_columns", String.join(",", partitionColumns));
+            }
         }
 
         return new ConnectorTableSchema(tableName, columns, "ICEBERG", tableProps);

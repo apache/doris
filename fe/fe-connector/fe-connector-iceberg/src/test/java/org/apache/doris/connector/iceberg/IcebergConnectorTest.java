@@ -116,4 +116,20 @@ public class IcebergConnectorTest {
         Assertions.assertTrue(connector.getCapabilities()
                 .contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER));
     }
+
+    @Test
+    public void declaresParallelWriteCapability() {
+        // WHY (C3b ④b): legacy iceberg INSERT distributes via PhysicalIcebergTableSink, whose partition-hash
+        // branch is DEAD (it reads getPartitionNames(), which IcebergExternalTable never overrides -> empty),
+        // so at RUNTIME every iceberg INSERT (partitioned or not) returns SINK_RANDOM_PARTITIONED (parallel
+        // writers). Post-cutover the generic PhysicalConnectorTableSink reproduces SINK_RANDOM_PARTITIONED
+        // ONLY when the connector declares SUPPORTS_PARALLEL_WRITE (else it falls through to GATHER, a single
+        // writer = a parallelism regression vs legacy). MUTATION: omitting the capability -> iceberg INSERT
+        // degrades to GATHER post-flip -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                .contains(ConnectorCapability.SUPPORTS_PARALLEL_WRITE),
+                "iceberg must declare SUPPORTS_PARALLEL_WRITE so post-flip INSERT keeps legacy random "
+                        + "(parallel) distribution instead of degrading to GATHER");
+    }
 }
