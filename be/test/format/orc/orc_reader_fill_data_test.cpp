@@ -23,6 +23,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
@@ -67,6 +68,21 @@ std::unique_ptr<orc::LongVectorBatch> create_long_batch(size_t size,
         batch->hasNulls = true;
     } else {
         batch->hasNulls = false;
+    }
+    return batch;
+}
+
+std::unique_ptr<orc::TimestampVectorBatch> create_timestamp_batch(
+        size_t size, const std::vector<int64_t>& seconds, const std::vector<int64_t>& nanoseconds) {
+    auto batch = std::make_unique<orc::TimestampVectorBatch>(size, *orc::getDefaultPool());
+    batch->resize(size);
+    batch->notNull.resize(size);
+    batch->hasNulls = false;
+
+    for (size_t i = 0; i < size; ++i) {
+        batch->notNull[i] = true;
+        batch->data[i] = seconds[i];
+        batch->nanoseconds[i] = nanoseconds[i];
     }
     return batch;
 }
@@ -160,6 +176,73 @@ TEST_F(OrcReaderFillDataTest, SchemaChangeNullableNullMapUsesAppendedSlice) {
     EXPECT_EQ(null_map[2], 1);
     EXPECT_EQ(null_map[3], 0);
     EXPECT_EQ(null_map[4], 1);
+}
+
+TEST_F(OrcReaderFillDataTest, TimestampRoundsOrcNanosToMicros) {
+    auto batch = create_timestamp_batch(1, {0}, {320999999});
+    auto data_type = std::make_shared<DataTypeDateTimeV2>(6);
+    auto column = data_type->create_column();
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::TIMESTAMP);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, nullptr, true);
+
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    Status status = reader->_fill_doris_data_column<false>(
+            "test_ts", mutable_column, data_type, const_node, orc_type_ptr.get(), batch.get(), 1);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(*mutable_column);
+    ASSERT_EQ(timestamp_column.size(), 1);
+    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 321000);
+    EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "1970-01-01 00:00:00.321000");
+}
+
+TEST_F(OrcReaderFillDataTest, NestedTimestampRoundsOrcNanosToMicros) {
+    using namespace orc;
+    std::unique_ptr<orc::Type> type(
+            orc::Type::buildTypeFromString("struct<col1:array<timestamp>>"));
+
+    WriterOptions options;
+    options.setMemoryPool(orc::getDefaultPool());
+    MemoryOutputStream memStream(1024);
+    std::unique_ptr<orc::Writer> writer = orc::createWriter(*type, &memStream, options);
+    std::unique_ptr<orc::ColumnVectorBatch> batch = writer->createRowBatch(2);
+
+    auto* struct_batch = dynamic_cast<orc::StructVectorBatch*>(batch.get());
+    auto* list_batch = dynamic_cast<orc::ListVectorBatch*>(struct_batch->fields[0]);
+    auto* timestamp_batch = dynamic_cast<orc::TimestampVectorBatch*>(list_batch->elements.get());
+
+    struct_batch->numElements = 1;
+    list_batch->numElements = 1;
+    timestamp_batch->numElements = 1;
+
+    list_batch->offsets[0] = 0;
+    list_batch->offsets[1] = 1;
+    timestamp_batch->data[0] = 0;
+    timestamp_batch->nanoseconds[0] = 320999999;
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, nullptr, true);
+
+    auto doris_struct_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {
+                    std::make_shared<DataTypeArray>(std::make_shared<DataTypeDateTimeV2>(6))},
+            std::vector<std::string> {"col1"});
+    MutableColumnPtr doris_column = doris_struct_type->create_column()->assert_mutable();
+
+    Status status = reader->_fill_doris_data_column<false>("test", doris_column, doris_struct_type,
+                                                           const_node, type.get(), struct_batch, 1);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& struct_column = assert_cast<const ColumnStruct&>(*doris_column);
+    const auto& array_column = assert_cast<const ColumnArray&>(struct_column.get_column(0));
+    const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(array_column.get_data());
+
+    ASSERT_EQ(timestamp_column.size(), 1);
+    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 321000);
 }
 
 TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {

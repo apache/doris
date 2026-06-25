@@ -32,6 +32,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
+#include "util/timezone_utils.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -42,6 +43,15 @@ enum {
 
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
+
+static Status find_orc_read_time_zone(const std::string& timezone, cctz::time_zone* ctz) {
+    const std::string tz =
+            timezone.empty() ? "UTC" : (timezone == "CST" ? "Asia/Shanghai" : timezone);
+    if (!TimezoneUtils::find_cctz_time_zone(tz, *ctz)) {
+        return Status::InternalError("Failed to find time zone {}", tz);
+    }
+    return Status::OK();
+}
 
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -487,6 +497,46 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::read_column_from_orc(const std::string& timezone, IColumn& column,
+                                                     const orc::ColumnVectorBatch* orc_col_batch,
+                                                     int64_t start, int64_t end,
+                                                     const UInt8* filter) const {
+    const auto* cur_batch = dynamic_cast<const orc::TimestampVectorBatch*>(orc_col_batch);
+    if (cur_batch == nullptr) {
+        return Status::InternalError("Wrong data type for datetimev2 column, expected {}",
+                                     orc_col_batch->toString());
+    }
+
+    cctz::time_zone ctz;
+    RETURN_IF_ERROR(find_orc_read_time_zone(timezone, &ctz));
+
+    auto& col_data = assert_cast<ColumnDateTimeV2&>(column).get_data();
+    const auto origin_size = col_data.size();
+    const auto rows = end - start;
+    col_data.resize(origin_size + rows);
+
+    for (int64_t row_id = start; row_id < end; ++row_id) {
+        const auto result_index = origin_size + row_id - start;
+        const auto filter_index = row_id - start;
+        if (filter != nullptr && !filter[filter_index]) {
+            continue;
+        }
+        if (cur_batch->hasNulls && !cur_batch->notNull[row_id]) {
+            continue;
+        }
+
+        auto& value = col_data[result_index];
+        value.from_unixtime(cur_batch->data[row_id], ctz);
+
+        CastParameters params {.status = Status::OK(), .is_strict = false};
+        if (!init_microsecond<DatelikeParseMode::NON_STRICT>(cur_batch->nanoseconds[row_id], 9,
+                                                             value, _scale, params)) {
+            return params.status;
+        }
+    }
     return Status::OK();
 }
 

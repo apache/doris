@@ -68,6 +68,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
@@ -1923,6 +1924,23 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                           const orc::Type* orc_column_type,
                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
     auto logical_type = data_type->get_primitive_type();
+    // Keep ORC structural traversal in the reader, but prefer serde for leaf-value decode so
+    // timestamp scale/rounding follows the same semantics as other conversion paths.
+    if (logical_type != PrimitiveType::TYPE_ARRAY && logical_type != PrimitiveType::TYPE_MAP &&
+        logical_type != PrimitiveType::TYPE_STRUCT) {
+        const UInt8* filter_data = nullptr;
+        if constexpr (is_filter) {
+            filter_data = _filter->data();
+        }
+        Status serde_status = data_type->get_serde()->read_column_from_orc(
+                _ctz, *data_column, cvb, 0, num_values, filter_data);
+        if (serde_status.ok()) {
+            return Status::OK();
+        }
+        if (!serde_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            return serde_status;
+        }
+    }
 
     switch (logical_type) {
 #define DISPATCH(FlatType, CppType, OrcColumnType) \

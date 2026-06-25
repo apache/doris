@@ -492,6 +492,11 @@ public:
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
+    virtual Status read_column_from_orc(const std::string& timezone, IColumn& column,
+                                        const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
+                                        int64_t end, const UInt8* filter) const {
+        return Status::NotSupported("read_column_from_orc with type {}", get_name());
+    }
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
