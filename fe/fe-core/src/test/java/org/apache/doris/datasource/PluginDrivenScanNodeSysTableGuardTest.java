@@ -164,4 +164,23 @@ public class PluginDrivenScanNodeSysTableGuardTest {
         Assertions.assertTrue(ex.getMessage().contains("scan params"),
                 "incremental-read rejection must carry the scan-params message, got: " + ex.getMessage());
     }
+
+    @Test
+    public void scanParamsRejectionTakesPrecedenceOverTimeTravel() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        // Paimon-like (NOT time-travel-capable, the guardOnlyNode default), a sys table, with BOTH a
+        // non-incremental scan-param AND a snapshot pin set at once.
+        Mockito.doReturn(Mockito.mock(PluginDrivenSysExternalTable.class)).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableScanParams.class)).when(node).getScanParams();
+        Mockito.doReturn(Mockito.mock(TableSnapshot.class)).when(node).getQueryTableSnapshot();
+
+        // WHY: when both unsupported features are present the guard checks scan-params FIRST (its block
+        // precedes the snapshot block), so the user sees the scan-params diagnostic, not time travel.
+        // Pinning the order keeps the error message stable. MUTATION: swapping the two blocks (snapshot
+        // check first) -> the message becomes "time travel" -> red.
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("scan params"),
+                "scan-params rejection must take precedence over time travel, got: " + ex.getMessage());
+    }
 }

@@ -1857,6 +1857,74 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("t1", ops.lastLoadTable);
     }
 
+    @Test
+    public void planScanForSystemTableCarriesPredicateAsResidualForBe() throws Exception {
+        // Predicate pushdown for a SYS table is FE-reachable as the RESIDUAL carried on the serialized
+        // FileScanTask: planSystemTableScan -> buildScan -> scan.filter(record_count==10) records the
+        // converted predicate as the metadata scan's residual, which BE's IcebergSysTableJniScanner applies
+        // when reading $files rows. NB: a metadata-COLUMN predicate is a residual, NOT a manifest prune, so
+        // the FE-visible row count is unchanged (verified: 2 vs 2) — the row-level prune happens at BE read
+        // time; the FE plan-time prune is the SNAPSHOT pin (see planScanForSystemTableHonorsTheSnapshotPin).
+        // MUTATION: dropping the `filter` arg on the sys path (planSystemTableScan ignores it) -> the
+        // residual stays alwaysTrue even with a predicate -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 100, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        // record_count is an iceberg LONG field of the $files metadata schema; the converter resolves it by
+        // name and pushes a BIGINT equality.
+        ConnectorExpression recordCountEq10 = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("record_count", ConnectorType.of("BIGINT")),
+                new ConnectorLiteral(ConnectorType.of("BIGINT"), 10L));
+
+        String unfilteredResidual = firstSysSplitResidual(provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty()));
+        String filteredResidual = firstSysSplitResidual(provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "files", -1L, null, -1L),
+                Collections.emptyList(), Optional.of(recordCountEq10)));
+
+        // No predicate -> the metadata scan carries no residual (alwaysTrue); a pushable predicate -> the
+        // residual references record_count, proving the converted filter reached scan.filter.
+        Assertions.assertTrue(unfilteredResidual.equalsIgnoreCase("true"),
+                "with no predicate the sys metadata scan must carry no residual; got: " + unfilteredResidual);
+        Assertions.assertTrue(filteredResidual.contains("record_count"),
+                "a pushable $files predicate must be carried as the scan residual for BE; got: " + filteredResidual);
+    }
+
+    private static String firstSysSplitResidual(List<ConnectorScanRange> ranges) throws Exception {
+        Assertions.assertFalse(ranges.isEmpty(), "the metadata table must plan at least one split");
+        FileScanTask task =
+                SerializationUtil.deserializeFromBase64(((IcebergScanRange) ranges.get(0)).getSerializedSplit());
+        return task.residual().toString();
+    }
+
+    @Test
+    public void planScanForSystemTableSetsDummyPathOnEverySplit() {
+        // Every sys split's path is the sentinel "/dummyPath" (IcebergScanPlanProvider.SYS_TABLE_DUMMY_PATH):
+        // a metadata-table split carries its payload in serialized_split and BE never opens a real file path
+        // for it (mirrors legacy doGetSystemTableSplits, which sets a dummy path). The earlier T05 tests only
+        // assert path on data ranges they supply themselves; this pins the provider-built sys-range path.
+        // MUTATION: building the sys range with the real data-file path instead of SYS_TABLE_DUMMY_PATH ->
+        // path != "/dummyPath" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(ranges.isEmpty(), "the $snapshots metadata table must plan at least one split");
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals("/dummyPath", range.getPath().get(),
+                    "every iceberg sys split must carry the sentinel dummy path");
+        }
+    }
+
     private static long countSerializedSplitRows(List<ConnectorScanRange> ranges) throws Exception {
         long rows = 0;
         for (ConnectorScanRange range : ranges) {

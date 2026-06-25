@@ -28,10 +28,12 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 
+import com.google.gson.annotations.SerializedName;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -224,6 +226,116 @@ public class PluginDrivenSysTableTest {
                 "no base handle -> no sys handle -> empty schema (no spurious getSysTableHandle)");
         Mockito.verify(metadata, Mockito.never())
                 .getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString());
+    }
+
+    // ==================== iceberg sys table: user-visible type/engine parity (T07 gap-fill) =========
+
+    @Test
+    public void sysExternalTableReportsBaseTableMysqlTypeMatchingLegacyIceberg() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
+        PluginDrivenExternalTable base = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(base, "snapshots");
+
+        // WHY: information_schema.tables.TABLE_TYPE for an iceberg sys table (e.g. tbl$snapshots) must read
+        // "BASE TABLE", byte-identical to a legacy ICEBERG_EXTERNAL_TABLE. The sys table inherits
+        // PLUGIN_EXTERNAL_TABLE and routes getMysqlType -> TableType.toMysqlType; the same-test pin of
+        // ICEBERG_EXTERNAL_TABLE.toMysqlType proves new == legacy with no Env. MUTATION: deleting the
+        // PLUGIN_EXTERNAL_TABLE case in TableIf.TableType.toMysqlType -> sys getMysqlType returns null -> red.
+        Assertions.assertEquals("BASE TABLE", sys.getMysqlType());
+        Assertions.assertEquals("BASE TABLE", TableType.ICEBERG_EXTERNAL_TABLE.toMysqlType(),
+                "the new plugin sys path must match the legacy iceberg TABLE_TYPE");
+    }
+
+    @Test
+    public void sysExternalTableReportsIcebergEngineAndEngineTableTypeName() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
+        PluginDrivenExternalTable base = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
+        PluginDrivenSysExternalTable sys = new PluginDrivenSysExternalTable(base, "snapshots");
+
+        // WHY: SHOW TABLE STATUS / information_schema.tables.ENGINE for an iceberg sys table must read
+        // "iceberg" (not the generic "Plugin"), and getEngineTableTypeName must read "ICEBERG_EXTERNAL_TABLE".
+        // The sys table inherits both from PluginDrivenExternalTable, which switches on the catalog type;
+        // T06-F1 pinned the BASE table, this pins the inherited SYS path. MUTATION: deleting the "iceberg"
+        // case in PluginDrivenExternalTable.getEngine / getEngineTableTypeName -> "Plugin" /
+        // "PLUGIN_EXTERNAL_TABLE" -> red. assertAll so each pin (two independent T06 behaviors) is caught
+        // by its own mutation rather than masked by the other's short-circuit.
+        Assertions.assertAll(
+                () -> Assertions.assertEquals("iceberg", sys.getEngine()),
+                () -> Assertions.assertEquals("ICEBERG_EXTERNAL_TABLE", sys.getEngineTableTypeName()));
+    }
+
+    // ==================== generic not-found path (no legacy position_deletes marker) ================
+
+    @Test
+    public void positionDeletesAbsentWhenConnectorDoesNotListIt() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
+        Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenReturn(Optional.of(baseHandle));
+        // An iceberg-style supported list (MetadataTableType.values() lower-cased) but WITHOUT
+        // position_deletes — exactly what IcebergConnectorMetadata.listSupportedSysTables returns.
+        Mockito.when(metadata.listSupportedSysTables(session, baseHandle))
+                .thenReturn(Arrays.asList("snapshots", "history", "files", "manifests", "partitions"));
+
+        PluginDrivenExternalTable table = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
+        Map<String, SysTable> sysTables = table.getSupportedSysTables();
+
+        // Positive control: a listed name resolves, proving the SPI-delegated machinery works (so the
+        // negatives below are not trivially green because discovery happens to be empty).
+        Assertions.assertTrue(sysTables.containsKey("snapshots"));
+        Assertions.assertTrue(table.findSysTable("t$snapshots").isPresent());
+        // WHY: position_deletes is the one metadata table iceberg does not expose; legacy modeled it as a
+        // special UNSUPPORTED_POSITION_DELETES_TABLE that threw "not supported yet". The generic plugin path
+        // has no such marker — an unlisted sys name simply does not resolve via the ordinary not-found path.
+        // MUTATION: injecting "position_deletes" into getSupportedSysTables regardless of the SPI list ->
+        // containsKey true / findSysTable present -> red.
+        Assertions.assertFalse(sysTables.containsKey("position_deletes"),
+                "position_deletes must not be exposed when the connector does not list it");
+        Assertions.assertFalse(table.findSysTable("t$position_deletes").isPresent(),
+                "t$position_deletes must take the generic not-found path, not a legacy 'unsupported' marker");
+    }
+
+    // ==================== sys tables are transient: not registered, not edit-log serialized ========
+
+    @Test
+    public void sysExternalTableIsTransientNeitherRegisteredNorSerialized() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("iceberg", metadata, session);
+        Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenReturn(Optional.of(baseHandle));
+        Mockito.when(metadata.listSupportedSysTables(session, baseHandle))
+                .thenReturn(Arrays.asList("snapshots", "files"));
+
+        PluginDrivenExternalTable base = bareTable(catalog, mockDb("REMOTE_DB"), "REMOTE_TBL");
+        PluginDrivenSysTable sysType = new PluginDrivenSysTable("snapshots");
+        PluginDrivenSysExternalTable sys = (PluginDrivenSysExternalTable) sysType.createSysExternalTable(base);
+
+        // The planner-visible sys NAME carries the "$" suffix (so a query against tbl$snapshots routes here)...
+        Assertions.assertEquals("REMOTE_TBL$snapshots", sys.getRemoteName());
+        // ...but the discovery map (the basis for SHOW TABLES sys-listing) is keyed by BARE names only: a
+        // "$"-suffixed key must never appear, or a sys table would leak into SHOW TABLES as a real table.
+        // MUTATION: keying getSupportedSysTables by "$" + name -> a "$"-key appears -> red.
+        for (String key : base.getSupportedSysTables().keySet()) {
+            Assertions.assertFalse(key.contains("$"),
+                    "sys discovery keys must be bare names, never '$'-suffixed: " + key);
+        }
+        // And the transient sys ExternalTable must never be GSON-serialized into the edit log: none of its
+        // OWN declared fields may carry @SerializedName (it is rebuilt per query, never persisted/replayed).
+        // MUTATION: annotating any PluginDrivenSysExternalTable field with @SerializedName -> red.
+        Field[] declared = PluginDrivenSysExternalTable.class.getDeclaredFields();
+        Assertions.assertTrue(declared.length > 0, "guard has teeth: the sys class does declare fields");
+        for (Field f : declared) {
+            Assertions.assertFalse(f.isAnnotationPresent(SerializedName.class),
+                    "transient sys table must not serialize field: " + f.getName());
+        }
     }
 
     // ==================== helpers (mirror PluginDrivenExternalTablePartitionTest) ====================

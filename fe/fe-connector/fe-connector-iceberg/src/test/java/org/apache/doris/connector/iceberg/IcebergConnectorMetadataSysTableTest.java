@@ -184,11 +184,17 @@ public class IcebergConnectorMetadataSysTableTest {
         IcebergTableHandle handle = (IcebergTableHandle) metadataWith(new RecordingIcebergCatalogOps())
                 .getSysTableHandle(null, baseHandle(), "SNAPSHOTS").get();
 
-        // WHY: the support check is case-insensitive (mirroring MetadataTableType.from / legacy
-        // equalsIgnoreCase), but the STORED canonical name must be lower-cased so t$SNAPSHOTS and
-        // t$snapshots are the SAME handle (identical equals/hashCode/toString and the same metadata-table
-        // build later). MUTATION: storing sysName verbatim -> getSysTableName() == "SNAPSHOTS" and
-        // toString ends "$SNAPSHOTS" -> red.
+        // WHY: the STORED canonical sys name must be lower-cased so a mixed-case input and its lower-case
+        // form yield the SAME handle (identical equals/hashCode/toString and the same metadata-table build
+        // later). NOTE on the case-insensitive accept: legacy RESOLUTION is itself case-SENSITIVE —
+        // TableIf.findSysTable does a plain Map.get against IcebergSysTable's lower-cased keyset and the
+        // suffix is taken verbatim (SysTable.getTableNameWithSysTableName does not lower-case it) — so a
+        // mixed-case "t$SNAPSHOTS" never resolves, and only lower-case canonical names are ever fed to
+        // getSysTableHandle (PluginDrivenSysExternalTable threads the matched lower-case name). The
+        // connector's equalsIgnoreCase support check is thus a harmless, production-unreachable superset;
+        // MetadataTableType.from's own case-insensitivity acts at metadata-table BUILD time (resolveSysTable),
+        // NOT this resolution gate. The lower-casing here is for canonical handle-identity parity. MUTATION:
+        // storing sysName verbatim -> getSysTableName() == "SNAPSHOTS" and toString ends "$SNAPSHOTS" -> red.
         Assertions.assertEquals("snapshots", handle.getSysTableName(),
                 "the stored sys name must be normalized to lower case");
         Assertions.assertTrue(handle.toString().endsWith("$snapshots}"),
