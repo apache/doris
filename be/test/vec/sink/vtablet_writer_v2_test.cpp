@@ -271,7 +271,7 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     // path, then cancel the current RuntimeState. Fixed code should observe the
     // current sink's cancel state and exit cleanly; current broken code reads
     // the destroyed creator RuntimeState from the shared DeltaWriterV2 and ASAN
-    // reports heap-use-after-free in the child process.
+    // reports heap-use-after-free.
     auto debug_point = std::make_shared<DebugPoint>();
     debug_point->execute_limit = 1;
     debug_point->callback = std::function<void()>(
@@ -280,17 +280,17 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     DebugPoints::instance()->add("DeltaWriterV2.write.flush_limit_wait", debug_point);
     config::memtable_flush_running_count_limit = 0;
 
-    EXPECT_EXIT(
-            {
-                alarm(10);
-                auto status = current_writer->_write_memtable(block, 100, rows);
-                if (!status.ok() &&
-                    status.msg().find("current state cancelled") != std::string::npos) {
-                    _exit(0);
-                }
-                _exit(1);
-            },
-            ::testing::ExitedWithCode(0), "");
+    // Master still uses a death test for this regression, but branch-4.0 BE UT
+    // reaches this case after many other suites have started process-wide
+    // worker threads. Forking from that state is not part of the regression and
+    // can abort in CI before the real assertion runs. Keep the same lifetime
+    // setup in process: after creator_ctx has been destroyed, the write must
+    // return the cancellation from current_ctx. If the shared DeltaWriterV2
+    // still reads the creator RuntimeState, this path exercises the original
+    // dangling-state bug instead of returning "current state cancelled".
+    const auto status = current_writer->_write_memtable(block, 100, rows);
+    ASSERT_FALSE(status.ok()) << status;
+    EXPECT_NE(status.msg().find("current state cancelled"), std::string::npos) << status;
 
     config::memtable_flush_running_count_limit = old_flush_running_count_limit;
     DebugPoints::instance()->remove("DeltaWriterV2.write.flush_limit_wait");
