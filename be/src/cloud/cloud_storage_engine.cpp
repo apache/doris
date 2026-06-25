@@ -700,14 +700,6 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
                    submitted_index_change_base_compactions.contains(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
-    } else if (config::enable_parallel_cumu_compaction) {
-        filter_out = [&tablet_preparing_cumu_compaction,
-                      &submitted_index_change_cumu_compactions](CloudTablet* t) {
-            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
-                   submitted_index_change_cumu_compactions.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING &&
-                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
-        };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction, &submitted_cumu_compactions,
                       &submitted_index_change_cumu_compactions](CloudTablet* t) {
@@ -907,8 +899,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
-        if (!config::enable_parallel_cumu_compaction &&
-            _submitted_cumu_compactions.count(tablet->tablet_id())) {
+        if (_submitted_cumu_compactions.count(tablet->tablet_id())) {
             return Status::AlreadyExist("other cumu compaction is submitted, tablet_id={}",
                                         tablet->tablet_id());
         }
