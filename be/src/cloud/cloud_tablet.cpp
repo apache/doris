@@ -189,7 +189,10 @@ Result<std::vector<Version>> CloudTablet::capture_versions_prefer_cache(
         const Version& spec_version) const {
     g_capture_prefer_cache_count << 1;
     Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    // Caller (capture_consistent_versions_unlocked) already holds shared
+    // `_meta_lock`; do NOT re-acquire it here. The lock is writer-preferring,
+    // so a recursive shared acquisition self-deadlocks if a writer queues in
+    // between the outer and inner lock.
     auto st = _timestamped_version_tracker.capture_consistent_versions_prefer_cache(
             spec_version, version_path,
             [&](int64_t start, int64_t end) { return rowset_is_warmed_up_unlocked(start, end); });
@@ -241,7 +244,10 @@ Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolera
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
     // find a version path where every edge(rowset) has been warmuped
     Versions version_path;
-    std::shared_lock rlock(_meta_lock);
+    // Caller (capture_consistent_versions_unlocked) already holds shared
+    // `_meta_lock`; do NOT re-acquire it here. The lock is writer-preferring,
+    // so a recursive shared acquisition self-deadlocks if a writer queues in
+    // between the outer and inner lock.
     if (enable_unique_key_merge_on_write()) {
         // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
@@ -293,7 +299,8 @@ Result<std::vector<Version>> CloudTablet::capture_versions_with_freshness_tolera
             std::ranges::any_of(std::views::values(_tablet_meta->all_stale_rs_metas()),
                                 should_be_visible_but_not_warmed_up);
     if (should_fallback) {
-        rlock.unlock();
+        // The outer caller still holds the shared `_meta_lock`; the base
+        // unlocked fallback below runs under that lock.
         g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
         // but has not been warmuped up yet, fallback to capture rowsets as usual
@@ -439,7 +446,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
 }
 
 void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
-                              std::unique_lock<std::shared_mutex>& meta_lock,
+                              std::unique_lock<BthreadSharedMutex>& meta_lock,
                               bool warmup_delta_data) {
     if (to_add.empty()) {
         return;
@@ -690,7 +697,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 }
 
 void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
-                                 std::unique_lock<std::shared_mutex>&) {
+                                 std::unique_lock<BthreadSharedMutex>&) {
     if (to_delete.empty()) {
         return;
     }
@@ -711,7 +718,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetSharedPtr>& to_delete,
-                                                   std::unique_lock<std::shared_mutex>&,
+                                                   std::unique_lock<BthreadSharedMutex>&,
                                                    bool recycle_deleted_rowsets) {
     if (to_delete.empty()) {
         return;
@@ -743,7 +750,7 @@ void CloudTablet::delete_rowsets_for_schema_change(const std::vector<RowsetShare
 
 void CloudTablet::replace_rowsets_with_schema_change_output(
         const std::vector<RowsetSharedPtr>& output_rowsets, int64_t alter_version,
-        std::unique_lock<std::shared_mutex>& meta_lock, const char* stage,
+        std::unique_lock<BthreadSharedMutex>& meta_lock, const char* stage,
         bool recycle_deleted_rowsets) {
     std::vector<RowsetSharedPtr> to_delete;
     for (auto& [v, rs] : _rs_version_map) {
@@ -1094,7 +1101,7 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
     if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         bool has_delete = false;
         int64_t point = cumulative_layer_point();
-        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        std::shared_lock rlock(_meta_lock);
         for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
             if (rs_meta->start_version() >= point) {
                 continue;
@@ -1355,30 +1362,24 @@ Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_v
     return ret_rowset;
 }
 
-std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first != 0 && version.first < _cumulative_point &&
-                (_alter_version == -1 || version.second <= _alter_version)) {
-                candidate_rowsets.push_back(rs);
-            }
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first != 0 && version.first < _cumulative_point &&
+            (_alter_version == -1 || version.second <= _alter_version)) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction() {
+std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_full_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
-            if (v.first != 0) {
-                candidate_rowsets.push_back(rs);
-            }
+    for (auto& [v, rs] : _rs_version_map) {
+        // MUST NOT compact rowset [0-1] for some historical reasons (see cloud_schema_change)
+        if (v.first != 0) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
