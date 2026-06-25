@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -79,6 +80,18 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // Internal sentinel property carrying a tag/branch ref name from resolveTimeTravel to applySnapshot (the
     // typed ConnectorMvccSnapshot has snapshotId/schemaId carriers but no ref field). NOT a BE scan option.
     static final String REF_PROPERTY = "iceberg.scan.ref";
+
+    // Iceberg v3 row-lineage hidden columns. Local literal copies of the Doris-side constants — the
+    // connector cannot import fe-core. Column names mirror IcebergUtils.ICEBERG_ROW_ID_COL /
+    // ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL; the reserved field ids and the min format version mirror
+    // IcebergUtils.appendRowLineageColumnsForV3 / ICEBERG_ROW_LINEAGE_MIN_VERSION. A fe-core contract test
+    // (IcebergUtilsTest / PluginDrivenScanNodeClassifyColumnTest) pins these values so a change there fails
+    // loud, flagging that these duplicates must change too.
+    private static final String ICEBERG_ROW_ID_COL = "_row_id";
+    private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+    private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
+    private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
+    private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
 
     private final IcebergCatalogOps catalogOps;
     private final Map<String, String> properties;
@@ -226,6 +239,20 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     private ConnectorTableSchema buildTableSchema(String tableName, Table table, Schema schema) {
         List<ConnectorColumn> columns = parseSchema(schema);
+
+        // Append the iceberg v3 row-lineage hidden columns (_row_id / _last_updated_sequence_number) for
+        // format-version >= 3 tables, mirroring legacy IcebergUtils.appendRowLineageColumnsForV3 — invoked
+        // unconditionally (format-gated) from IcebergExternalTable.getFullSchema. They are BIGINT, nullable,
+        // non-key, hidden, and carry a reserved Doris field id (matched BE-side); convertColumn re-applies
+        // setIsVisible(false)/setUniqueId. Appended AFTER the data columns (legacy append order). Metadata
+        // (system) tables report format-version 2 (BaseMetadataTable.properties() is empty), so the gate
+        // naturally excludes them — matching legacy, which injects lineage only for data tables.
+        if (getFormatVersion(table) >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            columns.add(new ConnectorColumn(ICEBERG_ROW_ID_COL, ConnectorType.of("BIGINT"),
+                    "", true, null, false).invisible().withUniqueId(ICEBERG_ROW_ID_FIELD_ID));
+            columns.add(new ConnectorColumn(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, ConnectorType.of("BIGINT"),
+                    "", true, null, false).invisible().withUniqueId(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID));
+        }
 
         Map<String, String> tableProps = new HashMap<>();
         tableProps.putAll(table.properties());

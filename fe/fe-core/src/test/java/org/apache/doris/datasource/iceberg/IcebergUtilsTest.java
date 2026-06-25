@@ -179,6 +179,13 @@ public class IcebergUtilsTest {
                 schemaWithRowLineage.get(2).getName());
         Assert.assertFalse(schemaWithRowLineage.get(1).isVisible());
         Assert.assertFalse(schemaWithRowLineage.get(2).isVisible());
+        // CONTRACT (③-infra part2): the iceberg connector (IcebergConnectorMetadata.buildTableSchema) cannot
+        // import fe-core, so it duplicates these reserved field ids as local literals to declare the same
+        // hidden columns through the schema SPI post-cutover. Pin the canonical Doris-side values so a change
+        // here fails loud, flagging that the connector duplicate must change too (the names are pinned by
+        // PluginDrivenScanNodeClassifyColumnTest#connectorRowIdConstantContractIsPinned).
+        Assert.assertEquals(2147483540, schemaWithRowLineage.get(1).getUniqueId());
+        Assert.assertEquals(2147483539, schemaWithRowLineage.get(2).getUniqueId());
     }
 
     @Test

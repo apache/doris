@@ -424,6 +424,100 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
+    public void getTableSchemaAppendsV3RowLineageColumnsWhenFormatVersionAtLeast3() {
+        // WHY (③-infra part2): legacy IcebergExternalTable.getFullSchema unconditionally calls
+        // IcebergUtils.appendRowLineageColumnsForV3, which appends the two hidden row-lineage columns
+        // (_row_id / _last_updated_sequence_number, BIGINT, reserved field ids 2147483540 / 2147483539,
+        // invisible) for format-version >= 3 tables. Post-cutover the connector owns the table schema, so it
+        // must declare them itself through the schema SPI — invisible() + the reserved uniqueId carried
+        // across the boundary, re-applied by ConnectorColumnConverter and round-tripped via the schema cache.
+        // MUTATION: dropping the append, the >= 3 gate, .invisible(), .withUniqueId(), or swapping the two
+        // field ids -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> props = new HashMap<>();
+        props.put("format-version", "3");
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", props);
+
+        List<ConnectorColumn> cols =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
+
+        // The two data columns (id, name) come first, then the two appended lineage columns IN ORDER
+        // (legacy appends _row_id before _last_updated_sequence_number, after the data columns).
+        Assertions.assertEquals(4, cols.size(),
+                "format-version >= 3 must append the two row-lineage columns after the data columns");
+        Assertions.assertEquals("id", cols.get(0).getName());
+        Assertions.assertEquals("name", cols.get(1).getName());
+
+        ConnectorColumn rowId = cols.get(2);
+        Assertions.assertEquals("_row_id", rowId.getName());
+        Assertions.assertEquals("BIGINT", rowId.getType().getTypeName(), "_row_id is BIGINT");
+        Assertions.assertFalse(rowId.isVisible(), "_row_id must be hidden");
+        Assertions.assertEquals(2147483540, rowId.getUniqueId(), "_row_id reserved field id");
+        Assertions.assertTrue(rowId.isNullable(), "_row_id is nullable (legacy isAllowNull=true)");
+        Assertions.assertFalse(rowId.isKey(), "_row_id is not a key (legacy isKey=false)");
+
+        ConnectorColumn seq = cols.get(3);
+        Assertions.assertEquals("_last_updated_sequence_number", seq.getName());
+        Assertions.assertEquals("BIGINT", seq.getType().getTypeName(),
+                "_last_updated_sequence_number is BIGINT");
+        Assertions.assertFalse(seq.isVisible(), "_last_updated_sequence_number must be hidden");
+        Assertions.assertEquals(2147483539, seq.getUniqueId(),
+                "_last_updated_sequence_number reserved field id");
+        Assertions.assertTrue(seq.isNullable());
+        Assertions.assertFalse(seq.isKey());
+    }
+
+    @Test
+    public void getTableSchemaAppendsV3RowLineageColumnsForFormatVersionAbove3() {
+        // WHY (③-infra part2): the gate is ">= 3" (inclusive lower bound, unbounded above) — every v3+ table
+        // gets the row-lineage columns, mirroring legacy IcebergUtils.appendRowLineageColumnsForV3's
+        // "< ICEBERG_ROW_LINEAGE_MIN_VERSION ? return : append". A format-version=4 table must still append.
+        // MUTATION: tightening the gate to "== 3" (or a defensive "> 3" miswrite) would omit v4 -> red here
+        // (the v3 case alone cannot catch a "== 3" narrowing).
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> props = new HashMap<>();
+        props.put("format-version", "4");
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", props);
+
+        List<ConnectorColumn> cols =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
+
+        Assertions.assertEquals(4, cols.size(),
+                "format-version > 3 must also append the two row-lineage columns (gate is an inclusive >= 3)");
+        Assertions.assertEquals("_row_id", cols.get(2).getName());
+        Assertions.assertEquals("_last_updated_sequence_number", cols.get(3).getName());
+    }
+
+    @Test
+    public void getTableSchemaOmitsV3RowLineageColumnsBelowFormatVersion3() {
+        // WHY (③-infra part2): appendRowLineageColumnsForV3 is a no-op for format-version < 3 (the
+        // row-lineage columns exist only in v3+). A v2 table must surface ONLY its data columns — no
+        // _row_id / _last_updated_sequence_number. This also guards the natural exclusion of system tables,
+        // which report format-version 2 (BaseMetadataTable.properties() is empty), matching legacy which
+        // only injects lineage for data tables (IcebergSysExternalTable never does). MUTATION: dropping the
+        // >= 3 gate (always appending) -> the v2 schema gains lineage columns -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> props = new HashMap<>();
+        props.put("format-version", "2");
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", props);
+
+        List<ConnectorColumn> cols =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1")).getColumns();
+
+        Assertions.assertEquals(2, cols.size(),
+                "format-version < 3 must NOT append row-lineage columns");
+        Assertions.assertTrue(cols.stream().noneMatch(c -> c.getName().equals("_row_id")
+                        || c.getName().equals("_last_updated_sequence_number")),
+                "no row-lineage columns below format-version 3");
+    }
+
+    @Test
     public void getTableSchemaLowercasesColumnNames() {
         // WHY: legacy IcebergUtils.parseSchema builds each column name as
         // field.name().toLowerCase(Locale.ROOT), so a mixed-case Iceberg field surfaces as a lowercase
