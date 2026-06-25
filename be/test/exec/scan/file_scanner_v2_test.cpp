@@ -91,8 +91,20 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_ORC, std::nullopt, false},
             {"jdbc", TFileFormatType::FORMAT_JNI, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_JNI, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt, true},
+            {"tvf", TFileFormatType::FORMAT_CSV_GZ, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_CSV_BZ2, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_CSV_LZ4FRAME, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_CSV_LZ4BLOCK, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_CSV_LZOP, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_CSV_DEFLATE, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_CSV_SNAPPYBLOCK, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_PROTO, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_TEXT, std::nullopt, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC, false},
             {"hive", TFileFormatType::FORMAT_ORC, TFileFormatType::FORMAT_PARQUET, true},
+            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
+            {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
     };
 
     for (const auto& test_case : cases) {
@@ -155,8 +167,17 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
     const std::vector<Case> cases {
             {TFileFormatType::FORMAT_PARQUET, format::FileFormat::PARQUET},
             {TFileFormatType::FORMAT_JNI, format::FileFormat::JNI},
+            {TFileFormatType::FORMAT_CSV_PLAIN, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_GZ, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_BZ2, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_LZ4FRAME, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_LZ4BLOCK, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_LZOP, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_DEFLATE, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_CSV_SNAPPYBLOCK, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_PROTO, format::FileFormat::CSV},
+            {TFileFormatType::FORMAT_TEXT, format::FileFormat::TEXT},
             {TFileFormatType::FORMAT_ORC, std::nullopt},
-            {TFileFormatType::FORMAT_CSV_PLAIN, std::nullopt},
     };
 
     for (const auto& test_case : cases) {
@@ -197,6 +218,42 @@ TEST(FileScannerV2Test, PartitionSlotClassificationMatrix) {
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::GLOBAL_ROWID_COL));
     EXPECT_FALSE(
             FileScannerV2::TEST_is_partition_slot(legacy_partition, BeConsts::ICEBERG_ROWID_COL));
+}
+
+// Scenario: data-file slots are the complement of partition/default/synthesized columns for
+// formats without embedded schema. FE may send either the new category or the old is_file_slot
+// flag, and scanner-generated rowid columns must never be passed to a physical file reader.
+TEST(FileScannerV2Test, DataFileSlotClassificationMatrix) {
+    TFileScanSlotInfo legacy_file;
+    legacy_file.__set_is_file_slot(true);
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(legacy_file, "value"));
+
+    TFileScanSlotInfo legacy_partition;
+    legacy_partition.__set_is_file_slot(false);
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_partition, "dt"));
+
+    TFileScanSlotInfo categorized_regular;
+    categorized_regular.__set_is_file_slot(false);
+    categorized_regular.__set_category(TColumnCategory::REGULAR);
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_regular, "regular_col"));
+
+    TFileScanSlotInfo categorized_generated;
+    categorized_generated.__set_is_file_slot(false);
+    categorized_generated.__set_category(TColumnCategory::GENERATED);
+    EXPECT_TRUE(FileScannerV2::TEST_is_data_file_slot(categorized_generated, "generated_col"));
+
+    TFileScanSlotInfo categorized_partition;
+    categorized_partition.__set_is_file_slot(true);
+    categorized_partition.__set_category(TColumnCategory::PARTITION_KEY);
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(categorized_partition, "p"));
+
+    TFileScanSlotInfo categorized_synthesized;
+    categorized_synthesized.__set_is_file_slot(true);
+    categorized_synthesized.__set_category(TColumnCategory::SYNTHESIZED);
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(categorized_synthesized, "virtual_col"));
+
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::GLOBAL_ROWID_COL));
+    EXPECT_FALSE(FileScannerV2::TEST_is_data_file_slot(legacy_file, BeConsts::ICEBERG_ROWID_COL));
 }
 
 // Scenario: table conjuncts are cloned into global-index space before they are handed to

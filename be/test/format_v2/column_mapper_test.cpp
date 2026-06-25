@@ -989,6 +989,177 @@ TEST(ColumnMapperCollectNestedStructPathsTest, ProjectionMergeKeepsFilterOnlyPat
     ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 2);
 }
 
+// Scenario: row-oriented readers such as CSV/Text cannot lazy-read predicate columns separately.
+// For a complex root that is both projected and referenced by a filter, the materialized mapper
+// keeps one non-predicate scan entry and asks the reader to read the full top-level struct.
+TEST(ColumnMapperScanRequestTest, MaterializedMapperUsesSingleScanColumnList) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    auto table_a = name_col("a", int_type, 0);
+    auto table_b = name_col("b", int_type, 1);
+    auto full_table_struct = struct_name_col("s", {table_a, table_b});
+    auto table_output = struct_name_col("s", {table_a});
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", int_type, 1);
+    auto file_struct = struct_name_col("s", {file_a, file_b, name_col("c", string_type, 2)}, 5);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_output}, {}, {file_struct}).ok());
+
+    const auto path_b =
+            struct_element(table_slot(0, 0, full_table_struct.type, "s"), int_type, "b");
+    auto filter_expr = binary_predicate(TExprOpcode::GT, path_b,
+                                        literal(int_type, Field::create_field<TYPE_INT>(1)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_output}, &request).ok());
+
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+// Scenario: a FileReader must expose semantic children for complex file columns. If it returns a
+// complex DataType but leaves ColumnDefinition::children empty, mapper should return a diagnostic
+// error instead of aborting inside ARRAY/MAP/STRUCT child lookup.
+TEST(ColumnMapperScanRequestTest, MalformedComplexFileSchemaReturnsError) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    auto table_a = name_col("a", int_type, 0);
+    auto table_b = name_col("b", string_type, 1);
+    auto table_struct = struct_name_col("s", {table_a, table_b});
+    auto file_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    auto malformed_file_struct = name_col("s", file_struct_type, 5);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    const auto status = mapper.create_mapping({table_struct}, {}, {malformed_file_struct});
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Malformed complex file schema"), std::string::npos)
+            << status;
+}
+
+// Scenario: when the projected table schema contains the child referenced by the filter, the
+// materialized mapper can still rewrite the table-level struct child predicate into a file-local
+// conjunct. It remains a single full-root scan column; only the expression is localized.
+TEST(ColumnMapperScanRequestTest, MaterializedMapperLocalizesMappedStructChildConjunct) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    auto table_a = name_col("a", int_type, 0);
+    auto table_b = name_col("b", int_type, 1);
+    auto table_struct = struct_name_col("s", {table_a, table_b});
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", int_type, 1);
+    auto file_struct = struct_name_col("s", {file_a, file_b, name_col("c", string_type, 2)}, 5);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    const auto path_b = struct_element(table_slot(0, 0, table_struct.type, "s"), int_type, "b");
+    auto filter_expr = binary_predicate(TExprOpcode::GT, path_b,
+                                        literal(int_type, Field::create_field<TYPE_INT>(1)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_EQ(request.conjuncts.size(), 1);
+}
+
+// Scenario: even output-only partial complex projections such as `SELECT s.a` must scan the full
+// top-level struct for materialized readers, because delimited text formats cannot physically read
+// only one nested child from a single text field.
+TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullComplexRootForOutputOnlyProjection) {
+    const auto int_type = i32();
+    const auto string_type = str();
+    auto table_a = name_col("a", int_type, 0);
+    auto table_output = struct_name_col("s", {table_a});
+
+    auto file_a = name_col("a", int_type, 0);
+    auto file_b = name_col("b", int_type, 1);
+    auto file_struct = struct_name_col("s", {file_a, file_b, name_col("c", string_type, 2)}, 5);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_output}, {}, {file_struct}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_output}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
+// Scenario: array/map nested projections also scan the full top-level complex root for
+// materialized readers. This keeps row-oriented formats from receiving Parquet-style partial
+// projections for `array<struct>` elements or map value structs.
+TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullArrayAndMapRoots) {
+    const auto key_type = str();
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_array_child = name_col("b", string_type);
+    auto table_array_element = struct_name_col("element", {table_array_child});
+    auto table_array = array_col("items", -1, table_array_element);
+    table_array.identifier = Field::create_field<TYPE_STRING>("items");
+    set_name_identifiers(&table_array, -1);
+
+    auto file_array_a = name_col("a", int_type, 0);
+    auto file_array_b = name_col("b", string_type, 1);
+    auto file_array_element = struct_name_col("element", {file_array_a, file_array_b}, 0);
+    auto file_array = array_col("items", -1, file_array_element, 4);
+    file_array.identifier = Field::create_field<TYPE_STRING>("items");
+    set_name_identifiers(&file_array, 4);
+
+    auto table_value_b = name_col("b", string_type);
+    auto table_value = struct_name_col("value", {table_value_b});
+    auto table_map = map_col("m", -1, {table_value}, key_type, table_value.type);
+    table_map.identifier = Field::create_field<TYPE_STRING>("m");
+    set_name_identifiers(&table_map, -1);
+
+    auto file_key = name_col("key", key_type, 0);
+    auto file_value_a = name_col("a", int_type, 0);
+    auto file_value_b = name_col("b", string_type, 1);
+    auto file_value = struct_name_col("value", {file_value_a, file_value_b}, 1);
+    auto file_map = map_col("m", -1, {file_key, file_value}, key_type, file_value.type, 6);
+    file_map.identifier = Field::create_field<TYPE_STRING>("m");
+    set_name_identifiers(&file_map, 6);
+
+    MaterializedColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_array, table_map}, {}, {file_array, file_map}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_array, table_map}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 2);
+    EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(4));
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
+    EXPECT_EQ(request.non_predicate_columns[1].column_id(), LocalColumnId(6));
+    EXPECT_TRUE(request.non_predicate_columns[1].project_all_children);
+    EXPECT_TRUE(request.non_predicate_columns[1].children.empty());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
 // ----------------------------------------------------------------------
 // L1 create_mapping root matching tests.
 // These cases cover the three supported root matching modes and the

@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -123,6 +124,10 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
+    // File formats without self-describing metadata, such as CSV, need the original FE slot
+    // descriptors to build their file-local schema and deserialize values. Self-describing formats
+    // ignore this field and use metadata parsed from the file footer/header.
+    const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
     // Digest of stable pushed-down predicates. A zero digest disables condition cache.
@@ -210,7 +215,7 @@ public:
 #ifndef NDEBUG
             RETURN_IF_ERROR(_check_file_block_columns("after file reader get_block", current_rows));
 #endif
-            DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
+            DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
 #ifndef NDEBUG
             RETURN_IF_ERROR(
@@ -279,10 +284,11 @@ protected:
         _data_reader.file_schema = file_schema;
         _mapper_options.mode = mapping_mode();
 
-        _data_reader.column_mapper = TableColumnMapper(_mapper_options);
-        RETURN_IF_ERROR(_data_reader.column_mapper.create_mapping(_projected_columns,
-                                                                  _partition_values, file_schema));
-        DORIS_CHECK(_data_reader.column_mapper.mappings().size() == _projected_columns.size());
+        _data_reader.column_mapper = _data_reader.reader->create_column_mapper(_mapper_options);
+        DORIS_CHECK(_data_reader.column_mapper != nullptr);
+        RETURN_IF_ERROR(_data_reader.column_mapper->create_mapping(_projected_columns,
+                                                                   _partition_values, file_schema));
+        DORIS_CHECK(_data_reader.column_mapper->mappings().size() == _projected_columns.size());
 
         // 2. Build table filters based on conjuncts and column predicates.
         RETURN_IF_ERROR(_build_table_filters_from_conjuncts());
@@ -292,7 +298,7 @@ protected:
         // file-level pruning hints. Only expression filters decide returned rows; column predicates
         // are pruning hints.
         auto file_request = std::make_shared<FileScanRequest>();
-        RETURN_IF_ERROR(_data_reader.column_mapper.create_scan_request(
+        RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _table_column_predicates, _projected_columns, file_request.get(),
                 _runtime_state));
         bool constant_filter_pruned_split = false;
@@ -348,7 +354,9 @@ protected:
             _data_reader.block_template.insert(
                     {column.type->create_column(), column.type, column.name});
         }
-        LOG(WARNING) << "TableReader debug: " << debug_string();
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << "TableReader debug: " << debug_string();
+        }
         RETURN_IF_ERROR(_open_mapping_exprs());
         RETURN_IF_ERROR(_data_reader.reader->open(file_request));
         RETURN_IF_ERROR(_init_reader_condition_cache(*file_request));
@@ -391,7 +399,7 @@ protected:
     }
 
     bool _table_filter_has_only_constant_entries(const TableFilter& table_filter) const {
-        const auto& filter_entries = _data_reader.column_mapper.filter_entries();
+        const auto& filter_entries = _data_reader.column_mapper->filter_entries();
         for (const auto global_index : table_filter.global_indices) {
             const auto entry_it = filter_entries.find(global_index);
             if (entry_it == filter_entries.end() || !entry_it->second.is_constant()) {
@@ -404,8 +412,8 @@ protected:
     Status _build_constant_filter_block(const TableFilter& table_filter, Block* eval_block) {
         DORIS_CHECK(eval_block != nullptr);
         eval_block->clear();
-        const auto& mappings = _data_reader.column_mapper.mappings();
-        const auto& filter_entries = _data_reader.column_mapper.filter_entries();
+        const auto& mappings = _data_reader.column_mapper->mappings();
+        const auto& filter_entries = _data_reader.column_mapper->filter_entries();
         DORIS_CHECK(mappings.size() == _projected_columns.size());
         for (size_t column_idx = 0; column_idx < mappings.size(); ++column_idx) {
             const auto global_index = GlobalIndex(column_idx);
@@ -432,7 +440,7 @@ protected:
 
     Status _materialize_constant_filter_column(ConstantIndex constant_index, ColumnPtr* column) {
         DORIS_CHECK(column != nullptr);
-        const auto& constant_entry = _data_reader.column_mapper.constant_map().get(constant_index);
+        const auto& constant_entry = _data_reader.column_mapper->constant_map().get(constant_index);
         DORIS_CHECK(constant_entry.expr != nullptr);
         DORIS_CHECK(constant_entry.type != nullptr);
         RowDescriptor row_desc;
@@ -494,41 +502,19 @@ protected:
         return Status::OK();
     }
 
-    static LocalIndex _next_block_position(const FileScanRequest& request) {
-        size_t next_position = 0;
-        for (const auto& [_, block_position] : request.local_positions) {
-            next_position = std::max(next_position, block_position.value() + 1);
-        }
-        return LocalIndex(next_position);
-    }
-
     void _append_file_scan_column(FileScanRequest* request, LocalColumnId column_id,
                                   std::vector<LocalColumnIndex>* scan_columns) {
         DORIS_CHECK(request != nullptr);
         DORIS_CHECK(scan_columns != nullptr);
-        if (scan_columns == &request->non_predicate_columns &&
-            std::ranges::find_if(request->predicate_columns, [&](const LocalColumnIndex& p) {
-                return p.column_id() == column_id;
-            }) != request->predicate_columns.end()) {
-            // The column is already added as a predicate column, no need to add it again as a non-predicate column because predicate columns are also returned in the file reader block and can be used for materialization and filtering.
-            return;
-        }
-        if (!request->local_positions.contains(column_id)) {
-            request->local_positions.emplace(column_id, _next_block_position(*request));
-            scan_columns->push_back(LocalColumnIndex::top_level(column_id));
-        } else if (std::ranges::find_if(*scan_columns, [&](const LocalColumnIndex& p) {
-                       return p.column_id() == column_id;
-                   }) == scan_columns->end()) {
-            scan_columns->push_back(LocalColumnIndex::top_level(column_id));
-        }
+        FileScanRequestBuilder builder(request);
+        Status status;
         if (scan_columns == &request->predicate_columns) {
-            auto it = std::ranges::find_if(
-                    request->non_predicate_columns,
-                    [&](const LocalColumnIndex& p) { return p.column_id() == column_id; });
-            if (it != request->non_predicate_columns.end()) {
-                request->non_predicate_columns.erase(it);
-            }
+            status = builder.add_predicate_column(column_id);
+        } else {
+            DORIS_CHECK(scan_columns == &request->non_predicate_columns);
+            status = builder.add_non_predicate_column(column_id);
         }
+        DORIS_CHECK(status.ok()) << status.to_string();
         if (column_id == LocalColumnId(ROW_POSITION_COLUMN_ID) &&
             _find_column_definition(_data_reader.file_schema, column_id) == nullptr) {
             _data_reader.file_schema.push_back(row_position_column_definition());
@@ -561,7 +547,10 @@ protected:
         _finalize_reader_condition_cache();
         RETURN_IF_ERROR(_data_reader.reader->close());
         _data_reader.reader.reset();
-        _data_reader.column_mapper.clear();
+        if (_data_reader.column_mapper != nullptr) {
+            _data_reader.column_mapper->clear();
+            _data_reader.column_mapper.reset();
+        }
         _table_filters.clear();
         _data_reader.file_schema.clear();
         _data_reader.file_block_layout.clear();
@@ -576,7 +565,7 @@ protected:
     Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
         size_t idx = 0;
-        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
             ColumnPtr column;
             RETURN_IF_ERROR(_materialize_mapping_column(mapping, &_data_reader.block_template, rows,
                                                         &column));
@@ -665,9 +654,9 @@ protected:
 
     Status _check_table_block_columns(std::string_view stage, const Block* block, size_t rows) {
         DORIS_CHECK(block != nullptr);
-        DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
         for (size_t idx = 0; idx < block->columns(); ++idx) {
-            const auto& mapping = _data_reader.column_mapper.mappings()[idx];
+            const auto& mapping = _data_reader.column_mapper->mappings()[idx];
             const auto& column_with_type = block->get_by_position(idx);
             const auto* column = column_with_type.column.get();
             try {
@@ -731,9 +720,9 @@ protected:
             !_runtime_state->query_options().truncate_char_or_varchar_columns) {
             return Status::OK();
         }
-        DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
-        for (size_t idx = 0; idx < _data_reader.column_mapper.mappings().size(); ++idx) {
-            const auto& mapping = _data_reader.column_mapper.mappings()[idx];
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
+        for (size_t idx = 0; idx < _data_reader.column_mapper->mappings().size(); ++idx) {
+            const auto& mapping = _data_reader.column_mapper->mappings()[idx];
             if (!_should_truncate_char_or_varchar_column(mapping)) {
                 continue;
             }
@@ -862,7 +851,7 @@ protected:
         // For MIN/MAX, only support direct file-to-table column mappings. The two emitted rows
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
         // virtual columns.
-        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
             if (!mapping.file_local_id.has_value() ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
@@ -1316,7 +1305,7 @@ protected:
 
     Status _open_mapping_exprs() {
         RowDescriptor row_desc;
-        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
             if (mapping.projection != nullptr) {
                 RETURN_IF_ERROR(mapping.projection->prepare(_runtime_state, row_desc));
                 RETURN_IF_ERROR(mapping.projection->open(_runtime_state));
@@ -1338,8 +1327,8 @@ protected:
         if (agg_type == TPushAggOp::type::COUNT) {
             return Status::OK();
         }
-        request->columns.reserve(_data_reader.column_mapper.mappings().size());
-        for (const auto& mapping : _data_reader.column_mapper.mappings()) {
+        request->columns.reserve(_data_reader.column_mapper->mappings().size());
+        for (const auto& mapping : _data_reader.column_mapper->mappings()) {
             DORIS_CHECK(mapping.file_local_id.has_value());
             FileAggregateRequest::Column column;
             column.projection = LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
@@ -1363,8 +1352,8 @@ protected:
         }
         // MIN/MAX pushdown emits two rows, min first and max second, for each projected column.
         // The upper MIN/MAX aggregate consumes those two rows to produce the final aggregate value.
-        DORIS_CHECK(file_result.columns.size() == _data_reader.column_mapper.mappings().size());
-        DORIS_CHECK(block->columns() == _data_reader.column_mapper.mappings().size());
+        DORIS_CHECK(file_result.columns.size() == _data_reader.column_mapper->mappings().size());
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
         Block file_block;
         file_block.reserve(_data_reader.file_block_layout.size());
         for (const auto& column : _data_reader.file_block_layout) {
@@ -1397,11 +1386,11 @@ protected:
             }
             DORIS_CHECK(found_file_column);
         }
-        for (size_t column_idx = 0; column_idx < _data_reader.column_mapper.mappings().size();
+        for (size_t column_idx = 0; column_idx < _data_reader.column_mapper->mappings().size();
              ++column_idx) {
             ColumnPtr table_column;
             RETURN_IF_ERROR(
-                    _materialize_mapping_column(_data_reader.column_mapper.mappings()[column_idx],
+                    _materialize_mapping_column(_data_reader.column_mapper->mappings()[column_idx],
                                                 &file_block, 2, &table_column));
             block->replace_by_position(column_idx, std::move(table_column));
         }
@@ -1416,7 +1405,7 @@ protected:
 
     struct DataReader {
         std::unique_ptr<FileReader> reader;
-        TableColumnMapper column_mapper;
+        std::unique_ptr<TableColumnMapper> column_mapper;
         // Schema of the data file, also including virtual column (row position).
         std::vector<ColumnDefinition> file_schema;
         // Layout of the block returned by file reader, determined by column mapping and file
@@ -1428,6 +1417,11 @@ protected:
     std::vector<ColumnDefinition> _projected_columns;
     std::unique_ptr<ScanTask> _current_task;
     std::optional<io::FileDescription> _current_file_description;
+    // Range-level compression has higher priority than scan-param compression. TVF/load can keep
+    // the logical format as CSV/TEXT while carrying the concrete compression such as GZ or LZO on
+    // each TFileRangeDesc, matching the old FileScanner reader contract.
+    TFileCompressType::type _current_range_compress_type = TFileCompressType::UNKNOWN;
+    std::optional<TUniqueId> _current_range_load_id;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;
@@ -1442,6 +1436,7 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
+    const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     uint64_t _condition_cache_digest = 0;
