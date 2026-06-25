@@ -163,10 +163,10 @@ suite("test_multi_stage_predicate_lm") {
     assertTrue(parseLongOrZero(metricsRowids["PredicateLMStage2ByRowIdsBatches"]) > 0,
             "Expected stage2-by-rowids but got: " + metricsRowids.toString() + "\n" + profileRowids)
 
-    // Strong assert 2: non-selective stage1 predicate => stage2 all-rows fallback
-    // Use a>=0 to make stage1 survival ratio ~= 1.0 (> default threshold 0.8)
+    // Strong assert 2: high-survival stage1 predicate => stage2 all-rows fallback
+    // Use a < 19 so stage1 survival ratio ~= 0.95 (> default threshold 0.8) while still being a non-trivial predicate.
     def tokenAllRows = "test_multi_stage_predicate_lm_allrows_" + System.currentTimeMillis()
-    sql """ SELECT /* ${tokenAllRows} */ count(*) FROM ${tbl} WHERE a >= 0 AND b = 2; """
+    sql """ SELECT /* ${tokenAllRows} */ count(*) FROM ${tbl} WHERE a < 19 AND b = 2; """
     def profileAllRows = getProfileWithToken(tokenAllRows)
     def metricsAllRows = extractProfileBlockMetrics(profileAllRows, "SegmentIterator")
 

@@ -219,10 +219,18 @@ Status OlapScanner::_prepare_impl() {
             tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 
+        const auto& qopts = _state->query_options();
+
+        // Map FE session variable enable_multi_stage_predicate_lm -> storage read option flag.
+        // This flag is what SegmentIterator actually checks.
+        if (qopts.__isset.enable_multi_stage_predicate_lm) {
+            _tablet_reader_params.enable_multi_stage_predicate_lazy_materialization =
+                    qopts.enable_multi_stage_predicate_lm;
+        }
+
         // Map FE session variable predicate_lm_stage1_cols -> ColumnId list
         // NOTE: only meaningful when multi-stage predicate LM is enabled.
         if (_tablet_reader_params.enable_multi_stage_predicate_lazy_materialization) {
-            const auto& qopts = _state->query_options();
             if (qopts.__isset.predicate_lm_stage1_cols && !qopts.predicate_lm_stage1_cols.empty()) {
                 std::vector<ColumnId> stage1_column_ids;
                 RETURN_IF_ERROR(parse_predicate_lm_stage1_cols_to_column_ids(
