@@ -225,12 +225,14 @@ suite("test_streaming_postgres_job_slot_dropped_during_incremental",
             cnt.size() == 1 && cnt.get(0).get(0) >= 10
         })
 
-        // Discover the Doris-owned slot name (doris_cdc_<jobId>) created at CREATE.
-        def dorisSlot = null
+        // The Doris-owned slot is deterministic: doris_cdc_<jobId>. Derive it from this job's Id
+        // rather than scanning LIKE 'doris_cdc_%' (which could pick another suite's leftover or
+        // concurrent slot in the shared PG instance), then assert that exact slot exists.
+        def dorisJobId = (sql """select Id from jobs("type"="insert") where Name='${dorisJob}'""").get(0).get(0).toString()
+        def dorisSlot = "doris_cdc_${dorisJobId}"
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            def slots = sql """SELECT slot_name FROM pg_replication_slots WHERE slot_name LIKE 'doris_cdc_%'"""
-            assert slots.size() >= 1 : "expected a Doris-owned slot to exist, got ${slots}"
-            dorisSlot = slots.get(0).get(0)
+            def slotExists = sql """SELECT COUNT(1) FROM pg_replication_slots WHERE slot_name = '${dorisSlot}'"""
+            assert slotExists[0][0] == 1 : "expected Doris-owned slot ${dorisSlot} to exist"
         }
         log.info("Doris-owned slot to drop: ${dorisSlot}")
 
