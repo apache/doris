@@ -70,9 +70,6 @@ private:
         return true;
     }
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::UNACCEPTABLE;
-    }
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"

@@ -227,7 +227,6 @@ public:
 
 private:
     friend class NestedLoopJoinProbeLocalState;
-    bool _is_output_left_side_only;
     VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;

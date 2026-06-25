@@ -53,7 +53,6 @@
 #include "util/date_func.h"
 
 namespace doris {
-class BitmapFilterFuncBase;
 class BloomFilterFuncBase;
 class HybridSetBase;
 class ObjectPool;
@@ -321,13 +320,6 @@ public:
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
-
-    // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
-    virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        throw Exception(Status::FatalError(
-                "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
-                this->debug_string()));
-    }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(VExprContext* context, Selector* selector, size_t count,

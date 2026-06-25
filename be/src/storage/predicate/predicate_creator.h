@@ -30,7 +30,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 class BloomFilterFuncBase;
-class BitmapFilterFuncBase;
 
 // Defined in predicate_creator.cpp with explicit instantiations.
 template <PredicateType PT>
@@ -59,8 +58,5 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
         const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
         const std::shared_ptr<BloomFilterFuncBase>& filter);
 
-std::shared_ptr<ColumnPredicate> create_bitmap_filter_predicate(
-        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
-        const std::shared_ptr<BitmapFilterFuncBase>& filter);
 #include "common/compile_check_end.h"
 } //namespace doris

@@ -37,14 +37,11 @@ public class RuntimeFilter {
     private final RuntimeFilterId id;
     private final TRuntimeFilterType type;
     private final Expression srcSlot;
-    //bitmap filter support target expression like  k1+1, abs(k1)
-    //targetExpression is an expression on targetSlot, in which there is only one non-const slot
+    // targetExpression is an expression on targetSlot, in which there is only one non-const slot.
     private final List<Expression> targetExpressions;
     private final List<Slot> targetSlots;
     private final int exprOrder;
     private final AbstractPhysicalJoin builderNode;
-
-    private final boolean bitmapFilterNotIn;
 
     private final long buildSideNdv;
     // use for min-max filter only. specify if the min or max side is valid
@@ -61,28 +58,6 @@ public class RuntimeFilter {
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
                          boolean bloomFilterSizeCalculatedByNdv, TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
-        this(id, src, targets, targetExpressions, type, exprOrder,
-                builderNode, false, buildSideNdv, bloomFilterSizeCalculatedByNdv,
-                tMinMaxType, scan);
-    }
-
-    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
-                         PhysicalRelation scan) {
-        this(id, src, targets, targetExpressions, type, exprOrder,
-                builderNode, bitmapFilterNotIn, buildSideNdv, bloomFilterSizeCalculatedByNdv,
-                TMinMaxRuntimeFilterType.MIN_MAX, scan);
-    }
-
-    /**
-     * constructor
-     */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
-                         TMinMaxRuntimeFilterType tMinMaxType,
-                         PhysicalRelation scan) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlots = Lists.newArrayList(targets);
@@ -90,7 +65,6 @@ public class RuntimeFilter {
         this.type = type;
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
-        this.bitmapFilterNotIn = bitmapFilterNotIn;
         this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
         this.tMinMaxType = tMinMaxType;
@@ -120,10 +94,6 @@ public class RuntimeFilter {
 
     public AbstractPhysicalJoin getBuilderNode() {
         return builderNode;
-    }
-
-    public boolean isBitmapFilterNotIn() {
-        return bitmapFilterNotIn;
     }
 
     public List<Expression> getTargetExpressions() {
