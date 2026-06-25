@@ -267,6 +267,42 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
         Assertions.assertTrue(exception.getMessage().contains("limit is not supported in correlated subquery"));
     }
 
+    @Test
+    public void testExistsOverScalarAggUnionOrderBy() {
+        // EXISTS over scalar aggregate with ORDER BY wrapper and UNION ALL.
+        // hasTopLevelScalarAgg() must see through LogicalSort to fold to TRUE/FALSE.
+        String sql = "SELECT EXISTS ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T1 UNION ALL SELECT id FROM T2"
+                + ") u ORDER BY 1"
+                + ") AS result";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testNotExistsOverScalarAggUnionOrderBy() {
+        String sql = "SELECT NOT EXISTS ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T1 UNION ALL SELECT id FROM T2"
+                + ") u ORDER BY 1"
+                + ") AS result";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testExistsCorrelatedScalarAggUnionOrderBy() {
+        // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
+        // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT COUNT(*) FROM ("
+                + "SELECT id FROM T2 t2 WHERE t1.id = t2.id"
+                + " UNION ALL "
+                + "SELECT id FROM T3 t3 WHERE t1.id = t3.id"
+                + ") u ORDER BY 1"
+                + ") ORDER BY id";
+        PlanChecker.from(connectContext).analyze(sql);
+    }
+
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql)

@@ -408,4 +408,38 @@ suite("correlated_scalar_subquery") {
             ) u
         ) ORDER BY c1
     """
+
+    // EXISTS over a scalar aggregate with ORDER BY wrapper — the sort cannot
+    // change EXISTS semantics and hasTopLevelScalarAgg() must see through it.
+    // This shape must not throw "Unsupported correlated subquery with set
+    // operation" or "Unsupported correlated subquery with a LIMIT clause".
+    // Non-correlated variant: EXISTS (SELECT COUNT(*) FROM (... UNION ...) u ORDER BY 1)
+    qt_exists_over_scalar_agg_union_orderby """
+        SELECT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u ORDER BY 1
+        ) AS result
+    """
+    qt_not_exists_over_scalar_agg_union_orderby """
+        SELECT NOT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u ORDER BY 1
+        ) AS result
+    """
+    // Correlated variant: ORDER BY over correlated scalar-agg + UNION.
+    qt_exists_correlated_scalar_agg_union_orderby """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+            ) u ORDER BY 1
+        ) ORDER BY c1
+    """
 }

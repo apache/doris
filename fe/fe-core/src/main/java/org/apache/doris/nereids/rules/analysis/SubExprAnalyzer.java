@@ -254,12 +254,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
      * Check whether the analyzed subquery plan has a top-level scalar aggregate
      * (aggregate without GROUP BY).  Such an aggregate is guaranteed to return
      * exactly one row regardless of its input, so EXISTS over it is always TRUE
-     * and NOT EXISTS is always FALSE.
+     * and NOT EXISTS is always FALSE.  Sorting the single row cannot change
+     * EXISTS semantics, so we also strip leading LogicalSort wrappers.
      */
     private boolean hasTopLevelScalarAgg(AnalyzedResult analyzedResult) {
         LogicalPlan plan = analyzedResult.getLogicalPlan();
-        // Strip leading projects — analysis may wrap the aggregate in a project.
-        while (plan instanceof LogicalProject) {
+        // Strip leading projects and sorts — analysis may wrap the aggregate
+        // in a project or sort wrapper.
+        while (plan instanceof LogicalProject || plan instanceof LogicalSort) {
             plan = (LogicalPlan) plan.child(0);
         }
         if (plan instanceof LogicalAggregate) {
