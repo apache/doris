@@ -734,10 +734,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             String lowerKey = key.toLowerCase(Locale.ROOT);
             boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
                     || lowerKey.endsWith(".password")
+                    || lowerKey.endsWith(".secret")
                     || lowerKey.endsWith(".secret_key")
                     || lowerKey.endsWith(".secret.key")
                     || lowerKey.endsWith(".session_key")
                     || lowerKey.endsWith(".session.token")
+                    || lowerKey.contains(".private.key.")
+                    || lowerKey.endsWith(".private.key")
+                    || lowerKey.endsWith(".private_key")
+                    || lowerKey.endsWith(".passphrase")
                     || "ssl.keystore.key".equals(lowerKey)
                     || "ssl.key.pem".equals(lowerKey);
             maskedProperties.put(keyPrefix + key, sensitive ? SENSITIVE_PROPERTY_MASK : value);
