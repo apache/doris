@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_column_name", "variant_type"){
+suite("regression_test_variant_column_name", "p0, nonConcurrent"){
     def table_name = "var_column_name"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
@@ -64,10 +64,14 @@ suite("regression_test_variant_column_name", "variant_type"){
     qt_sql "select cast(Tags[''] as text) from var_column_name order by cast(Tags[''] as string)"
 
     // name with `.`
-    sql "truncate table var_column_name"
-    test {
-        sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
-        exception "may contains duplicated entry"
+    // When parser-side duplicate path deduplication is disabled, dotted keys and nested paths
+    // collide during Variant materialization and should report duplicated entry.
+    setBeConfigTemporary([variant_enable_duplicate_json_path_check: false]) {
+        sql "truncate table var_column_name"
+        test {
+            sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+            exception "may contains duplicated entry"
+        }
     }
     for (int i = 0; i < 7; i++) {
         sql """insert into var_column_name select * from var_column_name"""
