@@ -19,6 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,22 @@ public class StoragePropertiesConverterHdfsDirTest {
         Map<String, String> map = StoragePropertiesConverter.toMap(props);
 
         Assertions.assertEquals("HDFS", map.get("_STORAGE_TYPE_"));
+        Assertions.assertEquals(Config.hadoop_config_dir, map.get("_HADOOP_CONFIG_DIR_"));
+    }
+
+    @Test
+    public void ossHdfsMapCarriesDistinctStorageType() {
+        // OSS-HDFS extends the HDFS-compatible base but must carry the OSS_HDFS marker so the
+        // fe-filesystem OssHdfsFileSystemProvider (not the plain HDFS one) is selected.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("oss.hdfs.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
+        raw.put("oss.hdfs.access_key", "ak");
+        raw.put("oss.hdfs.secret_key", "sk");
+        StorageProperties props = StorageProperties.createPrimary(raw);
+
+        Map<String, String> map = StoragePropertiesConverter.toMap(props);
+
+        Assertions.assertEquals("OSS_HDFS", map.get("_STORAGE_TYPE_"));
         Assertions.assertEquals(Config.hadoop_config_dir, map.get("_HADOOP_CONFIG_DIR_"));
     }
 }
