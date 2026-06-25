@@ -182,6 +182,24 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
     }
 
     @Test
+    void testEliminateByPkWithOutputNeeded() throws Exception {
+        // Regression: when a group-by key (name) is FD-redundant (id -> name)
+        // but still appears in SELECT, it should be removed from group-by
+        // and wrapped with ANY_VALUE in the output.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        PlanChecker.from(connectContext)
+                .analyze("select id, name, count(*) from t1 group by id, name")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("id")
+                                && agg.getOutputExpressions().stream().anyMatch(
+                                        e -> e.child(0) instanceof org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue)));
+        dropConstraint("alter table t1 drop constraint pk2");
+    }
+
+    @Test
     void testRepeatEliminateByEqual() {
         PlanChecker.from(connectContext)
                 .analyze("select count(1) from (select a,b from eli_gbk_t where a=b group by grouping sets((a,b),(b,a))) t group by a,b;")

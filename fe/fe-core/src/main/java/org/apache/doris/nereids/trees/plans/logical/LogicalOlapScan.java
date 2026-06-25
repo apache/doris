@@ -19,10 +19,14 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -989,6 +993,34 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 }
             }
             builder.addUniqueSlot(uniqSlots.build());
+        }
+        // Add unique slots from primary key constraints
+        addUniqueFromPk(builder);
+    }
+
+    private void addUniqueFromPk(DataTrait.Builder builder) {
+        TableIf table = getTable();
+        if (!(table instanceof Table)) {
+            return;
+        }
+        Table t = (Table) table;
+        ImmutableList<PrimaryKeyConstraint> pks = Env.getCurrentEnv().getConstraintManager()
+                .getPrimaryKeyConstraints(new TableNameInfo(t.getQualifiedDbName(), t.getName()));
+        if (pks.isEmpty()) {
+            return;
+        }
+        Set<Slot> outputSet = getOutputSet();
+        for (PrimaryKeyConstraint pk : pks) {
+            Set<String> pkNames = pk.getPrimaryKeyNames();
+            ImmutableSet.Builder<Slot> pkSlots = ImmutableSet.builderWithExpectedSize(pkNames.size());
+            for (Slot slot : outputSet) {
+                for (String pkName : pkNames) {
+                    if (slot.getName().equals(pkName)) {
+                        pkSlots.add(slot);
+                    }
+                }
+            }
+            builder.addUniqueSlot(pkSlots.build());
         }
     }
 
