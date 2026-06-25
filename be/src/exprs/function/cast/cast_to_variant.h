@@ -29,8 +29,8 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                                      const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count, const NullMap::value_type* null_map,
                                      const DataTypePtr& data_type_to) {
-    const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-    const auto& col_from = col_with_type_and_name.column;
+    auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+    auto& col_from = col_with_type_and_name.column;
     const IColumn* variant_column = col_from.get();
     const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column);
     if (nullable != nullptr) {
@@ -173,7 +173,7 @@ struct CastToVariant {
         auto variant = ColumnVariant::create(
                 variant_type ? variant_type->variant_max_subcolumns_count() : 0,
                 variant_type ? variant_type->enable_doc_mode() : false);
-        variant->create_root(from_type, col_from->assume_mutable());
+        variant->create_root(from_type, IColumn::mutate(col_from));
         block.replace_by_position(result, std::move(variant));
         return Status::OK();
     }

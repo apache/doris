@@ -168,8 +168,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
         return Status::OK();
     }
 
-    _stored_data_columns =
-            _next_row.block->create_same_struct_block(batch_max_rows())->mutate_columns();
+    auto stored_block = _next_row.block->create_same_struct_block(batch_max_rows());
+    _stored_data_columns = std::move(*stored_block).mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_variable_length_tag.resize(_stored_data_columns.size());
@@ -295,7 +295,8 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
 
     auto target_block_row = 0;
     auto merged_row = 0;
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
     RETURN_IF_ERROR(_insert_data_normal(target_columns));
     target_block_row++;
     _append_agg_data(target_columns);
@@ -339,7 +340,6 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
-    block->set_columns(std::move(target_columns));
 
     _merged_rows += merged_row;
     return Status::OK();
@@ -352,7 +352,8 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     auto target_block_row = 0;
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
     if (UNLIKELY(_reader_context.record_rowids)) {
         _block_row_locations.resize(batch_max_rows());
     }
@@ -399,9 +400,10 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
                          << delete_sign_idx
                          << " not invalid, skip filter delete in base compaction";
+            target_columns_guard.restore();
             return Status::OK();
         }
-        MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
+        auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
         auto* __restrict filter_data =
@@ -422,18 +424,17 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
         }
         auto target_columns_size = target_columns.size();
+        _delete_filter_column = std::move(delete_filter_column);
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
-        block->set_columns(std::move(target_columns));
+        target_columns_guard.restore();
         block->insert(column_with_type_and_name);
         RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
-    } else {
-        block->set_columns(std::move(target_columns));
     }
     return Status::OK();
 }

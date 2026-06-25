@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.common.Config;
+
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -24,14 +26,19 @@ import org.junit.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MetaCacheEntryTest {
 
     @Test
     public void testRefreshUsesConfiguredLoader() throws Exception {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {
             Map<String, String> properties = Maps.newHashMap();
@@ -58,6 +65,7 @@ public class MetaCacheEntryTest {
             }
             Assert.assertTrue("refresh should trigger loader invocation", loadCounter.get() >= 2);
         } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
             refreshExecutor.shutdownNow();
         }
     }
@@ -188,9 +196,196 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void testManualMissLoadDeduplicatesSameKey() throws Exception {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newFixedThreadPool(2);
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return loadCounter.incrementAndGet();
+                    },
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            Future<Integer> second = queryExecutor.submit(() -> entry.get("k"));
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(1), second.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(1, loadCounter.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testManualMissLoadDoesNotPutAfterInvalidate() throws Exception {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return loadCounter.incrementAndGet();
+                    },
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+            Assert.assertEquals(2, loadCounter.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testManualMissLoadRemovesValueWhenInvalidateHappensBeforePut() throws Exception {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch beforePutStarted = new CountDownLatch(1);
+            CountDownLatch releaseBeforePut = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    key -> loadCounter.incrementAndGet(),
+                    cacheSpec,
+                    refreshExecutor,
+                    false) {
+                @Override
+                void beforeManualCachePutForTest(String key, Integer loaded) {
+                    beforePutStarted.countDown();
+                    awaitLatch(releaseBeforePut);
+                }
+            };
+
+            Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(beforePutStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
+            releaseBeforePut.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+            Assert.assertEquals(2, loadCounter.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testManualMissLoadAllowsNullWithoutCaching() {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+            AtomicInteger missLoaderCounter = new AtomicInteger();
+
+            // Verify manual miss load returns null directly and retries because null values are not cached.
+            Assert.assertNull(entry.get("missing", key -> {
+                missLoaderCounter.incrementAndGet();
+                return null;
+            }));
+            Assert.assertNull(entry.getIfPresent("missing"));
+            Assert.assertNull(entry.get("missing", key -> {
+                missLoaderCounter.incrementAndGet();
+                return null;
+            }));
+            Assert.assertEquals(2, missLoaderCounter.get());
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testManualMissLoadDoesNotCacheWhenEntryDisabled() {
+        boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
+        Config.enable_external_meta_cache_manual_miss_load = true;
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(false, CacheSpec.CACHE_NO_TTL, 10L);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> loadCounter.incrementAndGet(),
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            // Verify disabled entries bypass cache entirely even when manual miss load is enabled by config.
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(2, loadCounter.get());
+
+            entry.put("k", 100);
+            Assert.assertNull(entry.getIfPresent("k"));
+        } finally {
+            Config.enable_external_meta_cache_manual_miss_load = originalManualMissLoad;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    // Keep the loader blocking helper in one place so concurrent tests stay readable.
+    private void awaitLatch(CountDownLatch latch) {
+        try {
+            Assert.assertTrue(latch.await(3L, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private LoadingCache<String, Integer> extractLoadingCache(MetaCacheEntry<String, Integer> entry) throws Exception {
-        Field dataField = MetaCacheEntry.class.getDeclaredField("data");
+        Field dataField = MetaCacheEntry.class.getDeclaredField("loadingData");
         dataField.setAccessible(true);
         Object raw = dataField.get(entry);
         Assert.assertTrue(raw instanceof LoadingCache);

@@ -229,10 +229,11 @@ public:
         MutableColumns columns(column_size);
         do {
             bool mem_reuse = lambda_block.mem_reuse();
-            for (int i = 0; i < column_size; i++) {
-                if (mem_reuse) {
-                    columns[i] = lambda_block.get_by_position(i).column->assume_mutable();
-                } else {
+            if (mem_reuse) {
+                auto columns_guard = lambda_block.mutate_columns_scoped();
+                columns = columns_guard.release();
+            } else {
+                for (int i = 0; i < column_size; i++) {
                     if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
                         // TODO: maybe could create const column, so not insert_many_from when extand data
                         // but now here handle batch_size of array nested data every time, so maybe have different rows
@@ -280,6 +281,8 @@ public:
                     lambda_block.insert(
                             ColumnWithTypeAndName(std::move(columns[i]), data_types[i], names[i]));
                 }
+            } else {
+                lambda_block.set_columns(std::move(columns));
             }
             //3. child[0]->execute(new_block)
 

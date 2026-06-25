@@ -303,7 +303,9 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
-        col.column->assume_mutable()->clear();
+        auto mutable_column = IColumn::mutate(std::move(col.column));
+        mutable_column->clear();
+        col.column = std::move(mutable_column);
         if (names.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
@@ -1100,8 +1102,8 @@ Status IcebergParquetReader::_process_equality_delete(
             size_t read_rows = 0;
             RETURN_IF_ERROR(delete_reader->get_next_block(&tmp_block, &read_rows, &eof));
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
-                RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                ScopedMutableBlock mutable_block(&eq_file_block);
+                RETURN_IF_ERROR(mutable_block.mutable_block().merge(tmp_block));
             }
         }
     }
@@ -1247,8 +1249,8 @@ Status IcebergOrcReader::_process_equality_delete(
             size_t read_rows = 0;
             RETURN_IF_ERROR(delete_reader->get_next_block(&tmp_block, &read_rows, &eof));
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
-                RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                ScopedMutableBlock mutable_block(&eq_file_block);
+                RETURN_IF_ERROR(mutable_block.mutable_block().merge(tmp_block));
             }
         }
     }

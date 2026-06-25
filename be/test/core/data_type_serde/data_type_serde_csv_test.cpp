@@ -512,8 +512,9 @@ TEST(CsvSerde, ComplexTypeSerdeSchemaChangedCsvTest) {
         DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
         Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
         EXPECT_EQ(st, Status::OK());
-        auto struct_col = static_cast<ColumnStruct&>(
-                static_cast<ColumnNullable&>(*col.get()).get_nested_column());
+        // Use const access for read-only assertions: avoids assume_mutable_ref() on sub-columns.
+        const auto& struct_col = static_cast<const ColumnStruct&>(
+                static_cast<const ColumnNullable&>(*col.get()).get_nested_column());
         EXPECT_EQ(struct_col.get_column(0).get_data_at(0).to_string(), "false");
         EXPECT_EQ(struct_col.get_column(1).get_data_at(0).to_string(), "example");
 
@@ -537,11 +538,11 @@ TEST(CsvSerde, ComplexTypeSerdeSchemaChangedCsvTest) {
         DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
         Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
         EXPECT_EQ(st, Status::OK());
-        auto array_col = static_cast<ColumnArray&>(
-                static_cast<ColumnNullable&>(*col.get()).get_nested_column());
+        const auto& array_col = static_cast<const ColumnArray&>(
+                static_cast<const ColumnNullable&>(*col.get()).get_nested_column());
 
-        auto string_col = static_cast<ColumnString&>(
-                static_cast<ColumnNullable&>(array_col.get_data()).get_nested_column());
+        const auto& string_col = static_cast<const ColumnString&>(
+                static_cast<const ColumnNullable&>(array_col.get_data()).get_nested_column());
         EXPECT_EQ(string_col.get_data_at(0).to_string(), "1\003example");
         EXPECT_EQ(string_col.get_data_at(1).to_string(), "2\003test");
     }

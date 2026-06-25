@@ -336,22 +336,24 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
                 bytes_usage += null_column.allocated_bytes();
             } else {
-                to = make_nullable(from, false)->assume_mutable();
+                to = ColumnNullable::create(IColumn::mutate(std::move(from)),
+                                            ColumnUInt8::create(rows, 0));
             }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
                 bytes_usage += from->allocated_bytes();
             } else {
-                to = from->assume_mutable();
+                to = IColumn::mutate(std::move(from));
             }
         }
     };
 
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
+    auto& mutable_columns = mutable_block.mutable_columns();
     if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
             ColumnPtr column_ptr;
@@ -361,9 +363,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
-        output_block->set_columns(std::move(mutable_columns));
     }
-
     local_state->_estimate_memory_usage += bytes_usage;
 
     return Status::OK();

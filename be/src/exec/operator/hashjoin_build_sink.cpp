@@ -186,11 +186,23 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 converted_columns = _convert_block_to_null(block);
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
-                    auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
-                            ->get_null_map_column()
-                            .get_data()
-                            .data()[0] = 1;
+                    auto column_guard = block.mutate_column_scoped(i);
+                    auto& block_column = column_guard.mutable_column();
+                    if (const auto* const_column =
+                                check_and_get_column<ColumnConst>(block_column.get())) {
+                        const auto column_size = block_column->size();
+                        auto mutable_column = IColumn::mutate(const_column->get_data_column_ptr());
+                        assert_cast<ColumnNullable*>(mutable_column.get())
+                                ->get_null_map_column()
+                                .get_data()
+                                .data()[0] = 1;
+                        block_column = ColumnConst::create(std::move(mutable_column), column_size);
+                    } else {
+                        assert_cast<ColumnNullable*>(block_column.get())
+                                ->get_null_map_column()
+                                .get_data()
+                                .data()[0] = 1;
+                    }
                 }
             }
 
@@ -571,7 +583,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {
-            std::move(*data.column).mutate()->finalize();
+            auto mutable_column = IColumn::mutate(std::move(data.column));
+            mutable_column->finalize();
+            data.column = std::move(mutable_column);
         }
     }
 
@@ -582,11 +596,22 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
         _convert_block_to_null(block);
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
-            auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<ColumnNullable*>(column->assume_mutable().get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .data()[0] = 1;
+            auto column_guard = block.mutate_column_scoped(i);
+            auto& block_column = column_guard.mutable_column();
+            if (const auto* const_column = check_and_get_column<ColumnConst>(block_column.get())) {
+                const auto column_size = block_column->size();
+                auto mutable_column = IColumn::mutate(const_column->get_data_column_ptr());
+                assert_cast<ColumnNullable*>(mutable_column.get())
+                        ->get_null_map_column()
+                        .get_data()
+                        .data()[0] = 1;
+                block_column = ColumnConst::create(std::move(mutable_column), column_size);
+            } else {
+                assert_cast<ColumnNullable*>(block_column.get())
+                        ->get_null_map_column()
+                        .get_data()
+                        .data()[0] = 1;
+            }
         }
     }
 
@@ -814,7 +839,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         if (!in_block->empty()) {

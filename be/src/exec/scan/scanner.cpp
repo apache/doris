@@ -199,8 +199,9 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     DCHECK_EQ(rows, input_block.rows());
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
 
     auto& mutable_columns = mutable_block.mutable_columns();
 
@@ -213,10 +214,10 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
     }
-    DCHECK(mutable_block.rows() == rows);
-    output_block->set_columns(std::move(mutable_columns));
+
+    scoped_mutable_block.restore();
 
     return Status::OK();
 }

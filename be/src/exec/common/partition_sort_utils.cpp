@@ -29,13 +29,15 @@ Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool 
             _blocks.push_back(Block::create_unique(
                     VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc)));
         }
-        auto columns = input_block->get_columns();
-        auto mutable_columns = _blocks.back()->mutate_columns();
-        DCHECK(columns.size() == mutable_columns.size());
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            columns[i]->append_data_by_selector(mutable_columns[i], _selector);
+        {
+            auto columns = input_block->get_columns();
+            auto mutable_columns_guard = _blocks.back()->mutate_columns_scoped();
+            auto& mutable_columns = mutable_columns_guard.mutable_columns();
+            DCHECK(columns.size() == mutable_columns.size());
+            for (int i = 0; i < mutable_columns.size(); ++i) {
+                columns[i]->append_data_by_selector(mutable_columns[i], _selector);
+            }
         }
-        _blocks.back()->set_columns(std::move(mutable_columns));
         _init_rows = _init_rows - selector_rows;
         _current_input_rows = _current_input_rows + selector_rows;
         _selector.clear();

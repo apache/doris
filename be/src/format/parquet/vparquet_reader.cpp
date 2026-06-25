@@ -294,6 +294,9 @@ Status ParquetReader::close() {
 
 void ParquetReader::_close_internal() {
     if (!_closed) {
+        _current_group_reader.reset();
+        _tracing_file_reader.reset();
+        _file_reader.reset();
         _closed = true;
     }
 }
@@ -711,11 +714,10 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
         _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
                                                   rows);
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
+        auto columns_guard = block->mutate_columns_scoped();
+        for (auto& col : columns_guard.mutable_columns()) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
 
         *read_rows = rows;
         if (_current_group_reader->get_remaining_rows() == 0) {

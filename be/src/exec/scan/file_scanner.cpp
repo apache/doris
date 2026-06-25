@@ -420,8 +420,10 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        _runtime_filter_partition_prune_block.get_by_position(0).column->assume_mutable()->resize(
-                partition_value_column_size);
+        auto column = IColumn::mutate(
+                std::move(_runtime_filter_partition_prune_block.get_by_position(0).column));
+        column->resize(partition_value_column_size);
+        _runtime_filter_partition_prune_block.replace_by_position(0, std::move(column));
     }
     IColumn::Filter result_filter(_runtime_filter_partition_prune_block.rows(), 1);
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
@@ -762,10 +764,8 @@ Status FileScanner::_fill_columns_from_path(size_t rows) {
     }
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : _partition_col_descs) {
-        auto doris_column =
-                _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first]).column;
-        // _src_block_ptr points to a mutable block created by this class itself, so const_cast can be used here.
-        IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
+        auto column_guard = _src_block_ptr->mutate_column_scoped(_src_block_name_to_idx[kv.first]);
+        IColumn* col_ptr = column_guard.mutable_column().get();
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
@@ -796,8 +796,9 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
     for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto mutable_column = _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first])
-                                          .column->assume_mutable();
+            auto column_guard =
+                    _src_block_ptr->mutate_column_scoped(_src_block_name_to_idx[kv.first]);
+            auto& mutable_column = column_guard.mutable_column();
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
@@ -810,8 +811,9 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                auto mutable_column = result_column_ptr->assume_mutable();
+                auto mutable_column = IColumn::mutate(std::move(result_column_ptr));
                 mutable_column->resize(rows);
+                result_column_ptr = std::move(mutable_column);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type =
@@ -862,16 +864,17 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug
-    MutableBlock mutable_output_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto scoped_mutable_output_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto& mutable_output_block = scoped_mutable_output_block.mutable_block();
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
 
     std::vector<BitmapValue>* skip_bitmaps {nullptr};
+    MutableColumnPtr skip_bitmap_column;
     if (_should_process_skip_bitmap_col()) {
-        auto* skip_bitmap_nullable_col_ptr =
-                assert_cast<ColumnNullable*>(_src_block_ptr->get_by_position(_skip_bitmap_col_idx)
-                                                     .column->assume_mutable()
-                                                     .get());
+        skip_bitmap_column = IColumn::mutate(
+                std::move(_src_block_ptr->get_by_position(_skip_bitmap_col_idx).column));
+        auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(skip_bitmap_column.get());
         skip_bitmaps = &(assert_cast<ColumnBitmap*>(
                                  skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())
                                  ->get_data());
@@ -888,6 +891,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                 }
             }
         }
+        _src_block_ptr->replace_by_position(_skip_bitmap_col_idx, std::move(skip_bitmap_column));
     }
 
     // for (auto slot_desc : _output_tuple_desc->slots()) {
@@ -954,6 +958,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
+    scoped_mutable_output_block.restore();
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block_ptr->clear();

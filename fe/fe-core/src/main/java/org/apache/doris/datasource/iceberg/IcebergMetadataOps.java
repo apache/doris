@@ -193,7 +193,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // IcebergMetadataOps handles listTableNames and listViewNames separately.
                 // listTableNames should only focus on the table type,
                 // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (catalog instanceof ViewCatalog) {
+                if (isViewCatalogEnabled()) {
                     views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
                             .stream().map(TableIdentifier::name).collect(Collectors.toList());
                 } else {
@@ -1133,7 +1133,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String remoteDbName, String remoteViewName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return false;
         }
         try {
@@ -1147,7 +1147,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public View loadView(String dbName, String tblName) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return null;
         }
         try {
@@ -1161,7 +1161,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public List<String> listViewNames(String db) {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             return Collections.emptyList();
         }
         try {
@@ -1199,12 +1199,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
     }
 
+    private boolean isViewCatalogEnabled() {
+        if (!(catalog instanceof ViewCatalog)) {
+            return false;
+        }
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            MetastoreProperties metaProps = dorisCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties) {
+                return ((IcebergRestProperties) metaProps).isIcebergRestViewEnabled();
+            }
+        }
+        return true;
+    }
+
     public ThreadPoolExecutor getThreadPoolWithPreAuth() {
         return dorisCatalog.getThreadPoolWithPreAuth();
     }
 
     private void performDropView(String remoteDbName, String remoteViewName) throws DdlException {
-        if (!(catalog instanceof ViewCatalog)) {
+        if (!isViewCatalogEnabled()) {
             throw new DdlException("Drop Iceberg view is not supported with not view catalog.");
         }
         ViewCatalog viewCatalog = (ViewCatalog) catalog;

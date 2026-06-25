@@ -65,6 +65,19 @@ enum class FileCachePolicy : uint8_t;
 namespace doris {
 #include "common/compile_check_begin.h"
 
+namespace {
+
+size_t columns_byte_size(const std::vector<MutableColumnPtr>& columns) {
+    size_t bytes = 0;
+    for (const auto& column : columns) {
+        DCHECK(column.get() != nullptr);
+        bytes += column->byte_size();
+    }
+    return bytes;
+}
+
+} // namespace
+
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
@@ -359,15 +372,16 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
     } else {
-        auto columns = block->mutate_columns();
-
-        while (rows < batch_size && !_line_reader_eof && (block->bytes() < max_block_bytes)) {
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        while (rows < batch_size && !_line_reader_eof &&
+               (columns_byte_size(columns) < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -387,7 +401,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             }
             if (size == 0) {
                 if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
+                    RETURN_IF_ERROR(_fill_empty_line(columns, &rows));
                 }
                 // Read empty line, continue
                 continue;
@@ -397,9 +411,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             if (!success) {
                 continue;
             }
-            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns, &rows));
         }
-        block->set_columns(std::move(columns));
     }
 
     *eof = (rows == 0);
@@ -650,8 +663,8 @@ Status CsvReader::_deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column
     return serde->deserialize_one_cell_from_csv(column, slice, _options);
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
-                                     std::vector<MutableColumnPtr>& columns, size_t* rows) {
+Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns,
+                                     size_t* rows) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -669,8 +682,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            col_ptr = columns[_file_slot_idx_map[i]].get();
         }
 
         if (_use_nullable_string_opt[i]) {
@@ -687,13 +699,11 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
-Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
-                                   size_t* rows) {
+Status CsvReader::_fill_empty_line(std::vector<MutableColumnPtr>& columns, size_t* rows) {
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            col_ptr = columns[_file_slot_idx_map[i]].get();
         }
         auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
         null_column.insert_data(nullptr, 0);

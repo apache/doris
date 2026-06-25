@@ -474,10 +474,10 @@ public:
 
         // Simulate reading without actually reading data
         // Fill with default/null values based on column type
-        MutableColumnPtr data_column = doris_column->assume_mutable();
+        MutableColumnPtr data_column = IColumn::mutate(std::move(doris_column));
 
         if (real_column_size > 0) {
-            if (doris_column->is_nullable()) {
+            if (data_column->is_nullable()) {
                 auto* nullable_column = static_cast<ColumnNullable*>(data_column.get());
                 nullable_column->insert_many_defaults(real_column_size);
             } else {
@@ -494,6 +494,7 @@ public:
         VLOG_DEBUG << "[ParquetReader] SkipReadingReader generated " << batch_size
                    << " default values for field: " << _field_schema->name;
 
+        doris_column = std::move(data_column);
         return Status::OK();
     }
 

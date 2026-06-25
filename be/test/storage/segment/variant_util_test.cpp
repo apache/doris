@@ -26,8 +26,11 @@
 
 #include "common/config.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
 #include "core/value/jsonb_value.h"
