@@ -18,10 +18,18 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -30,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -218,5 +227,209 @@ public class LogicalOlapScanTest {
         Assertions.assertSame(scanSlot1, replaceMap.get(mvSlot1));
         Assertions.assertSame(scanSlot2, replaceMap.get(mvSlot2));
         Assertions.assertSame(scanSlot3, replaceMap.get(mvSlot3));
+    }
+
+    /**
+     * Test that computeUnique registers a single-column PK constraint as a unique slot
+     * via addUniqueFromPk. Creates a DUP_KEYS table (no built-in key uniqueness),
+     * registers a single-column PrimaryKeyConstraint on "id", and verifies the
+     * matching output slot becomes individually unique.
+     */
+    @Test
+    public void testComputeUniqueSingleColumnPk() {
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+
+        DatabaseIf<?> db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getFullName()).thenReturn("test_db");
+
+        Column pkColId = createColumn("id");
+
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getId()).thenReturn(2L);
+        Mockito.when(olapTable.getName()).thenReturn("pk_table");
+        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("test_db", "pk_table"));
+        Mockito.when(olapTable.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getDatabase()).thenReturn(db);
+        Mockito.when(olapTable.getColumn("id")).thenReturn(pkColId);
+
+        // Single-column PK
+        PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_id", ImmutableSet.of("id"));
+        ConstraintManager cm = Mockito.mock(ConstraintManager.class);
+        Mockito.when(cm.getPrimaryKeyConstraints(Mockito.any(TableNameInfo.class)))
+                .thenReturn(ImmutableList.of(pk));
+        Mockito.when(cm.getUniqueConstraints(Mockito.any(TableNameInfo.class)))
+                .thenReturn(ImmutableList.of());
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(cm);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            SlotReference slotId = createMockSlot("id", "id", Collections.emptyList(), true);
+            SlotReference slotName = createMockSlot("name", "name", Collections.emptyList(), true);
+            List<Slot> outputSlots = ImmutableList.of(slotId, slotName);
+
+            LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
+                    new RelationId(2),
+                    olapTable,
+                    ImmutableList.of("test_db"),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Optional.empty(),
+                    Collections.emptyList()
+            ));
+            Mockito.doReturn(outputSlots).when(scan).computeOutput();
+            Mockito.doReturn(ImmutableSet.copyOf(outputSlots)).when(scan).getOutputSet();
+
+            DataTrait.Builder builder = new DataTrait.Builder();
+            scan.computeUnique(builder);
+            DataTrait trait = builder.build();
+
+            // Single-column PK: the matching slot should be individually unique
+            Assertions.assertTrue(trait.isUniqueAndNotNull(slotId),
+                    "PK column 'id' should be unique and not null");
+            Assertions.assertFalse(trait.isUniqueAndNotNull(slotName),
+                    "Non-PK column 'name' should not be unique");
+        }
+    }
+
+    /**
+     * Test that computeUnique correctly registers a composite PK constraint
+     * as a group-unique slot set. The combination (id, name) should be unique
+     * as a set, but individual columns should not be unique on their own.
+     */
+    @Test
+    public void testComputeUniqueCompositePk() {
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+
+        DatabaseIf<?> db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getFullName()).thenReturn("test_db");
+
+        Column pkColId = createColumn("id");
+        Column pkColName = createColumn("name");
+
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getId()).thenReturn(3L);
+        Mockito.when(olapTable.getName()).thenReturn("pk_table2");
+        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("test_db", "pk_table2"));
+        Mockito.when(olapTable.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getDatabase()).thenReturn(db);
+        Mockito.when(olapTable.getColumn("id")).thenReturn(pkColId);
+        Mockito.when(olapTable.getColumn("name")).thenReturn(pkColName);
+
+        // Composite PK on (id, name)
+        PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_composite", ImmutableSet.of("id", "name"));
+        ConstraintManager cm = Mockito.mock(ConstraintManager.class);
+        Mockito.when(cm.getPrimaryKeyConstraints(Mockito.any(TableNameInfo.class)))
+                .thenReturn(ImmutableList.of(pk));
+        Mockito.when(cm.getUniqueConstraints(Mockito.any(TableNameInfo.class)))
+                .thenReturn(ImmutableList.of());
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(cm);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            SlotReference slotId = createMockSlot("id", "id", Collections.emptyList(), true);
+            SlotReference slotName = createMockSlot("name", "name", Collections.emptyList(), true);
+            SlotReference slotOther = createMockSlot("other", "other", Collections.emptyList(), true);
+            List<Slot> outputSlots = ImmutableList.of(slotId, slotName, slotOther);
+
+            LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
+                    new RelationId(3),
+                    olapTable,
+                    ImmutableList.of("test_db"),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Optional.empty(),
+                    Collections.emptyList()
+            ));
+            Mockito.doReturn(outputSlots).when(scan).computeOutput();
+            Mockito.doReturn(ImmutableSet.copyOf(outputSlots)).when(scan).getOutputSet();
+
+            DataTrait.Builder builder = new DataTrait.Builder();
+            scan.computeUnique(builder);
+            DataTrait trait = builder.build();
+
+            // Composite PK: the SET is unique, individual columns are not
+            Assertions.assertTrue(trait.isUniqueAndNotNull(ImmutableSet.of(slotId, slotName)),
+                    "Composite PK set (id, name) should be unique");
+            Assertions.assertFalse(trait.isUniqueAndNotNull(slotId),
+                    "Individual PK column 'id' should not be unique on its own in a composite PK");
+            Assertions.assertFalse(trait.isUniqueAndNotNull(slotOther),
+                    "Non-PK column 'other' should not be unique");
+        }
+    }
+
+    /**
+     * Test that addUniqueFromPk correctly ignores PK columns that don't match
+     * any output slot (e.g., PK on a column not selected in the query).
+     * In this case no unique slots should be added.
+     */
+    @Test
+    public void testComputeUniqueWithPkColumnNotInOutput() {
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+
+        DatabaseIf<?> db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getFullName()).thenReturn("test_db");
+
+        Column pkColX = createColumn("col_x");
+
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getId()).thenReturn(4L);
+        Mockito.when(olapTable.getName()).thenReturn("pk_table3");
+        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("test_db", "pk_table3"));
+        Mockito.when(olapTable.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getDatabase()).thenReturn(db);
+        Mockito.when(olapTable.getColumn("col_x")).thenReturn(pkColX);
+
+        // PK on col_x, but output only has id and name
+        PrimaryKeyConstraint pk = new PrimaryKeyConstraint("pk_x", ImmutableSet.of("col_x"));
+        ConstraintManager cm = Mockito.mock(ConstraintManager.class);
+        Mockito.when(cm.getPrimaryKeyConstraints(Mockito.any(TableNameInfo.class)))
+                .thenReturn(ImmutableList.of(pk));
+        Mockito.when(cm.getUniqueConstraints(Mockito.any(TableNameInfo.class)))
+                .thenReturn(ImmutableList.of());
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getConstraintManager()).thenReturn(cm);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            SlotReference slotId = createMockSlot("id", "id", Collections.emptyList(), true);
+            SlotReference slotName = createMockSlot("name", "name", Collections.emptyList(), true);
+            List<Slot> outputSlots = ImmutableList.of(slotId, slotName);
+
+            LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
+                    new RelationId(4),
+                    olapTable,
+                    ImmutableList.of("test_db"),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Optional.empty(),
+                    Collections.emptyList()
+            ));
+            Mockito.doReturn(outputSlots).when(scan).computeOutput();
+            Mockito.doReturn(ImmutableSet.copyOf(outputSlots)).when(scan).getOutputSet();
+
+            DataTrait.Builder builder = new DataTrait.Builder();
+            scan.computeUnique(builder);
+            DataTrait trait = builder.build();
+
+            // Neither slot matches PK column col_x
+            Assertions.assertFalse(trait.isUniqueAndNotNull(slotId),
+                    "Non-PK column 'id' should not be unique");
+            Assertions.assertFalse(trait.isUniqueAndNotNull(slotName),
+                    "Non-PK column 'name' should not be unique");
+        }
     }
 }
