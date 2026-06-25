@@ -43,6 +43,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
+#include "format_v2/json/json_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "roaring/roaring64map.hh"
 #include "storage/segment/condition_cache.h"
@@ -73,6 +74,8 @@ std::string file_format_to_string(FileFormat format) {
         return "ORC";
     case FileFormat::CSV:
         return "CSV";
+    case FileFormat::JSON:
+        return "JSON";
     case FileFormat::TEXT:
         return "TEXT";
     case FileFormat::JNI:
@@ -725,6 +728,16 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _current_range_load_id);
         return Status::OK();
     }
+    if (_format == FileFormat::JSON) {
+        if (_file_slot_descs == nullptr) {
+            return Status::InvalidArgument("JSON reader requires file slot descriptors");
+        }
+        *reader = std::make_unique<format::json::JsonReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _scan_params, _current_file_range_desc, *_file_slot_descs,
+                _current_range_compress_type, _current_range_load_id);
+        return Status::OK();
+    }
     return Status::NotSupported("TableReader does not support file format {}",
                                 file_format_to_string(_format));
 }
@@ -751,6 +764,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
+    _current_file_range_desc = options.current_range;
     _current_range_compress_type = options.current_range.__isset.compress_type
                                            ? options.current_range.compress_type
                                            : TFileCompressType::UNKNOWN;

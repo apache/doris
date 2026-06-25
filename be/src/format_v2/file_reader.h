@@ -114,6 +114,7 @@ enum class FileFormat {
     PARQUET,
     ORC,
     CSV,
+    JSON,
     TEXT,
     JNI,
 };

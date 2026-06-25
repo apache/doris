@@ -1422,6 +1422,7 @@ protected:
     // each TFileRangeDesc, matching the old FileScanner reader contract.
     TFileCompressType::type _current_range_compress_type = TFileCompressType::UNKNOWN;
     std::optional<TUniqueId> _current_range_load_id;
+    TFileRangeDesc _current_file_range_desc;
     std::shared_ptr<io::FileSystemProperties> _system_properties;
     // partition key -> value
     std::map<std::string, Field> _partition_values;
