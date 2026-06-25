@@ -1343,20 +1343,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     @Test
     public void testStructIsNullMixedAccess() throws Exception {
-        // Parent NULL path must be stripped from allPaths when a child path is also required.
-        // Otherwise BE StructFileColumnIterator sees the parent NULL sub-path first, switches
-        // the whole struct iterator to NULL_MAP_ONLY, and skips the child iterator.
-        // predicateAccessPaths drops [s, NULL] too, keeping it a subset of allAccessPaths.
+        // Predicate paths must remain present in allPaths even when ordinary projection paths
+        // also exist. BE uses allPaths for pruning/meta-only decisions and predicatePaths only
+        // to decide the predicate-phase read set.
         assertColumn("select element_at(s, 'city') from tbl where s is null",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "NULL"), path("s", "city")),
                 ImmutableList.of(path("s", "NULL")));
 
+        assertColumn("select s from tbl where element_at(s, 'city') is null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s"), path("s", "city", "NULL")),
+                ImmutableList.of(path("s", "city", "NULL")));
+
         // This shape is closer to the production bug: one predicate needs the parent
         // null map, another predicate needs a child null map, and the projection needs
-        // a different child data path. The parent [s.NULL] cannot remain in allPaths
-        // with [s.data], so it is also removed from predicate paths; [s.city.NULL] stays
-        // because it is still present in allPaths.
+        // a different child data path. allPaths keeps both predicate metadata paths so it
+        // remains a superset of predicatePaths.
         assertColumn("select element_at(s, 'data') from tbl "
                         + "where s is null or element_at(s, 'city') is null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",

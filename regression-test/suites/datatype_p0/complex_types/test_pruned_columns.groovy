@@ -182,6 +182,15 @@ suite("test_pruned_columns") {
         select /*+ SET_VAR(enable_prune_nested_column=false) */ sum(s.value) from `tbl_test_pruned_columns` where id in(1,2,3,4,8,9,10,11,13);
     """
 
+    qt_sql5_5 """
+        select
+            id
+            , s
+        from `tbl_test_pruned_columns`
+        where element_at(s, 'city') is null
+        order by 1 limit 0, 20;
+    """
+
     sql """DROP TABLE IF EXISTS `tbl_test_pruned_columns_map`"""
     sql """
         CREATE TABLE `tbl_test_pruned_columns_map` (

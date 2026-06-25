@@ -61,15 +61,18 @@ public:
 
     ordinal_t get_current_ordinal() const override { return 0; }
 
-    void force_set_reading_flag(ReadingFlag flag) { _reading_flag = flag; }
+    void force_set_read_requirement(ReadRequirement requirement) {
+        _read_requirement = requirement;
+    }
 
     Result<TColumnAccessPaths> get_sub_access_paths(const TColumnAccessPaths& access_paths,
                                                     bool is_predicate = false) {
         return _get_sub_access_paths(access_paths, is_predicate);
     }
 
-    void check_and_set_meta_read_mode(const TColumnAccessPaths& access_paths) {
-        _check_and_set_meta_read_mode(access_paths);
+    void check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
+                                      const TColumnAccessPaths& access_paths) {
+        _check_and_set_meta_read_mode(requirement_before_access_path, access_paths);
     }
 
     void convert_to_place_holder_column(MutableColumnPtr& dst, size_t count) {
@@ -117,7 +120,7 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     auto st = iterator->set_access_paths(TColumnAccessPaths {}, TColumnAccessPaths {});
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NORMAL_READING);
+    ASSERT_EQ(iterator->_read_requirement, ColumnIterator::ReadRequirement::NORMAL);
 
     TColumnAccessPaths all_access_paths;
     all_access_paths.emplace_back();
@@ -130,7 +133,7 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     ASSERT_FALSE(st.ok());
 
     // Only reading sub_col_1
-    // sub_col_2 should be set to SKIP_READING
+    // sub_col_2 should be set to SKIP
     all_access_paths[0].data_access_path.path = {"self", "sub_col_1"};
 
     predicate_access_paths[0].data_access_path.path = {"self", "sub_col_1"};
@@ -143,12 +146,12 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     // now column name is "self", should be ok
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    ASSERT_EQ(iterator->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
 
-    ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::SKIP_READING);
+    ASSERT_EQ(iterator->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    ASSERT_EQ(iterator->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::SKIP);
 
     // Reading all sub columns
     all_access_paths[0].data_access_path.path = {"self"};
@@ -157,99 +160,109 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    ASSERT_EQ(iterator->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
 
-    ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(iterator->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    ASSERT_EQ(iterator->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 }
 
-TEST_F(ColumnReaderTest, ReadingModeMatrix) {
+TEST_F(ColumnReaderTest, ReadPhaseMatrix) {
     TestColumnIterator iterator;
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::NORMAL);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::NORMAL);
     EXPECT_FALSE(iterator.need_to_read());
     EXPECT_FALSE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     EXPECT_TRUE(iterator.need_to_read());
     EXPECT_TRUE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NORMAL_READING);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::NORMAL);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
     EXPECT_FALSE(iterator.need_to_read());
     EXPECT_FALSE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     EXPECT_FALSE(iterator.need_to_read());
     EXPECT_FALSE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
     EXPECT_TRUE(iterator.need_to_read());
     EXPECT_TRUE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
     EXPECT_FALSE(iterator.need_to_read());
     EXPECT_FALSE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NORMAL_READING);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::NORMAL);
     EXPECT_FALSE(iterator.need_to_read());
     EXPECT_FALSE(iterator.need_to_read_meta_columns());
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     EXPECT_TRUE(iterator.need_to_read());
     EXPECT_TRUE(iterator.need_to_read_meta_columns());
 }
 
-TEST_F(ColumnReaderTest, ReadingFlagPriorityAndNeedToRead) {
+TEST_F(ColumnReaderTest, ReadRequirementPriorityAndLazyOutput) {
     TestColumnIterator iterator;
 
-    iterator.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
-    EXPECT_EQ(iterator.reading_flag(), ColumnIterator::ReadingFlag::SKIP_READING);
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
+    EXPECT_EQ(iterator.read_requirement(), ColumnIterator::ReadRequirement::SKIP);
 
-    iterator.set_need_to_read();
-    EXPECT_EQ(iterator.reading_flag(), ColumnIterator::ReadingFlag::NEED_TO_READ);
+    iterator.set_lazy_output_requirement();
+    EXPECT_EQ(iterator.read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
-    iterator.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
-    EXPECT_EQ(iterator.reading_flag(), ColumnIterator::ReadingFlag::NEED_TO_READ);
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
+    EXPECT_EQ(iterator.read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
-    iterator.set_reading_flag(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(iterator.reading_flag(), ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(iterator.read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
 
-    iterator.set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
-    EXPECT_EQ(iterator.reading_flag(), ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    iterator.set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    EXPECT_EQ(iterator.read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
 }
 
 TEST_F(ColumnReaderTest, MetaReadModePrefersOffsetOverNull) {
-    auto assert_read_mode = [](TColumnAccessPaths access_paths, bool offset_only,
-                               bool null_map_only) {
+    auto assert_meta_read_mode = [](TColumnAccessPaths access_paths, bool offset_only,
+                                    bool null_map_only) {
         TestColumnIterator iterator;
-        iterator.check_and_set_meta_read_mode(access_paths);
+        iterator.check_and_set_meta_read_mode(ColumnIterator::ReadRequirement::NORMAL,
+                                              access_paths);
         EXPECT_EQ(iterator.read_offset_only(), offset_only);
         EXPECT_EQ(iterator.read_null_map_only(), null_map_only);
     };
 
-    assert_read_mode(TColumnAccessPaths {}, false, false);
-    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET})}, true,
-                     false);
-    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_NULL})}, false,
-                     true);
-    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
-                                         create_access_path({ColumnIterator::ACCESS_NULL})},
-                     true, false);
-    assert_read_mode(TColumnAccessPaths {create_access_path({"child"})}, false, false);
-    assert_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
-                                         create_access_path({"child"})},
-                     false, false);
+    assert_meta_read_mode(TColumnAccessPaths {}, false, false);
+    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET})},
+                          true, false);
+    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_NULL})},
+                          false, true);
+    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
+                                              create_access_path({ColumnIterator::ACCESS_NULL})},
+                          true, false);
+    assert_meta_read_mode(TColumnAccessPaths {create_access_path({"child"})}, false, false);
+    assert_meta_read_mode(TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_OFFSET}),
+                                              create_access_path({"child"})},
+                          false, false);
+
+    {
+        TestColumnIterator iterator;
+        iterator.check_and_set_meta_read_mode(
+                ColumnIterator::ReadRequirement::LAZY_OUTPUT,
+                TColumnAccessPaths {create_access_path({ColumnIterator::ACCESS_NULL})});
+        EXPECT_FALSE(iterator.read_null_map_only());
+        EXPECT_FALSE(iterator.read_offset_only());
+    }
 }
 
 TEST_F(ColumnReaderTest, PlaceHolderLifecycleInLazyMode) {
     TestColumnIterator iterator;
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
 
     MutableColumnPtr dst = ColumnInt32::create();
     iterator.convert_to_place_holder_column(dst, 3);
@@ -257,22 +270,22 @@ TEST_F(ColumnReaderTest, PlaceHolderLifecycleInLazyMode) {
     EXPECT_EQ(3, dst->size());
     EXPECT_TRUE(iterator._has_place_holder_column);
 
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    iterator.finalize_lazy_mode(dst);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    iterator.finalize_lazy_phase(dst);
     EXPECT_EQ(0, dst->size());
     EXPECT_FALSE(iterator._has_place_holder_column);
 
     MutableColumnPtr lazy_dst = ColumnInt32::create();
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
     iterator.convert_to_place_holder_column(lazy_dst, 4);
     EXPECT_EQ(0, lazy_dst->size());
 }
 
 TEST_F(ColumnReaderTest, PlaceHolderRecoveryAfterColumnReplacement) {
     TestColumnIterator iterator;
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
 
     MutableColumnPtr dst = ColumnInt32::create();
     iterator.convert_to_place_holder_column(dst, 3);
@@ -286,19 +299,19 @@ TEST_F(ColumnReaderTest, PlaceHolderRecoveryAfterColumnReplacement) {
     dst = IColumn::mutate(dst->filter(filter, 2));
     EXPECT_EQ(2, dst->size());
 
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    iterator.finalize_lazy_mode(dst);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    iterator.finalize_lazy_phase(dst);
     EXPECT_EQ(0, dst->size());
     EXPECT_FALSE(iterator._has_place_holder_column);
 
     dst->insert_many_defaults(2);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
-    iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    iterator.finalize_lazy_mode(dst);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    iterator.finalize_lazy_phase(dst);
     EXPECT_EQ(2, dst->size());
 }
 
-TEST_F(ColumnReaderTest, SetReadingFlagPropagatesToNestedIterators) {
+TEST_F(ColumnReaderTest, SetReadRequirementPropagatesToNestedIterators) {
     auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     std::vector<ColumnIteratorUPtr> struct_sub_iters;
 
@@ -319,17 +332,17 @@ TEST_F(ColumnReaderTest, SetReadingFlagPropagatesToNestedIterators) {
 
     StructFileColumnIterator struct_iter(std::make_shared<ColumnReader>(), std::move(null_iter),
                                          std::move(struct_sub_iters));
-    struct_iter.set_reading_flag(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    struct_iter.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
 
-    EXPECT_EQ(struct_iter.reading_flag(), ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(struct_iter._sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(struct_iter.read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(struct_iter._sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto* nested_array =
             static_cast<ArrayFileColumnIterator*>(struct_iter._sub_column_iterators[1].get());
-    EXPECT_EQ(nested_array->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(nested_array->_item_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(nested_array->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(nested_array->_item_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto map_null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
@@ -339,14 +352,14 @@ TEST_F(ColumnReaderTest, SetReadingFlagPropagatesToNestedIterators) {
     MapFileColumnIterator map_iter(std::make_shared<ColumnReader>(), std::move(map_null_iter),
                                    std::move(map_offsets_iter), std::move(map_key_iter),
                                    std::move(map_val_iter));
-    map_iter.set_reading_flag(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(map_iter._key_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(map_iter._val_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    map_iter.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(map_iter._key_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(map_iter._val_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 }
 
-TEST_F(ColumnReaderTest, SetReadingFlagSelfKeepsNestedIteratorFlags) {
+TEST_F(ColumnReaderTest, SetReadRequirementSelfKeepsNestedIteratorRequirements) {
     auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     std::vector<ColumnIteratorUPtr> struct_sub_iters;
     auto sub_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
@@ -355,11 +368,11 @@ TEST_F(ColumnReaderTest, SetReadingFlagSelfKeepsNestedIteratorFlags) {
 
     StructFileColumnIterator struct_iter(std::make_shared<ColumnReader>(), std::move(null_iter),
                                          std::move(struct_sub_iters));
-    struct_iter.set_reading_flag_self(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    struct_iter.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
 
-    EXPECT_EQ(struct_iter.reading_flag(), ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(struct_iter._sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::NORMAL_READING);
+    EXPECT_EQ(struct_iter.read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(struct_iter._sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::NORMAL);
 }
 
 TEST_F(ColumnReaderTest, RemovePrunedSubIterators) {
@@ -369,7 +382,7 @@ TEST_F(ColumnReaderTest, RemovePrunedSubIterators) {
     sub_keep->set_column_name("keep");
     auto sub_prune = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     sub_prune->set_column_name("prune");
-    sub_prune->set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
+    sub_prune->set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
     struct_sub_iters.emplace_back(std::move(sub_keep));
     struct_sub_iters.emplace_back(std::move(sub_prune));
 
@@ -379,7 +392,7 @@ TEST_F(ColumnReaderTest, RemovePrunedSubIterators) {
     item_keep->set_column_name("keep");
     auto item_prune = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     item_prune->set_column_name("prune");
-    item_prune->set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
+    item_prune->set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
     item_struct_sub_iters.emplace_back(std::move(item_keep));
     item_struct_sub_iters.emplace_back(std::move(item_prune));
     auto item_struct = std::make_unique<StructFileColumnIterator>(std::make_shared<ColumnReader>(),
@@ -417,9 +430,9 @@ TEST_F(ColumnReaderTest, FinalizeLazyModeOnNestedStruct) {
 
     StructFileColumnIterator struct_iter(std::make_shared<ColumnReader>(), std::move(null_iter),
                                          std::move(sub_iters));
-    sub_iter_ptr->set_reading_flag(ColumnIterator::ReadingFlag::NEED_TO_READ);
-    struct_iter.set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
-    sub_iter_ptr->set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
+    sub_iter_ptr->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    struct_iter.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    sub_iter_ptr->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
 
     MutableColumnPtr nested_column = ColumnInt32::create();
     MutableColumnPtr nested_mut = IColumn::mutate(std::move(nested_column));
@@ -430,9 +443,9 @@ TEST_F(ColumnReaderTest, FinalizeLazyModeOnNestedStruct) {
     struct_columns.emplace_back(std::move(nested_mut));
     auto struct_column = ColumnStruct::create(struct_columns);
     MutableColumnPtr struct_mut = std::move(struct_column);
-    struct_iter.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    sub_iter_ptr->set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    struct_iter.finalize_lazy_mode(struct_mut);
+    struct_iter.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    sub_iter_ptr->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    struct_iter.finalize_lazy_phase(struct_mut);
 
     auto& column_struct = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(*struct_mut);
     auto nested_after = column_struct.get_column_ptr(0);
@@ -447,18 +460,18 @@ TEST_F(ColumnReaderTest, GetSubAccessPathsSetsPredicateFlag) {
     access_paths.emplace_back();
     access_paths[0].data_access_path.path = {"self"};
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NORMAL_READING);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::NORMAL);
     auto sub_paths = TEST_TRY(iterator.get_sub_access_paths(access_paths));
     EXPECT_TRUE(sub_paths.empty());
-    EXPECT_EQ(iterator._reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
-    iterator.force_set_reading_flag(ColumnIterator::ReadingFlag::NORMAL_READING);
+    iterator.force_set_read_requirement(ColumnIterator::ReadRequirement::NORMAL);
     sub_paths = TEST_TRY(iterator.get_sub_access_paths(access_paths, true));
     EXPECT_TRUE(sub_paths.empty());
-    EXPECT_EQ(iterator._reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(iterator._read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
 }
 
-TEST_F(ColumnReaderTest, NestedIteratorsPropagateReadingMode) {
+TEST_F(ColumnReaderTest, NestedIteratorsPropagateReadPhase) {
     auto struct_null_iterator =
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     std::vector<ColumnIteratorUPtr> struct_sub_iters;
@@ -470,11 +483,11 @@ TEST_F(ColumnReaderTest, NestedIteratorsPropagateReadingMode) {
             std::make_shared<ColumnReader>(), std::move(struct_null_iterator),
             std::move(struct_sub_iters));
 
-    struct_iterator->set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->_reading_mode,
-              ColumnIterator::ReadingMode::LAZY);
-    EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->_reading_mode,
-              ColumnIterator::ReadingMode::LAZY);
+    struct_iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->_read_phase,
+              ColumnIterator::ReadPhase::LAZY);
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->_read_phase,
+              ColumnIterator::ReadPhase::LAZY);
 
     auto array_item_iterator =
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
@@ -484,8 +497,8 @@ TEST_F(ColumnReaderTest, NestedIteratorsPropagateReadingMode) {
     ArrayFileColumnIterator array_iterator(
             std::make_shared<ColumnReader>(), std::move(array_offsets_iter),
             std::move(array_item_iterator), std::move(array_null_iter));
-    array_iterator.set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
-    EXPECT_EQ(array_iterator._item_iterator->_reading_mode, ColumnIterator::ReadingMode::PREDICATE);
+    array_iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    EXPECT_EQ(array_iterator._item_iterator->_read_phase, ColumnIterator::ReadPhase::PREDICATE);
 
     auto map_null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
@@ -495,9 +508,9 @@ TEST_F(ColumnReaderTest, NestedIteratorsPropagateReadingMode) {
     MapFileColumnIterator map_iterator(std::make_shared<ColumnReader>(), std::move(map_null_iter),
                                        std::move(map_offsets_iter), std::move(map_key_iter),
                                        std::move(map_val_iter));
-    map_iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    EXPECT_EQ(map_iterator._key_iterator->_reading_mode, ColumnIterator::ReadingMode::LAZY);
-    EXPECT_EQ(map_iterator._val_iterator->_reading_mode, ColumnIterator::ReadingMode::LAZY);
+    map_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    EXPECT_EQ(map_iterator._key_iterator->_read_phase, ColumnIterator::ReadPhase::LAZY);
+    EXPECT_EQ(map_iterator._val_iterator->_read_phase, ColumnIterator::ReadPhase::LAZY);
 }
 
 TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
@@ -520,11 +533,11 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
 
     auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
-    EXPECT_EQ(struct_iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(struct_iterator->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto array_item_iterator =
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
@@ -541,9 +554,9 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
     TColumnAccessPaths array_predicate_paths = array_access_paths;
     st = array_iterator.set_access_paths(array_access_paths, array_predicate_paths);
     ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
-    EXPECT_EQ(array_iterator._reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(array_iterator._item_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(array_iterator._read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(array_iterator._item_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto map_null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
@@ -560,11 +573,275 @@ TEST_F(ColumnReaderTest, AccessPathsPropagatePredicateToChildren) {
     TColumnAccessPaths map_predicate_paths = map_access_paths;
     st = map_iterator.set_access_paths(map_access_paths, map_predicate_paths);
     ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
-    EXPECT_EQ(map_iterator._reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(map_iterator._key_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(map_iterator._val_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(map_iterator._read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(map_iterator._key_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(map_iterator._val_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+}
+
+TEST_F(ColumnReaderTest, StructPredicateOnlyChildPathStillRoutesToChild) {
+    auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    std::vector<ColumnIteratorUPtr> sub_iters;
+    auto sub_a = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    sub_a->set_column_name("a");
+    auto sub_b = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+    sub_b->set_column_name("b");
+    sub_iters.emplace_back(std::move(sub_a));
+    sub_iters.emplace_back(std::move(sub_b));
+
+    StructFileColumnIterator struct_iterator(std::make_shared<ColumnReader>(), std::move(null_iter),
+                                             std::move(sub_iters));
+    struct_iterator.set_column_name("s");
+
+    TColumnAccessPaths all_access_paths {create_access_path({"s", "a"})};
+    TColumnAccessPaths predicate_access_paths {create_access_path({"s", "b"})};
+
+    auto st = struct_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
+
+    EXPECT_EQ(struct_iterator._read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(struct_iterator._sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    EXPECT_EQ(struct_iterator._sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+
+    struct_iterator.remove_pruned_sub_iterators();
+    ASSERT_EQ(struct_iterator._sub_column_iterators.size(), 2);
+    EXPECT_EQ(struct_iterator._sub_column_iterators[0]->column_name(), "a");
+    EXPECT_EQ(struct_iterator._sub_column_iterators[1]->column_name(), "b");
+}
+
+TEST_F(ColumnReaderTest, CurrentLevelPredicateNullPathUsesMetaOnlyMode) {
+    auto make_struct_iterator = []() {
+        auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        std::vector<ColumnIteratorUPtr> sub_iters;
+        auto sub_a = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        sub_a->set_column_name("a");
+        auto sub_b = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        sub_b->set_column_name("b");
+        sub_iters.emplace_back(std::move(sub_a));
+        sub_iters.emplace_back(std::move(sub_b));
+
+        auto struct_iterator = std::make_unique<StructFileColumnIterator>(
+                std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
+        struct_iterator->set_column_name("s");
+        return struct_iterator;
+    };
+
+    {
+        auto struct_iterator = make_struct_iterator();
+        TColumnAccessPaths all_access_paths {
+                create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {
+                create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+
+        auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
+
+        EXPECT_TRUE(struct_iterator->read_null_map_only());
+        EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+        EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+
+        struct_iterator->remove_pruned_sub_iterators();
+        EXPECT_TRUE(struct_iterator->_sub_column_iterators.empty());
+    }
+
+    {
+        auto struct_iterator = make_struct_iterator();
+        TColumnAccessPaths all_access_paths {
+                create_access_path({"s"}), create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {
+                create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+
+        auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
+
+        EXPECT_FALSE(struct_iterator->read_null_map_only());
+        EXPECT_EQ(struct_iterator->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    }
+
+    {
+        auto array_item_iterator =
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto array_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+        auto array_null_iter =
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        ArrayFileColumnIterator array_iterator(
+                std::make_shared<ColumnReader>(), std::move(array_offsets_iter),
+                std::move(array_item_iterator), std::move(array_null_iter));
+        array_iterator.set_column_name("a");
+
+        TColumnAccessPaths all_access_paths {
+                create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {
+                create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+
+        auto st = array_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
+        EXPECT_TRUE(array_iterator.read_null_map_only());
+        EXPECT_EQ(array_iterator._item_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+    }
+
+    {
+        auto map_null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto map_offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+        auto map_key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto map_val_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        MapFileColumnIterator map_iterator(std::make_shared<ColumnReader>(),
+                                           std::move(map_null_iter), std::move(map_offsets_iter),
+                                           std::move(map_key_iter), std::move(map_val_iter));
+        map_iterator.set_column_name("m");
+
+        TColumnAccessPaths all_access_paths {
+                create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+        TColumnAccessPaths predicate_access_paths {
+                create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+
+        auto st = map_iterator.set_access_paths(all_access_paths, predicate_access_paths);
+        ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
+        EXPECT_TRUE(map_iterator.read_null_map_only());
+        EXPECT_EQ(map_iterator._key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+        EXPECT_EQ(map_iterator._val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+    }
+}
+
+TEST_F(ColumnReaderTest, StructPredicateMetaPathDoesNotOverrideExistingDataNeed) {
+    auto make_struct_iterator = []() {
+        auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        std::vector<ColumnIteratorUPtr> sub_iters;
+        auto city_iter =
+                std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
+        city_iter->set_column_name("city");
+        auto data_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        data_iter->set_column_name("data");
+        sub_iters.emplace_back(std::move(city_iter));
+        sub_iters.emplace_back(std::move(data_iter));
+        auto struct_iterator = std::make_unique<StructFileColumnIterator>(
+                std::make_shared<ColumnReader>(), std::move(null_iter), std::move(sub_iters));
+        struct_iterator->set_column_name("s");
+        return struct_iterator;
+    };
+
+    auto struct_iterator = make_struct_iterator();
+    TColumnAccessPaths all_access_paths {
+            create_access_path({"s"}),
+            create_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths predicate_access_paths {
+            create_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+
+    auto st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set struct access paths: " << st.to_string();
+
+    auto* city_iter =
+            static_cast<StringFileColumnIterator*>(struct_iterator->_sub_column_iterators[0].get());
+    EXPECT_FALSE(city_iter->read_null_map_only());
+    EXPECT_EQ(city_iter->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->read_requirement(),
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+
+    struct_iterator = make_struct_iterator();
+    all_access_paths = {create_access_path({"s", "city", ColumnIterator::ACCESS_NULL})};
+    predicate_access_paths = all_access_paths;
+    st = struct_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set predicate-only struct access paths: " << st.to_string();
+    city_iter =
+            static_cast<StringFileColumnIterator*>(struct_iterator->_sub_column_iterators[0].get());
+    EXPECT_TRUE(city_iter->read_null_map_only());
+    EXPECT_EQ(struct_iterator->_sub_column_iterators[1]->read_requirement(),
+              ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, ArrayPredicateMetaPathDoesNotOverrideExistingDataNeed) {
+    auto make_array_iterator = []() {
+        auto item_iter =
+                std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
+        item_iter->set_column_name("item");
+        auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+        auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto array_iterator = std::make_unique<ArrayFileColumnIterator>(
+                std::make_shared<ColumnReader>(), std::move(offsets_iter), std::move(item_iter),
+                std::move(null_iter));
+        array_iterator->set_column_name("a");
+        return array_iterator;
+    };
+
+    auto array_iterator = make_array_iterator();
+    TColumnAccessPaths all_access_paths {
+            create_access_path({"a"}),
+            create_access_path({"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths predicate_access_paths {
+            create_access_path({"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
+
+    auto st = array_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
+    auto* item_iter = static_cast<StringFileColumnIterator*>(array_iterator->_item_iterator.get());
+    EXPECT_FALSE(item_iter->read_null_map_only());
+    EXPECT_EQ(item_iter->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+
+    array_iterator = make_array_iterator();
+    all_access_paths = {
+            create_access_path({"a", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_NULL})};
+    predicate_access_paths = all_access_paths;
+    st = array_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set predicate-only array access paths: " << st.to_string();
+    item_iter = static_cast<StringFileColumnIterator*>(array_iterator->_item_iterator.get());
+    EXPECT_TRUE(item_iter->read_null_map_only());
+}
+
+TEST_F(ColumnReaderTest, MapPredicateMetaPathDoesNotOverrideExistingDataNeed) {
+    auto make_map_iterator = []() {
+        auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        auto offsets_iter = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>()));
+        auto key_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
+        key_iter->set_column_name("key");
+        auto value_iter =
+                std::make_unique<StringFileColumnIterator>(std::make_shared<ColumnReader>());
+        value_iter->set_column_name("value");
+        auto map_iterator = std::make_unique<MapFileColumnIterator>(
+                std::make_shared<ColumnReader>(), std::move(null_iter), std::move(offsets_iter),
+                std::move(key_iter), std::move(value_iter));
+        map_iterator->set_column_name("m");
+        return map_iterator;
+    };
+
+    auto map_iterator = make_map_iterator();
+    TColumnAccessPaths all_access_paths {create_access_path({"m"}),
+                                         create_access_path({"m", ColumnIterator::ACCESS_MAP_VALUES,
+                                                             ColumnIterator::ACCESS_NULL})};
+    TColumnAccessPaths predicate_access_paths {create_access_path(
+            {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_NULL})};
+
+    auto st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
+    auto* value_iter = static_cast<StringFileColumnIterator*>(map_iterator->_val_iterator.get());
+    EXPECT_FALSE(value_iter->read_null_map_only());
+    EXPECT_EQ(map_iterator->_key_iterator->read_requirement(),
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    EXPECT_EQ(value_iter->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+
+    map_iterator = make_map_iterator();
+    all_access_paths = {create_access_path(
+            {"m", ColumnIterator::ACCESS_MAP_VALUES, ColumnIterator::ACCESS_NULL})};
+    predicate_access_paths = all_access_paths;
+    st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
+    ASSERT_TRUE(st.ok()) << "failed to set predicate-only map access paths: " << st.to_string();
+    value_iter = static_cast<StringFileColumnIterator*>(map_iterator->_val_iterator.get());
+    EXPECT_TRUE(value_iter->read_null_map_only());
+    EXPECT_EQ(map_iterator->_key_iterator->read_requirement(),
+              ColumnIterator::ReadRequirement::SKIP);
 }
 
 TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
@@ -607,17 +884,17 @@ TEST_F(ColumnReaderTest, MapFullProjectionStillRoutesPredicateSubPaths) {
     auto st = map_iterator->set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
 
-    EXPECT_EQ(map_iterator->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(map_iterator->_key_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(map_iterator->_val_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(map_iterator->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(map_iterator->_key_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(map_iterator->_val_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto* value_struct = static_cast<StructFileColumnIterator*>(map_iterator->_val_iterator.get());
-    EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NEED_TO_READ);
+    EXPECT_EQ(value_struct->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(value_struct->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 }
 
 TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
@@ -642,8 +919,8 @@ TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
         auto st = array_iterator.set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set array access paths: " << st.to_string();
         EXPECT_FALSE(array_iterator.read_offset_only());
-        EXPECT_EQ(array_iterator._item_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(array_iterator._item_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
     }
 
     {
@@ -666,10 +943,10 @@ TEST_F(ColumnReaderTest, MetaOnlyAllPathsStillRoutePredicateSubPaths) {
         auto st = map_iterator.set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set map access paths: " << st.to_string();
         EXPECT_FALSE(map_iterator.read_offset_only());
-        EXPECT_EQ(map_iterator._key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-        EXPECT_EQ(map_iterator._val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::SKIP_READING);
+        EXPECT_EQ(map_iterator._key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(map_iterator._val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
     }
 }
 
@@ -728,24 +1005,24 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPaths) {
     auto st = top_struct->set_access_paths(access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "failed to set nested access paths: " << st.to_string();
 
-    EXPECT_EQ(top_struct->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(top_struct->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::SKIP_READING);
-    EXPECT_EQ(top_struct->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(top_struct->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(top_struct->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::SKIP);
+    EXPECT_EQ(top_struct->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto* array_iter =
             static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
     auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-    EXPECT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::SKIP_READING);
-    EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(map_iter->_key_iterator->_read_requirement, ColumnIterator::ReadRequirement::SKIP);
+    EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto* value_struct = static_cast<StructFileColumnIterator*>(map_iter->_val_iterator.get());
-    EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-    EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::SKIP_READING);
+    EXPECT_EQ(value_struct->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_EQ(value_struct->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::SKIP);
 }
 
 TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
@@ -810,11 +1087,11 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
 
-        EXPECT_EQ(top_struct->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(top_struct->_sub_column_iterators[0]->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(top_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::SKIP_READING);
+        EXPECT_EQ(top_struct->_read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(top_struct->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(top_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
     }
 
     {
@@ -840,23 +1117,23 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
 
-        EXPECT_EQ(top_struct->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-        EXPECT_EQ(top_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(top_struct->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(top_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
 
         auto* array_iter =
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-        EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-        EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(map_iter->_key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
 
         auto* value_struct = static_cast<StructFileColumnIterator*>(map_iter->_val_iterator.get());
-        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
     }
 
     {
@@ -882,10 +1159,10 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto* array_iter =
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-        EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::SKIP_READING);
+        EXPECT_EQ(map_iter->_key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
     }
 
     {
@@ -901,16 +1178,16 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto* array_iter =
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-        EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::SKIP_READING);
-        EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
+        EXPECT_EQ(map_iter->_key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+        EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
         auto* value_struct = static_cast<StructFileColumnIterator*>(map_iter->_val_iterator.get());
-        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
+        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     }
 
     {
@@ -926,16 +1203,16 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto* array_iter =
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-        EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
+        EXPECT_EQ(map_iter->_key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
         auto* value_struct = static_cast<StructFileColumnIterator*>(map_iter->_val_iterator.get());
-        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
+        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     }
 
     {
@@ -948,23 +1225,23 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto st = top_struct->set_access_paths(all_access_paths, predicate_access_paths);
         ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
 
-        EXPECT_EQ(top_struct->_reading_flag, ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-        EXPECT_EQ(top_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(top_struct->_read_requirement, ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(top_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
 
         auto* array_iter =
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-        EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::SKIP_READING);
-        EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(map_iter->_key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
+        EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
 
         auto* value_struct = static_cast<StructFileColumnIterator*>(map_iter->_val_iterator.get());
-        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
-        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_reading_flag,
-                  ColumnIterator::ReadingFlag::SKIP_READING);
+        EXPECT_EQ(value_struct->_sub_column_iterators[0]->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
+        EXPECT_EQ(value_struct->_sub_column_iterators[1]->_read_requirement,
+                  ColumnIterator::ReadRequirement::SKIP);
     }
 
     {
@@ -982,10 +1259,10 @@ TEST_F(ColumnReaderTest, NestedStructArrayMapStructAccessPathsVariants) {
         auto* array_iter =
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-        EXPECT_EQ(map_iter->_key_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::NEED_TO_READ);
-        EXPECT_EQ(map_iter->_val_iterator->_reading_flag,
-                  ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+        EXPECT_EQ(map_iter->_key_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        EXPECT_EQ(map_iter->_val_iterator->_read_requirement,
+                  ColumnIterator::ReadRequirement::PREDICATE);
     }
 
     {
@@ -1094,21 +1371,21 @@ TEST_F(ColumnReaderTest, DeepNestedAccessPathsFiveLevels) {
     ASSERT_TRUE(st.ok()) << "failed to set deep access paths: " << st.to_string();
 
     auto* map_ptr = static_cast<MapFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
-    EXPECT_EQ(map_ptr->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::SKIP_READING);
-    EXPECT_EQ(map_ptr->_val_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(map_ptr->_key_iterator->_read_requirement, ColumnIterator::ReadRequirement::SKIP);
+    EXPECT_EQ(map_ptr->_val_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 
     auto* value_struct = static_cast<StructFileColumnIterator*>(map_ptr->_val_iterator.get());
     auto* array_iter =
             static_cast<ArrayFileColumnIterator*>(value_struct->_sub_column_iterators[0].get());
     auto* item_struct = static_cast<StructFileColumnIterator*>(array_iter->_item_iterator.get());
-    EXPECT_EQ(item_struct->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::NEED_TO_READ);
-    EXPECT_EQ(item_struct->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    EXPECT_EQ(item_struct->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    EXPECT_EQ(item_struct->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::PREDICATE);
 }
 
-TEST_F(ColumnReaderTest, NestedNeedToReadInLazyPredicateMode) {
+TEST_F(ColumnReaderTest, NestedLazyOutputInLazyPredicatePhase) {
     auto struct_null_iterator =
             std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
     std::vector<ColumnIteratorUPtr> struct_sub_iters;
@@ -1119,11 +1396,11 @@ TEST_F(ColumnReaderTest, NestedNeedToReadInLazyPredicateMode) {
     StructFileColumnIterator struct_iterator(std::make_shared<ColumnReader>(),
                                              std::move(struct_null_iterator),
                                              std::move(struct_sub_iters));
-    struct_iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    struct_iterator.set_reading_flag_self(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    struct_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    struct_iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
     EXPECT_FALSE(struct_iterator.has_lazy_read_target());
     EXPECT_FALSE(struct_iterator.need_to_read());
-    struct_iterator._sub_column_iterators[0]->set_need_to_read();
+    struct_iterator._sub_column_iterators[0]->set_lazy_output_requirement();
     EXPECT_TRUE(struct_iterator.has_lazy_read_target());
     EXPECT_TRUE(struct_iterator.need_to_read());
 
@@ -1135,11 +1412,11 @@ TEST_F(ColumnReaderTest, NestedNeedToReadInLazyPredicateMode) {
     ArrayFileColumnIterator array_iterator(
             std::make_shared<ColumnReader>(), std::move(array_offsets_iter),
             std::move(array_item_iterator), std::move(array_null_iter));
-    array_iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    array_iterator.set_reading_flag_self(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    array_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    array_iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
     EXPECT_FALSE(array_iterator.has_lazy_read_target());
     EXPECT_FALSE(array_iterator.need_to_read());
-    array_iterator._item_iterator->set_need_to_read();
+    array_iterator._item_iterator->set_lazy_output_requirement();
     EXPECT_TRUE(array_iterator.has_lazy_read_target());
     EXPECT_TRUE(array_iterator.need_to_read());
 
@@ -1151,16 +1428,16 @@ TEST_F(ColumnReaderTest, NestedNeedToReadInLazyPredicateMode) {
     MapFileColumnIterator map_iterator(std::make_shared<ColumnReader>(), std::move(map_null_iter),
                                        std::move(map_offsets_iter), std::move(map_key_iter),
                                        std::move(map_val_iter));
-    map_iterator.set_reading_mode(ColumnIterator::ReadingMode::LAZY);
-    map_iterator.set_reading_flag_self(ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
+    map_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    map_iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
     EXPECT_FALSE(map_iterator.has_lazy_read_target());
     EXPECT_FALSE(map_iterator.need_to_read());
-    map_iterator._val_iterator->set_need_to_read();
+    map_iterator._val_iterator->set_lazy_output_requirement();
     EXPECT_TRUE(map_iterator.has_lazy_read_target());
     EXPECT_TRUE(map_iterator.need_to_read());
 }
 
-TEST_F(ColumnReaderTest, NestedReadingModeNeedToReadMatrix) {
+TEST_F(ColumnReaderTest, NestedReadPhaseLazyOutputMatrix) {
     auto build_nested_iterator = []() {
         auto make_value_struct = []() {
             auto null_iter = std::make_unique<FileColumnIterator>(std::make_shared<ColumnReader>());
@@ -1217,71 +1494,74 @@ TEST_F(ColumnReaderTest, NestedReadingModeNeedToReadMatrix) {
                 static_cast<ArrayFileColumnIterator*>(top_struct->_sub_column_iterators[1].get());
         auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
         auto* value_struct = static_cast<StructFileColumnIterator*>(map_iter->_val_iterator.get());
-        auto expect_scalar = [](ColumnIterator::ReadingFlag flag,
-                                ColumnIterator::ReadingMode mode) {
+        auto expect_scalar = [](ColumnIterator::ReadRequirement requirement,
+                                ColumnIterator::ReadPhase mode) {
             switch (mode) {
-            case ColumnIterator::ReadingMode::NORMAL:
-                return flag != ColumnIterator::ReadingFlag::SKIP_READING;
-            case ColumnIterator::ReadingMode::PREDICATE:
-                return flag == ColumnIterator::ReadingFlag::READING_FOR_PREDICATE;
-            case ColumnIterator::ReadingMode::LAZY:
-                return flag == ColumnIterator::ReadingFlag::NEED_TO_READ;
+            case ColumnIterator::ReadPhase::NORMAL:
+                return requirement != ColumnIterator::ReadRequirement::SKIP;
+            case ColumnIterator::ReadPhase::PREDICATE:
+                return requirement == ColumnIterator::ReadRequirement::PREDICATE;
+            case ColumnIterator::ReadPhase::LAZY:
+                return requirement == ColumnIterator::ReadRequirement::LAZY_OUTPUT;
             default:
                 return false;
             }
         };
-        auto expect_nested = [](ColumnIterator::ReadingFlag flag,
-                                ColumnIterator::ReadingMode mode) {
+        auto expect_nested = [](ColumnIterator::ReadRequirement requirement,
+                                ColumnIterator::ReadPhase mode) {
             switch (mode) {
-            case ColumnIterator::ReadingMode::NORMAL:
-                return flag != ColumnIterator::ReadingFlag::SKIP_READING;
-            case ColumnIterator::ReadingMode::PREDICATE:
-                return flag == ColumnIterator::ReadingFlag::READING_FOR_PREDICATE;
+            case ColumnIterator::ReadPhase::NORMAL:
+                return requirement != ColumnIterator::ReadRequirement::SKIP;
+            case ColumnIterator::ReadPhase::PREDICATE:
+                return requirement == ColumnIterator::ReadRequirement::PREDICATE;
             default:
                 return false;
             }
         };
 
-        top_struct->set_reading_mode(ColumnIterator::ReadingMode::NORMAL);
-        EXPECT_EQ(expect_nested(top_struct->reading_flag(), ColumnIterator::ReadingMode::NORMAL),
+        top_struct->set_read_phase(ColumnIterator::ReadPhase::NORMAL);
+        EXPECT_EQ(expect_nested(top_struct->read_requirement(), ColumnIterator::ReadPhase::NORMAL),
                   top_struct->need_to_read());
-        EXPECT_EQ(expect_nested(array_iter->reading_flag(), ColumnIterator::ReadingMode::NORMAL),
+        EXPECT_EQ(expect_nested(array_iter->read_requirement(), ColumnIterator::ReadPhase::NORMAL),
                   array_iter->need_to_read());
-        EXPECT_EQ(expect_nested(map_iter->reading_flag(), ColumnIterator::ReadingMode::NORMAL),
-                  map_iter->need_to_read());
-        EXPECT_EQ(expect_nested(value_struct->reading_flag(), ColumnIterator::ReadingMode::NORMAL),
-                  value_struct->need_to_read());
-        EXPECT_EQ(expect_scalar(map_iter->_key_iterator->reading_flag(),
-                                ColumnIterator::ReadingMode::NORMAL),
-                  map_iter->_key_iterator->need_to_read());
-        EXPECT_EQ(expect_nested(map_iter->_val_iterator->reading_flag(),
-                                ColumnIterator::ReadingMode::NORMAL),
-                  map_iter->_val_iterator->need_to_read());
-
-        top_struct->set_reading_mode(ColumnIterator::ReadingMode::PREDICATE);
-        EXPECT_EQ(expect_nested(top_struct->reading_flag(), ColumnIterator::ReadingMode::PREDICATE),
-                  top_struct->need_to_read());
-        EXPECT_EQ(expect_nested(array_iter->reading_flag(), ColumnIterator::ReadingMode::PREDICATE),
-                  array_iter->need_to_read());
-        EXPECT_EQ(expect_nested(map_iter->reading_flag(), ColumnIterator::ReadingMode::PREDICATE),
+        EXPECT_EQ(expect_nested(map_iter->read_requirement(), ColumnIterator::ReadPhase::NORMAL),
                   map_iter->need_to_read());
         EXPECT_EQ(
-                expect_nested(value_struct->reading_flag(), ColumnIterator::ReadingMode::PREDICATE),
+                expect_nested(value_struct->read_requirement(), ColumnIterator::ReadPhase::NORMAL),
                 value_struct->need_to_read());
-        EXPECT_EQ(expect_scalar(map_iter->_key_iterator->reading_flag(),
-                                ColumnIterator::ReadingMode::PREDICATE),
+        EXPECT_EQ(expect_scalar(map_iter->_key_iterator->read_requirement(),
+                                ColumnIterator::ReadPhase::NORMAL),
                   map_iter->_key_iterator->need_to_read());
-        EXPECT_EQ(expect_nested(map_iter->_val_iterator->reading_flag(),
-                                ColumnIterator::ReadingMode::PREDICATE),
+        EXPECT_EQ(expect_nested(map_iter->_val_iterator->read_requirement(),
+                                ColumnIterator::ReadPhase::NORMAL),
                   map_iter->_val_iterator->need_to_read());
 
-        top_struct->set_reading_mode(ColumnIterator::ReadingMode::LAZY);
+        top_struct->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+        EXPECT_EQ(
+                expect_nested(top_struct->read_requirement(), ColumnIterator::ReadPhase::PREDICATE),
+                top_struct->need_to_read());
+        EXPECT_EQ(
+                expect_nested(array_iter->read_requirement(), ColumnIterator::ReadPhase::PREDICATE),
+                array_iter->need_to_read());
+        EXPECT_EQ(expect_nested(map_iter->read_requirement(), ColumnIterator::ReadPhase::PREDICATE),
+                  map_iter->need_to_read());
+        EXPECT_EQ(expect_nested(value_struct->read_requirement(),
+                                ColumnIterator::ReadPhase::PREDICATE),
+                  value_struct->need_to_read());
+        EXPECT_EQ(expect_scalar(map_iter->_key_iterator->read_requirement(),
+                                ColumnIterator::ReadPhase::PREDICATE),
+                  map_iter->_key_iterator->need_to_read());
+        EXPECT_EQ(expect_nested(map_iter->_val_iterator->read_requirement(),
+                                ColumnIterator::ReadPhase::PREDICATE),
+                  map_iter->_val_iterator->need_to_read());
+
+        top_struct->set_read_phase(ColumnIterator::ReadPhase::LAZY);
         EXPECT_EQ(top_struct->has_lazy_read_target(), top_struct->need_to_read());
         EXPECT_EQ(array_iter->has_lazy_read_target(), array_iter->need_to_read());
         EXPECT_EQ(map_iter->has_lazy_read_target(), map_iter->need_to_read());
         EXPECT_EQ(value_struct->has_lazy_read_target(), value_struct->need_to_read());
-        EXPECT_EQ(expect_scalar(map_iter->_key_iterator->reading_flag(),
-                                ColumnIterator::ReadingMode::LAZY),
+        EXPECT_EQ(expect_scalar(map_iter->_key_iterator->read_requirement(),
+                                ColumnIterator::ReadPhase::LAZY),
                   map_iter->_key_iterator->need_to_read());
         EXPECT_EQ(map_iter->_val_iterator->has_lazy_read_target(),
                   map_iter->_val_iterator->need_to_read());
@@ -1424,20 +1704,22 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     auto st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(iterator->_read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
-    ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
-              ColumnIterator::ReadingFlag::SKIP_READING);
-    ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(iterator->_sub_column_iterators[0]->_read_requirement,
+              ColumnIterator::ReadRequirement::SKIP);
+    ASSERT_EQ(iterator->_sub_column_iterators[1]->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
     auto* array_iter =
             static_cast<ArrayFileColumnIterator*>(iterator->_sub_column_iterators[1].get());
-    ASSERT_EQ(array_iter->_item_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(array_iter->_item_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
 
     auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-    ASSERT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
-    ASSERT_EQ(map_iter->_val_iterator->_reading_flag, ColumnIterator::ReadingFlag::SKIP_READING);
+    ASSERT_EQ(map_iter->_key_iterator->_read_requirement,
+              ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    ASSERT_EQ(map_iter->_val_iterator->_read_requirement, ColumnIterator::ReadRequirement::SKIP);
 }
 
 TEST_F(ColumnReaderTest, OffsetPeekUsesPageSentinelWhenNoRemaining) {
@@ -1507,7 +1789,7 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     MapFileColumnIterator map_iter(map_reader, std::move(null_iter), std::move(offsets_iter),
                                    std::move(key_iter), std::move(val_iter));
     map_iter.set_column_name("map_col");
-    map_iter.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
+    map_iter.set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
 
     // prepare an empty ColumnMap as destination
     auto keys = ColumnInt32::create();
@@ -1550,14 +1832,14 @@ TEST_F(ColumnReaderTest, MapAccessAllWithOffsetDoesNotPropagateOffsetToKey) {
     auto st = map_iter.set_access_paths(all_access_paths, predicate_access_paths);
     ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
 
-    // Key must be fully readable (NEED_TO_READ), NOT in OFFSET_ONLY mode.
+    // Key must be fully readable (LAZY_OUTPUT), NOT in OFFSET_ONLY mode.
     auto* key_ptr = static_cast<StringFileColumnIterator*>(map_iter._key_iterator.get());
-    ASSERT_EQ(key_ptr->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(key_ptr->_read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     ASSERT_FALSE(key_ptr->read_offset_only());
 
     // Value should be in OFFSET_ONLY mode since we only need string lengths.
     auto* val_ptr = static_cast<StringFileColumnIterator*>(map_iter._val_iterator.get());
-    ASSERT_EQ(val_ptr->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
+    ASSERT_EQ(val_ptr->_read_requirement, ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     ASSERT_TRUE(val_ptr->read_offset_only());
 }
 

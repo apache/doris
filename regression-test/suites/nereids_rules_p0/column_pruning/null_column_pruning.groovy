@@ -24,8 +24,9 @@
 //   nested columns:  <col>: all access paths: [<col>.NULL]
 //
 // When the same column is also accessed for data (e.g., projected or used in element_at), the
-// allAccessPaths keep the data path, while predicateAccessPaths may still keep the NULL-only
-// metadata path for predicate evaluation.
+// allAccessPaths keep the data path and also keep the predicate metadata path. This preserves
+// the invariant that allAccessPaths is a superset of predicateAccessPaths, while the BE only
+// enables metadata-only read mode when all paths are pure current-level metadata paths.
 
 suite("null_column_pruning") {
     sql """ DROP TABLE IF EXISTS ncp_tbl """
@@ -122,7 +123,7 @@ suite("null_column_pruning") {
     explain {
         sql "select id, arr_col from ncp_tbl where arr_col is null"
         contains "nested columns"
-        contains "all access paths: [arr_col]"
+        contains "all access paths: [arr_col, arr_col.NULL]"
         contains "predicate access paths: [arr_col.NULL]"
     }
 
@@ -143,7 +144,7 @@ suite("null_column_pruning") {
     explain {
         sql "select id, map_col from ncp_tbl where map_col is null"
         contains "nested columns"
-        contains "all access paths: [map_col]"
+        contains "all access paths: [map_col, map_col.NULL]"
         contains "predicate access paths: [map_col.NULL]"
     }
 
@@ -191,7 +192,8 @@ suite("null_column_pruning") {
     explain {
         sql "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null"
         contains "nested columns"
-        contains "all access paths: [struct_col.NULL, struct_col.city]"
+        contains "struct_col.NULL"
+        contains "struct_col.city"
         contains "predicate access paths: [struct_col.NULL]"
     }
 
@@ -199,9 +201,9 @@ suite("null_column_pruning") {
 
     // This query verifies the real correctness risk: one branch needs the parent null
     // map, another branch needs a child null map, and the projection needs another
-    // child data path. Keeping struct_col.NULL in allAccessPaths would put BE in NULL_MAP_ONLY
-    // mode for the whole struct and return the default zip value instead of reading the zip child
-    // column; keeping it only in predicateAccessPaths is valid.
+    // child data path. Keeping struct_col.NULL in allAccessPaths is safe because the BE only enters
+    // NULL_MAP_ONLY mode when all paths are pure current-level metadata paths; with child data paths
+    // present, allAccessPaths remains data-reading while predicateAccessPaths keeps the metadata.
     explain {
         sql "select element_at(struct_col, 'zip') from ncp_tbl where struct_col is null or element_at(struct_col, 'city') is null"
         contains "nested columns"
@@ -219,7 +221,7 @@ suite("null_column_pruning") {
     explain {
         sql "select struct_col from ncp_tbl where struct_col is null"
         contains "nested columns"
-        contains "all access paths: [struct_col]"
+        contains "all access paths: [struct_col, struct_col.NULL]"
         contains "predicate access paths: [struct_col.NULL]"
     }
 

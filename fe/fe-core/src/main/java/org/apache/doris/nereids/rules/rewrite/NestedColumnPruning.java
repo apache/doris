@@ -260,9 +260,10 @@ public class NestedColumnPruning implements CustomRewriter {
             }
         }
 
-        // phase 1.5: for slots with meta paths, expand map-star paths and strip
-        // redundant meta paths. Predicate paths are stripped only by predicate-phase
-        // paths, while allAccessPaths are stripped by self-covering paths.
+        // phase 1.5: for slots with meta paths, expand map-star paths before building final
+        // access path lists. The final allAccessPaths list is kept as a superset of
+        // predicateAccessPaths below, so BE can use allAccessPaths as the complete set of
+        // paths that may be read across predicate and lazy phases.
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
@@ -301,6 +302,8 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                addPredicatePathsToFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -311,11 +314,29 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                addPredicatePathsToFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
 
         return result;
+    }
+
+    /**
+     * Keep final allAccessPaths as a real superset of predicateAccessPaths. Predicate paths are
+     * collected from filter expressions first, but final all-path construction may later collapse
+     * ordinary paths to whole-column access. BE complex readers use allAccessPaths to decide which
+     * sub-iterators can be pruned and which current-level meta-only mode is valid; any predicate
+     * path missing from allAccessPaths can therefore make predicate reads disagree with pruning.
+     */
+    private static void addPredicatePathsToFinalAllAccessPaths(
+            List<ColumnAccessPath> predicatePaths, List<ColumnAccessPath> allPaths) {
+        for (ColumnAccessPath predicatePath : predicatePaths) {
+            if (!allPaths.contains(predicatePath)) {
+                allPaths.add(predicatePath);
+            }
+        }
     }
 
     private static boolean isMetaPath(ColumnAccessPath path) {

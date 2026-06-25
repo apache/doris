@@ -119,24 +119,24 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
-class ScopedColumnIteratorReadingMode {
+class ScopedColumnIteratorReadPhase {
 public:
-    ScopedColumnIteratorReadingMode(ColumnIterator* column_iter, ColumnIterator::ReadingMode mode)
+    ScopedColumnIteratorReadPhase(ColumnIterator* column_iter, ColumnIterator::ReadPhase mode)
             : _column_iter(column_iter) {
         DORIS_CHECK(_column_iter != nullptr);
-        _column_iter->set_reading_mode(mode);
+        _column_iter->set_read_phase(mode);
     }
 
-    ScopedColumnIteratorReadingMode(const ScopedColumnIteratorReadingMode&) = delete;
-    ScopedColumnIteratorReadingMode& operator=(const ScopedColumnIteratorReadingMode&) = delete;
+    ScopedColumnIteratorReadPhase(const ScopedColumnIteratorReadPhase&) = delete;
+    ScopedColumnIteratorReadPhase& operator=(const ScopedColumnIteratorReadPhase&) = delete;
 
-    ~ScopedColumnIteratorReadingMode() {
-        // ReadingMode is a per-read phase knob. SegmentIterator only needs a
+    ~ScopedColumnIteratorReadPhase() {
+        // ReadPhase is a per-read phase knob. SegmentIterator only needs a
         // temporary PREDICATE/LAZY mode while reading one column in one phase; it
         // must be restored before the next column or later normal reads reuse the
         // same ColumnIterator. Keep the restoration in one scoped helper instead
         // of open-coding the same Defer block at every call site.
-        _column_iter->set_reading_mode(ColumnIterator::ReadingMode::NORMAL);
+        _column_iter->set_read_phase(ColumnIterator::ReadPhase::NORMAL);
     }
 
 private:
@@ -685,10 +685,10 @@ void SegmentIterator::_init_segment_prefetchers() {
                 auto cid = cast_set<ColumnId>(idx);
                 auto* column_iter = _column_iterators[cid].get();
                 if (column_iter != nullptr) {
-                    ScopedColumnIteratorReadingMode scoped_reading_mode {
+                    ScopedColumnIteratorReadPhase scoped_read_phase {
                             column_iter, _support_lazy_read_pruned_columns.contains(cid)
-                                                 ? ColumnIterator::ReadingMode::PREDICATE
-                                                 : ColumnIterator::ReadingMode::NORMAL};
+                                                 ? ColumnIterator::ReadPhase::PREDICATE
+                                                 : ColumnIterator::ReadPhase::NORMAL};
                     column_iter->collect_prefetchers(prefetchers, init_method);
                 }
             }
@@ -2025,14 +2025,14 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                          field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                          field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
                         DCHECK(_column_iterators[cid]);
-                        if (_column_iterators[cid]->reading_flag() ==
-                                    ColumnIterator::ReadingFlag::READING_FOR_PREDICATE &&
+                        if (_column_iterators[cid]->read_requirement() ==
+                                    ColumnIterator::ReadRequirement::PREDICATE &&
                             _column_iterators[cid]->has_lazy_read_target()) {
                             // Only split lazy recovery for complex common expr columns that have
-                            // both predicate-only and non-predicate nested targets. The two flag
+                            // both predicate-only and non-predicate nested targets. The two requirement
                             // checks already imply that nested-column pruning happened: without an
                             // explicit predicate sub-path the parent would not be
-                            // READING_FOR_PREDICATE, and without a pruned non-predicate child there
+                            // PREDICATE, and without a pruned non-predicate child there
                             // would be no lazy target to recover after filtering.
                             _support_lazy_read_pruned_columns.emplace(cid);
                         }
@@ -2371,10 +2371,10 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
         }
 
         auto* column_iter = _column_iterators[cid].get();
-        ScopedColumnIteratorReadingMode scoped_reading_mode {
+        ScopedColumnIteratorReadPhase scoped_read_phase {
                 column_iter, _support_lazy_read_pruned_columns.contains(cid)
-                                     ? ColumnIterator::ReadingMode::PREDICATE
-                                     : ColumnIterator::ReadingMode::NORMAL};
+                                     ? ColumnIterator::ReadPhase::PREDICATE
+                                     : ColumnIterator::ReadPhase::NORMAL};
 
         if (is_continuous) {
             size_t rows_read = nrows_read;
@@ -2760,10 +2760,10 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         }
 
         auto* column_iter = _column_iterators[cid].get();
-        ScopedColumnIteratorReadingMode scoped_reading_mode {
+        ScopedColumnIteratorReadPhase scoped_read_phase {
                 column_iter, read_for_predicate && _support_lazy_read_pruned_columns.contains(cid)
-                                     ? ColumnIterator::ReadingMode::PREDICATE
-                                     : ColumnIterator::ReadingMode::NORMAL};
+                                     ? ColumnIterator::ReadPhase::PREDICATE
+                                     : ColumnIterator::ReadPhase::NORMAL};
 
         RETURN_IF_ERROR(column_iter->read_by_rowids(rowids.data(), select_size,
                                                     _current_return_columns[cid]));
@@ -3046,13 +3046,13 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                 auto loc = _schema_block_id_map[cid];
                 auto column = IColumn::mutate(std::move(block->get_by_position(loc).column));
                 auto* column_iter = _column_iterators[cid].get();
-                ScopedColumnIteratorReadingMode scoped_reading_mode {
-                        column_iter, ColumnIterator::ReadingMode::LAZY};
+                ScopedColumnIteratorReadPhase scoped_read_phase {column_iter,
+                                                                 ColumnIterator::ReadPhase::LAZY};
                 if (_selected_size > 0) {
                     RETURN_IF_ERROR(
                             column_iter->read_by_rowids(rowids.data(), _selected_size, column));
                 }
-                column_iter->finalize_lazy_mode(column);
+                column_iter->finalize_lazy_phase(column);
                 block->get_by_position(loc).column = std::move(column);
             }
         }
