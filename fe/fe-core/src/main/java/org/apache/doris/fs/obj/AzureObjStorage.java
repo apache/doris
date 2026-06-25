@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
@@ -357,8 +358,24 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         try {
             remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
-            String globPath = S3Util.extendGlobs(uri.getKey());
             String bucket = uri.getBucket();
+
+            // Optimization: For deterministic paths (no wildcards like *, ?),
+            // use getProperties requests instead of listing to avoid requiring list permission.
+            // Controlled by config: s3_skip_list_for_deterministic_path
+            // Note: Skip when using path style (see S3ObjStorage for detailed explanation)
+            String keyPattern = uri.getKey();
+            if (Config.s3_skip_list_for_deterministic_path
+                    && !isUsePathStyle
+                    && S3Util.isDeterministicPattern(keyPattern)) {
+                Status headStatus = globListByGetProperties(bucket, keyPattern, result, fileNameOnly, startTime);
+                if (headStatus != null) {
+                    return headStatus;
+                }
+                // If headStatus is null, fall through to use listing
+            }
+
+            String globPath = S3Util.extendGlobs(uri.getKey());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
             }
@@ -434,6 +451,86 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     duration / 1000);
         }
         return st;
+    }
+
+    /**
+     * Get file metadata using getProperties requests for deterministic paths.
+     * This avoids requiring list permission when only read permission is granted.
+     *
+     * @param bucket       Azure container name
+     * @param keyPattern   The key pattern (may contain {..} brace or [...] bracket patterns but no wildcards)
+     * @param result       List to store matching RemoteFile objects
+     * @param fileNameOnly If true, only store file names; otherwise store full paths
+     * @param startTime    Start time for logging duration
+     * @return Status if successful, null if should fall back to listing
+     */
+    private Status globListByGetProperties(String bucket, String keyPattern,
+            List<RemoteFile> result, boolean fileNameOnly, long startTime) {
+        try {
+            // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
+            String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
+            expandedPattern = S3Util.extendGlobs(expandedPattern);
+            List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
+
+            // Fall back to listing if too many paths to avoid overwhelming Azure with requests
+            // Controlled by config: s3_head_request_max_paths
+            if (expandedPaths.size() > Config.s3_head_request_max_paths) {
+                LOG.info("Expanded path count {} exceeds limit {}, falling back to LIST",
+                        expandedPaths.size(), Config.s3_head_request_max_paths);
+                return null;
+            }
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Using getProperties requests for deterministic path pattern, expanded to {} paths",
+                        expandedPaths.size());
+            }
+
+            BlobContainerClient containerClient = getClient().getBlobContainerClient(bucket);
+            long matchCnt = 0;
+            for (String key : expandedPaths) {
+                String fullPath = constructS3Path(key, bucket);
+                try {
+                    BlobClient blobClient = containerClient.getBlobClient(key);
+                    BlobProperties props = blobClient.getProperties();
+
+                    matchCnt++;
+                    RemoteFile remoteFile = new RemoteFile(
+                            fileNameOnly ? Paths.get(key).getFileName().toString() : fullPath,
+                            true, // isFile
+                            props.getBlobSize(),
+                            props.getBlobSize(),
+                            props.getLastModified() != null
+                                    ? props.getLastModified().toEpochSecond() : 0
+                    );
+                    result.add(remoteFile);
+
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("getProperties success for {}: size={}", fullPath, props.getBlobSize());
+                    }
+                } catch (BlobStorageException e) {
+                    if (e.getStatusCode() == HttpStatus.SC_NOT_FOUND
+                            || BlobErrorCode.BLOB_NOT_FOUND.equals(e.getErrorCode())) {
+                        // File does not exist, skip it (this is expected for some expanded patterns)
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("File does not exist (skipped): {}", fullPath);
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+
+            if (LOG.isDebugEnabled()) {
+                long duration = System.nanoTime() - startTime;
+                LOG.debug("Deterministic path getProperties requests: checked {} paths, found {} files, took {} ms",
+                        expandedPaths.size(), matchCnt, duration / 1000 / 1000);
+            }
+
+            return Status.OK;
+        } catch (Exception e) {
+            LOG.warn("Failed to use getProperties requests, falling back to listing: {}", e.getMessage());
+            return null;
+        }
     }
 
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
