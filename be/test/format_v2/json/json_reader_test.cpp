@@ -79,8 +79,13 @@ SlotDescriptor* make_test_slot(ObjectPool* pool, int slot_id, int slot_idx, Data
     slot_desc.__set_slotType(type->to_thrift());
     slot_desc.__set_columnPos(slot_idx);
     slot_desc.__set_byteOffset(0);
-    slot_desc.__set_nullIndicatorByte(slot_idx / 8);
-    slot_desc.__set_nullIndicatorBit(slot_idx % 8);
+    if (type->is_nullable()) {
+        slot_desc.__set_nullIndicatorByte(slot_idx / 8);
+        slot_desc.__set_nullIndicatorBit(slot_idx % 8);
+    } else {
+        slot_desc.__set_nullIndicatorByte(0);
+        slot_desc.__set_nullIndicatorBit(-1);
+    }
     slot_desc.__set_slotIdx(slot_idx);
     slot_desc.__set_isMaterialized(true);
     slot_desc.__set_colName(name);
