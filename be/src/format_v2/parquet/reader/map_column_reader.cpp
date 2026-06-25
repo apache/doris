@@ -122,7 +122,8 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         }
         const int64_t current_level_idx = level_idx;
         ++level_idx;
-        if (def_level < _repeated_ancestor_definition_level || rep_level > _repetition_level) {
+        if (rep_level > _repetition_level ||
+            (!starts_parent && def_level < _repeated_ancestor_definition_level)) {
             continue;
         }
         map_level_indices.push_back(current_level_idx);
@@ -173,8 +174,9 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         int64_t value_level_idx = scalar_value_reader->nested_build_level_cursor();
         for (const int64_t key_level_idx : map_level_indices) {
             while (value_level_idx < value_levels_written &&
-                   (value_def_levels[value_level_idx] < _repeated_ancestor_definition_level ||
-                    value_rep_levels[value_level_idx] > _repetition_level)) {
+                   (value_rep_levels[value_level_idx] > _repetition_level ||
+                    (value_rep_levels[value_level_idx] >= _repetition_level &&
+                     value_def_levels[value_level_idx] < _repeated_ancestor_definition_level))) {
                 ++value_level_idx;
             }
             if (value_level_idx >= value_levels_written) {
