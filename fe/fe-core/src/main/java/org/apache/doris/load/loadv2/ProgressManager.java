@@ -56,7 +56,8 @@ public class ProgressManager {
         if (progress != null) {
             progress.updateFinishedScanNums(queryId, fragmentId, finishedScannerNum);
         } else {
-            LOG.warn("progress[" + id + "] missing meta information");
+            LOG.warn("progress id {} missing meta information, queryId {}, fragmentId {}",
+                    id, queryId, fragmentId);
         }
     }
 
