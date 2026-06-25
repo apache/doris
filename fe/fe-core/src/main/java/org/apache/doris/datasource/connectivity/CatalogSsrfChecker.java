@@ -132,6 +132,32 @@ public class CatalogSsrfChecker {
     }
 
     /**
+     * Validate an explicit list of user-supplied endpoint URIs.
+     *
+     * <p>Used for catalog types whose outbound endpoints are configured as plain catalog
+     * properties rather than {@code @ConnectorProperty} fields (e.g. MaxCompute
+     * {@code mc.endpoint} / {@code mc.odps_endpoint} / {@code mc.tunnel_endpoint}, Doris
+     * {@code fe_http_hosts} / {@code fe_thrift_hosts} / {@code fe_arrow_hosts}), so the
+     * annotation-driven {@link #check} cannot discover them. Each value may be a full URL,
+     * a bare {@code host[:port]}, or a comma-separated list of either.
+     *
+     * @throws DdlException if any URI fails the SSRF check
+     */
+    public static void checkUris(String catalogName, Collection<String> uris) throws DdlException {
+        checkUris(catalogName, uris, new DefaultUriValidator());
+    }
+
+    static void checkUris(String catalogName, Collection<String> uris, UriValidator validator)
+            throws DdlException {
+        if (uris == null) {
+            return;
+        }
+        for (String uri : uris) {
+            checkSingleUri(catalogName, uri, validator);
+        }
+    }
+
+    /**
      * Collect every URI worth SSRF-checking on a single storage property object.
      *
      * <p>Auto-fallback HDFS storage ({@code explicitlyConfigured=false}) is dropped wholesale

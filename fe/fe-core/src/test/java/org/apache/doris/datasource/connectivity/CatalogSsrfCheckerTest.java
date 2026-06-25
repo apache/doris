@@ -29,8 +29,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -281,6 +281,42 @@ public class CatalogSsrfCheckerTest {
 
         // Exactly one URI from this catalog means exactly one validation call.
         Assertions.assertEquals(1, validator.checkedUris.size());
+    }
+
+    @Test
+    public void testCheckUrisNullDoesNothing() throws Exception {
+        RecordingValidator validator = new RecordingValidator();
+
+        CatalogSsrfChecker.checkUris("cat", null, validator);
+
+        Assertions.assertTrue(validator.checkedUris.isEmpty());
+        Assertions.assertTrue(validator.checkedJdbcUrls.isEmpty());
+    }
+
+    @Test
+    public void testCheckUrisValidatesRawEndpoints() throws Exception {
+        // Raw endpoint values (used for MaxCompute / Doris catalog endpoints): a full URL
+        // with a path, and a comma-separated list of bare host:port, are normalized and each
+        // host handed to the validator independently.
+        RecordingValidator validator = new RecordingValidator();
+
+        CatalogSsrfChecker.checkUris("cat", Arrays.asList(
+                "http://service.cn-beijing.maxcompute.aliyun-inc.com/api",
+                "fe-host:8030,fe-host2:8030"), validator);
+
+        Assertions.assertEquals(Arrays.asList(
+                "http://service.cn-beijing.maxcompute.aliyun-inc.com",
+                "http://fe-host:8030",
+                "http://fe-host2:8030"), validator.checkedUris);
+    }
+
+    @Test
+    public void testCheckUrisRejectsLoopbackEndpoint() {
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> CatalogSsrfChecker.checkUris("cat", Arrays.asList("127.0.0.1:9020")));
+
+        Assertions.assertTrue(ex.getMessage().contains("127.0.0.1"),
+                "message should name the rejected host, was: " + ex.getMessage());
     }
 
     private MetastoreProperties createHmsProperties(String metastoreUri) throws UserException {
