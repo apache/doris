@@ -504,7 +504,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                 std::max(cloud_tablet()->cumulative_layer_point(), _max_conflict_version + 1),
                 cloud_tablet()->alter_version() + 1);
         // Get all rowsets whose version >= `candidate_version` as candidate rowsets
-        cloud_tablet()->traverse_rowsets(
+        cloud_tablet()->traverse_rowsets_unlocked(
                 [&candidate_rowsets, candidate_version](const RowsetSharedPtr& rs) {
                     if (rs->start_version() >= candidate_version) {
                         candidate_rowsets.push_back(rs);
