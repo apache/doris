@@ -58,6 +58,8 @@ public:
                                       format::FileFormat* file_format);
     static bool TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
                                        const std::string& column_name);
+    static bool TEST_is_data_file_slot(const TFileScanSlotInfo& slot_info,
+                                       const std::string& column_name);
     static Status TEST_rewrite_slot_refs_to_global_index(
             VExprSPtr* expr,
             const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index);
@@ -78,6 +80,7 @@ public:
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
+    void _collect_profile_before_close() override;
 
 private:
     TFileFormatType::type _get_current_format_type() const;
@@ -102,6 +105,8 @@ private:
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
+    void _report_file_reader_predicate_filtered_rows();
+    void _report_condition_cache_profile();
 
     struct PartitionSlotInfo {
         const SlotDescriptor* slot_desc = nullptr;
@@ -117,6 +122,10 @@ private:
 
     std::unique_ptr<format::TableReader> _table_reader;
     std::vector<format::ColumnDefinition> _projected_columns;
+    // File formats without embedded schema, such as CSV, still need the FE slot descriptors in
+    // file-column order. This mirrors old FileScanner::_file_slot_descs and is passed only to
+    // readers that cannot derive their schema from file metadata.
+    std::vector<SlotDescriptor*> _file_slot_descs;
     bool _need_global_rowid_column = false;
     std::unordered_map<int32_t, const SlotDescriptor*> _slot_id_to_desc;
     std::unordered_map<int32_t, format::GlobalIndex> _slot_id_to_global_index;
@@ -132,6 +141,9 @@ private:
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
     RuntimeProfile::Counter* _file_read_time_counter = nullptr;
+    int64_t _reported_predicate_filtered_rows = 0;
+    int64_t _reported_condition_cache_hit_count = 0;
+    int64_t _reported_condition_cache_filtered_rows = 0;
 };
 
 } // namespace doris

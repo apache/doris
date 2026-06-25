@@ -227,13 +227,18 @@ IColumn::Filter selection_to_filter(const SelectionVector& selection, uint16_t s
 }
 
 Status execute_batch_filters(const format::FileScanRequest& request, int64_t batch_rows,
-                             Block* file_block, SelectionVector* selection,
-                             uint16_t* selected_rows) {
+                             Block* file_block, SelectionVector* selection, uint16_t* selected_rows,
+                             int64_t* conjunct_filtered_rows) {
     if (request.conjuncts.empty() && request.delete_conjuncts.empty()) {
         return Status::OK();
     }
+    const auto selected_rows_before_conjunct = *selected_rows;
     RETURN_IF_ERROR(
             execute_filter_conjuncts(request, batch_rows, file_block, selection, selected_rows));
+    if (conjunct_filtered_rows != nullptr) {
+        *conjunct_filtered_rows += static_cast<int64_t>(selected_rows_before_conjunct) -
+                                   static_cast<int64_t>(*selected_rows);
+    }
     if (*selected_rows == 0) {
         return Status::OK();
     }
@@ -300,6 +305,7 @@ std::vector<RowRange> filter_ranges_by_condition_cache(const std::vector<RowRang
 void ParquetScanScheduler::set_plan(RowGroupScanPlan plan) {
     _row_group_plans = std::move(plan.row_groups);
     _condition_cache_filtered_rows = 0;
+    _predicate_filtered_rows = 0;
     reset();
 }
 
@@ -457,7 +463,8 @@ Status ParquetScanScheduler::skip_current_row_group_rows(int64_t rows) {
 Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
                                                  const format::FileScanRequest& request,
                                                  Block* file_block, SelectionVector* selection,
-                                                 uint16_t* selected_rows) {
+                                                 uint16_t* selected_rows,
+                                                 int64_t* conjunct_filtered_rows) {
     if (!request.conjuncts.empty() || !request.delete_conjuncts.empty()) {
         selection->resize(static_cast<size_t>(batch_rows));
     }
@@ -483,10 +490,12 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         file_block->replace_by_position(block_position, std::move(column));
     }
     if (_scan_profile.predicate_filter_time == nullptr) {
-        return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows);
+        return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows,
+                                     conjunct_filtered_rows);
     }
     SCOPED_TIMER(_scan_profile.predicate_filter_time);
-    return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows);
+    return execute_batch_filters(request, batch_rows, file_block, selection, selected_rows,
+                                 conjunct_filtered_rows);
 }
 
 Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
@@ -509,8 +518,10 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
     SelectionVector selection;
     DORIS_CHECK(batch_rows <= std::numeric_limits<uint16_t>::max());
     uint16_t selected_rows = static_cast<uint16_t>(batch_rows);
-    RETURN_IF_ERROR(
-            read_filter_columns(batch_rows, request, file_block, &selection, &selected_rows));
+    int64_t conjunct_filtered_rows = 0;
+    RETURN_IF_ERROR(read_filter_columns(batch_rows, request, file_block, &selection, &selected_rows,
+                                        &conjunct_filtered_rows));
+    _predicate_filtered_rows += conjunct_filtered_rows;
     mark_condition_cache_granules(selection, selected_rows, batch_first_file_row);
 
     const bool need_filter_output = selected_rows != batch_rows;
@@ -518,7 +529,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(int64_t batch_rows,
         COUNTER_UPDATE(_scan_profile.selected_rows, selected_rows);
     }
     if (_scan_profile.rows_filtered_by_conjunct != nullptr) {
-        COUNTER_UPDATE(_scan_profile.rows_filtered_by_conjunct, batch_rows - selected_rows);
+        COUNTER_UPDATE(_scan_profile.rows_filtered_by_conjunct, conjunct_filtered_rows);
     }
     if (!_current_non_predicate_columns.empty() &&
         _scan_profile.lazy_read_filtered_rows != nullptr) {

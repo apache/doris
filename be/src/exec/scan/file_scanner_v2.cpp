@@ -99,6 +99,27 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     return table_format == "jdbc" || table_format == "iceberg";
 }
 
+bool is_csv_format(TFileFormatType::type format_type) {
+    switch (format_type) {
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+    case TFileFormatType::FORMAT_PROTO:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool is_text_format(TFileFormatType::type format_type) {
+    return format_type == TFileFormatType::FORMAT_TEXT;
+}
+
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
     if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
         column_name == BeConsts::ICEBERG_ROWID_COL) {
@@ -106,6 +127,22 @@ bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& co
     }
     return slot_info.__isset.category ? slot_info.category == TColumnCategory::PARTITION_KEY
                                       : !slot_info.is_file_slot;
+}
+
+bool is_data_file_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
+    if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+        column_name == BeConsts::ICEBERG_ROWID_COL) {
+        return false;
+    }
+    // CSV and other non-self-describing formats need FE slot descriptors for only the columns that
+    // are physically read from the file. Partition/default/virtual columns stay in TableReader's
+    // mapping layer and are materialized after the file-local block is read. New FE provides an
+    // explicit category; old FE falls back to `is_file_slot`.
+    if (slot_info.__isset.category) {
+        return slot_info.category == TColumnCategory::REGULAR ||
+               slot_info.category == TColumnCategory::GENERATED;
+    }
+    return slot_info.is_file_slot;
 }
 
 Status rewrite_slot_refs_to_global_index(
@@ -158,6 +195,11 @@ bool FileScannerV2::TEST_is_partition_slot(const TFileScanSlotInfo& slot_info,
     return is_partition_slot(slot_info, column_name);
 }
 
+bool FileScannerV2::TEST_is_data_file_slot(const TFileScanSlotInfo& slot_info,
+                                           const std::string& column_name) {
+    return is_data_file_slot(slot_info, column_name);
+}
+
 Status FileScannerV2::TEST_rewrite_slot_refs_to_global_index(
         VExprSPtr* expr,
         const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index) {
@@ -171,6 +213,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
         return is_supported_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
+    } else if (is_csv_format(format_type) || is_text_format(format_type)) {
+        return is_supported_table_format(range);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
         return false;
@@ -289,6 +333,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state->scanner_profile(),
+            .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state->get_push_down_agg_type(),
             .condition_cache_digest = _local_state->get_condition_cache_digest(),
     }));
@@ -406,6 +451,7 @@ Status FileScannerV2::_init_expr_ctxes() {
     _slot_id_to_desc.clear();
     _slot_id_to_global_index.clear();
     _partition_slot_descs.clear();
+    _file_slot_descs.clear();
     for (const auto* slot_desc : _output_tuple_desc->slots()) {
         _slot_id_to_desc.emplace(slot_desc->id(), slot_desc);
     }
@@ -454,6 +500,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
                         alias,
                         PartitionSlotInfo {.slot_desc = it->second, .canonical_name = column.name});
             }
+        } else if (is_data_file_slot(slot_info, column.name)) {
+            _file_slot_descs.push_back(const_cast<SlotDescriptor*>(it->second));
         }
         const auto global_index = format::GlobalIndex(slot_idx);
         _slot_id_to_global_index.emplace(slot_info.slot_id, global_index);
@@ -535,6 +583,20 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
     case TFileFormatType::FORMAT_JNI:
         *file_format = format::FileFormat::JNI;
         return Status::OK();
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+    case TFileFormatType::FORMAT_PROTO:
+        *file_format = format::FileFormat::CSV;
+        return Status::OK();
+    case TFileFormatType::FORMAT_TEXT:
+        *file_format = format::FileFormat::TEXT;
+        return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",
                                     to_string(format_type));
@@ -551,17 +613,10 @@ Status FileScannerV2::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
-    int64_t condition_cache_hit_count = 0;
     if (_table_reader != nullptr) {
-        condition_cache_hit_count = _table_reader->condition_cache_hit_count();
         RETURN_IF_ERROR(_table_reader->close());
+        _report_condition_cache_profile();
         _table_reader.reset();
-    }
-    auto* local_state = static_cast<FileScanLocalState*>(_local_state);
-    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, condition_cache_hit_count);
-    if (_io_ctx != nullptr) {
-        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
-                       _io_ctx->condition_cache_filtered_rows);
     }
     return Scanner::close(state);
 }
@@ -581,6 +636,48 @@ void FileScannerV2::update_realtime_counters() {
     COUNTER_SET(_file_read_bytes_counter, bytes_read);
     COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
     COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+}
+
+void FileScannerV2::_collect_profile_before_close() {
+    _report_file_reader_predicate_filtered_rows();
+    Scanner::_collect_profile_before_close();
+    if (_file_reader_stats != nullptr) {
+        COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
+        COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
+        COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+    }
+    // Query profiles can be collected before Scanner::close() runs. Publish condition-cache
+    // counters here as well, using deltas so this method and close() cannot double count.
+    _report_condition_cache_profile();
+}
+
+void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
+    const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
+    const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
+    if (filtered_delta > 0) {
+        // File readers can evaluate localized conjuncts before a block reaches Scanner. Count
+        // those rows as scanner-level unselected rows so load statistics stay identical no matter
+        // whether a predicate is pushed down or evaluated by Scanner::_filter_output_block().
+        _counter.num_rows_unselected += filtered_delta;
+        _reported_predicate_filtered_rows = filtered_rows;
+    }
+}
+
+void FileScannerV2::_report_condition_cache_profile() {
+    auto* local_state = static_cast<FileScanLocalState*>(_local_state);
+    const int64_t hit_count =
+            _table_reader != nullptr ? _table_reader->condition_cache_hit_count() : 0;
+    const int64_t hit_delta = hit_count - _reported_condition_cache_hit_count;
+    if (hit_delta > 0) {
+        COUNTER_UPDATE(local_state->_condition_cache_hit_counter, hit_delta);
+        _reported_condition_cache_hit_count = hit_count;
+    }
+    const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->condition_cache_filtered_rows : 0;
+    const int64_t filtered_delta = filtered_rows - _reported_condition_cache_filtered_rows;
+    if (filtered_delta > 0) {
+        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter, filtered_delta);
+        _reported_condition_cache_filtered_rows = filtered_rows;
+    }
 }
 
 } // namespace doris

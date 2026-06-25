@@ -41,6 +41,8 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/delimited_text/csv_reader.h"
+#include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "roaring/roaring64map.hh"
 #include "storage/segment/condition_cache.h"
@@ -71,6 +73,8 @@ std::string file_format_to_string(FileFormat format) {
         return "ORC";
     case FileFormat::CSV:
         return "CSV";
+    case FileFormat::TEXT:
+        return "TEXT";
     case FileFormat::JNI:
         return "JNI";
     }
@@ -492,7 +496,10 @@ std::string TableReader::debug_string() const {
                        return column_out.str();
                    })
         << ", block_template_columns=" << _data_reader.block_template.columns()
-        << ", column_mapper=" << _data_reader.column_mapper.debug_string() << "}";
+        << ", column_mapper="
+        << (_data_reader.column_mapper == nullptr ? "null"
+                                                  : _data_reader.column_mapper->debug_string())
+        << "}";
     return out.str();
 }
 
@@ -519,6 +526,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _io_ctx = options.io_ctx;
     _runtime_state = options.runtime_state;
     _scanner_profile = options.scanner_profile;
+    _file_slot_descs = options.file_slot_descs;
     _push_down_agg_type = options.push_down_agg_type;
     _condition_cache_digest = options.condition_cache_digest;
     _projected_columns = std::move(options.projected_columns);
@@ -691,6 +699,32 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _global_rowid_context, enable_mapping_timestamp_tz);
         return Status::OK();
     }
+    if (_format == FileFormat::CSV) {
+        if (_file_slot_descs == nullptr) {
+            return Status::InvalidArgument("CSV reader requires file slot descriptors");
+        }
+        // CSV has no embedded schema. TableReader owns table-level mapping, while CsvReader needs
+        // only the physical file slots plus scan text parameters to build a file-local schema.
+        // Non-file columns such as partitions/defaults/virtual row ids are intentionally excluded
+        // from `_file_slot_descs` and are materialized during finalize_chunk().
+        *reader = std::make_unique<format::csv::CsvReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _scan_params, *_file_slot_descs, _current_range_compress_type,
+                _current_range_load_id);
+        return Status::OK();
+    }
+    if (_format == FileFormat::TEXT) {
+        if (_file_slot_descs == nullptr) {
+            return Status::InvalidArgument("Text reader requires file slot descriptors");
+        }
+        // Text files have no embedded schema. As with CSV, TableReader handles table-level mapping
+        // and only passes physical file slots to the v2 TextReader.
+        *reader = std::make_unique<format::text::TextReader>(
+                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
+                _scan_params, *_file_slot_descs, _current_range_compress_type,
+                _current_range_load_id);
+        return Status::OK();
+    }
     return Status::NotSupported("TableReader does not support file format {}",
                                 file_format_to_string(_format));
 }
@@ -717,6 +751,12 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
     _current_file_description = *_current_task->data_file;
+    _current_range_compress_type = options.current_range.__isset.compress_type
+                                           ? options.current_range.compress_type
+                                           : TFileCompressType::UNKNOWN;
+    _current_range_load_id = options.current_range.__isset.load_id
+                                     ? std::make_optional(options.current_range.load_id)
+                                     : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
     _delete_rows = nullptr;
     _aggregate_pushdown_tried = false;
