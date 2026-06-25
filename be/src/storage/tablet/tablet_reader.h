@@ -121,7 +121,7 @@ public:
             rs_splits = std::move(read_source.rs_splits);
             delete_predicates = std::move(read_source.delete_predicates);
 #ifndef BE_TEST
-            if (tablet->enable_unique_key_merge_on_write() && !skip_delete_bitmap) {
+            if (!skip_delete_bitmap && tablet->need_read_delete_bitmap()) {
                 delete_bitmap = std::move(read_source.delete_bitmap);
             }
 #endif

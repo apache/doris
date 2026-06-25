@@ -108,10 +108,11 @@ bool Rowset::check_rowset_segment() {
 std::string Rowset::get_rowset_info_str() {
     std::string disk_size = PrettyPrinter::print(
             static_cast<uint64_t>(_rowset_meta->total_disk_size()), TUnit::BYTES);
-    return fmt::format("[{}-{}] {} {} {} {} {}", start_version(), end_version(), num_segments(),
+    return fmt::format("[{}-{}] {} {} {} {} level={} {}", start_version(), end_version(),
+                       num_segments(),
                        _rowset_meta->has_delete_predicate() ? "DELETE" : "DATA",
                        SegmentsOverlapPB_Name(_rowset_meta->segments_overlap()),
-                       rowset_id().to_string(), disk_size);
+                       _rowset_meta->compaction_level(), rowset_id().to_string(), disk_size);
 }
 
 const TabletSchemaSPtr& Rowset::tablet_schema() const {

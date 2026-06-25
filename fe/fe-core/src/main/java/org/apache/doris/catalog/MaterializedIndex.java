@@ -34,21 +34,33 @@ import java.util.Map;
 public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
     public enum IndexState {
         NORMAL,
+        ROW_BINLOG,
         @Deprecated
         ROLLUP,
         @Deprecated
         SCHEMA_CHANGE,
-        SHADOW; // index in SHADOW state is visible to load process, but invisible to query
+        SHADOW, // index in SHADOW state is visible to load process, but invisible to query
+        SHADOW_ROW_BINLOG;
 
         public boolean isVisible() {
-            return this == IndexState.NORMAL;
+            return this == IndexState.NORMAL || this == IndexState.ROW_BINLOG;
+        }
+
+        public boolean isRowBinlog() {
+            return this == IndexState.ROW_BINLOG || this == IndexState.SHADOW_ROW_BINLOG;
+        }
+
+        public boolean isShadow() {
+            return this == IndexState.SHADOW || this == IndexState.SHADOW_ROW_BINLOG;
         }
     }
 
     public enum IndexExtState {
         ALL,
-        VISIBLE, // index state in NORMAL
-        SHADOW // index state in SHADOW
+        ALL_EXCEPT_ROW_BINLOG, // exclude row binlog
+        VISIBLE, // exclude row binlog
+        VISIBLE_WITH_ROW_BINLOG,
+        SHADOW // exclude row binlog
     }
 
     @SerializedName(value = "id")
@@ -98,6 +110,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
         this.rollupIndexId = -1L;
         this.rollupFinishedVersion = -1L;
+    }
+
+    public boolean isRowBinlog() {
+        return state.isRowBinlog();
     }
 
     public List<Tablet> getTablets() {
@@ -223,11 +239,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public long getBinlogSize() {
-        long binlogDataSize = 0;
-        for (Tablet tablet : getTablets()) {
-            binlogDataSize += tablet.getBinlogDataSize();
-        }
-        return binlogDataSize;
+        return isRowBinlog() ? getDataSize(false, false) : 0;
     }
 
     public long getReplicaCount() {

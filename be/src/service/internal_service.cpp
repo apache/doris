@@ -2577,7 +2577,7 @@ void PInternalService::get_tablet_rowsets(google::protobuf::RpcController* contr
         response->mutable_rowsets()->Add(std::move(meta));
     }
     if (request->has_delete_bitmap_keys()) {
-        DCHECK(tablet->enable_unique_key_merge_on_write());
+        DCHECK(tablet->need_read_delete_bitmap());
         auto delete_bitmap = std::move(ret.value().delete_bitmap);
         auto keys_pb = request->delete_bitmap_keys();
         size_t len = keys_pb.rowset_ids().size();

@@ -470,8 +470,9 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     // bounds, so force aggregation on the output to keep the layout consistent
     // with `num_segments` / the aggregated flag, even if the config is off now.
     bool aggregate_key_bounds =
-            any_input_aggregated || (config::enable_aggregate_non_mow_key_bounds &&
-                                     !_tablet->enable_unique_key_merge_on_write());
+            any_input_aggregated ||
+            (config::enable_aggregate_non_mow_key_bounds &&
+             !_tablet->enable_unique_key_merge_on_write() && !tablet()->is_row_binlog_tablet());
     rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
     rowset_meta->set_commit_tso(commit_tso_range(_input_rowsets));

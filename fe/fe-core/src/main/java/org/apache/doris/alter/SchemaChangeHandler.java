@@ -3949,6 +3949,11 @@ public class SchemaChangeHandler extends AlterHandler {
             return true;
         }
 
+        if (!oldBinlogConfig.isEnableForStreaming() && newBinlogConfig.isEnableForStreaming()) {
+            throw new DdlException("Do not support dynamically enabling binlog<Row> for table: "
+                    + olapTable.getName());
+        }
+
         // check db binlog config, if db binlog config is not same as table binlog config, throw exception
         BinlogConfig dbBinlogConfig;
         db.readLock();

@@ -88,7 +88,8 @@ Status RowBinlogSegmentWriter::init() {
         _write_before = true;
     }
 
-    auto base_tablet = _binlog_opts.source.base_tablet == nullptr ? _tablet : _binlog_opts.source.base_tablet;
+    auto base_tablet =
+            _binlog_opts.source.base_tablet == nullptr ? _tablet : _binlog_opts.source.base_tablet;
     HistoricalRowRetrieverContext historical_row_retriever_context = {
             .tablet = base_tablet,
             .tablet_schema = source_schema,

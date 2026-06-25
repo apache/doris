@@ -216,6 +216,11 @@ public class OlapTableSink extends DataSink {
                 LOG.debug("Single replica load not supported by merge-on-write table: {}", dstTable.getName());
             }
         }
+        if (singleReplicaLoad && dstTable.needRowBinlog()) {
+            // Single replica load not supported by table with row binlog
+            singleReplicaLoad = false;
+            LOG.warn("Single replica load not supported by table with row binlog: {}", dstTable.getName());
+        }
     }
 
     // init for nereids insert into
@@ -226,10 +231,10 @@ public class OlapTableSink extends DataSink {
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
-            if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
+            if (dstTable.getIndexNumberWithRowBinlog() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
                 throw new UserException(
                         "table's index number not equal with partition's index number. table's index number="
-                                + dstTable.getIndexIdToMeta().size() + ", partition's index number="
+                                + dstTable.getIndexNumberWithRowBinlog() + ", partition's index number="
                                 + partition.getMaterializedIndices(IndexExtState.ALL).size());
             }
         }
@@ -284,10 +289,10 @@ public class OlapTableSink extends DataSink {
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
-            if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
+            if (dstTable.getIndexNumberWithRowBinlog() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
                 throw new UserException(
                         "table's index number not equal with partition's index number. table's index number="
-                                + dstTable.getIndexIdToMeta().size() + ", partition's index number="
+                                + dstTable.getIndexNumberWithRowBinlog() + ", partition's index number="
                                 + partition.getMaterializedIndices(IndexExtState.ALL).size());
             }
         }
@@ -472,7 +477,7 @@ public class OlapTableSink extends DataSink {
             TOlapTableIndexSchema rowBinlogIndexSchema = new TOlapTableIndexSchema(
                     rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
             rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
-            schemaParam.setRowBinlogIndexSchema(rowBinlogIndexSchema);
+            schemaParam.addToRowBinlogIndexSchemas(rowBinlogIndexSchema);
         }
 
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
@@ -1022,7 +1027,8 @@ public class OlapTableSink extends DataSink {
                     // set partition keys
                     setPartitionKeys(tPartition, partitionInfo.getItem(partition.getId()), partColNum);
 
-                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    for (MaterializedIndex index
+                            : partition.getMaterializedIndices(IndexExtState.ALL_EXCEPT_ROW_BINLOG)) {
                         tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNumBuckets(index.getTablets().size());
@@ -1086,7 +1092,8 @@ public class OlapTableSink extends DataSink {
                 tPartition.setId(partition.getId());
                 tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partition.getId()));
                 // No lowerBound and upperBound for this range
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex index
+                        : partition.getMaterializedIndices(IndexExtState.ALL_EXCEPT_ROW_BINLOG)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                             index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                     tPartition.setNumBuckets(index.getTablets().size());
@@ -1197,6 +1204,17 @@ public class OlapTableSink extends DataSink {
         return Arrays.asList(locationParam, slaveLocationParam);
     }
 
+    // In non-cloud mode the binlog tablet must be on the same disk as its base tablet (cloud mode
+    // does not need this), so keep only the (backend, pathHash) entries shared by both tablets.
+    private Multimap<Long, Long> getBinlogColocatedReplicaBackendPathMap(Tablet baseTablet, Tablet rowBinlogTablet)
+            throws UserException {
+        Multimap<Long, Long> baseBePathsMap = baseTablet.getNormalReplicaBackendPathMap();
+        Multimap<Long, Long> binlogBePathsMap = rowBinlogTablet.getNormalReplicaBackendPathMap();
+        binlogBePathsMap.entries().removeIf(
+                entry -> !baseBePathsMap.containsEntry(entry.getKey(), entry.getValue()));
+        return binlogBePathsMap;
+    }
+
     private List<TOlapTableLocationParam> createLocation(long dbId, OlapTable table) throws UserException {
         if (table.getPartitionInfo().enableAutomaticPartition() && partitionIds.isEmpty()) {
             return createDummyLocation(table);
@@ -1225,6 +1243,12 @@ public class OlapTableSink extends DataSink {
                             }
                             bePathsMap = ((CloudTablet) tablet)
                                     .getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                        } else if (index.isRowBinlog()) {
+                            Tablet baseTablet = partition.getBaseIndex().getTablet(tablet.getAlignedTabletId());
+                            Preconditions.checkNotNull(baseTablet,
+                                    "row binlog tablet %s's base tablet %s can not be found in partition %s",
+                                    tablet.getId(), tablet.getAlignedTabletId(), partition.getId());
+                            bePathsMap = getBinlogColocatedReplicaBackendPathMap(baseTablet, tablet);
                         } else {
                             bePathsMap = tablet.getNormalReplicaBackendPathMap();
                         }
@@ -1240,6 +1264,15 @@ public class OlapTableSink extends DataSink {
                                 // and each cluster has only one replica, no need to detail the replicas in cloud mode.
                                 errMsgBuilder.append(", detail: ")
                                         .append(tablet.getDetailsStatusForQuery(partition.getVisibleVersion()));
+                                if (index.isRowBinlog()) {
+                                    // replica num is counted after intersecting with the base tablet for same-disk
+                                    // co-location, so also surface the base tablet status for diagnosis.
+                                    Tablet baseTablet = partition.getBaseIndex()
+                                            .getTablet(tablet.getAlignedTabletId());
+                                    errMsgBuilder.append(", base tablet ").append(tablet.getAlignedTabletId())
+                                            .append(" detail: ")
+                                            .append(baseTablet.getDetailsStatusForQuery(partition.getVisibleVersion()));
+                                }
                             }
                             long now = System.currentTimeMillis();
                             long lastLoadFailedTime = tablet.getLastLoadFailedTime();
@@ -1269,13 +1302,24 @@ public class OlapTableSink extends DataSink {
                         Long masterNode = nodes[random.nextInt(nodes.length)];
                         Multimap<Long, Long> slaveBePathsMap = bePathsMap;
                         slaveBePathsMap.removeAll(masterNode);
-                        locationParam.addToTablets(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(Sets.newHashSet(masterNode))));
-                        slaveLocationParam.addToTablets(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(slaveBePathsMap.keySet())));
+                        TTabletLocation location = new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(Sets.newHashSet(masterNode)));
+                        TTabletLocation slaveLocation = new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(slaveBePathsMap.keySet()));
+                        if (index.isRowBinlog()) {
+                            location.setBaseTabletId(tablet.getAlignedTabletId());
+                            slaveLocation.setBaseTabletId(tablet.getAlignedTabletId());
+                        }
+                        locationParam.addToTablets(location);
+                        slaveLocationParam.addToTablets(slaveLocation);
                     } else {
-                        locationParam.addToTablets(new TTabletLocation(tablet.getId(),
-                                Lists.newArrayList(bePathsMap.keySet())));
+                        TTabletLocation location = new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(bePathsMap.keySet()));
+                        if (index.isRowBinlog()) {
+                            // BE pairs the binlog tablet with its base tablet via base_tablet_id.
+                            location.setBaseTabletId(tablet.getAlignedTabletId());
+                        }
+                        locationParam.addToTablets(location);
                     }
                     allBePathsMap.putAll(bePathsMap);
                 }

@@ -53,8 +53,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 .add("IsUserDrop")
                 .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
-                .add("CooldownMetaId").add("QueryHits").add("BinlogSize").add("BinlogFileNum")
-                .add("WindowAccessCount").add("LastAccessTime");
+                .add("CooldownMetaId").add("QueryHits").add("WindowAccessCount").add("LastAccessTime");
 
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
@@ -158,8 +157,6 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     String.valueOf(tablet.getCooldownReplicaId()),
                     cooldownMetaId,
                     String.valueOf(queryHits),
-                    String.valueOf(replica.getBinlogSize()),
-                    String.valueOf(replica.getBinlogFileNum()),
                     String.valueOf(accessCount),
                     String.valueOf(lastAccessTime)
                 );

@@ -303,10 +303,9 @@ public class ShowDataCommand extends ShowCommand {
 
     private void collectTableStats(OlapTable table) {
         // sort by index name
-        Map<String, Long> indexNames = table.getIndexNameToId();
         Map<String, Long> sortedIndexNames = new TreeMap<String, Long>();
-        for (Map.Entry<String, Long> entry : indexNames.entrySet()) {
-            sortedIndexNames.put(entry.getKey(), entry.getValue());
+        for (Long indexId : table.getIndexIdToMetaWithRowBinlog().keySet()) {
+            sortedIndexNames.put(table.getIndexNameById(indexId), indexId);
         }
 
         for (Long indexId : sortedIndexNames.values()) {

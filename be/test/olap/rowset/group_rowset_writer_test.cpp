@@ -99,13 +99,16 @@ protected:
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
         ASSERT_TRUE(_tablet != nullptr);
+        ASSERT_TRUE(_tablet->need_read_delete_bitmap());
         _row_binlog_request = _request;
         _row_binlog_request.tablet_id = 10011;
         _row_binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
                 _request.tablet_schema, _request.tablet_schema.schema_hash + 1);
         ASSERT_TRUE(engine_ptr->create_tablet(_row_binlog_request, profile.get()).ok());
-        _row_binlog_tablet = engine_ptr->tablet_manager()->get_tablet(_row_binlog_request.tablet_id);
+        _row_binlog_tablet =
+                engine_ptr->tablet_manager()->get_tablet(_row_binlog_request.tablet_id);
         ASSERT_TRUE(_row_binlog_tablet != nullptr);
+        ASSERT_TRUE(_row_binlog_tablet->need_read_delete_bitmap());
 
         config::enable_debug_points = true;
     }
@@ -186,7 +189,8 @@ protected:
         auto lsn_ids = std::make_shared<std::vector<int64_t>>();
         RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
         cfg.insert_seg_lsn(0, lsn_ids);
-        auto row_binlog_writer_res = _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
+        auto row_binlog_writer_res =
+                _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
         if (!row_binlog_writer_res.has_value()) {
             return row_binlog_writer_res.error();
         }
@@ -248,6 +252,12 @@ TEST_F(GroupRowsetWriterTest, sub_writer_rollback) {
 }
 
 TEST_F(GroupRowsetWriterTest, success) {
+    bool saved_aggregate_non_mow_key_bounds = config::enable_aggregate_non_mow_key_bounds;
+    config::enable_aggregate_non_mow_key_bounds = true;
+    auto restore = std::shared_ptr<void>(nullptr, [&](void*) {
+        config::enable_aggregate_non_mow_key_bounds = saved_aggregate_non_mow_key_bounds;
+    });
+
     std::unique_ptr<GroupRowsetWriter> group_writer;
     RowsetId data_rowset_id;
     auto st = create_group_rowset_writer(&group_writer, &data_rowset_id, 2);
@@ -264,10 +274,16 @@ TEST_F(GroupRowsetWriterTest, success) {
 
     const auto data_segment_path =
             local_segment_path(_tablet->tablet_path(), data_rowset_id.to_string(), 0);
-    const auto second_segment_path =
-            local_segment_path(_row_binlog_tablet->tablet_path(), rowsets[1]->rowset_id().to_string(), 0);
+    const auto second_segment_path = local_segment_path(_row_binlog_tablet->tablet_path(),
+                                                        rowsets[1]->rowset_id().to_string(), 0);
     EXPECT_TRUE(file_exists(data_segment_path));
     EXPECT_TRUE(file_exists(second_segment_path));
+
+    ASSERT_TRUE(rowsets[1]->rowset_meta()->is_row_binlog());
+    EXPECT_FALSE(rowsets[1]->rowset_meta()->is_segments_key_bounds_aggregated());
+    std::vector<KeyBoundsPB> row_binlog_key_bounds;
+    rowsets[1]->rowset_meta()->get_segments_key_bounds(&row_binlog_key_bounds);
+    EXPECT_EQ(row_binlog_key_bounds.size(), rowsets[1]->num_segments());
 }
 
 TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {

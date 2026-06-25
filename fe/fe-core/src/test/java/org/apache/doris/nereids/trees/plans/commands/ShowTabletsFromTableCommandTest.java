@@ -84,6 +84,8 @@ public class ShowTabletsFromTableCommandTest extends TestWithFeService {
         ShowTabletsFromTableCommand command = new ShowTabletsFromTableCommand(tableNameInfo, partitionNamesInfo,
                 whereClauseNormal, orderKeysNormal, 5, 0);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertTrue(command.getMetaData().getColumns().stream()
+                .anyMatch(column -> column.getName().equals("IsRowBinlog")));
 
         // where clause error
         Expression error = new UnboundSlot("error");

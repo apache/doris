@@ -1512,10 +1512,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         binlog_rs->rowset_meta()->is_row_binlog()) {
         DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
         row_binlog_rowset = binlog_rs;
-        build_row_binlog = is_partial_update ||
-                           txn_info->attach_row_binlog.tablet->tablet_meta()
-                                   ->binlog_config()
-                                   .need_historical_value();
+        build_row_binlog = is_partial_update || txn_info->attach_row_binlog.tablet->tablet_meta()
+                                                        ->binlog_config()
+                                                        .need_historical_value();
     }
 
     // rewrite conflict only when partial update or need before

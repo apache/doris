@@ -89,6 +89,11 @@ public:
         return _tablet_meta->enable_unique_key_merge_on_write();
     }
 
+    bool need_read_delete_bitmap() const {
+        return _tablet_meta->enable_unique_key_merge_on_write() ||
+               _tablet_meta->is_row_binlog_tablet();
+    }
+
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
 

@@ -152,7 +152,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             long ts = System.currentTimeMillis();
             partition.setVisibleVersionAndTime(newVersion, ts, ts);
             partition.setNextVersion(newVersion + 1);
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
                         replica.updateVersion(newVersion);
@@ -279,13 +279,13 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         // The history-partition scan now reads the base table directly; scan range version
         // is the partition visible version (the legacy stream-tso override was removed).
-        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
-        for (Partition partition : baseTable.getPartitions()) {
-            MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
-            for (Tablet tablet : baseIndex.getTablets()) {
-                tabletIdToPartitionId.put(tablet.getId(), partition.getId());
-            }
+        Map<Long, Long> actualOffset = scanNode.getStreamUpdate().getNext();
+        Assertions.assertNotNull(actualOffset);
+        for (Long pid : expectedPartitionIds) {
+            Assertions.assertEquals(stream.getStreamUpdate(pid).second, actualOffset.get(pid));
         }
+
+        Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
 
         List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
         Assertions.assertFalse(locations.isEmpty());
@@ -350,13 +350,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertFalse(scanNodes.isEmpty());
 
         TBinlogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getStreamScanType());
-        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
-        for (Partition partition : baseTable.getPartitions()) {
-            MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
-            for (Tablet tablet : baseIndex.getTablets()) {
-                tabletIdToPartitionId.put(tablet.getId(), partition.getId());
-            }
-        }
+        Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
 
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes) {
@@ -440,13 +434,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         List<OlapScanNode> scanNodes2 = new ArrayList<>();
         collectOlapScanNodes(fragment2.getPlanRoot(), scanNodes2);
 
-        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
-        for (Partition partition : baseTable.getPartitions()) {
-            MaterializedIndex baseIndex = partition.getIndex(baseTable.getBaseIndexId());
-            for (Tablet tablet : baseIndex.getTablets()) {
-                tabletIdToPartitionId.put(tablet.getId(), partition.getId());
-            }
-        }
+        Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes2) {
             if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
@@ -553,6 +541,18 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
                 .analyze("select tbl_dup_stream_base.k1, tbl_dup_stream_base.* "
                         + "from test_stream.tbl_dup_stream_base for version as of 1001"));
+    }
+
+    private Map<Long, Long> buildTabletIdToPartitionId(OlapTable baseTable) {
+        Map<Long, Long> tabletIdToPartitionId = new java.util.HashMap<>();
+        for (Partition partition : baseTable.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE_WITH_ROW_BINLOG)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tabletIdToPartitionId.put(tablet.getId(), partition.getId());
+                }
+            }
+        }
+        return tabletIdToPartitionId;
     }
 
     private void collectOlapScanNodes(PlanNode node, List<OlapScanNode> result) {
