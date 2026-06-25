@@ -629,6 +629,8 @@ private:
     std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
+    std::array<std::shared_ptr<bvar::Status<size_t>>, 4>
+            _lru_recorder_shadow_queue_element_count_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash

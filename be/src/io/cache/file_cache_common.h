@@ -249,6 +249,8 @@ public:
 
     void remove_all(std::lock_guard<std::mutex>& cache_lock);
 
+    bool pop_front(std::lock_guard<std::mutex>& cache_lock);
+
     Iterator get(const UInt128Wrapper& hash, size_t offset,
                  std::lock_guard<std::mutex>& /* cache_lock */) const;
 
