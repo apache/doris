@@ -56,9 +56,25 @@ TEST(function_arithmetic_test, function_arithmetic_divide_test) {
 
 TEST(function_arithmetic_test, function_arithmetic_int_divide_min_signed_by_minus_one_test) {
     std::string func_name = "int_divide";
+    const auto min_int8 = std::numeric_limits<int8_t>::min();
+    const auto min_int16 = std::numeric_limits<int16_t>::min();
     const auto min_int32 = std::numeric_limits<int32_t>::min();
     const auto min_int64 = std::numeric_limits<int64_t>::min();
     const auto min_int128 = std::numeric_limits<Int128>::min();
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
+        DataSet data_set = {{{int8_t {1}, int8_t {-1}}, int8_t {-1}},
+                            {{min_int8, int8_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
+        DataSet data_set = {{{int16_t {1}, int16_t {-1}}, int16_t {-1}},
+                            {{min_int16, int16_t {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
+    }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
