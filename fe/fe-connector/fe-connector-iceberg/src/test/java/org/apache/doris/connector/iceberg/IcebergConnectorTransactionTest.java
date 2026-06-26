@@ -141,6 +141,16 @@ public class IcebergConnectorTransactionTest {
         return new IcebergWriteContext(WriteOperation.REWRITE, false, Collections.emptyMap(), Optional.empty());
     }
 
+    private static IcebergWriteContext deleteCtxPinned(long readSnapshotId) {
+        return new IcebergWriteContext(
+                WriteOperation.DELETE, false, Collections.emptyMap(), Optional.empty(), readSnapshotId);
+    }
+
+    private static IcebergWriteContext mergeCtxPinned(long readSnapshotId) {
+        return new IcebergWriteContext(
+                WriteOperation.MERGE, false, Collections.emptyMap(), Optional.empty(), readSnapshotId);
+    }
+
     /**
      * The data files of the table's current snapshot — the connector-side equivalent of the rewrite planner's
      * {@code RewriteDataGroup.getDataFiles()} ({@code FileScanTask.file()}), i.e. the original files a rewrite
@@ -442,6 +452,53 @@ public class IcebergConnectorTransactionTest {
 
         // T05 consumes baseSnapshotId for validateFromSnapshot; T04 only captures it at begin time.
         Assertions.assertEquals(Long.valueOf(expected), txn.getBaseSnapshotId());
+    }
+
+    @Test
+    public void beginDeleteHonorsPinnedReadSnapshotOverCurrent() {
+        // [SHOULD-2] / Fix B: the write must anchor baseSnapshotId at the statement's READ snapshot
+        // (the MVCC pin the scan used, S_read), not at a fresh re-read of the current snapshot (S_write).
+        // WHY: option-D's commit-time removeDeletes re-derives from baseSnapshotId, while BE unions the
+        // scan-time (S_read) old deletes into the new DV. If baseSnapshotId drifted to a newer current
+        // snapshot, a concurrent delete file landing in (S_read, S_write] would be removed-but-not-unioned
+        // and its rows would silently resurrect (the iceberg OCC anchored at S_write cannot catch it).
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 1L)).commit();
+        long readSnapshot = catalog.loadTable(id).currentSnapshot().snapshotId();
+        // A concurrent writer advances the table past the read snapshot before begin-write reloads it.
+        Table reloaded = catalog.loadTable(id);
+        reloaded.newAppend().appendFile(dataFile(reloaded.spec(), "s3://b/db1/t1/concurrent.parquet", 2L)).commit();
+        long current = catalog.loadTable(id).currentSnapshot().snapshotId();
+        Assertions.assertNotEquals(readSnapshot, current, "test must advance the table past the read snapshot");
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtxPinned(readSnapshot));
+
+        Assertions.assertEquals(Long.valueOf(readSnapshot), txn.getBaseSnapshotId(),
+                "DELETE must anchor baseSnapshotId at the pinned read snapshot, not the current snapshot");
+    }
+
+    @Test
+    public void beginMergeHonorsPinnedReadSnapshotOverCurrent() {
+        // Same as the DELETE arm for MERGE/UPDATE (RowDelta path): the OR-capability must be honored on
+        // both arms, so the pin is exercised independently for MERGE.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 1L)).commit();
+        long readSnapshot = catalog.loadTable(id).currentSnapshot().snapshotId();
+        Table reloaded = catalog.loadTable(id);
+        reloaded.newAppend().appendFile(dataFile(reloaded.spec(), "s3://b/db1/t1/concurrent.parquet", 2L)).commit();
+        long current = catalog.loadTable(id).currentSnapshot().snapshotId();
+        Assertions.assertNotEquals(readSnapshot, current, "test must advance the table past the read snapshot");
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", mergeCtxPinned(readSnapshot));
+
+        Assertions.assertEquals(Long.valueOf(readSnapshot), txn.getBaseSnapshotId(),
+                "MERGE must anchor baseSnapshotId at the pinned read snapshot, not the current snapshot");
     }
 
     @Test

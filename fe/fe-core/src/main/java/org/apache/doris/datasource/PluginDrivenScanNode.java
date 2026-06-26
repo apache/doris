@@ -637,11 +637,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * every consumption site is safe. A missing pin — before the connector is MVCC-cutover, or a
      * non-MVCC table, or a foreign (non-plugin) snapshot — leaves the handle unchanged (reads latest).
      *
-     * <p>Package-private static so the correctness-critical pin-vs-skip decision is unit-testable
-     * directly on Mockito mocks, without constructing a {@link FileQueryScanNode} (the call-site
-     * wiring is covered by live e2e — see DV-019).
+     * <p>Public static so the correctness-critical pin-vs-skip decision is unit-testable directly on
+     * Mockito mocks, without constructing a {@link FileQueryScanNode} (the call-site wiring is covered by
+     * live e2e — see DV-019), and so the WRITE path can reuse the IDENTICAL pin logic: the connector sink
+     * translator ({@code PhysicalPlanTranslator.visitPhysicalConnectorTableSink}) threads the same
+     * statement pin onto the write handle so a DML's write anchors at the snapshot its scan read
+     * ([SHOULD-2] / Fix B). Scan and write MUST pin identically — sharing this method guarantees that.
      */
-    static ConnectorTableHandle applyMvccSnapshotPin(ConnectorMetadata metadata, ConnectorSession session,
+    public static ConnectorTableHandle applyMvccSnapshotPin(ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle handle, Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
             ConnectorMvccSnapshot connectorSnapshot =

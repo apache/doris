@@ -5,28 +5,29 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **P6.6 commit-bridge（step 6）续：S4（BE `rewritable_delete_file_sets` supply 侧）→ S5（dispatch dual-mode）** —— [DEC-S2] 裁定 + S2/S3（option D）✅ 本 session
+# 🎯 下一个 session 的任务 = **P6.6 commit-bridge（step 6）续：S4 part 2（supply 接线 β）→ S5（dispatch dual-mode）** —— S4 part 1 = Fix B（写入遵循读快照，闭 [SHOULD-2] 复活闸门）✅ 本 session
 
-**本 session = scan↔tx seam recon（wf `wf_351c5447-957`，5-slice+12-claim 对抗 verify 全 confirmed）+ 亲核 Trino 源码 → [DEC-S2] 裁定 option D + S2/S3 实现（option D，commit-time re-derive）✅**（连接器单文件；56/0/0/0+563/0/0/1 全绿 + 3-mutation 全杀 + 对抗 review GO 无 blocker）。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core step1·2·3 ✅ → commit-bridge：recon ✅ + S1 ✅ + S2/S3 ✅（option D）→ S4/S5 待办**。翻闸 = 5 commit-stream（C1/C2/C3/C4/C5），**C5 最后翻闸（唯一不可逆点）**。iceberg **仍不在** `SPI_READY_TYPES`。
+**本 session = S4 [SHOULD-2] supply/remove 一致性对抗 recon（wf `wf_f26bc215-324`，4-slice+2 对抗 verify 全 CONFIRMED，亲核 iceberg-core 1.10.1 OCC 语义）→ 用户裁定方案 B → 实现 Fix B（写入端遵循语句 MVCC 读快照，`baseSnapshotId=S_read`）✅**（5 文件 additive/dormant；连接器 86/0/0+全量 clean 566/0/0/1，fe-core 9/0/0，全 checkstyle；3-mutation 全杀；对抗 review GO-WITH-NITS 无 blocker）。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core step1·2·3 ✅ → commit-bridge：recon ✅ + S1 ✅ + S2/S3 ✅（option D）+ S4 part 1=Fix B ✅ → S4 part 2（supply 接线）/S5 待办**。翻闸 = 5 commit-stream（C1/C2/C3/C4/C5），**C5 最后翻闸（唯一不可逆点）**。iceberg **仍不在** `SPI_READY_TYPES`。
 
-## ✅ 本 session 完成（[DEC-S2]=option D + S2/S3；详设计 §11.7.4–§11.7.5）
-**[DEC-S2] 裁定 = option D（Trino-style commit-time re-derive）**。recon（design §11.7.4）证伪 HANDOFF 旧 S2-a 假设：连接器 scan provider 与 write transaction 是**用完即弃的两个临时对象**（`getScanPlanProvider`/`getMetadata`/`buildConnectorSession` 全每调用新建），唯一跨 scan→write 活得久的是 `IcebergConnector` 单例。亲核 Trino（`IcebergMetadata.finishWrite` / `DefaultDeletionVectorWriter.getExistingDeletesByMetadataOnly`）发现 Trino **根本不搬 scan-time map**：commit 期对**写快照** delete-manifest 做纯元数据读、按 worker 回传的 `referencedDataFile` 重派生旧删→`removeDeletes`。Doris 直接采纳（`TIcebergCommitData.getReferencedDataFilePath` 已携、连接器 tx `beginWrite` 已加载 live table+pin baseSnapshotId）。
+## ✅ 本 session 完成（Fix B，[SHOULD-2] 闸门修复；详设计 §11.7.6）
+**[SHOULD-2] 对抗复核 = CONFIRMED 真闸门**：option D 把 remove 侧改成 commit-time 按 `baseSnapshotId`(=`beginWrite` fresh-load 的 current=`S_write`)重派生，supply 侧(BE union 进新 DV 的旧删)仍 scan-time(`S_read`)。两快照无强制相等（扫描 `currentSnapshot()`@plan vs `beginWrite` fresh-load@finalize）→ 并发/缓存过期落 `(S_read,S_write]` → supply≠remove → **删行静默复活**；OCC `validateFromSnapshot(S_write)` 锚错快照（1.10.1 `ancestorsBetween` 左开区间，落 `S_write` 当点的并发提交看不见）不 abort。legacy(remove 也 S_read)反无此复活。**根因=写入端不遵循语句 MVCC 快照钉**（扫描端经 `PluginDrivenScanNode.pinMvccSnapshot` 遵循，`beginWrite` 无视 fresh-load current）。
 
-**S2/S3 ✅（option D，design §11.7.5）**：连接器 `IcebergConnectorTransaction.collectRewrittenDeleteFiles` 重写为 `readExistingFileScopedDeletes(table, baseSnapshotId, touched)`（base 快照 delete-manifest 纯元数据读、滤 `POSITION_DELETES && isFileScoped && referencedDataFile∈touched`、`buildDeleteFileDedupKey` 去重）；**删死码** `rewrittenDeleteFilesByReferencedDataFile` 字段+setter（legacy-map 派放弃）。**scan provider 一行未动**（O2 最危险的 scan-side 自留/seam 全免）。dormant pre-flip（iceberg 非 SPI_READY_TYPES）。56/0/0/0+563/0/0/1+checkstyle；3-mutation 全杀（touched-filter / dedup-key bare-path / isFileScoped→isDV）；iron-law PASS；对抗 review GO（reviewer 实证 BE union + iceberg iterator() 已 copy）。
+**Fix B ✅（方案 B，用户裁定；design §11.7.6）= 写入遵循读快照**：① fe-core `PhysicalPlanTranslator.visitPhysicalConnectorTableSink` 把语句 MVCC 钉透传到 write handle（复用**扫描端同一** `PluginDrivenScanNode.applyMvccSnapshotPin`〔package-private→public〕+`MvccUtil.getSnapshotFromContext(targetTable)`；通用零 iceberg 引用）；② 连接器 `IcebergWriteContext`+`readSnapshotId`(4-arg ctor 委派 -1)；③ `IcebergWritePlanProvider.buildWriteContext` 从 `((IcebergTableHandle)handle.getTableHandle()).getSnapshotId()` 提取；④ `IcebergConnectorTransaction.applyBeginGuards`(DELETE/UPDATE/MERGE)`baseSnapshotId = pin>=0 ? Long.valueOf(pin) : getSnapshotIdIfPresent(table)`(两臂 boxed 避空表 NPE)。⇒ supply/remove/OCC锚点 全 = `S_read`，从根消除复活，无重试。**pre-flip byte-identical**（jdbc/es/maxcompute/trino 非 MvccTable→pin 空 no-op；paimon 无 SPI write provider→永不达 pin 行；iceberg 未翻闸休眠）。
 
-**[DV-S2-rederive]（post-flip 偏差，登记）**：①旧删源 scan-map→commit-time base-snapshot manifest（更正确、快照自洽）；②**有意偏离 Trino**：v2→v3 升级表一 data-file 同时有 legacy file-scoped 删+DV 时 Doris removeDeletes **两者**（Trino 仅删 DV）——因 Doris BE union 两类入新 DV。
+**[FU-Bnit-ref → flip e2e]** `buildWriteContext` 只读 `getSnapshotId()` 不读 `getRef()`：DML 读钉解析为具体 snapshotId(不带 FOR TIME AS OF)故 OK；翻闸确认 iceberg `loadSnapshot` 对普通 DML 读产出具体 snapshotId 非 bare ref。**[FU-Bnit-update]** UPDATE 与 DELETE/MERGE 同 `||` 分支已覆盖，不单独测。**[测试-gap]** translator call-site(`:677-678`)未单元测——同 codebase 惯例（DV-019 e2e；helper `PluginDrivenScanNodeMvccPinTest`+消费侧连接器测已覆盖）。
 
-## commit-bridge 子步拆解（每完即 green+mutation+HANDOFF+commit；PR squash；详 design §11.7.2/§11.7.5）
-1. **S1 ✅**（WriteOperation 透传）。**S2/S3 ✅ 本 session**（option D commit-time re-derive；legacy-map seam 整个消失）。
-2. **S4 ⟵ 下个 session 起点（BE supply 侧）**：连接器 DELETE/MERGE sink 盖 `rewritable_delete_file_sets` thrift（BE V3 merge 通道：BE 据此把旧位置 union 进新 DV）。legacy 在 finalize 后盖（`IcebergDeleteExecutor.finalizeSinkForDelete:73`），连接器 `planWrite` 在 bind 期 → **open：bind 期盖 vs 需 post-finalize 钩子**。供给源仍 scan-time（post-flip 经 `PluginDrivenScanNode`）。**⚠️ [SHOULD-2] supply-vs-remove 一致性**：S2/S3 已把 **remove 侧**改成 commit-time re-derive，但 BE merge 输入（supply 侧）仍 scan-time——两侧须覆盖同一组旧删，否则 FE 删了 BE 没 union 的旧删→删行复活。S4 落地**专门复核**（非并发 S_read==S_write 自洽；并发靠 commit OCC abort）。
+## commit-bridge 子步拆解（每完即 green+mutation+HANDOFF+commit；PR squash；详 design §11.7.2/§11.7.5/§11.7.6）
+1. **S1 ✅**（WriteOperation 透传）。**S2/S3 ✅**（option D commit-time re-derive；legacy-map seam 整个消失，[DV-S2-rederive] 登记）。
+2. **S4 part 1 = Fix B ✅ 本 session**（写入遵循读快照，`baseSnapshotId=S_read`，闭 [SHOULD-2]）。**S4 part 2 ⟵ 下个 session 起点 = supply 接线（β stash）**：连接器 scan provider plan 时 stash `queryId → Map<originalPath, List<TIcebergDeleteFileDesc>>`(**仅非-equality** content!=2) 到 `IcebergConnector` 单例；`planWrite` 按 queryId 取出、盖 `rewritable_delete_file_sets` 到 `TIcebergDeleteSink`/`TIcebergMergeSink`、即 evict(txn 结束/abort 兜底)。BE union 已验(`viceberg_delete_sink.cpp:578-588` `merged_rows |= previous_rows`，按 `referenced_data_file_path` 精确查，**漏供给=复活**)。key=`originalPath`(BE `RewriteBitmapVisitor` 精确串比)；desc 字段 path+content(DV content==3 须 offset+size；pos-delete 须 file_format)。**Fix B 已使 baseSnapshotId=S_read → supply(S_read)落地即一致**。Trino 不可照搬(BE 执行期写 DV→seam 不可免)。partition-scoped 删 per-data-file 挂接+BE path filter 已处理(翻闸实证)。机制 β 已定（唯一合铁律+时序正确，仿 [DEC-S2] 模式），无须再裁。详 design §11.7.6 尾。
 3. **S5（最后、最深、C5 阻塞）**：`IcebergRowLevelDmlTransform` 5 方法 dual-mode（`newExecutor`→`PluginDrivenInsertExecutor`/`setupConflictDetection`→no-op〔中立路供给〕/`finalizeSink`→连接器/`checkMode`·`synthesize`→中立 SPI〔漏算项〕）+ translator `visitPhysicalIcebergMergeSink:601`/`DeleteSink:589` dual-mode（post-flip→`PluginDrivenTableSink`+S1 WriteOperation；**MERGE slot-name loop `:613-615` 上提至 instanceof 分叉之上**〔BE `viceberg_merge_sink.cpp` 按 expr_name 解〕；**DELETE 不需** slot-name loop〔BE 按 block-name 解〕）。
 
 ## 🟡 待裁决策（动到时请用户裁；中文先讲清）
-- **[DEC-S2] ✅ 裁定 = option D**（本 session，见上 + design §11.7.4–5）。
+- **[DEC-S2] ✅ 裁定 = option D**（见 design §11.7.4–5）。
+- **[SHOULD-2] ✅ 裁定 = 方案 B（写入遵循读快照）+ 已实现 Fix B**（本 session，design §11.7.6）。
 - **[DEC-S5] 冲突过滤 parity**：中立 `ConnectorPredicate`→native Expression 仅 DROP/widen（安全向、不漏真冲突，但更宽→更多假冲突 retry=perf 非正确性）→裁「接受 widen」vs「要 byte-parity」。**到 S5 再裁**。
 
 ## 🟡 已登记 follow-up（非阻塞，勿在本增量做）
-- **[SHOULD-2 → S4]** supply-vs-remove 一致性复核（见上 S4）。最关键，勿丢。
+- **[SHOULD-2] ✅ 已闭（本 session Fix B）**：supply/remove 都锚 `S_read`。残留 [FU-Bnit-ref]（buildWriteContext 不读 getRef，DML 读钉为具体 snapshotId 故 OK，翻闸确认）+ [FU-Bnit-update]（UPDATE 同分支已覆盖）。
 - **[FU-step1-nullconn → cutover]** `IcebergRowLevelDmlTransform.pluginConnectorSupportsRowLevelDml`（step-1）unguarded `getConnector()`；step-3 同名 helper 已 guard → cutover 前对齐。
 - **[FU-order → flip e2e]** post-flip `getFullSchema` 列序 [base,v3-lineage,row-id]≠legacy [base,row-id,v3-lineage]。**benign**（按名/field-id 匹配）+ dormant。
 - **[FU-remap → cutover]** `PluginDrivenExternalTable.toSchemaCacheValue:188` remap 丢 invisible/uniqueId（对 iceberg 安全）。
@@ -62,9 +63,10 @@ iceberg 逻辑落 `fe-connector` 经 SPI。保留的 `PhysicalIcebergMergeSink`/
 
 # 🗺️ 代码脚手架（iceberg read/sys/write，全 DONE/dormant + step6 实现锚点）
 
-- **commit-bridge S4-S5 实现锚点（impl 期 re-grep 防漂移；HEAD = 本 session S2/S3 commit 后）**：
-  - **S2/S3 ✅ DONE（option D）**：连接器 `IcebergConnectorTransaction.collectRewrittenDeleteFiles` → `readExistingFileScopedDeletes(table, baseSnapshotId, touched)`（base 快照 delete-manifest 纯元数据读）；字段+setter 已删。`shouldRewritePreviousDeleteFiles`/`removeDeletes`（`updateManifestAfterDelete`/`updateManifestAfterMerge`）不变。**`IcebergScanPlanProvider.buildDeleteFiles` 未动**（scan-side carry 不再需要）。fe-core `IcebergRewritableDeletePlanner`=legacy 豁免，post-flip 不作源（S5 dual-mode 时 plugin-arm 不走它）。
-  - **S4（BE supply 侧）**：连接器 `IcebergWritePlanProvider.buildDeleteSink`/`buildMergeSink`（盖 `rewritable_delete_file_sets` thrift；BE merge 通道）。供给源仍 scan-time（post-flip 经 `PluginDrivenScanNode`）。**⚠️ [SHOULD-2] supply（S4 scan-time）vs remove（S2/S3 commit-time re-derive）须覆盖同组旧删**——FE 删 BE 没 union 的旧删=删行复活；S4 专门复核。legacy 在 finalize 后盖（`IcebergDeleteExecutor.finalizeSinkForDelete:73`），连接器 `planWrite` 在 bind 期 → open：bind 期盖 vs post-finalize 钩子。
+- **commit-bridge S4-S5 实现锚点（impl 期 re-grep 防漂移；HEAD = 本 session Fix B commit 后）**：
+  - **S2/S3 ✅ DONE（option D）**：连接器 `IcebergConnectorTransaction.collectRewrittenDeleteFiles` → `readExistingFileScopedDeletes(table, baseSnapshotId, touched)`（base 快照 delete-manifest 纯元数据读）；字段+setter 已删。**`IcebergScanPlanProvider.buildDeleteFiles` 未动**。
+  - **S4 part 1 = Fix B ✅ DONE**：`PhysicalPlanTranslator.visitPhysicalConnectorTableSink`〔providerTableHandle 后 +`applyMvccSnapshotPin(...,MvccUtil.getSnapshotFromContext(targetTable))`〕；`PluginDrivenScanNode.applyMvccSnapshotPin` public；`IcebergWriteContext.readSnapshotId`；`IcebergWritePlanProvider.buildWriteContext` 提取 `getSnapshotId()`；`IcebergConnectorTransaction.applyBeginGuards`〔DELETE/UPDATE/MERGE 臂 `baseSnapshotId=pin>=0?pin:current`，行 ~213〕。
+  - **S4 part 2 = supply 接线（β，下个 session）**：连接器 scan provider plan 时 build+stash 非-equality `Map<originalPath,List<TIcebergDeleteFileDesc>>`（锚点 `IcebergScanPlanProvider.buildDeleteFiles:514`/`convertDelete:541` + `IcebergScanRange.DeleteFile.toThrift`/`getContent()`；key=`buildRange` 的 `originalPath`=`dataFile.path().toString()`）→ `IcebergConnector` 单例新 `ConcurrentHashMap<queryId,...>` stash（scan/write provider 需新 ctor 传单例 `this`）；`IcebergWritePlanProvider.planWrite` 起手 retrieve+evict、盖到 `buildDeleteSink`/`buildMergeSink` 的 `setRewritableDeleteFileSets`。`ConnectorSession.getQueryId()` 已存在。**supply(S_read)与 remove(S_read，Fix B 后)天然一致**。
   - **S5**：`IcebergRowLevelDmlTransform`〔`checkMode:99`/`synthesize:115`/`newExecutor:135`/`setupConflictDetection:191`/`finalizeSink:203`，`handles:71-75` step-1 已纳 PluginDriven〕dual-mode；translator `visitPhysicalIcebergMergeSink:601`/`DeleteSink:589`（仿 `visitPhysicalConnectorTableSink:630`，slot-name loop `:613-615` MERGE 上提/DELETE 不需）；`PluginDrivenInsertExecutor.beginTransaction:81`/`getConnectorTransactionOrNull`；`RowLevelDmlCommand.run:69-109`〔`applyWriteConstraintIfPresent:131-138` 中立冲突路已接〕。`IcebergDmlCommandUtils.checkMergeMode:52`（native `getIcebergTable().properties()`，漏算项→中立 SPI）。
 - **S1 实现位（本 session）**：`PluginDrivenTableSink`〔新 7-arg ctor + `WriteOperation` 字段 + 两 handle 站点透传 + inner `PluginDrivenWriteHandle.getWriteOperation()` override〕；`ConnectorWriteHandle.getWriteOperation`（api，默认 INSERT）；`WriteOperation` enum（INSERT/OVERWRITE/DELETE/UPDATE/MERGE/REWRITE）。
 - **① handles（step1）/ ② getWritePartitioning+cast（step2）/ ③ row-id 注入（step3）/ partition_columns+parallel-write（C3b-pre）/ 写@branch+OVERWRITE（C3a）/ classifyColumn（C2）/ sys pin-feed（C1）**：dormant，详 git log + design §11.4/§11.5/§11.6。
@@ -82,16 +84,16 @@ iceberg 逻辑落 `fe-connector` 经 SPI。保留的 `PhysicalIcebergMergeSink`/
 # ⚠️ Commit 须知（任何 `git add` 前必读）
 
 - **path-whitelist `git add`，严禁 `git add -A`**（scrub `regression-test/conf/regression-conf.groovy` 明文 key + `*.bak` + scratch `.audit-scratch/`·`conf.cmy/`·`META-INF/`·`docker/...`·**仓根游离 `fe/IcebergScanPlanProvider.java`**〔review 重申勿提交，真文件在 `fe/fe-connector/...`〕·`plan-doc/reviews/P5-paimon-rereview3-*`〔非本线〕）。
-- **本 session commit（commit-bridge S2/S3，option D）= 1 改 + 1 测 + 2 doc**：`fe/fe-connector/fe-connector-iceberg/src/main/java/org/apache/doris/connector/iceberg/IcebergConnectorTransaction.java`、`fe/fe-connector/fe-connector-iceberg/src/test/java/org/apache/doris/connector/iceberg/IcebergConnectorTransactionTest.java`、`plan-doc/HANDOFF.md`、`plan-doc/tasks/designs/P6.6-C3-ws-write-design.md`〔§11.7.4–5〕。**勿** `git add -A`（尤其勿提交仓根游离 `fe/IcebergScanPlanProvider.java`）。
+- **本 session commit（commit-bridge S4 part 1 = Fix B）= 5 改/测 + 2 doc**：`fe/fe-core/src/main/java/org/apache/doris/nereids/glue/translator/PhysicalPlanTranslator.java`、`fe/fe-core/src/main/java/org/apache/doris/datasource/PluginDrivenScanNode.java`、`fe/fe-connector/fe-connector-iceberg/src/main/java/org/apache/doris/connector/iceberg/IcebergWriteContext.java`、`.../IcebergWritePlanProvider.java`、`.../IcebergConnectorTransaction.java`、测试 `.../IcebergConnectorTransactionTest.java`、`.../IcebergWritePlanProviderTest.java`、+`plan-doc/HANDOFF.md`、`plan-doc/tasks/designs/P6.6-C3-ws-write-design.md`〔§11.7.6〕。**勿** `git add -A`（尤其勿提交仓根游离 `fe/IcebergScanPlanProvider.java`）。
 - commit message：见 `git log` 上一条范式 + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`（squash 入上游剥离）。PR base = `branch-catalog-spi`，squash。
 
 # 📦 阶段状态
 
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash 合并）。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部（含本 session）未 push**。**用户未要求 push**——留用户裁量。
-- **P6.1–P6.5 = ✅ DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core step1·2·3 ✅ / commit-bridge recon+S1+S2/S3（option D）✅ → S4/S5 待办**。
+- **P6.1–P6.5 = ✅ DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core step1·2·3 ✅ / commit-bridge recon+S1+S2/S3（option D）+S4 part 1=Fix B ✅ → S4 part 2（supply 接线 β）/S5 待办**。
 - iceberg **不在** `SPI_READY_TYPES`（pre-flip 零行为变更）。metastore 子线已 CLOSED（勿读）。
-- **⚠️ 环境**：`/mnt/disk1` 接近满（2.0T；本 session 起步 88G free，全程 OK）。**下个 session 起步先 `df -h /mnt/disk1`**；空间紧时 mutation 加 `-Dcheckstyle.skip=true`（测行为非 style）。
+- **⚠️ 环境**：`/mnt/disk1` 接近满（2.0T；本 session 起步 76G free，全程 OK）。**下个 session 起步先 `df -h /mnt/disk1`**；空间紧时 mutation 加 `-Dcheckstyle.skip=true`（测行为非 style）。**⚠️ 多次增量 build+mutation 后 .class 可能 stale → 误判 flaky；全量验证用 clean `package`（删 target/classes+test-classes）**（本 session 踩过：planWriteThreadsPinned 假 flaky=stale class，clean rebuild 即 566/0/0）。
 
 # 🧠 给下一个 agent 的 meta
 

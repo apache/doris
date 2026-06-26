@@ -70,6 +70,7 @@ import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
@@ -668,6 +669,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
+
+        // Thread the statement's MVCC snapshot pin onto the WRITE handle, reusing the exact scan-side pin
+        // logic so a DML's write anchors at the SAME snapshot its scan read (the pin is keyed by
+        // catalog/db/table in StatementContext, so the write target resolves the scan's pin). WHY: an MVCC
+        // connector's RowDelta DELETE/MERGE re-derives the deletes to remove from the write's base snapshot,
+        // while BE unions the scan-time deletes into the new DV — pinning both at the read snapshot keeps
+        // them on one snapshot ([SHOULD-2] / Fix B). A no-op for non-MVCC tables (jdbc/maxcompute) and any
+        // connector whose handle is not snapshot-pinned, so it is byte-identical for every current write path.
+        providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
+                metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
 
         // The connector declares its write-sort columns (e.g. an iceberg WRITE ORDERED BY) as positions
         // into the sink's full-schema output; the engine resolves them to bound slots and builds the

@@ -564,6 +564,36 @@ public class IcebergWritePlanProviderTest {
                 "a v3 delete with no live delete files to rewrite must not set rewritable sets (legacy gates on non-empty)");
     }
 
+    @Test
+    public void planWriteThreadsPinnedReadSnapshotFromHandleToTransaction() {
+        // [SHOULD-2] / Fix B: planWrite must read the MVCC read-snapshot pin off the (pinned) write table
+        // handle and thread it into beginWrite, so the RowDelta anchors baseSnapshotId at the statement's
+        // read snapshot (S_read), not a fresh re-read of current (S_write). The translator threads the pin
+        // onto the handle (mirroring the scan); this proves the connector consumes handle.getSnapshotId().
+        // A synthetic pin id is enough: beginWrite stores it (history validation is deferred to commit), and
+        // the empty table's current snapshot is null, so a stored pin is unambiguously the threaded value.
+        InMemoryCatalog catalog = freshCatalog();
+        catalog.createTable(TableIdentifier.of("db1", "tv2"), SCHEMA,
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "2"));
+        long pinnedReadSnapshot = 7777L;
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "tv2"));
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, contextWithStorage());
+        WriteSession session = new WriteSession(txn);
+
+        ConnectorWriteHandle handle = new WriteHandle(
+                new IcebergTableHandle("db1", "tv2").withSnapshot(
+                        pinnedReadSnapshot, null, ops.table.schema().schemaId()))
+                .writeOperation(WriteOperation.DELETE);
+        // The table has no current snapshot, so a non-threaded pin would leave baseSnapshotId null; a stored
+        // 7777 is unambiguously the value read off the handle.
+        providerFor(ops.table, contextWithStorage()).planWrite(session, handle);
+
+        Assertions.assertEquals(Long.valueOf(pinnedReadSnapshot), txn.getBaseSnapshotId(),
+                "planWrite must thread the handle's pinned read snapshot into beginWrite as baseSnapshotId");
+    }
+
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
     //
     // WHY: UPDATE and MERGE both write the TIcebergMergeSink dialect. Two parity traps vs the table/delete

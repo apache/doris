@@ -41,14 +41,21 @@ final class IcebergWriteContext {
     private final boolean overwrite;
     private final Map<String, String> staticPartitionValues;
     private final Optional<String> branchName;
+    private final long readSnapshotId;
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName, -1L);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName, long readSnapshotId) {
         this.writeOperation = writeOperation;
         this.overwrite = overwrite;
         this.staticPartitionValues = staticPartitionValues == null
                 ? Collections.emptyMap() : new HashMap<>(staticPartitionValues);
         this.branchName = branchName == null ? Optional.empty() : branchName;
+        this.readSnapshotId = readSnapshotId;
     }
 
     WriteOperation getWriteOperation() {
@@ -70,5 +77,16 @@ final class IcebergWriteContext {
 
     Optional<String> getBranchName() {
         return branchName;
+    }
+
+    /**
+     * The statement's READ snapshot id (the MVCC pin the scan used, S_read), threaded from the write
+     * handle in {@code planWrite}; {@code -1} = no pin (the legacy fresh-current behavior). The
+     * RowDelta path anchors {@code baseSnapshotId} at this snapshot so the commit-time removeDeletes
+     * (option D) and the scan-time deletes BE unions into the new DV share one snapshot — see
+     * {@link IcebergConnectorTransaction} [SHOULD-2] / Fix B.
+     */
+    long getReadSnapshotId() {
+        return readSnapshotId;
     }
 }
