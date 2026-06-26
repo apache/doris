@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -58,6 +59,7 @@ public class PluginDrivenTableSinkTest {
         private final ConnectorSinkPlan plan;
         private ConnectorSession seenSession;
         private ConnectorWriteHandle seenHandle;
+        private ConnectorWriteHandle seenExplainHandle;
 
         private RecordingWritePlanProvider(ConnectorSinkPlan plan) {
             this.plan = plan;
@@ -68,6 +70,12 @@ public class PluginDrivenTableSinkTest {
             this.seenSession = session;
             this.seenHandle = handle;
             return plan;
+        }
+
+        @Override
+        public void appendExplainInfo(StringBuilder output, String prefix,
+                ConnectorSession session, ConnectorWriteHandle handle) {
+            this.seenExplainHandle = handle;
         }
     }
 
@@ -168,5 +176,72 @@ public class PluginDrivenTableSinkTest {
         // BRIEF short-circuits before any connector detail.
         String brief = sink.getExplainString("", TExplainLevel.BRIEF);
         Assert.assertFalse(brief, brief.contains("INSERT SQL"));
+    }
+
+    @Test
+    public void bindDataSinkDefaultsWriteOperationToInsert() throws AnalysisException {
+        // WHY: a plain INSERT sink (the 5-arg / 6-arg ctors) must keep WriteOperation.INSERT on the write
+        // handle so the connector's planWrite stays on the byte-identical INSERT path (TIcebergTableSink,
+        // promoted to OVERWRITE only via isOverwrite()). This pins the dormant-default that guarantees
+        // pre-flip parity for every existing write-capable connector (jdbc / maxcompute / iceberg INSERT).
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.MAXCOMPUTE_TABLE_SINK)));
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>());
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertEquals(WriteOperation.INSERT, provider.seenHandle.getWriteOperation());
+    }
+
+    @Test
+    public void bindDataSinkThreadsMergeWriteOperationToHandle() throws AnalysisException {
+        // WHY: a post-flip MERGE INTO / UPDATE on an SPI iceberg table builds this sink with
+        // WriteOperation.MERGE; bindDataSink must thread it onto the write handle so the connector's
+        // planWrite dispatches to TIcebergMergeSink (RowDelta at commit) instead of the INSERT
+        // TIcebergTableSink. Without the handle's getWriteOperation() override, the op is silently lost
+        // and a MERGE would write as an append. MUTATION: thread INSERT here -> assertion red.
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                null, WriteOperation.MERGE);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertEquals(WriteOperation.MERGE, provider.seenHandle.getWriteOperation());
+    }
+
+    @Test
+    public void bindDataSinkThreadsDeleteWriteOperationToHandle() throws AnalysisException {
+        // WHY: a post-flip DELETE on an SPI iceberg table builds this sink with WriteOperation.DELETE;
+        // bindDataSink must thread it so planWrite dispatches to TIcebergDeleteSink. Same loss-of-op
+        // hazard as MERGE. MUTATION: thread INSERT here -> assertion red.
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK)));
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                null, WriteOperation.DELETE);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertEquals(WriteOperation.DELETE, provider.seenHandle.getWriteOperation());
+    }
+
+    @Test
+    public void getExplainStringThreadsWriteOperationToHandle() {
+        // WHY: EXPLAIN of a post-flip MERGE/DELETE builds a (degraded) handle for appendExplainInfo; the
+        // operation is a plan-time fact available here, so it must be threaded too, otherwise a connector
+        // that surfaces op-specific EXPLAIN detail (e.g. "MERGE INTO ...") shows INSERT. MUTATION: thread
+        // INSERT at the getExplainString handle site -> assertion red.
+        PluginDrivenExternalTable targetTable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(targetTable.getName()).thenReturn("t1");
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                targetTable, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                null, WriteOperation.MERGE);
+
+        sink.getExplainString("", TExplainLevel.NORMAL);
+
+        Assert.assertNotNull(provider.seenExplainHandle);
+        Assert.assertEquals(WriteOperation.MERGE, provider.seenExplainHandle.getWriteOperation());
     }
 }

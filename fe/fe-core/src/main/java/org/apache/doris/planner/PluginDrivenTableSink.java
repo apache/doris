@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -62,6 +63,13 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     // bound output exprs live only here), so the translator resolves the connector's declared sort
     // columns against the sink output and hands the TSortInfo here to thread onto the write handle.
     private final TSortInfo writeSortInfo;
+    // The DML write operation this sink performs. A plain INSERT sink keeps the default INSERT (the
+    // connector promotes it to OVERWRITE from the handle's isOverwrite() flag); the row-level DML
+    // translator arms (DELETE / UPDATE / MERGE) pass the operation here so the connector's planWrite
+    // dispatches to the matching BE sink dialect (TIcebergDeleteSink / TIcebergMergeSink) instead of
+    // the INSERT TIcebergTableSink. Threaded onto the write handle so planWrite's buildWriteContext
+    // reads it via ConnectorWriteHandle.getWriteOperation().
+    private final WriteOperation writeOperation;
 
     /**
      * Plan-provider mode (W5): the connector supplies a {@link ConnectorWritePlanProvider}
@@ -82,6 +90,20 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
             ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
             TSortInfo writeSortInfo) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                writeSortInfo, WriteOperation.INSERT);
+    }
+
+    /**
+     * Plan-provider mode with the DML {@link WriteOperation} threaded to the connector's write handle, so
+     * the connector's {@code planWrite} dispatches to the matching BE sink dialect. The two shorter ctors
+     * default this to {@link WriteOperation#INSERT} (the byte-identical plain-INSERT path); the row-level
+     * DML translator arms use this ctor with {@code DELETE} / {@code UPDATE} / {@code MERGE}.
+     */
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            TSortInfo writeSortInfo, WriteOperation writeOperation) {
         super();
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
@@ -89,6 +111,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         this.tableHandle = tableHandle;
         this.connectorColumns = connectorColumns;
         this.writeSortInfo = writeSortInfo;
+        this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
     }
 
     /**
@@ -120,7 +143,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, false, Collections.emptyMap(), null, Optional.empty());
+                tableHandle, connectorColumns, false, Collections.emptyMap(), null, Optional.empty(),
+                writeOperation);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -146,7 +170,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             branchName = ctx.getBranchName();
         }
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo, branchName);
+                tableHandle, connectorColumns, overwrite, writeContext, writeSortInfo, branchName,
+                writeOperation);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -166,16 +191,18 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final Map<String, String> writeContext;
         private final TSortInfo sortInfo;
         private final Optional<String> branchName;
+        private final WriteOperation writeOperation;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
                 boolean overwrite, Map<String, String> writeContext, TSortInfo sortInfo,
-                Optional<String> branchName) {
+                Optional<String> branchName, WriteOperation writeOperation) {
             this.tableHandle = tableHandle;
             this.columns = columns;
             this.overwrite = overwrite;
             this.writeContext = writeContext;
             this.sortInfo = sortInfo;
             this.branchName = branchName == null ? Optional.empty() : branchName;
+            this.writeOperation = writeOperation == null ? WriteOperation.INSERT : writeOperation;
         }
 
         @Override
@@ -206,6 +233,11 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         @Override
         public Map<String, String> getWriteContext() {
             return writeContext;
+        }
+
+        @Override
+        public WriteOperation getWriteOperation() {
+            return writeOperation;
         }
     }
 }
