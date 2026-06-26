@@ -1004,7 +1004,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         if (!(table instanceof Table)) {
             return;
         }
-        Table t = (Table) table;
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
             return;
