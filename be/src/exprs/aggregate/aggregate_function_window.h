@@ -623,14 +623,15 @@ struct WindowFunctionNthValueImpl : Data {
                 this->_frame_total_rows ? this->_frame_start_pose : real_frame_start;
         this->_frame_total_rows += real_frame_end - real_frame_start;
         int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
-                                 .get_data()[0] -
-                         1;
-        if (offset >= this->_frame_total_rows) {
+                                 .get_data()[0];
+        DCHECK_NE(offset, 0);
+        int64_t row_position = offset > 0 ? offset - 1 : this->_frame_total_rows + offset;
+        if (row_position < 0 || row_position >= this->_frame_total_rows) {
             // offset is beyond the frame, so set null
             this->set_is_null();
             return;
         }
-        this->set_value(columns, offset + this->_frame_start_pose);
+        this->set_value(columns, row_position + this->_frame_start_pose);
     }
 
     static const char* name() { return "nth_value"; }
