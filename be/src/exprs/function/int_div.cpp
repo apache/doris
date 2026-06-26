@@ -115,6 +115,7 @@ struct DivideIntegralImpl {
     using Arg = typename PrimitiveTypeTraits<Type>::CppType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
     static constexpr PrimitiveType ResultType = Type;
+    static constexpr bool is_signed_integer = std::is_signed_v<Arg> || std::is_same_v<Arg, Int128>;
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
@@ -122,7 +123,7 @@ struct DivideIntegralImpl {
     }
 
     static bool division_leads_to_fpe(Arg a, Arg b) {
-        if constexpr (std::is_signed_v<Arg>) {
+        if constexpr (is_signed_integer) {
             return b == -1 && a == std::numeric_limits<Arg>::min();
         } else {
             return false;
@@ -137,7 +138,7 @@ struct DivideIntegralImpl {
         memset(null_map.data(), is_null, size);
 
         if (!is_null) {
-            if constexpr (std::is_signed_v<Arg>) {
+            if constexpr (is_signed_integer) {
                 if (b == -1) {
                     for (size_t i = 0; i < size; i++) {
                         null_map[i] = division_leads_to_fpe(a[i], b);

@@ -58,6 +58,7 @@ TEST(function_arithmetic_test, function_arithmetic_int_divide_min_signed_by_minu
     std::string func_name = "int_divide";
     const auto min_int32 = std::numeric_limits<int32_t>::min();
     const auto min_int64 = std::numeric_limits<int64_t>::min();
+    const auto min_int128 = std::numeric_limits<Int128>::min();
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
@@ -92,6 +93,34 @@ TEST(function_arithmetic_test, function_arithmetic_int_divide_min_signed_by_minu
         DataSet data_set = {{{int64_t {1}, int64_t {-1}}, int64_t {-1}},
                             {{min_int64, int64_t {-1}}, Null()}};
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_LARGEINT},
+                                    Consted {PrimitiveType::TYPE_LARGEINT}};
+        DataSet data_set = {{{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT,
+                                    Consted {PrimitiveType::TYPE_LARGEINT}};
+        DataSet data_set = {{{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_LARGEINT},
+                                    PrimitiveType::TYPE_LARGEINT};
+        DataSet data_set = {{{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT};
+        DataSet data_set = {{{Int128 {1}, Int128 {-1}}, Int128 {-1}},
+                            {{min_int128, Int128 {-1}}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
     }
 }
 
