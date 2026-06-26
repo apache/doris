@@ -555,20 +555,15 @@ Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
     const auto old_size = data.size();
     if (view.value_kind == DecodedValueKind::INT96) {
         const auto* values = reinterpret_cast<const DecodedInt96Timestamp*>(view.values);
+        static const auto utc_timezone = cctz::utc_time_zone();
+        const auto& timezone = view.timezone == nullptr ? utc_timezone : *view.timezone;
         for (int64_t row = 0; row < view.row_count; ++row) {
             if (decoded_column_view_row_is_null(view, row)) {
                 data.push_back(DateV2Value<DateTimeV2ValueType>());
                 continue;
             }
-            auto st = append_datetimev2_from_epoch_micros(data, values[row].to_timestamp_micros());
-            if (!st.ok()) {
-                if (decoded_column_view_can_null_on_conversion_failure(view)) {
-                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
-                    continue;
-                }
-                data.resize(old_size);
-                return st;
-            }
+            append_datetimev2_from_utc_epoch_micros(data, values[row].to_timestamp_micros(),
+                                                    timezone);
         }
         return Status::OK();
     }

@@ -47,7 +47,7 @@ public class ParquetFileFormatPropertiesTest {
 
         Assert.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
         Assert.assertEquals(false, parquetFileFormatProperties.isParquetDisableDictionary());
-        Assert.assertFalse(parquetFileFormatProperties.isEnableInt96Timestamps());
+        Assert.assertTrue(parquetFileFormatProperties.isEnableInt96Timestamps());
     }
 
     @Test
