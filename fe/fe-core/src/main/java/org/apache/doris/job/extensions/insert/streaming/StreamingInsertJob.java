@@ -39,7 +39,9 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
@@ -139,7 +141,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private String tvfType;
     private Map<String, String> originTvfProps;
     @Getter
-    AbstractStreamingTask runningStreamTask;
+    volatile AbstractStreamingTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Getter
     @Setter
@@ -1405,19 +1407,50 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * The current streamingTask times out; create a new streamingTask.
-     * Only applies to StreamingMultiTask.
+     * Push from cdc_client: fail the running task immediately on a hard write failure.
+     * Reports whose taskId no longer matches the current running task are dropped.
      */
-    public void processTimeoutTasks() throws JobException {
-        if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
+    public void reportTaskFailure(TaskFailureRequest request) throws JobException {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        if (runningMultiTask.getTaskId() != request.getTaskId()) {
             return;
         }
         writeLock();
         try {
-            StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
-            if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
-                    && runningMultiTask.isTimeout()) {
-                String timeoutReason = runningMultiTask.getTimeoutReason();
+            if (this.runningStreamTask == runningMultiTask
+                    && runningMultiTask.getTaskId() == request.getTaskId()
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())) {
+                runningMultiTask.onFail(request.getReason());
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * The current streamingTask times out; create a new streamingTask.
+     * Only applies to StreamingMultiTask.
+     */
+    public void processTimeoutTasks() throws JobException {
+        AbstractStreamingTask task = this.runningStreamTask;
+        if (!(task instanceof StreamingMultiTblTask)) {
+            return;
+        }
+        StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) task;
+        if (!runningMultiTask.isLocalTimeout()) {
+            return;
+        }
+        StreamingTaskStatus status = runningMultiTask.fetchTaskStatus();
+        writeLock();
+        try {
+            if (this.runningStreamTask == runningMultiTask
+                    && TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
+                    && runningMultiTask.isTimeout(status)) {
+                String timeoutReason = status == null ? "" : status.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
                     timeoutReason = "task failed cause timeout";
                 }
