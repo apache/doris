@@ -814,7 +814,7 @@ void Block::clear_column_data(int64_t column_size) {
     for (auto& d : data) {
         if (d.column) {
             if (d.column->is_exclusive()) {
-                d.column->assume_mutable()->clear();
+                d.column->assert_mutable()->clear();
             } else {
                 d.column = d.column->clone_empty();
             }
@@ -829,7 +829,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         auto& column = data[col].column;
         if (column) {
             if (column->is_exclusive()) {
-                column->assume_mutable()->clear();
+                column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
             }
@@ -892,14 +892,14 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         }
         if (count == 0) {
             if (column->is_exclusive()) {
-                column->assume_mutable()->clear();
+                column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();
             }
             continue;
         }
         if (column->is_exclusive()) {
-            const auto result_size = column->assume_mutable()->filter(filter);
+            const auto result_size = column->assert_mutable()->filter(filter);
             if (result_size != count) [[unlikely]] {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "result_size not equal with filter_size, result_size={}, "
@@ -928,7 +928,7 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
     for (int i = 0; i < block->columns(); ++i) {
         auto& column = block->get_by_position(i).column;
         if (column->is_exclusive()) {
-            column->assume_mutable()->filter(filter);
+            column->assert_mutable()->filter(filter);
         } else {
             column = column->filter(filter, count);
         }
@@ -957,7 +957,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
 
         MutableColumnPtr mutable_holder =
                 nested_column->use_count() == 1
-                        ? nested_column->assume_mutable()
+                        ? nested_column->assert_mutable()
                         : nested_column->clone_resized(nested_column->size());
 
         auto* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());

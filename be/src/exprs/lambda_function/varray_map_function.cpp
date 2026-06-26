@@ -241,7 +241,7 @@ public:
                     } else {
                         columns[i] = data_types[i]
                                              ->create_column_const_with_default_value(0)
-                                             ->assume_mutable();
+                                             ->assert_mutable();
                     }
                 }
             }

@@ -45,7 +45,7 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
     ColumnPtr result;
     ColumnPtr index_column_ptr = ColumnString::create();
     auto* index_column_ptr_mutable =
-            assert_cast<ColumnString*>(index_column_ptr->assume_mutable().get());
+            assert_cast<ColumnString*>(index_column_ptr->assert_mutable().get());
     index_column_ptr_mutable->insert_data("profile", 7);
     ColumnPtr index_column = ColumnConst::create(index_column_ptr, 1);
     auto status =

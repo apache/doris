@@ -465,7 +465,7 @@ TEST_F(DataTypeArrayTest, FromAndToStringTest) {
         if (i == 13 || i == 31) {
             continue;
         }
-        assert_to_string_from_string_assert(column->assume_mutable(), type);
+        assert_to_string_from_string_assert(column->assert_mutable(), type);
     }
 }
 

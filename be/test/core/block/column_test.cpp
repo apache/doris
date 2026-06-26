@@ -108,13 +108,13 @@ TEST_F(ColumnTest, CutColumnDecimal64) {
 TEST_F(ColumnTest, AssumeMutableRequiresExclusiveOwnership) {
     ColumnPtr column = ColumnInt64::create();
     {
-        auto mutable_column = column->assume_mutable();
+        auto mutable_column = column->assert_mutable();
         assert_cast<ColumnInt64*>(mutable_column.get())->insert_value(1);
     }
 
     ColumnPtr alias = column;
-    EXPECT_THROW({ (void)column->assume_mutable(); }, doris::Exception);
-    EXPECT_THROW({ (void)column->assume_mutable_ref(); }, doris::Exception);
+    EXPECT_THROW({ (void)column->assert_mutable(); }, doris::Exception);
+    EXPECT_THROW({ (void)column->assert_mutable_ref(); }, doris::Exception);
 
     auto cloned = IColumn::mutate(std::move(column));
     auto* cloned_int = assert_cast<ColumnInt64*>(cloned.get());
