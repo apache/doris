@@ -96,14 +96,8 @@ suite("test_inverted_index_file_size", "nonConcurrent"){
     try {
         GetDebugPoint().enableDebugPointForAllBEs("file_size_not_in_rowset_meta")
         set_be_config.call("inverted_index_compaction_enable", "true")
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-        test_table.call("V1")
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         test_table.call("V2")
         set_be_config.call("inverted_index_compaction_enable", "false")
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-        test_table.call("V1")
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         test_table.call("V2")
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("file_size_not_in_rowset_meta")

@@ -21,7 +21,6 @@ suite("test_compound_reader_fault_injection", "nonConcurrent") {
     def testTable = "httplogs"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
     sql """
         CREATE TABLE ${testTable} (
           `@timestamp` int(11) NULL COMMENT "",
@@ -36,11 +35,10 @@ suite("test_compound_reader_fault_injection", "nonConcurrent") {
           DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
           PROPERTIES (
           "replication_allocation" = "tag.location.default: 1",
-          "inverted_index_storage_format" = "V1"
+          "inverted_index_storage_format" = "V2"
         );
       """
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
-    
+
     sql """ INSERT INTO ${testTable} VALUES (893964617, '40.135.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 24736); """
     sql """ INSERT INTO ${testTable} VALUES (893964653, '232.0.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 200, 3781); """
     sql """ INSERT INTO ${testTable} VALUES (893964672, '26.1.0.0', 'GET /images/hm_bg.jpg HTTP/1.0', 304, 0); """

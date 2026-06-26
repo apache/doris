@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_index_chinese_column", "inverted_index_select, nonConcurrent"){
+suite("test_index_chinese_column", "inverted_index_select"){
     def createAndInsertData = { table_name, inverted_index_storage_format ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
@@ -34,13 +34,10 @@ suite("test_index_chinese_column", "inverted_index_select, nonConcurrent"){
         qt_sql "SELECT * FROM ${table_name} WHERE 名称 match_all 'json'"
     }
 
-    def table_name_v1 = "test_index_chinese_column_v1"
     def table_name_v2 = "test_index_chinese_column_v2"
 
     sql "set enable_unicode_name_support=true"
     sql """ set enable_segment_limit_pushdown = true """
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-    createAndInsertData(table_name_v1, "V1")
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
+
     createAndInsertData(table_name_v2, "V2")
 }

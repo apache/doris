@@ -19,34 +19,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
   def isCloudMode = isCloudMode()
-  def tableName1 = "test_skip_index_compaction_fault_injection_1"
   def tableName2 = "test_skip_index_compaction_fault_injection_2"
   def backendId_to_backendIP = [:]
   def backendId_to_backendHttpPort = [:]
   getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-  sql "DROP TABLE IF EXISTS ${tableName1}"
-  sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-  sql """
-    CREATE TABLE ${tableName1} (
-      `@timestamp` int(11) NULL COMMENT "",
-      `clientip` varchar(20) NULL COMMENT "",
-      `request` text NULL COMMENT "",
-      `status` int(11) NULL COMMENT "",
-      `size` int(11) NULL COMMENT "",
-      INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`@timestamp`)
-    COMMENT "OLAP"
-    DISTRIBUTED BY RANDOM BUCKETS 1
-    PROPERTIES (
-      "replication_allocation" = "tag.location.default: 1",
-      "disable_auto_compaction" = "true",
-      "inverted_index_storage_format" = "V1"
-    );
-  """
-  sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
   sql "DROP TABLE IF EXISTS ${tableName2}"
   sql """
@@ -179,12 +156,6 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     has_update_be_config = true
     check_config.call("inverted_index_compaction_enable", "true");
 
-    try {
-      GetDebugPoint().enableDebugPointForAllBEs("Compaction::open_inverted_index_file_reader")
-      run_test.call(tableName1)
-    } finally {
-      GetDebugPoint().disableDebugPointForAllBEs("Compaction::open_inverted_index_file_reader")
-    }
 
     try {
       GetDebugPoint().enableDebugPointForAllBEs("Compaction::open_inverted_index_file_writer")

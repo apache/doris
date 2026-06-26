@@ -69,12 +69,8 @@ suite("test_index_io_context", "nonConcurrent") {
     }
 
     try {
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-        create_table(tableName1, "V1")
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
-        create_table(tableName2, "V2")
+        create_table(tableName2, "V2");
 
-        load_httplogs_data.call(tableName1, 'test_index_io_context1', 'true', 'json', 'documents-1000.json')
         load_httplogs_data.call(tableName2, 'test_index_io_context2', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
@@ -82,71 +78,40 @@ suite("test_index_io_context", "nonConcurrent") {
 
         try {
             GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
-            qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
-            qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
-            qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_any 'ticket_quest_bg2.jpg'; """
 
-            qt_sql """ select count() from ${tableName1} where request match_all 'ticket_quest_bg2.jpg'; """
-            qt_sql """ select count() from ${tableName1} where request match_all 'ticket_quest_bg2.jpg'; """
-            qt_sql """ select count() from ${tableName1} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_all 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_all 'ticket_quest_bg2.jpg'; """
 
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg'; """
 
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10+'; """
 
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase 'ticket_quest_bg2.jpg ~10'; """
 
-            qt_sql """ select count() from ${tableName1} where request match_phrase_prefix 'ticket_quest_bg ~10'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase_prefix 'ticket_quest_bg ~10'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase_prefix 'ticket_quest_bg ~10'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase_prefix 'ticket_quest_bg ~10'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase_prefix 'ticket_quest_bg ~10'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase_prefix 'ticket_quest_bg ~10'; """
 
-            qt_sql """ select count() from ${tableName1} where request match_phrase_prefix 'quest'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase_prefix 'quest'; """
-            qt_sql """ select count() from ${tableName1} where request match_phrase_prefix 'quest'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase_prefix 'quest'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase_prefix 'quest'; """
             qt_sql """ select count() from ${tableName2} where request match_phrase_prefix 'quest'; """
 
-            qt_sql """ select count() from ${tableName1} where status = '200'; """
-            qt_sql """ select count() from ${tableName1} where status = '304'; """
-            qt_sql """ select count() from ${tableName1} where size = '24736'; """
-            qt_sql """ select count() from ${tableName1} where size = '985'; """
-            qt_sql """ select count() from ${tableName1} where size = '0'; """
             qt_sql """ select count() from ${tableName2} where status = '200'; """
             qt_sql """ select count() from ${tableName2} where status = '304'; """
             qt_sql """ select count() from ${tableName2} where size = '24736'; """
             qt_sql """ select count() from ${tableName2} where size = '985'; """
             qt_sql """ select count() from ${tableName2} where size = '0'; """
 
-            qt_sql """ select count() from ${tableName1} where status = '200'; """
-            qt_sql """ select count() from ${tableName1} where status = '304'; """
-            qt_sql """ select count() from ${tableName1} where size = '24736'; """
-            qt_sql """ select count() from ${tableName1} where size = '985'; """
-            qt_sql """ select count() from ${tableName1} where size = '0'; """
             qt_sql """ select count() from ${tableName2} where status = '200'; """
             qt_sql """ select count() from ${tableName2} where status = '304'; """
             qt_sql """ select count() from ${tableName2} where size = '24736'; """

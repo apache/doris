@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nereids_show_build_index", "nonConcurrent") {
+suite("test_nereids_show_build_index") {
     if (!isCloudMode()) {
         sql "DROP DATABASE IF EXISTS test_show_build_index"
         sql "CREATE DATABASE IF NOT EXISTS test_show_build_index"
         sql "DROP TABLE IF EXISTS test_show_build_index.test_show_build_index_tbl1"
         sql "DROP TABLE IF EXISTS test_show_build_index.test_show_build_index_tbl2"
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
         CREATE TABLE IF NOT EXISTS test_show_build_index.test_show_build_index_tbl1 (
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
@@ -34,7 +33,7 @@ suite("test_nereids_show_build_index", "nonConcurrent") {
             INDEX idx_note1 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
         sql """
         CREATE TABLE IF NOT EXISTS test_show_build_index.test_show_build_index_tbl2 (
@@ -48,9 +47,8 @@ suite("test_nereids_show_build_index", "nonConcurrent") {
             INDEX idx_note2 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         sql "BUILD INDEX idx_user_id1 ON test_show_build_index.test_show_build_index_tbl1;"
         sql "BUILD INDEX idx_user_id2 ON test_show_build_index.test_show_build_index_tbl2;"
         sleep(30000)

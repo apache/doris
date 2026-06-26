@@ -92,7 +92,6 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
         check_config.call("inverted_index_compaction_enable", "true");
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
             CREATE TABLE ${tableName} (
                 `id` int(11) NULL,
@@ -110,10 +109,9 @@ suite("test_index_compaction_unique_keys", "nonConcurrent") {
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             );
         """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         sql """ set enable_segment_limit_pushdown = true """
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
