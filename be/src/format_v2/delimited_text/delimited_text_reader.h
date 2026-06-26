@@ -117,6 +117,9 @@ protected:
     // text keeps the raw field because empty string and NULL are distinct unless null_format
     // matches exactly.
     virtual Slice _normalize_value(Slice value) const;
+    // Whether an empty physical line is one logical record. CSV keeps the existing default
+    // skip behavior, while Hive TEXTFILE treats an empty line as a record with one empty field.
+    virtual bool _empty_line_as_record() const;
     // Whether this file can start at a non-zero split offset. Compressed delimited files cannot be
     // split because the decompressor needs the stream from the beginning.
     virtual bool _can_split() const;

@@ -81,6 +81,7 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
     void _collect_profile_before_close() override;
+    bool _should_update_load_counters() const override;
 
 private:
     TFileFormatType::type _get_current_format_type() const;

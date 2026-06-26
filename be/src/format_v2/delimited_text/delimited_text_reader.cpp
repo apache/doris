@@ -399,7 +399,8 @@ Status DelimitedTextReader::get_aggregate_result(const FileAggregateRequest& req
         }
         if (line.size == 0) {
             update_counter(_text_profile.empty_lines_read, 1);
-            if (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null()) {
+            if (_empty_line_as_record() ||
+                (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null())) {
                 ++count;
             }
             continue;
@@ -595,14 +596,16 @@ Status DelimitedTextReader::_fill_columns_from_line(const Slice& line,
     DORIS_CHECK(columns != nullptr);
     if (line.size == 0) {
         update_counter(_text_profile.empty_lines_read, 1);
-        if (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null()) {
-            for (const auto& column : _requested_columns) {
-                RETURN_IF_ERROR(_append_null((*columns)[column.block_position.value()].get()));
-                update_counter(_text_profile.cells_deserialized, 1);
+        if (!_empty_line_as_record()) {
+            if (_runtime_state != nullptr && _runtime_state->is_read_csv_empty_line_as_null()) {
+                for (const auto& column : _requested_columns) {
+                    RETURN_IF_ERROR(_append_null((*columns)[column.block_position.value()].get()));
+                    update_counter(_text_profile.cells_deserialized, 1);
+                }
+                ++(*rows);
             }
-            ++(*rows);
+            return Status::OK();
         }
-        return Status::OK();
     }
     RETURN_IF_ERROR(_validate_line(line));
 
@@ -633,6 +636,10 @@ Status DelimitedTextReader::_validate_line(const Slice& line) {
 
 Slice DelimitedTextReader::_normalize_value(Slice value) const {
     return value;
+}
+
+bool DelimitedTextReader::_empty_line_as_record() const {
+    return false;
 }
 
 bool DelimitedTextReader::_can_split() const {

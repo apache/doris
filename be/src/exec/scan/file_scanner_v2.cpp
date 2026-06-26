@@ -669,6 +669,20 @@ void FileScannerV2::_collect_profile_before_close() {
     _report_condition_cache_profile();
 }
 
+bool FileScannerV2::_should_update_load_counters() const {
+    if (_is_load) {
+        return true;
+    }
+    // TVF based loads (e.g. http_stream, group commit relay) plan the load source as a
+    // tvf query scan without src tuple desc, so _is_load is false. But rows filtered by
+    // the load's WHERE clause still need to be reported as unselected rows. FILE_STREAM
+    // is only reachable from such load entries, never from normal queries, so use it to
+    // identify these scanners.
+    return (_params != nullptr && _params->__isset.file_type &&
+            _params->file_type == TFileType::FILE_STREAM) ||
+           (_current_range.__isset.file_type && _current_range.file_type == TFileType::FILE_STREAM);
+}
+
 void FileScannerV2::_report_file_reader_predicate_filtered_rows() {
     const int64_t filtered_rows = _io_ctx != nullptr ? _io_ctx->predicate_filtered_rows : 0;
     const int64_t filtered_delta = filtered_rows - _reported_predicate_filtered_rows;
