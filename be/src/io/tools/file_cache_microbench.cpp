@@ -60,6 +60,9 @@
 #include "rapidjson/writer.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/cpu_info.h"
+#include "util/disk_info.h"
+#include "util/mem_info.h"
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
