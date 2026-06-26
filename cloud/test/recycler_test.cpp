@@ -9070,4 +9070,34 @@ TEST(RecyclerTest, enable_recycler_skip_recycle_callback) {
     EXPECT_TRUE(recycler.pending_instance_set_.empty());
     EXPECT_TRUE(recycler.recycling_instance_map_.empty());
 }
+
+TEST(RecyclerTest, RecycleInstanceFilterReadsConfigDynamically) {
+    auto old_whitelist = config::recycle_whitelist;
+    auto old_blacklist = config::recycle_blacklist;
+    DORIS_CLOUD_DEFER {
+        config::recycle_whitelist = old_whitelist;
+        config::recycle_blacklist = old_blacklist;
+    };
+
+    auto [succ, cause] = config::update_config("recycle_whitelist=", false, "");
+    ASSERT_TRUE(succ) << cause;
+    std::tie(succ, cause) =
+            config::update_config("recycle_blacklist=instance1,instance2", false, "");
+    ASSERT_TRUE(succ) << cause;
+    ASSERT_EQ(config::recycle_blacklist.size(), 2);
+    EXPECT_TRUE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+    EXPECT_FALSE(filter_out_instance("instance3"));
+
+    std::tie(succ, cause) = config::update_config("recycle_blacklist=instance2", false, "");
+    ASSERT_TRUE(succ) << cause;
+    EXPECT_FALSE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+
+    std::tie(succ, cause) = config::update_config(
+            "recycle_whitelist=instance1,recycle_blacklist=instance1", false, "");
+    ASSERT_TRUE(succ) << cause;
+    EXPECT_FALSE(filter_out_instance("instance1"));
+    EXPECT_TRUE(filter_out_instance("instance2"));
+}
 } // namespace doris::cloud
