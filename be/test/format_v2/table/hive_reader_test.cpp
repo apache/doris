@@ -89,6 +89,17 @@ TEST_F(HiveV2ReaderTest, InitSupportsTextFileFormat) {
     EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_NAME);
 }
 
+// Scenario: Hive JSON files also synthesize a file-local schema from FE slots, so they should use
+// name mapping at the table-reader layer while JsonReader consumes JSON attributes.
+TEST_F(HiveV2ReaderTest, InitSupportsJsonFileFormat) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JSON);
+    HiveReader reader;
+
+    ASSERT_TRUE(init_hive_reader(FileFormat::JSON, &params, &state, &profile, &reader).ok());
+    EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_NAME);
+}
+
 // Scenario: positional mapping is only for Hive Parquet/ORC sessions that disable name mapping.
 // CSV keeps the synthesized file-column names and leaves column_idxs for the CsvReader itself.
 TEST_F(HiveV2ReaderTest, CsvDoesNotConsumeColumnIdxsAsPositionalSchemaMapping) {
