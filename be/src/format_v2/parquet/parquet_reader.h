@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_profile.h"
 
 namespace doris {
@@ -94,6 +95,8 @@ protected:
     void _init_profile() override;
 
 private:
+    void _sync_page_cache_profile();
+
     // 递归将 ParquetColumnSchema 树转换为 ColumnDefinition。
     // identifier 生成规则：有 parquet_field_id → Field(INT, field_id)，否则 → Field(STRING, name)
     void _fill_column_definition(const ParquetColumnSchema& column_schema,
@@ -102,6 +105,7 @@ private:
     std::unique_ptr<ParquetReaderScanState>
             _state;                  // 全部扫描状态（file_context + schema + scheduler）
     ParquetProfile _parquet_profile; // RuntimeProfile 计数器集合
+    ParquetPageCacheStats _reported_page_cache_stats;
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // 全局 RowId 上下文
     bool _enable_mapping_timestamp_tz = false; // 是否将 UTC timestamp 映射为 TIMESTAMPTZ
 };

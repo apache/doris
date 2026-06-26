@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -49,7 +50,96 @@ struct ParquetReaderScanState {
     ParquetScanScheduler scheduler;
     const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
+    bool enable_page_cache = false;
 };
+
+int64_t column_chunk_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
+    return column_metadata.has_dictionary_page()
+                   ? cast_set<int64_t>(column_metadata.dictionary_page_offset())
+                   : cast_set<int64_t>(column_metadata.data_page_offset());
+}
+
+void collect_all_leaf_column_ids(const ParquetColumnSchema& column_schema,
+                                 std::unordered_set<int>* leaf_column_ids) {
+    DORIS_CHECK(leaf_column_ids != nullptr);
+    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        if (column_schema.leaf_column_id >= 0) {
+            leaf_column_ids->insert(column_schema.leaf_column_id);
+        }
+        return;
+    }
+    for (const auto& child : column_schema.children) {
+        DORIS_CHECK(child != nullptr);
+        collect_all_leaf_column_ids(*child, leaf_column_ids);
+    }
+}
+
+void collect_projected_leaf_column_ids(const ParquetColumnSchema& column_schema,
+                                       const format::LocalColumnIndex& projection,
+                                       std::unordered_set<int>* leaf_column_ids) {
+    DORIS_CHECK(leaf_column_ids != nullptr);
+    if (projection.project_all_children || projection.children.empty()) {
+        collect_all_leaf_column_ids(column_schema, leaf_column_ids);
+        return;
+    }
+    for (const auto& child_projection : projection.children) {
+        const auto child_it =
+                std::ranges::find_if(column_schema.children, [&](const auto& child_schema) {
+                    return child_schema->local_id == child_projection.local_id();
+                });
+        DORIS_CHECK(child_it != column_schema.children.end());
+        collect_projected_leaf_column_ids(**child_it, child_projection, leaf_column_ids);
+    }
+}
+
+void collect_request_leaf_column_ids(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, std::unordered_set<int>* leaf_column_ids) {
+    DORIS_CHECK(leaf_column_ids != nullptr);
+    auto collect_scan_column = [&](const format::LocalColumnIndex& projection) {
+        const auto local_id = projection.local_id();
+        if (local_id == format::ROW_POSITION_COLUMN_ID ||
+            local_id == format::GLOBAL_ROWID_COLUMN_ID) {
+            return;
+        }
+        DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+        DORIS_CHECK(file_schema[local_id] != nullptr);
+        collect_projected_leaf_column_ids(*file_schema[local_id], projection, leaf_column_ids);
+    };
+    for (const auto& column : request.predicate_columns) {
+        collect_scan_column(column);
+    }
+    for (const auto& column : request.non_predicate_columns) {
+        collect_scan_column(column);
+    }
+}
+
+std::vector<ParquetPageCacheRange> build_page_cache_ranges(
+        const ::parquet::FileMetaData& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const RowGroupScanPlan& row_group_plan) {
+    std::unordered_set<int> leaf_column_ids;
+    collect_request_leaf_column_ids(file_schema, request, &leaf_column_ids);
+    std::vector<ParquetPageCacheRange> ranges;
+    ranges.reserve(row_group_plan.row_groups.size() * leaf_column_ids.size());
+    for (const auto& row_group_plan_item : row_group_plan.row_groups) {
+        auto row_group_metadata = metadata.RowGroup(row_group_plan_item.row_group_id);
+        DORIS_CHECK(row_group_metadata != nullptr);
+        for (const auto leaf_column_id : leaf_column_ids) {
+            DORIS_CHECK(leaf_column_id >= 0 && leaf_column_id < row_group_metadata->num_columns());
+            auto column_metadata = row_group_metadata->ColumnChunk(leaf_column_id);
+            DORIS_CHECK(column_metadata != nullptr);
+            const int64_t offset = column_chunk_start_offset(*column_metadata);
+            const int64_t size = column_metadata->total_compressed_size();
+            DORIS_CHECK(offset >= 0);
+            DORIS_CHECK(size >= 0);
+            if (size > 0) {
+                ranges.push_back(ParquetPageCacheRange {.offset = offset, .size = size});
+            }
+        }
+    }
+    return ranges;
+}
 
 DataTypePtr nullable_like_original(const DataTypePtr& type, DataTypePtr nested_type) {
     return type != nullptr && type->is_nullable() ? make_nullable(nested_type) : nested_type;
@@ -189,13 +279,16 @@ Status ParquetReader::init(RuntimeState* state) {
     _state = std::make_unique<ParquetReaderScanState>();
     _state->enable_bloom_filter =
             state != nullptr && state->query_options().enable_parquet_filter_by_bloom_filter;
+    _state->enable_page_cache =
+            state != nullptr && state->query_options().enable_parquet_file_page_cache;
     if (state != nullptr) {
         _state->timezone = &state->timezone_obj();
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(state->enable_strict_mode());
     }
     // Open parquet file and parse metadata to get file schema.
-    RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get()));
+    RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
+                                              _state->enable_page_cache, *_file_description));
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     RETURN_IF_ERROR(
@@ -298,6 +391,11 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }
+    if (_state->enable_page_cache) {
+        _state->file_context.register_page_cache_ranges(
+                build_page_cache_ranges(*_state->file_context.metadata, _state->file_schema,
+                                        *request_snapshot, row_group_plan));
+    }
     _state->scan_plan = row_group_plan;
     _state->scheduler.set_page_skip_profile(_parquet_profile.page_skip_profile());
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
@@ -325,12 +423,34 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
     RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
                                                       *request_snapshot, file_block, rows, eof));
+    _sync_page_cache_profile();
     if (_io_ctx != nullptr) {
         _io_ctx->predicate_filtered_rows +=
                 _state->scheduler.predicate_filtered_rows() - predicate_filtered_rows_before;
     }
     _eof = *eof;
     return Status::OK();
+}
+
+void ParquetReader::_sync_page_cache_profile() {
+    if (_profile == nullptr || _state == nullptr) {
+        return;
+    }
+    const auto stats = _state->file_context.page_cache_stats();
+    COUNTER_UPDATE(_parquet_profile.page_read_counter,
+                   stats.read_count - _reported_page_cache_stats.read_count);
+    COUNTER_UPDATE(_parquet_profile.page_cache_write_counter,
+                   stats.write_count - _reported_page_cache_stats.write_count);
+    COUNTER_UPDATE(
+            _parquet_profile.page_cache_compressed_write_counter,
+            stats.compressed_write_count - _reported_page_cache_stats.compressed_write_count);
+    COUNTER_UPDATE(_parquet_profile.page_cache_hit_counter,
+                   stats.hit_count - _reported_page_cache_stats.hit_count);
+    COUNTER_UPDATE(_parquet_profile.page_cache_missing_counter,
+                   stats.miss_count - _reported_page_cache_stats.miss_count);
+    COUNTER_UPDATE(_parquet_profile.page_cache_compressed_hit_counter,
+                   stats.compressed_hit_count - _reported_page_cache_stats.compressed_hit_count);
+    _reported_page_cache_stats = stats;
 }
 
 void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
@@ -431,6 +551,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
 
 Status ParquetReader::close() {
     if (_state != nullptr) {
+        _sync_page_cache_profile();
         RETURN_IF_ERROR(_state->file_context.close());
     }
     return FileReader::close();
