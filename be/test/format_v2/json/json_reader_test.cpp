@@ -367,7 +367,7 @@ TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {
     EXPECT_FALSE(result.status.ok());
 }
 
-TEST(JsonReaderTest, IgnoresMalformedJsonWhenConfigured) {
+TEST(JsonReaderTest, IgnoresMalformedJsonAsNullRowsWhenConfigured) {
     ObjectPool pool;
     auto slots = build_slots(&pool);
     auto result = read_once("ignore_malformed.jsonl",
@@ -377,9 +377,11 @@ TEST(JsonReaderTest, IgnoresMalformedJsonWhenConfigured) {
                             json_scan_params(true, false, "", "", true), slots, {0, 1});
 
     ASSERT_TRUE(result.status.ok()) << result.status.to_string();
-    ASSERT_EQ(result.rows, 1);
-    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 11);
-    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "judy");
+    ASSERT_EQ(result.rows, 2);
+    EXPECT_TRUE(nullable_is_null_at(*result.block.get_by_position(0).column, 0));
+    EXPECT_TRUE(nullable_is_null_at(*result.block.get_by_position(1).column, 0));
+    EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 1), 11);
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "judy");
 }
 
 TEST(JsonReaderTest, SkipsEmptyJsonLine) {

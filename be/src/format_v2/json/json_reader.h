@@ -115,6 +115,7 @@ private:
                                  IColumn* column_ptr, const std::string& column_name,
                                  const DataTypeSerDeSPtr& serde, bool* valid);
     Status _fill_missing_column(const RequestedColumn& column, IColumn* column_ptr, bool* valid);
+    Status _append_null_for_malformed_json(Block* block);
     Status _handle_json_error(const Status& status, Block* block, size_t original_rows,
                               bool* is_empty_row);
     Status _apply_filters(Block* file_block, size_t* rows);

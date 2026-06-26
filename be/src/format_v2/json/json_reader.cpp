@@ -1031,16 +1031,32 @@ Status JsonReader::_fill_missing_column(const RequestedColumn& column, IColumn* 
             column.slot_desc->col_name());
 }
 
+Status JsonReader::_append_null_for_malformed_json(Block* block) {
+    DORIS_CHECK(block != nullptr);
+    for (int i = 0; i < block->columns(); ++i) {
+        auto& column_with_type = block->get_by_position(i);
+        if (!is_column_nullable(*column_with_type.column)) {
+            return Status::DataQualityError("malformed json, but the column `{}` is not nullable.",
+                                            column_with_type.column->get_name());
+        }
+        auto column = IColumn::mutate(std::move(column_with_type.column));
+        assert_cast<ColumnNullable*>(column.get())->insert_default();
+        column_with_type.column = std::move(column);
+    }
+    return Status::OK();
+}
+
 Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t original_rows,
                                       bool* is_empty_row) {
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
     // Deserialization can fail after several columns have already appended data. Always restore the
-    // block to the row count before this document before either surfacing the error or skipping the
-    // ignored malformed document.
+    // block to the row count before this document before either surfacing the error or appending
+    // the ignore-malformed null row.
     _truncate_block_to_rows(block, original_rows);
     if (_openx_json_ignore_malformed && status.is<ErrorCode::DATA_QUALITY_ERROR>()) {
-        *is_empty_row = true;
+        RETURN_IF_ERROR(_append_null_for_malformed_json(block));
+        *is_empty_row = false;
         return Status::OK();
     }
     return status;
