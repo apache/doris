@@ -39,9 +39,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
-#include "exprs/vexpr_context.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
@@ -1063,29 +1063,7 @@ Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t
 }
 
 Status JsonReader::_apply_filters(Block* file_block, size_t* rows) {
-    DORIS_CHECK(file_block != nullptr);
-    DORIS_CHECK(rows != nullptr);
-    const size_t rows_before_filter = *rows;
-    size_t rows_after_delete_filter = rows_before_filter;
-    if (_request != nullptr && rows_before_filter > 0 && !_request->delete_conjuncts.empty()) {
-        RETURN_IF_ERROR(VExprContext::filter_block(_request->delete_conjuncts, file_block,
-                                                   file_block->columns()));
-        rows_after_delete_filter =
-                file_block->columns() == 0 ? rows_before_filter : file_block->rows();
-    }
-
-    size_t rows_after_filter = rows_after_delete_filter;
-    if (_request != nullptr && rows_after_delete_filter > 0 && !_request->conjuncts.empty()) {
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_request->conjuncts, file_block, file_block->columns()));
-        rows_after_filter =
-                file_block->columns() == 0 ? rows_after_delete_filter : file_block->rows();
-        if (_io_ctx != nullptr) {
-            _io_ctx->predicate_filtered_rows += rows_after_delete_filter - rows_after_filter;
-        }
-    }
-    *rows = rows_after_filter;
-    return Status::OK();
+    return apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows);
 }
 
 void JsonReader::_truncate_block_to_rows(Block* block, size_t num_rows) {

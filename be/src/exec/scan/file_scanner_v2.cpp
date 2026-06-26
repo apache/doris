@@ -127,6 +127,10 @@ bool is_json_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_JSON;
 }
 
+bool is_native_format(TFileFormatType::type format_type) {
+    return format_type == TFileFormatType::FORMAT_NATIVE;
+}
+
 bool is_partition_slot(const TFileScanSlotInfo& slot_info, const std::string& column_name) {
     if (column_name.starts_with(BeConsts::GLOBAL_ROWID_COL) ||
         column_name == BeConsts::ICEBERG_ROWID_COL) {
@@ -221,7 +225,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
-               is_json_format(format_type)) {
+               is_json_format(format_type) || is_native_format(format_type)) {
         return is_supported_table_format(range);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
@@ -614,6 +618,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_JSON:
         *file_format = format::FileFormat::JSON;
+        return Status::OK();
+    case TFileFormatType::FORMAT_NATIVE:
+        *file_format = format::FileFormat::NATIVE;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",

@@ -107,6 +107,8 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_CSV_PLAIN, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_JSON, true},
+            {"tvf", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_NATIVE, true},
+            {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
     };
 
     for (const auto& test_case : cases) {
@@ -180,6 +182,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_PROTO, format::FileFormat::CSV},
             {TFileFormatType::FORMAT_TEXT, format::FileFormat::TEXT},
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
+            {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
             {TFileFormatType::FORMAT_ORC, std::nullopt},
     };
 
