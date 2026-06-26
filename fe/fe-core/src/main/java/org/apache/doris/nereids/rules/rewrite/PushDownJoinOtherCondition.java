@@ -86,7 +86,11 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                             leftConjuncts.add(otherConjunct);
                         } else if (PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType())
                                 && allCoveredBy(otherConjunct, join.right().getOutputSet())) {
-                            rightConjuncts.add(otherConjunct);
+                            if (join.getJoinType().isNullAwareLeftAntiJoin() && join.getHashJoinConjuncts().isEmpty()) {
+                                remainingOther.add(otherConjunct);
+                            } else {
+                                rightConjuncts.add(otherConjunct);
+                            }
                         } else {
                             remainingOther.add(otherConjunct);
                         }
