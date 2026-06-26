@@ -19,5 +19,7 @@ package org.apache.doris.resource.workloadschedpolicy;
 
 public enum WorkloadActionType {
     CANCEL_QUERY, // cancel query
-    MOVE_QUERY_TO_GROUP // move query from one wg group to another
+    MOVE_QUERY_TO_GROUP, // move query from one wg group to another
+    // Deprecated: only kept for deserializing old workload policy metadata.
+    SET_SESSION_VARIABLE
 }
