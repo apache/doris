@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -74,6 +75,27 @@ public class IcebergProcedureOpsTest {
                         "publish_changes",
                         "rewrite_manifests"),
                 newOps().getSupportedProcedures());
+    }
+
+    @Test
+    public void rewriteDataFilesIsTheOnlyDistributedProcedure() {
+        IcebergProcedureOps ops = newOps();
+        // rewrite_data_files runs N per-group INSERT-SELECT writes under one shared transaction, so the engine
+        // must orchestrate it (DISTRIBUTED) rather than dispatch it through execute(). Every other procedure is
+        // a synchronous SDK call (SINGLE_CALL). This is what lets the engine route rewrite without a name literal.
+        Assertions.assertEquals(ProcedureExecutionMode.DISTRIBUTED,
+                ops.getExecutionMode("rewrite_data_files"),
+                "rewrite_data_files must be DISTRIBUTED so the engine drives the per-group rewrite loop");
+        Assertions.assertEquals(ProcedureExecutionMode.DISTRIBUTED,
+                ops.getExecutionMode("REWRITE_DATA_FILES"),
+                "execution-mode lookup must be case-insensitive (mirrors the factory's toLowerCase dispatch)");
+        for (String name : ops.getSupportedProcedures()) {
+            if ("rewrite_data_files".equals(name)) {
+                continue;
+            }
+            Assertions.assertEquals(ProcedureExecutionMode.SINGLE_CALL, ops.getExecutionMode(name),
+                    name + " is a synchronous SDK procedure and must be SINGLE_CALL");
+        }
     }
 
     @Test

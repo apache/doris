@@ -22,12 +22,15 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Pins the {@link Connector#getProcedureOps()} default and the {@link ConnectorProcedureResult} shape.
@@ -48,12 +51,42 @@ public class ConnectorProcedureOpsDefaultsTest {
         }
     }
 
+    /** Minimal {@link ConnectorProcedureOps} overriding only the mandatory methods, to read the defaults. */
+    private static final class BareProcedureOps implements ConnectorProcedureOps {
+        @Override
+        public List<String> getSupportedProcedures() {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public ConnectorProcedureResult execute(ConnectorSession session, ConnectorTableHandle table,
+                String procedureName, Map<String, String> properties, ConnectorPredicate whereCondition,
+                List<String> partitionNames) {
+            return null;
+        }
+    }
+
     @Test
     public void getProcedureOpsDefaultsToNull() {
         Assertions.assertNull(new BareConnector().getProcedureOps(),
                 "a connector that declares no table procedures must inherit a null getProcedureOps() so "
                         + "ALTER TABLE EXECUTE is never dispatched to it (jdbc/es/maxcompute/paimon/trino "
                         + "stay behaviorally unchanged)");
+    }
+
+    @Test
+    public void getExecutionModeDefaultsToSingleCall() {
+        // A connector that declares only synchronous procedures inherits SINGLE_CALL for every name, so the
+        // engine never attempts distributed orchestration on a procedure that has none. Only a connector with
+        // a genuinely distributed procedure (iceberg rewrite_data_files) overrides this.
+        ConnectorProcedureOps ops = new BareProcedureOps();
+        Assertions.assertEquals(ProcedureExecutionMode.SINGLE_CALL,
+                ops.getExecutionMode("any_procedure"),
+                "the default execution mode must be SINGLE_CALL so the engine routes through execute()");
+        Assertions.assertEquals(ProcedureExecutionMode.SINGLE_CALL,
+                ops.getExecutionMode("rewrite_data_files"),
+                "a connector that does not override getExecutionMode never reports DISTRIBUTED, even for a "
+                        + "name another connector treats as distributed");
     }
 
     @Test

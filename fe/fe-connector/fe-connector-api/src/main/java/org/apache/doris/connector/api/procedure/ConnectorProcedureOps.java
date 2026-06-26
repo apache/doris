@@ -52,6 +52,20 @@ public interface ConnectorProcedureOps {
     List<String> getSupportedProcedures();
 
     /**
+     * Returns how the engine must drive {@code procedureName}: {@link ProcedureExecutionMode#SINGLE_CALL}
+     * (the default — a synchronous body dispatched through {@link #execute}) or
+     * {@link ProcedureExecutionMode#DISTRIBUTED} (an engine-orchestrated distributed rewrite that does NOT
+     * go through {@link #execute}). This lets the engine route a distributed procedure (iceberg
+     * {@code rewrite_data_files}) without hard-coding its name in a general engine class. The default covers
+     * every pure-SDK procedure; a connector overrides it only for its distributed procedures.
+     *
+     * @param procedureName the procedure name (case-insensitive at the connector's discretion)
+     */
+    default ProcedureExecutionMode getExecutionMode(String procedureName) {
+        return ProcedureExecutionMode.SINGLE_CALL;
+    }
+
+    /**
      * Executes a table procedure and returns its result (schema + rows) in an engine-neutral form; the
      * engine wraps these into a {@code ResultSet}.
      *

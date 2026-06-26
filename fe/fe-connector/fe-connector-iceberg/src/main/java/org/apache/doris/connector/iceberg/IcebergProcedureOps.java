@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.action.BaseIcebergAction;
 import org.apache.doris.connector.iceberg.action.IcebergExecuteActionFactory;
@@ -69,6 +70,20 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     @Override
     public List<String> getSupportedProcedures() {
         return Arrays.asList(IcebergExecuteActionFactory.getSupportedActions());
+    }
+
+    /**
+     * {@code rewrite_data_files} is the one distributed procedure — it runs N per-group INSERT-SELECT writes
+     * under one shared transaction (the engine-side rewrite driver), so the engine must orchestrate it rather
+     * than dispatch it through {@link #execute}. Every other iceberg procedure is a synchronous SDK call
+     * ({@link ProcedureExecutionMode#SINGLE_CALL}). Case-insensitive to mirror the factory's
+     * {@code actionType.toLowerCase()} dispatch.
+     */
+    @Override
+    public ProcedureExecutionMode getExecutionMode(String procedureName) {
+        return IcebergExecuteActionFactory.REWRITE_DATA_FILES.equalsIgnoreCase(procedureName)
+                ? ProcedureExecutionMode.DISTRIBUTED
+                : ProcedureExecutionMode.SINGLE_CALL;
     }
 
     @Override
