@@ -361,7 +361,7 @@ public class HboUtils {
                 ScanPlanStatistics newInputPlanStatistics = new ScanPlanStatistics(inputTableStatistics, tableScan,
                         tableFilterSet, tableScan.getTable().isPartitionedTable(),
                         tableScan.getTable().getPartitionInfo(),
-                        tableScan.getSelectedPartitionIds());
+                        tableScan.getPartitionSelection().getSelectedPartitionIds());
                 outputTableStatisticsBuilder.add(newInputPlanStatistics);
             }
         }

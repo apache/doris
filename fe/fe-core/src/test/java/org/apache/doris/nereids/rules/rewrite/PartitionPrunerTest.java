@@ -327,11 +327,26 @@ public class PartitionPrunerTest extends TestWithFeService {
                 PartitionTableType.OLAP, Optional.empty());
 
         Assertions.assertEquals(2, result.partitions.size());
-        Assertions.assertFalse(result.hasPartitionPredicate);
+        Assertions.assertFalse(result.partitionPredicatePruned);
     }
 
     @Test
-    public void testPruneWithResultMarksEffectivePartitionPredicate() throws AnalysisException {
+    public void testPruneWithResultDoesNotRecordNonPartitionPredicate() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new GreaterThan(slotB, Literal.of(0)), idToPartitions, cascadesContext,
+                PartitionTableType.OLAP, Optional.empty());
+
+        Assertions.assertEquals(2, result.partitions.size());
+        Assertions.assertFalse(result.partitionPredicatePruned);
+        Assertions.assertFalse(result.appliedPartitionPredicate.isPresent());
+    }
+
+    @Test
+    public void testPruneWithResultMarksPrunedPartitionPredicate() throws AnalysisException {
         Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
                 "p1", createListPartitionItem("1"),
                 "p2", createListPartitionItem("2"));
@@ -341,7 +356,7 @@ public class PartitionPrunerTest extends TestWithFeService {
                 PartitionTableType.OLAP, Optional.empty());
 
         Assertions.assertEquals(1, result.partitions.size());
-        Assertions.assertTrue(result.hasPartitionPredicate);
+        Assertions.assertTrue(result.partitionPredicatePruned);
     }
 
     private ListPartitionItem createListPartitionItem(String... values) throws AnalysisException {

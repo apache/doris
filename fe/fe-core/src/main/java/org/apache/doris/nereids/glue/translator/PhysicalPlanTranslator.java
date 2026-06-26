@@ -747,7 +747,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
                             context.getScanContext());
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
-                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+                    hiveScanNode.setPartitionSelection(fileScan.getPartitionSelection());
                     if (fileScan.getTableSample().isPresent()) {
                         hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
                                 fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
@@ -774,7 +774,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     context.getScanContext());
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                    fileScan.getSelectedPartitions(), false, sv, context.getScanContext());
+                    fileScan.getPartitionSelection(), false, sv, context.getScanContext());
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
@@ -840,7 +840,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (hudiScan.getTableSnapshot().isPresent()) {
             hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
         }
-        hudiScanNode.setSelectedPartitions(hudiScan.getSelectedPartitions());
+        hudiScanNode.setPartitionSelection(hudiScan.getPartitionSelection());
         hudiScanNode.setDistributeExprLists(getDistributeExpr(hudiScan));
         return getPlanFragmentForPhysicalFileScan(hudiScan, context, hudiScanNode);
     }
@@ -851,7 +851,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
-        scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
+        scanNode.setHasPartitionConstraint(fileScan.hasPartitionConstraint());
 
         if (fileScan.getStats() != null) {
             scanNode.setCardinality((long) fileScan.getStats().getRowCount());
@@ -952,8 +952,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         // TODO: Do we really need tableName here?
-        olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
-        olapScanNode.setHasPartitionPredicate(olapScan.hasPartitionPredicate());
+        olapScanNode.setSelectedPartitionIds(olapScan.getPartitionSelection().getSelectedPartitionIds());
+        olapScanNode.setHasPartitionConstraint(olapScan.getPartitionSelection().hasPartitionConstraint);
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,

@@ -27,10 +27,12 @@ import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.Partition
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -54,32 +56,32 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalFileScan()).whenNot(p -> p.child().getSelectedPartitions().isPruned)
+        return logicalFilter(logicalFileScan()).whenNot(p -> p.child().getPartitionSelection().partitionPruned)
                 .thenApply(ctx -> {
                     LogicalFilter<LogicalFileScan> filter = ctx.root;
                     LogicalFileScan scan = filter.child();
                     ExternalTable tbl = scan.getTable();
 
-                    SelectedPartitions selectedPartitions;
+                    ExternalPartitionSelection partitionSelection;
                     if (tbl.supportInternalPartitionPruned()) {
-                        selectedPartitions = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
+                        partitionSelection = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
                     } else {
-                        // set isPruned so that it won't go pass the partition prune again
-                        selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
+                        // set partitionPruned so that it won't go pass the partition prune again
+                        partitionSelection = new ExternalPartitionSelection(0, ImmutableMap.of(), true, false);
                     }
-                    LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
+                    LogicalFileScan rewrittenScan = scan.withPartitionSelection(partitionSelection);
                     return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 
-    private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
+    private ExternalPartitionSelection pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
                 ctx.getStatementContext().getSnapshot(externalTable)))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
-            return SelectedPartitions.NOT_PRUNED;
+            return ExternalPartitionSelection.NOT_PRUNED;
         }
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
@@ -87,10 +89,11 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         List<Slot> partitionSlots = externalTable.getPartitionColumns(
                         ctx.getStatementContext().getSnapshot(externalTable))
                 .stream()
-                .map(column -> scanOutput.get(column.getName().toLowerCase()))
+                .map(column -> Preconditions.checkNotNull(scanOutput.get(column.getName().toLowerCase()),
+                        "Can not find output slot for partition column: %s", column.getName()))
                 .collect(Collectors.toList());
 
-        Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        Map<String, PartitionItem> nameToPartitionItem = scan.getPartitionSelection().selectedPartitionItems;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
@@ -105,7 +108,12 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+        if (result.appliedPartitionPredicate.isPresent()) {
+            return new ExternalPartitionSelection(nameToPartitionItem.size(), selectedPartitionItems, true,
+                    result.partitionPredicatePruned, partitionSlots,
+                    ExpressionUtils.extractConjunctionToSet(result.appliedPartitionPredicate.get()));
+        }
+        return new ExternalPartitionSelection(nameToPartitionItem.size(), selectedPartitionItems, true,
+                result.partitionPredicatePruned);
     }
 }

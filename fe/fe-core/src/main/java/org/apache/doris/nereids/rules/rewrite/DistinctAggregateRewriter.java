@@ -222,7 +222,7 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         if (olapTable == null) {
             return null;
         }
-        if (!Utils.isSelectUnpartition(olapTable, scan.getSelectedPartitionIds())
+        if (!Utils.isSelectUnpartition(olapTable, scan.getPartitionSelection().getSelectedPartitionIds())
                 && !Utils.isBelongStableCG(olapTable)) {
             return null;
         }

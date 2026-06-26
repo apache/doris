@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -49,7 +49,7 @@ public class LogicalFileScanTest {
                 lastUpdatedSequenceNumberColumn);
 
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
-        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(ExternalPartitionSelection.NOT_PRUNED);
         Mockito.when(table.getFullSchema()).thenReturn(schema);
         Mockito.when(table.getName()).thenReturn("iceberg_tbl");
 

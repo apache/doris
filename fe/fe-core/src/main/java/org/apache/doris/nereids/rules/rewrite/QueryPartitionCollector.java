@@ -24,9 +24,9 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
@@ -65,7 +65,7 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
         if (catalogRelation instanceof LogicalOlapScan) {
             // Handle olap table
             LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
-            for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
+            for (Long partitionId : logicalOlapScan.getPartitionSelection().getSelectedPartitionIds()) {
                 tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId).getName());
             }
             tableUsedPartitionNameMap.put(table.getFullQualifiers(),
@@ -74,8 +74,8 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                 && catalogRelation.getTable() != null
                 && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
             LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
-            SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
-            tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
+            ExternalPartitionSelection partitionSelection = logicalFileScan.getPartitionSelection();
+            tablePartitions.addAll(partitionSelection.selectedPartitionItems.keySet());
             tableUsedPartitionNameMap.put(table.getFullQualifiers(),
                     Pair.of(catalogRelation.getRelationId(), tablePartitions));
         } else {

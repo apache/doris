@@ -28,7 +28,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -71,7 +71,8 @@ public class StatementContextTest {
                 .thenReturn(mvccSnapshot);
         Mockito.when(hmsExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(hmsExternalTable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(hmsExternalTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(ExternalPartitionSelection.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -117,7 +118,8 @@ public class StatementContextTest {
         Mockito.when(hmsExternalTable.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(hmsExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(hmsExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(hmsExternalTable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(hmsExternalTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(ExternalPartitionSelection.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {
@@ -519,7 +521,8 @@ public class StatementContextTest {
                 .thenReturn(mvccSnapshot);
         Mockito.when(paimonExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
         Mockito.when(paimonExternalTable.supportInternalPartitionPruned()).thenReturn(true);
-        Mockito.when(paimonExternalTable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(paimonExternalTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(ExternalPartitionSelection.NOT_PRUNED);
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
         try {

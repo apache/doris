@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -47,11 +47,9 @@ import org.apache.doris.thrift.TFileFormatType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -59,7 +57,7 @@ import java.util.Optional;
  * Logical file scan for external catalog.
  */
 public class LogicalFileScan extends LogicalCatalogRelation implements SupportPruneNestedColumn {
-    protected final SelectedPartitions selectedPartitions;
+    protected final ExternalPartitionSelection partitionSelection;
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
     protected final Optional<TableScanParams> scanParams;
@@ -84,14 +82,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
      * Constructor for LogicalFileScan.
      */
     protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-            SelectedPartitions selectedPartitions, Collection<Slot> operativeSlots,
+            ExternalPartitionSelection partitionSelection, Collection<Slot> operativeSlots,
             List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             String tableAlias, Optional<List<Slot>> cachedSlots) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, operativeSlots, virtualColumns,
                 groupExpression, logicalProperties, tableAlias);
-        this.selectedPartitions = selectedPartitions;
+        this.partitionSelection = partitionSelection;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
         this.scanParams = scanParams;
@@ -99,21 +97,21 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     }
 
     protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-            SelectedPartitions selectedPartitions, Collection<Slot> operativeSlots,
+            ExternalPartitionSelection partitionSelection, Collection<Slot> operativeSlots,
             List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             Optional<List<Slot>> cachedOutputs) {
-        this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+        this(id, table, qualifier, partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
     }
 
-    public SelectedPartitions getSelectedPartitions() {
-        return selectedPartitions;
+    public ExternalPartitionSelection getPartitionSelection() {
+        return partitionSelection;
     }
 
-    public boolean hasPartitionPredicate() {
-        return selectedPartitions.hasPartitionPredicate;
+    public boolean hasPartitionConstraint() {
+        return partitionSelection.hasPartitionConstraint;
     }
 
     public Optional<TableSample> getTableSample() {
@@ -149,7 +147,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
                 cachedOutputs));
     }
@@ -159,14 +157,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs));
     }
 
-    public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
+    public LogicalFileScan withPartitionSelection(ExternalPartitionSelection partitionSelection) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
                 cachedOutputs));
     }
@@ -175,14 +173,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     public LogicalFileScan withRelationId(RelationId relationId) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withTableAlias(String tableAlias) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
                 cachedOutputs));
     }
@@ -194,7 +192,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public boolean equals(Object o) {
-        return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions);
+        return super.equals(o) && Objects.equals(partitionSelection, ((LogicalFileScan) o).partitionSelection);
     }
 
     @Override
@@ -260,87 +258,18 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return false;
     }
 
-    /**
-     * SelectedPartitions contains the selected partitions and the total partition number.
-     * Mainly for hive table partition pruning.
-     */
-    public static class SelectedPartitions {
-        // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
-        // This can be treated as the initial value of SelectedPartitions.
-        // Or used to indicate that the partition pruning is not processed.
-        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false);
-        /**
-         * total partition number
-         */
-        public final long totalPartitionNum;
-        /**
-         * partition name -> partition item
-         */
-        public final Map<String, PartitionItem> selectedPartitions;
-        /**
-         * true means the result is after partition pruning
-         * false means the partition pruning is not processed.
-         */
-        public final boolean isPruned;
-
-        /**
-         * true means the pruning logic found a usable partition predicate.
-         */
-        public final boolean hasPartitionPredicate;
-
-        /**
-         * Constructor for SelectedPartitions.
-         */
-        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
-                boolean isPruned) {
-            this(totalPartitionNum, selectedPartitions, isPruned, false);
-        }
-
-        /**
-         * Constructor for SelectedPartitions.
-         */
-        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
-                boolean isPruned, boolean hasPartitionPredicate) {
-            this.totalPartitionNum = totalPartitionNum;
-            this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
-                    "selectedPartitions is null"));
-            this.isPruned = isPruned;
-            this.hasPartitionPredicate = hasPartitionPredicate;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            SelectedPartitions that = (SelectedPartitions) o;
-            return isPruned == that.isPruned
-                    && hasPartitionPredicate == that.hasPartitionPredicate
-                    && Objects.equals(
-                    selectedPartitions.keySet(), that.selectedPartitions.keySet());
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate);
-        }
-    }
-
     @Override
     public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                partitionSelection, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs)));
     }
 

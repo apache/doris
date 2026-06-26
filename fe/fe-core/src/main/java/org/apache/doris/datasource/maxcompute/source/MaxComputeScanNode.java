@@ -41,7 +41,7 @@ import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -106,7 +106,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private boolean onlyPartitionEqualityPredicate = false;
 
     @Setter
-    private SelectedPartitions selectedPartitions = null;
+    private ExternalPartitionSelection partitionSelection = null;
 
     private static final LocationPath ROW_OFFSET_PATH = LocationPath.of("/row_offset");
     private static final LocationPath BYTE_SIZE_PATH = LocationPath.of("/byte_size");
@@ -114,17 +114,17 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
-            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
+            ExternalPartitionSelection partitionSelection, boolean needCheckColumnPriv,
             SessionVariable sv, ScanContext scanContext) {
-        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv, scanContext);
+        this(id, desc, "MCScanNode", partitionSelection, needCheckColumnPriv, sv, scanContext);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv,
+            ExternalPartitionSelection partitionSelection, boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext) {
         super(id, desc, planNodeName, scanContext, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
-        this.selectedPartitions = selectedPartitions;
+        this.partitionSelection = partitionSelection;
     }
 
     @Override
@@ -224,28 +224,28 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
         return numPartitions > 0
-                && selectedPartitions != SelectedPartitions.NOT_PRUNED
-                && selectedPartitions.selectedPartitions.size() >= numPartitions;
+                && partitionSelection != ExternalPartitionSelection.NOT_PRUNED
+                && partitionSelection.selectedPartitionItems.size() >= numPartitions;
     }
 
     @Override
     public int numApproximateSplits() {
-        return selectedPartitions.selectedPartitions.size();
+        return partitionSelection.selectedPartitionItems.size();
     }
 
     @Override
     public void startSplit(int numBackends) {
-        this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-        this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+        this.totalPartitionNum = partitionSelection.totalPartitionNum;
+        this.selectedPartitionNum = partitionSelection.selectedPartitionItems.size();
 
-        if (selectedPartitions.selectedPartitions.isEmpty()) {
+        if (partitionSelection.selectedPartitionItems.isEmpty()) {
             //no need read any partition data.
             return;
         }
 
         createRequiredColumns();
         List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
-        selectedPartitions.selectedPartitions.forEach(
+        partitionSelection.selectedPartitionItems.forEach(
                 (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
         );
 
@@ -722,15 +722,15 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
         //if requiredPartitionSpecs is empty, get all partition data.
-        if (!table.getPartitionColumns().isEmpty() && selectedPartitions != SelectedPartitions.NOT_PRUNED) {
-            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-            this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+        if (!table.getPartitionColumns().isEmpty() && partitionSelection != ExternalPartitionSelection.NOT_PRUNED) {
+            this.totalPartitionNum = partitionSelection.totalPartitionNum;
+            this.selectedPartitionNum = partitionSelection.selectedPartitionItems.size();
 
-            if (selectedPartitions.selectedPartitions.isEmpty()) {
+            if (partitionSelection.selectedPartitionItems.isEmpty()) {
                 //no need read any partition data.
                 return result;
             }
-            selectedPartitions.selectedPartitions.forEach(
+            partitionSelection.selectedPartitionItems.forEach(
                     (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
             );
         }

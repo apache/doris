@@ -100,7 +100,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected long selectedPartitionNum = 0;
     protected int selectedSplitNum = 0;
-    private boolean hasPartitionPredicate = false;
+    // True when this scan is limited by a partition predicate or explicit partition/tablet selection.
+    private boolean hasPartitionConstraint = false;
 
     // support multi topn filter
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
@@ -204,12 +205,12 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return getTableIf() != null && getTableIf().isPartitionedTable();
     }
 
-    public boolean hasPartitionPredicate() {
-        return hasPartitionPredicate;
+    public boolean hasPartitionConstraint() {
+        return hasPartitionConstraint;
     }
 
-    public void setHasPartitionPredicate(boolean hasPartitionPredicate) {
-        this.hasPartitionPredicate = hasPartitionPredicate;
+    public void setHasPartitionConstraint(boolean hasPartitionConstraint) {
+        this.hasPartitionConstraint = hasPartitionConstraint;
     }
 
     static boolean containsPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,

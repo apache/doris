@@ -33,7 +33,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -250,6 +250,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
                 .getCachedRowCount(catalog.getId(), dbId, id, true);
     }
 
+    public long getRowCountForSelectedPartitions(ExternalPartitionSelection partitionSelection) {
+        return UNKNOWN_ROW_COUNT;
+    }
+
     @Override
     public long getCachedRowCount() {
         // Return -1 if uninitialized.
@@ -431,20 +435,20 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
-     * Retrieve all partitions and initialize SelectedPartitions
+     * Retrieve all partitions and initialize ExternalPartitionSelection
      *
      * @param snapshot if not support mvcc, ignore this
      * @return
      */
-    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+    public ExternalPartitionSelection initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
         if (!supportInternalPartitionPruned()) {
-            return SelectedPartitions.NOT_PRUNED;
+            return ExternalPartitionSelection.NOT_PRUNED;
         }
         if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
-            return SelectedPartitions.NOT_PRUNED;
+            return ExternalPartitionSelection.NOT_PRUNED;
         }
         Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshot);
-        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
+        return new ExternalPartitionSelection(nameToPartitionItems.size(), nameToPartitionItems, false, false);
     }
 
     /**

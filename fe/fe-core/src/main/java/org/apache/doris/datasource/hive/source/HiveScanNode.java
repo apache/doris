@@ -47,7 +47,7 @@ import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -92,8 +92,8 @@ public class HiveScanNode extends FileQueryScanNode {
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
-    // will only be set in Nereids, for lagency planner, it should be null
-    protected SelectedPartitions selectedPartitions = null;
+    // Only set by Nereids; legacy planner leaves it null.
+    protected ExternalPartitionSelection partitionSelection = null;
 
     private DirectoryLister directoryLister;
 
@@ -125,9 +125,9 @@ public class HiveScanNode extends FileQueryScanNode {
         this.directoryLister = directoryLister;
     }
 
-    public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
-        this.selectedPartitions = selectedPartitions;
-        setHasPartitionPredicate(selectedPartitions != null && selectedPartitions.hasPartitionPredicate);
+    public void setPartitionSelection(ExternalPartitionSelection partitionSelection) {
+        this.partitionSelection = partitionSelection;
+        setHasPartitionConstraint(partitionSelection != null && partitionSelection.hasPartitionConstraint);
     }
 
     @Override
@@ -153,10 +153,10 @@ public class HiveScanNode extends FileQueryScanNode {
             if (!partitionColumnTypes.isEmpty()) {
                 // partitioned table
                 Collection<PartitionItem> partitionItems;
-                // partitions has benn pruned by Nereids, in PruneFileScanPartition,
-                // so just use the selected partitions.
-                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-                partitionItems = selectedPartitions.selectedPartitions.values();
+                // Partitions have been pruned by Nereids in PruneFileScanPartition,
+                // so just use the selected partitions from the partition selection.
+                this.totalPartitionNum = partitionSelection.totalPartitionNum;
+                partitionItems = partitionSelection.selectedPartitionItems.values();
                 Preconditions.checkNotNull(partitionItems);
                 this.selectedPartitionNum = partitionItems.size();
 

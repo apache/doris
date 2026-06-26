@@ -329,6 +329,11 @@ public class CascadesContext implements ScheduleContext {
         return statementContext;
     }
 
+    public boolean shouldSkipPrunePredicate() {
+        return getConnectContext().getSessionVariable().skipPrunePredicate
+                || statementContext.isDelete();
+    }
+
     public RuleSet getRuleSet() {
         return ruleSet;
     }

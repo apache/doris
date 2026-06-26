@@ -98,7 +98,7 @@ public class RewriteSimpleAggToConstantRule implements RewriteRuleFactory {
     private Plan tryRewrite(LogicalAggregate<?> agg, LogicalOlapScan olapScan,
             StatementContext statementContext) {
         if (olapScan.isIndexSelected()
-                || !olapScan.getManuallySpecifiedPartitions().isEmpty()
+                || !olapScan.getPartitionSelection().getManuallySpecifiedPartitions().isEmpty()
                 || !olapScan.getManuallySpecifiedTabletIds().isEmpty()
                 || olapScan.getTableSample().isPresent()) {
             return null;

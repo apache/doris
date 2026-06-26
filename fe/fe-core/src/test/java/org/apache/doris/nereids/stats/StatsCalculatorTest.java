@@ -19,8 +19,12 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -38,10 +42,13 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
+import org.apache.doris.nereids.trees.plans.algebra.OlapPartitionSelection;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -57,6 +64,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,6 +76,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -85,6 +94,13 @@ public class StatsCalculatorTest {
                 new LogicalProperties(Collections::emptyList, () -> DataTrait.EMPTY_TRAIT));
         group.getLogicalExpressions().remove(0);
         return group;
+    }
+
+    private SlotReference getSlot(LogicalOlapScan scan, String slotName) {
+        return (SlotReference) scan.getOutput().stream()
+                .filter(slot -> slot.getName().equals(slotName))
+                .findFirst()
+                .get();
     }
 
     @Test
@@ -133,6 +149,257 @@ public class StatsCalculatorTest {
         StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(1448.555,
                 ownerGroupOr.getStatistics().getRowCount(), 0.1);
+    }
+
+    @Test
+    public void testFilterIgnoresRecordedPrunedPredicatesInStats() {
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(10, "t_pruned_stats", 0);
+        SlotReference partitionSlot = getSlot(scan, "id");
+        SlotReference dataSlot = getSlot(scan, "age");
+
+        EqualTo partitionEqual = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        EqualTo dataEqual = new EqualTo(dataSlot, new IntegerLiteral(2));
+        ColumnStatisticBuilder partitionColumnStats = new ColumnStatisticBuilder();
+        partitionColumnStats.setNdv(100);
+        partitionColumnStats.setMinValue(0);
+        partitionColumnStats.setMaxValue(1000);
+        partitionColumnStats.setNumNulls(0);
+        ColumnStatisticBuilder dataColumnStats = new ColumnStatisticBuilder();
+        dataColumnStats.setNdv(10);
+        dataColumnStats.setMinValue(0);
+        dataColumnStats.setMaxValue(1000);
+        dataColumnStats.setNumNulls(0);
+
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(partitionSlot, partitionColumnStats.build());
+        slotColumnStatsMap.put(dataSlot, dataColumnStats.build());
+        Statistics childStats = new StatisticsBuilder(new Statistics(1000, slotColumnStatsMap))
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionEqual))
+                .build();
+
+        GroupExpression scanGroupExpression = new GroupExpression(scan);
+        Group childGroup = new Group(null, scanGroupExpression,
+                new LogicalProperties(scan::getOutput, () -> DataTrait.EMPTY_TRAIT));
+        childGroup.setStatistics(childStats);
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+
+        LogicalFilter<GroupPlan> filter = new LogicalFilter<>(ImmutableSet.of(partitionEqual, dataEqual), groupPlan);
+        GroupExpression filterGroupExpression = new GroupExpression(filter, ImmutableList.of(childGroup));
+        Group ownerGroup = new Group(null, filterGroupExpression, null);
+        StatsCalculator.estimate(filterGroupExpression, null);
+        Assertions.assertEquals(100, ownerGroup.getStatistics().getRowCount(), 0.001);
+
+        LogicalFilter<GroupPlan> partitionOnlyFilter = new LogicalFilter<>(ImmutableSet.of(partitionEqual), groupPlan);
+        GroupExpression partitionOnlyGroupExpression =
+                new GroupExpression(partitionOnlyFilter, ImmutableList.of(childGroup));
+        Group partitionOnlyOwnerGroup = new Group(null, partitionOnlyGroupExpression, null);
+        StatsCalculator.estimate(partitionOnlyGroupExpression, null);
+        Assertions.assertEquals(1000, partitionOnlyOwnerGroup.getStatistics().getRowCount(), 0.001);
+    }
+
+    @Test
+    public void testPartitionSelectionRewritePrunedPartitionConjuncts() {
+        List<String> qualifier = ImmutableList.of("test", "t");
+        SlotReference snapshotSlot = new SlotReference(new ExprId(1), "p_col",
+                IntegerType.INSTANCE, true, qualifier);
+        SlotReference outputSlot = new SlotReference(new ExprId(2), "p_col",
+                IntegerType.INSTANCE, true, qualifier);
+        EqualTo snapshotEqual = new EqualTo(snapshotSlot, new IntegerLiteral(1));
+        EqualTo outputEqual = new EqualTo(outputSlot, new IntegerLiteral(1));
+        ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                10, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true,
+                ImmutableList.of(snapshotSlot), ImmutableSet.of(snapshotEqual));
+
+        Assertions.assertEquals(ImmutableSet.of(outputEqual),
+                partitionSelection.getAppliedPartitionConjuncts(ImmutableList.of(outputSlot)));
+    }
+
+    @Test
+    public void testFilterIgnoresExternalScanPrunedPredicatesInStats() {
+        List<String> qualifier = ImmutableList.of("test", "t");
+        SlotReference partitionSlot = new SlotReference("p_col", IntegerType.INSTANCE, true, qualifier);
+        SlotReference dataSlot = new SlotReference("data_col", IntegerType.INSTANCE, true, qualifier);
+        EqualTo partitionEqual = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        EqualTo dataEqual = new EqualTo(dataSlot, new IntegerLiteral(2));
+        ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                10, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true,
+                ImmutableList.of(partitionSlot), ImmutableSet.of(partitionEqual));
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getPartitionSelection()).thenReturn(partitionSelection);
+        Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(partitionSlot, dataSlot));
+        Mockito.when(scan.getAllChildrenTypes()).thenReturn(new BitSet());
+
+        ColumnStatisticBuilder partitionColumnStats = new ColumnStatisticBuilder();
+        partitionColumnStats.setNdv(100);
+        partitionColumnStats.setMinValue(0);
+        partitionColumnStats.setMaxValue(1000);
+        partitionColumnStats.setNumNulls(0);
+        ColumnStatisticBuilder dataColumnStats = new ColumnStatisticBuilder();
+        dataColumnStats.setNdv(10);
+        dataColumnStats.setMinValue(0);
+        dataColumnStats.setMaxValue(1000);
+        dataColumnStats.setNumNulls(0);
+
+        Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(partitionSlot, partitionColumnStats.build());
+        slotColumnStatsMap.put(dataSlot, dataColumnStats.build());
+        Statistics childStats = new StatisticsBuilder(new Statistics(1000, slotColumnStatsMap))
+                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionEqual))
+                .build();
+
+        StatsCalculator calculator = new StatsCalculator((CascadesContext) null);
+        LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(partitionEqual, dataEqual), scan);
+        Assertions.assertEquals(100, calculator.computeFilter(filter, childStats).getRowCount(), 0.001);
+
+        LogicalFilter<LogicalFileScan> partitionOnlyFilter = new LogicalFilter<>(
+                ImmutableSet.of(partitionEqual), scan);
+        Assertions.assertEquals(1000, calculator.computeFilter(partitionOnlyFilter, childStats).getRowCount(), 0.001);
+    }
+
+    @Test
+    public void testFilterKeepsExternalScanPrunedPredicatesWithoutSelectedPartitionRowCount() {
+        List<String> qualifier = ImmutableList.of("test", "t");
+        SlotReference partitionSlot = new SlotReference("p_col", IntegerType.INSTANCE, true, qualifier);
+        EqualTo partitionEqual = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                10, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true,
+                ImmutableList.of(partitionSlot), ImmutableSet.of(partitionEqual));
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getPartitionSelection()).thenReturn(partitionSelection);
+        Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(partitionSlot));
+        Mockito.when(scan.getAllChildrenTypes()).thenReturn(new BitSet());
+        Mockito.when(table.getRowCountForSelectedPartitions(partitionSelection))
+                .thenReturn(TableIf.UNKNOWN_ROW_COUNT);
+        Mockito.when(table.getRowCount()).thenReturn(1000L);
+
+        ColumnStatisticBuilder partitionColumnStats = new ColumnStatisticBuilder();
+        partitionColumnStats.setNdv(100);
+        partitionColumnStats.setMinValue(0);
+        partitionColumnStats.setMaxValue(1000);
+        partitionColumnStats.setNumNulls(0);
+
+        StatsCalculator calculator = new StatsCalculator((CascadesContext) null);
+        Statistics scanStats = calculator.computeFileScan(scan);
+        Assertions.assertEquals(1000, scanStats.getRowCount(), 0.001);
+        Assertions.assertTrue(scanStats.getConjunctsAppliedToRowCount().isEmpty());
+
+        Statistics childStats = new StatisticsBuilder(scanStats)
+                .putColumnStatistics(partitionSlot, partitionColumnStats.build())
+                .build();
+        LogicalFilter<LogicalFileScan> filter =
+                new LogicalFilter<>(ImmutableSet.of(partitionEqual), scan);
+
+        Assertions.assertEquals(10, calculator.computeFilter(filter, childStats).getRowCount(), 0.001);
+        Mockito.verify(table).getRowCountForSelectedPartitions(partitionSelection);
+        Mockito.verify(table).getRowCount();
+    }
+
+    @Test
+    public void testExternalScanUsesSelectedPartitionRowCount() {
+        boolean enableInternalSchemaDb = FeConstants.enableInternalSchemaDb;
+        try {
+            FeConstants.enableInternalSchemaDb = false;
+            SlotReference slot = new SlotReference("c1", IntegerType.INSTANCE, true,
+                    ImmutableList.of("test", "t"));
+            EqualTo partitionEqual = new EqualTo(slot, new IntegerLiteral(1));
+            ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                    10, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true,
+                    ImmutableList.of(slot), ImmutableSet.of(partitionEqual));
+            ExternalTable table = Mockito.mock(ExternalTable.class);
+            LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+            Mockito.when(scan.getTable()).thenReturn(table);
+            Mockito.when(scan.getPartitionSelection()).thenReturn(partitionSelection);
+            Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slot));
+            Mockito.when(table.getRowCountForSelectedPartitions(partitionSelection)).thenReturn(7L);
+
+            Statistics statistics = new StatsCalculator((CascadesContext) null).computeFileScan(scan);
+
+            Assertions.assertEquals(7, statistics.getRowCount(), 0.001);
+            Assertions.assertEquals(ImmutableSet.of(partitionEqual), statistics.getConjunctsAppliedToRowCount());
+            Mockito.verify(table).getRowCountForSelectedPartitions(partitionSelection);
+            Mockito.verify(table, Mockito.never()).getRowCount();
+        } finally {
+            FeConstants.enableInternalSchemaDb = enableInternalSchemaDb;
+        }
+    }
+
+    @Test
+    public void testExternalScanUsesZeroSelectedPartitionRowCountAsKnown() {
+        boolean enableInternalSchemaDb = FeConstants.enableInternalSchemaDb;
+        try {
+            FeConstants.enableInternalSchemaDb = false;
+            SlotReference slot = new SlotReference("c1", IntegerType.INSTANCE, true,
+                    ImmutableList.of("test", "t"));
+            EqualTo partitionEqual = new EqualTo(slot, new IntegerLiteral(1));
+            ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                    10, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true,
+                    ImmutableList.of(slot), ImmutableSet.of(partitionEqual));
+            ExternalTable table = Mockito.mock(ExternalTable.class);
+            LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+            Mockito.when(scan.getTable()).thenReturn(table);
+            Mockito.when(scan.getPartitionSelection()).thenReturn(partitionSelection);
+            Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slot));
+            Mockito.when(table.getRowCountForSelectedPartitions(partitionSelection)).thenReturn(0L);
+
+            Statistics statistics = new StatsCalculator((CascadesContext) null).computeFileScan(scan);
+
+            Assertions.assertEquals(1, statistics.getRowCount(), 0.001);
+            Assertions.assertEquals(ImmutableSet.of(partitionEqual), statistics.getConjunctsAppliedToRowCount());
+            Mockito.verify(table).getRowCountForSelectedPartitions(partitionSelection);
+            Mockito.verify(table, Mockito.never()).getRowCount();
+        } finally {
+            FeConstants.enableInternalSchemaDb = enableInternalSchemaDb;
+        }
+    }
+
+    @Test
+    public void testOlapScanNormalizePartitionSelectionKeepsPruneState() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        OlapPartitionSelection partitionSelection = new OlapPartitionSelection(
+                ImmutableList.of(Long.MAX_VALUE), false, false, ImmutableList.of());
+
+        LogicalOlapScan normalizedScan = scan.withPartitionSelection(partitionSelection);
+
+        Assertions.assertTrue(normalizedScan.getPartitionSelection().getSelectedPartitionIds().isEmpty());
+        Assertions.assertFalse(normalizedScan.getPartitionSelection().partitionPruned);
+    }
+
+    @Test
+    public void testExternalScanUsesTableRowCountWithoutSelectedPartitionRowCount() {
+        boolean enableInternalSchemaDb = FeConstants.enableInternalSchemaDb;
+        try {
+            FeConstants.enableInternalSchemaDb = false;
+            SlotReference slot = new SlotReference("c1", IntegerType.INSTANCE, true,
+                    ImmutableList.of("test", "t"));
+            EqualTo partitionEqual = new EqualTo(slot, new IntegerLiteral(1));
+            ExternalPartitionSelection partitionSelection = new ExternalPartitionSelection(
+                    10, ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)), true, true,
+                    ImmutableList.of(slot), ImmutableSet.of(partitionEqual));
+            ExternalTable table = Mockito.mock(ExternalTable.class);
+            LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+            Mockito.when(scan.getTable()).thenReturn(table);
+            Mockito.when(scan.getPartitionSelection()).thenReturn(partitionSelection);
+            Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slot));
+            Mockito.when(table.getRowCountForSelectedPartitions(partitionSelection))
+                    .thenReturn(TableIf.UNKNOWN_ROW_COUNT);
+            Mockito.when(table.getRowCount()).thenReturn(100L);
+
+            Statistics statistics = new StatsCalculator((CascadesContext) null).computeFileScan(scan);
+
+            Assertions.assertEquals(100, statistics.getRowCount(), 0.001);
+            Assertions.assertEquals(ImmutableSet.of(partitionEqual),
+                    partitionSelection.getAppliedPartitionConjuncts(ImmutableList.of(slot)));
+            Assertions.assertTrue(statistics.getConjunctsAppliedToRowCount().isEmpty());
+            Mockito.verify(table).getRowCountForSelectedPartitions(partitionSelection);
+            Mockito.verify(table).getRowCount();
+        } finally {
+            FeConstants.enableInternalSchemaDb = enableInternalSchemaDb;
+        }
     }
 
     // a, b are in (0,100)

@@ -279,7 +279,7 @@ public class SqlBlockRuleMgr implements Writable {
      * Check scan limitations whether legal by user.
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality,
-            boolean isPartitionedTable, boolean hasPartitionPredicate, String user) throws AnalysisException {
+            boolean isPartitionedTable, boolean hasPartitionConstraint, String user) throws AnalysisException {
         if (ConnectContext.get().getState().isInternal()) {
             return;
         }
@@ -287,7 +287,7 @@ public class SqlBlockRuleMgr implements Writable {
         for (SqlBlockRule rule : nameToSqlBlockRuleMap.values()) {
             if (rule.getGlobal()) {
                 checkLimitations(rule, partitionNum, tabletNum, cardinality,
-                        isPartitionedTable, hasPartitionPredicate);
+                        isPartitionedTable, hasPartitionConstraint);
             }
         }
         // match user rule
@@ -298,7 +298,7 @@ public class SqlBlockRuleMgr implements Writable {
                 continue;
             }
             checkLimitations(rule, partitionNum, tabletNum, cardinality,
-                    isPartitionedTable, hasPartitionPredicate);
+                    isPartitionedTable, hasPartitionConstraint);
         }
     }
 
@@ -307,12 +307,12 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     @VisibleForTesting
     void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality,
-            boolean isPartitionedTable, boolean hasPartitionPredicate)
+            boolean isPartitionedTable, boolean hasPartitionConstraint)
             throws AnalysisException {
         if (!rule.getEnable()) {
             return;
         }
-        if (Boolean.TRUE.equals(rule.getRequirePartitionFilter()) && isPartitionedTable && !hasPartitionPredicate) {
+        if (Boolean.TRUE.equals(rule.getRequirePartitionFilter()) && isPartitionedTable && !hasPartitionConstraint) {
             MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
             throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", missing partition filter");
         }

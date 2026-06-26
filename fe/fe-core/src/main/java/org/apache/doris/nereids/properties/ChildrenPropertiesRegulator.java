@@ -307,7 +307,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     || candidate.getTable().getDefaultDistributionInfo() == null) {
                 return false;
             } else {
-                int prunedPartNum = candidate.getSelectedPartitionIds().size();
+                int prunedPartNum = candidate.getPartitionSelection().getSelectedPartitionIds().size();
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
                 ConnectContext connectContext = ConnectContext.get();

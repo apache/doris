@@ -449,7 +449,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         }
         planChecker.matches(
                 logicalOlapScan().when(scan -> {
-                    Assertions.assertEquals(expectScanPartitionNum, scan.getSelectedPartitionIds().size());
+                    Assertions.assertEquals(expectScanPartitionNum,
+                            scan.getPartitionSelection().getSelectedPartitionIds().size());
                     return true;
                 })
         );

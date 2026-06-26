@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -55,12 +55,12 @@ public class PhysicalHudiScan extends PhysicalFileScan {
     public PhysicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
-            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
+            ExternalPartitionSelection partitionSelection, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
             Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
-                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams);
+                partitionSelection, tableSample, tableSnapshot, operativeSlots, scanParams);
         Objects.requireNonNull(scanParams, "scanParams should not null");
         Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
         this.incrementalRelation = incrementalRelation;
@@ -72,12 +72,12 @@ public class PhysicalHudiScan extends PhysicalFileScan {
     public PhysicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, SelectedPartitions selectedPartitions,
+            Statistics statistics, ExternalPartitionSelection partitionSelection,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
             Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
-                physicalProperties, statistics, selectedPartitions, tableSample, tableSnapshot,
+                physicalProperties, statistics, partitionSelection, tableSample, tableSnapshot,
                 operativeSlots, scanParams);
         this.incrementalRelation = incrementalRelation;
     }
@@ -93,7 +93,7 @@ public class PhysicalHudiScan extends PhysicalFileScan {
     @Override
     public PhysicalHudiScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalHudiScan(relationId, getTable(), qualifier,
-                distributionSpec, groupExpression, getLogicalProperties(), selectedPartitions, tableSample,
+                distributionSpec, groupExpression, getLogicalProperties(), partitionSelection, tableSample,
                 tableSnapshot, scanParams, incrementalRelation, operativeSlots));
     }
 
@@ -101,7 +101,7 @@ public class PhysicalHudiScan extends PhysicalFileScan {
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalHudiScan(relationId, getTable(), qualifier,
-                distributionSpec, groupExpression, logicalProperties.get(), selectedPartitions, tableSample,
+                distributionSpec, groupExpression, logicalProperties.get(), partitionSelection, tableSample,
                 tableSnapshot, scanParams, incrementalRelation, operativeSlots));
     }
 
@@ -110,7 +110,7 @@ public class PhysicalHudiScan extends PhysicalFileScan {
             Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalHudiScan(relationId, getTable(), qualifier,
                 distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation, operativeSlots));
+                partitionSelection, tableSample, tableSnapshot, scanParams, incrementalRelation, operativeSlots));
     }
 
     @Override
@@ -125,7 +125,7 @@ public class PhysicalHudiScan extends PhysicalFileScan {
                 "output", getOutput(),
                 "stats", statistics,
                 "selected partitions num",
-                selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
+                partitionSelection.partitionPruned ? partitionSelection.selectedPartitionItems.size() : "unknown",
                 "isIncremental", incrementalRelation.isPresent()
         );
     }

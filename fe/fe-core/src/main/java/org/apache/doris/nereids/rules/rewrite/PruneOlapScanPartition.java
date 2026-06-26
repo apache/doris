@@ -36,7 +36,6 @@ import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.Partition
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -49,7 +48,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -68,9 +66,9 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalOlapScan()
-                    .when(scan -> !scan.isPartitionPruned()
+                    .when(scan -> !scan.getPartitionSelection().partitionPruned
                             && (!scan.getManuallySpecifiedTabletIds().isEmpty()
-                            || !scan.getManuallySpecifiedPartitions().isEmpty())
+                            || !scan.getPartitionSelection().getManuallySpecifiedPartitions().isEmpty())
                             && scan.getTable().isPartitionedTable()
                     )
                     .thenApply(ctx -> {
@@ -81,7 +79,8 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         return prunePartition(scan, table, null, ctx).first;
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
                 logicalFilter(logicalOlapScan()
-                    .when(scan -> !scan.isPartitionPruned() && scan.getTable().isPartitionedTable()))
+                    .when(scan -> !scan.getPartitionSelection().partitionPruned
+                            && scan.getTable().isPartitionedTable()))
                     .thenApply(ctx -> {
                         // Case2: sql with filter condition, e.g. SELECT * FROM tbl (${tabletID}) WHERE part_column='x'
                         LogicalFilter<LogicalOlapScan> filter = ctx.root;
@@ -96,25 +95,17 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
                         }
-                        boolean skipPrunePredicate = ctx.connectContext.getSessionVariable().skipPrunePredicate
-                                || ctx.statementContext.isDelete();
-                        if (!skipPrunePredicate && prunedRes.second.isPresent()) {
-                            // Defer the predicate removal to PlanPostProcessor so that materialized-view
-                            // rewrite still sees the original predicates. Otherwise, partition predicates
-                            // that are equivalent to the surviving partition list would be silently
-                            // dropped, leading to wrong results when an MV definition predicate matches
-                            // the remaining conjuncts.
+                        if (prunedRes.second.isPresent()) {
+                            // Keep the applied predicate for stats. Physical predicate removal is handled
+                            // later by PlanPostProcessor, and may be skipped for DELETE/session settings.
                             LogicalOlapScan prunedScan = (LogicalOlapScan) rewrittenLogicalRelation;
                             Set<Expression> prunableConjuncts = ExpressionUtils.extractConjunctionToSet(
                                     prunedRes.second.get());
                             List<Slot> partitionSlots = getPartitionSlots(prunedScan, prunedScan.getTable());
                             if (partitionSlots != null) {
-                                PartitionPrunablePredicate entry = new PartitionPrunablePredicate(
-                                        new HashSet<>(prunedScan.getSelectedPartitionIds()),
-                                        partitionSlots,
-                                        prunableConjuncts);
-                                rewrittenLogicalRelation = prunedScan.withPartitionPrunablePredicates(
-                                        Optional.of(entry));
+                                rewrittenLogicalRelation = prunedScan.withPartitionSelection(
+                                        prunedScan.getPartitionSelection().withAppliedPartitionConjuncts(
+                                                partitionSlots, prunableConjuncts));
                             }
                         }
                         return filter.withChildren(ImmutableList.of(rewrittenLogicalRelation));
@@ -137,12 +128,13 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                 ConnectContext.get().getStatementContext().getNextRelationId(),
                 ctx.root.getOutput()), Optional.empty());
         }
-        boolean hasPartitionPredicate = prunedPartitionsByFilters.hasPartitionPredicate
-                || !scan.getManuallySpecifiedPartitions().isEmpty()
+        boolean hasPartitionConstraint = prunedPartitionsByFilters.partitionPredicatePruned
+                || !scan.getPartitionSelection().getManuallySpecifiedPartitions().isEmpty()
                 || !scan.getManuallySpecifiedTabletIds().isEmpty();
-        return Pair.of(scan.withSelectedPartitionIds(prunedPartitions,
-                hasPartitionPredicate),
-                prunedPartitionsByFilters.prunedPartitionPredicate);
+        return Pair.of(scan.withPartitionSelection(
+                        scan.getPartitionSelection().withPartitionPruneResult(
+                                prunedPartitions, hasPartitionConstraint)),
+                prunedPartitionsByFilters.appliedPartitionPredicate);
     }
 
     private PartitionPruneResult<Long> prunePartitionByFilters(LogicalOlapScan scan,
@@ -160,7 +152,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         PartitionInfo partitionInfo = table.getPartitionInfo();
         NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager = Env.getCurrentEnv()
                 .getSortedPartitionsCacheManager();
-        List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
+        List<Long> manuallySpecifiedPartitions = scan.getPartitionSelection().getManuallySpecifiedPartitions();
         Map<Long, PartitionItem> idToPartitions;
         Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
         if (manuallySpecifiedPartitions.isEmpty()) {

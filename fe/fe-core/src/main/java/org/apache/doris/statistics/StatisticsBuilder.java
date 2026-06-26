@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -32,6 +33,7 @@ public class StatisticsBuilder {
     private double deltaRowCount = 0.0;
 
     private boolean isFromHbo = false;
+    private final Set<Expression> conjunctsAppliedToRowCount = new LinkedHashSet<>();
 
     public StatisticsBuilder() {
         this.expressionToColumnStats = new HashMap<>();
@@ -44,6 +46,7 @@ public class StatisticsBuilder {
         this.expressionToColumnStats = new HashMap<>();
         this.expressionToColumnStats.putAll(statistics.columnStatistics());
         this.isFromHbo = statistics.isFromHbo();
+        this.conjunctsAppliedToRowCount.addAll(statistics.getConjunctsAppliedToRowCount());
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {
@@ -58,6 +61,12 @@ public class StatisticsBuilder {
 
     public StatisticsBuilder setDeltaRowCount(double deltaRowCount) {
         this.deltaRowCount = deltaRowCount;
+        return this;
+    }
+
+    public StatisticsBuilder setConjunctsAppliedToRowCount(Set<Expression> conjunctsAppliedToRowCount) {
+        this.conjunctsAppliedToRowCount.clear();
+        this.conjunctsAppliedToRowCount.addAll(conjunctsAppliedToRowCount);
         return this;
     }
 
@@ -77,6 +86,7 @@ public class StatisticsBuilder {
     }
 
     public Statistics build() {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo,
+                conjunctsAppliedToRowCount);
     }
 }

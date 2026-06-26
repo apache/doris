@@ -31,7 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.algebra.ExternalPartitionSelection;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -97,7 +97,7 @@ public class MaxComputeScanNodeTest {
 
         sv = new SessionVariable();
         node = new MaxComputeScanNode(new PlanNodeId(0), desc,
-                SelectedPartitions.NOT_PRUNED, false, sv, ScanContext.EMPTY);
+                ExternalPartitionSelection.NOT_PRUNED, false, sv, ScanContext.EMPTY);
     }
 
     // ==================== Reflection Helpers ====================
