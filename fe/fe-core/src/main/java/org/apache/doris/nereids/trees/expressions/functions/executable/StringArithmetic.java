@@ -441,28 +441,6 @@ public class StringArithmetic {
      * Executable arithmetic functions ConcatWs
      */
     @ExecFunction(name = "concat_ws")
-    public static Expression concatWsVarcharLiteral(StringLikeLiteral first, Literal... second) {
-        StringBuilder sb = new StringBuilder();
-        boolean hasValue = false;
-        for (Literal value : second) {
-            if (value instanceof ArrayLiteral) {
-                throw new AnalysisException("Unsupported concat_ws array varargs to fold const by fe");
-            }
-            if (!(value instanceof NullLiteral)) {
-                if (hasValue) {
-                    sb.append(first.getValue());
-                }
-                sb.append(value.getValue());
-                hasValue = true;
-            }
-        }
-        return castStringLikeLiteral(first, sb.toString());
-    }
-
-    /**
-     * Executable arithmetic functions ConcatWs
-     */
-    @ExecFunction(name = "concat_ws")
     public static Expression concatWsVarcharVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.length; i++) {
@@ -577,8 +555,10 @@ public class StringArithmetic {
     }
 
     private static int compareFloatLiteral(FloatLiteral first, FloatLiteral... second) {
+        float firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
-            if (second[i].getValue() == first.getValue()) {
+            float secondValue = second[i].getValue();
+            if (secondValue == firstValue) {
                 return i + 1;
             }
         }
@@ -586,8 +566,10 @@ public class StringArithmetic {
     }
 
     private static int compareDoubleLiteral(DoubleLiteral first, DoubleLiteral... second) {
+        double firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
-            if (second[i].getValue() == first.getValue()) {
+            double secondValue = second[i].getValue();
+            if (secondValue == firstValue) {
                 return i + 1;
             }
         }
@@ -691,12 +673,23 @@ public class StringArithmetic {
     }
 
     private static int findStringInSet(String target, String input) {
-        String[] split = input.split(",", -1);
-        for (int i = 0; i < split.length; i++) {
-            if (split[i].equals(target)) {
-                return i + 1;
-            }
+        if (target.indexOf(',') >= 0) {
+            return 0;
         }
+
+        int tokenIndex = 1;
+        int start = 0;
+        do {
+            int end = start;
+            while (end < input.length() && input.charAt(end) != ',') {
+                ++end;
+            }
+            if (input.substring(start, end).equals(target)) {
+                return tokenIndex;
+            }
+            start = end + 1;
+            ++tokenIndex;
+        } while (start < input.length());
         return 0;
     }
 
