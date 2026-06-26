@@ -336,7 +336,7 @@ class SuiteContext implements Closeable {
     String getSparkIcebergJdbcUrl() {
         String sparkHost = config.otherConfigs.get("externalEnvIp")
         String sparkPort = config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
-        return "jdbc:hive2://${sparkHost}:${sparkPort}/;auth=noSasl"
+        return "jdbc:hive2://${sparkHost}:${sparkPort}/default"
     }
 
     Connection getConnectionByDB2DockerConfig() {

@@ -19,7 +19,7 @@
 export SPARK_MASTER_HOST=doris--spark-iceberg
 
 # wait iceberg-rest start
-while [[ ! $(curl -s --fail http://rest:8181/v1/config) ]]; do
+while ! curl -s --fail http://rest:8181/v1/config >/dev/null; do
     sleep 1
 done
 
@@ -68,16 +68,29 @@ END_TIME3=$(date +%s)
 EXECUTION_TIME3=$((END_TIME3 - START_TIME3))
 echo "Script iceberg load total: {} executed in $EXECUTION_TIME3 seconds"
 
+spark-sql \
+  --master spark://doris--spark-iceberg:7077 \
+  --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
+  -e "CREATE DATABASE IF NOT EXISTS demo.default"
+
 start-thriftserver.sh \
   --master spark://doris--spark-iceberg:7077 \
   --conf "spark.sql.extensions=${SPARK_THRIFT_EXTENSIONS}" \
   --driver-java-options "-Dderby.system.home=/tmp/derby"
 
+SPARK_THRIFT_READY_ATTEMPTS=0
 while ! beeline \
-  -u "jdbc:hive2://localhost:10000/;auth=noSasl" \
+  -u "jdbc:hive2://localhost:10000/default" \
   -n hadoop \
   -p hadoop \
   -e "SELECT 1" >/tmp/spark-thriftserver-ready.log 2>&1; do
+    SPARK_THRIFT_READY_ATTEMPTS=$((SPARK_THRIFT_READY_ATTEMPTS + 1))
+    if [ "${SPARK_THRIFT_READY_ATTEMPTS}" -ge 120 ]; then
+      echo "ERROR: Spark thriftserver did not become ready after ${SPARK_THRIFT_READY_ATTEMPTS} attempts" >&2
+      cat /tmp/spark-thriftserver-ready.log >&2 || true
+      tail -n 200 /opt/spark/logs/*HiveThriftServer2*.out >&2 || true
+      exit 1
+    fi
     sleep 1
 done
 
