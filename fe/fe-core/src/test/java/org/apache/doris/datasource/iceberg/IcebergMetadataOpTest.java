@@ -142,7 +142,8 @@ public class IcebergMetadataOpTest {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put(CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION, "3");
         IcebergExternalCatalog dorisCatalog = mockHmsCatalog(catalogProps);
-        Catalog icebergCatalog = Mockito.mock(Catalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
 
         ExternalDatabase<?> dorisDb = Mockito.mock(ExternalDatabase.class);
@@ -168,7 +169,7 @@ public class IcebergMetadataOpTest {
         Mockito.verify(icebergCatalog).createTable(Mockito.eq(TableIdentifier.of("db", "tbl")),
                 Mockito.any(Schema.class), Mockito.any(PartitionSpec.class), propsCaptor.capture());
         Assert.assertFalse(propsCaptor.getValue().containsKey(TableProperties.FORMAT_VERSION));
-        Assert.assertEquals("3", IcebergUtils.getEffectiveIcebergFormatVersion(
+        Assert.assertEquals(3, IcebergUtils.getEffectiveIcebergFormatVersion(
                 propsCaptor.getValue(), catalogProps));
     }
 
