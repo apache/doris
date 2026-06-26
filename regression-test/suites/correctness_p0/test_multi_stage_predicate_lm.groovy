@@ -219,14 +219,98 @@ suite("test_multi_stage_predicate_lm", "p0") {
         LIMIT 10;
     """
 
-    // Invalid stage1 cols should fail when the feature is enabled.
-    test {
-        sql """
-            SELECT /*+ SET_VAR(enable_multi_stage_predicate_lm=true,predicate_lm_stage1_cols='not_exist') */
-                   count(*)
-            FROM ${tbl}
-            WHERE a = 1 AND b = 2;
-        """
-        exception("predicate_lm_stage1_cols contains non-existing columns")
-    }
+    // Unknown stage1 cols should be ignored (do not fail the query).
+    def invalidStage1ColsRes = sql """
+        SELECT /*+ SET_VAR(enable_multi_stage_predicate_lm=true,predicate_lm_stage1_cols='not_exist') */
+               count(*)
+        FROM ${tbl}
+        WHERE a = 1 AND b = 2;
+    """
+    assertEquals("3", invalidStage1ColsRes[0][0].toString())
+
+    // Qualified stage1 cols: support `table.col` and `db.table.col` scoping
+    def tblQual = "tbl_multi_stage_predicate_lm_qual"
+
+    sql """ DROP TABLE IF EXISTS ${tblQual} """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tblQual} (
+            `k` INT NOT NULL,
+            `a` INT NULL,
+            `b` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+        );
+    """
+
+    // Make `a` non-selective and `b` selective to differentiate stage1 choice.
+    // Rows: 10000, a is always 1, b alternates 0/1.
+    sql """
+        INSERT INTO ${tblQual}
+        SELECT
+            number AS k,
+            1 AS a,
+            number % 2 AS b
+        FROM numbers("number" = "10000");
+    """
+
+    def currentDbRes = sql """ SELECT database(); """
+    def currentDb = currentDbRes[0][0].toString()
+
+    // table-qualified matches current table => stage1=b (survival_ratio ~= 0.5) => stage2-by-rowids
+    sql """ set predicate_lm_stage1_survival_ratio_threshold = 0.8; """
+    sql """ set predicate_lm_stage1_cols = '${tblQual}.b'; """
+
+    def tokenTableQualified = "test_multi_stage_predicate_lm_table_qualified_" + System.currentTimeMillis()
+    def cntTableQualified = sql """ SELECT /* ${tokenTableQualified} */ count(*) FROM ${tblQual} WHERE a = 1 AND b = 0; """
+    assertEquals("5000", cntTableQualified[0][0].toString())
+
+    def profileTableQualified = getProfileWithToken(tokenTableQualified)
+    def metricsTableQualified = extractProfileBlockMetrics(profileTableQualified, "SegmentIterator")
+    assertTrue(metricsTableQualified.containsKey("PredicateLMStage2ByRowIdsBatches"),
+            "Profile missing PredicateLMStage2ByRowIdsBatches\n" + profileTableQualified)
+    assertTrue(parseLongOrZero(metricsTableQualified["PredicateLMStage2ByRowIdsBatches"]) > 0,
+            "Expected stage2-by-rowids for table-qualified stage1 cols but got: "
+                    + metricsTableQualified.toString() + "\n" + profileTableQualified)
+
+    // mismatched table qualifier should be ignored => default stage1=a (survival_ratio ~= 1.0) => stage2-by-all-rows
+    sql """ set predicate_lm_stage1_cols = 'other_tbl.b'; """
+
+    def tokenTableMismatch = "test_multi_stage_predicate_lm_table_mismatch_" + System.currentTimeMillis()
+    def cntTableMismatch = sql """ SELECT /* ${tokenTableMismatch} */ count(*) FROM ${tblQual} WHERE a = 1 AND b = 0; """
+    assertEquals("5000", cntTableMismatch[0][0].toString())
+
+    def profileTableMismatch = getProfileWithToken(tokenTableMismatch)
+    def metricsTableMismatch = extractProfileBlockMetrics(profileTableMismatch, "SegmentIterator")
+    assertTrue(metricsTableMismatch.containsKey("PredicateLMStage2ByAllRowsBatches"),
+            "Profile missing PredicateLMStage2ByAllRowsBatches\n" + profileTableMismatch)
+    assertTrue(parseLongOrZero(metricsTableMismatch["PredicateLMStage2ByAllRowsBatches"]) > 0,
+            "Expected stage2-by-all-rows for mismatched table-qualified stage1 cols but got: "
+                    + metricsTableMismatch.toString() + "\n" + profileTableMismatch)
+
+    // db.table-qualified matches current db/table => stage1=b => stage2-by-rowids
+    sql """ set predicate_lm_stage1_cols = '${currentDb}.${tblQual}.b'; """
+
+    def tokenDbTableQualified = "test_multi_stage_predicate_lm_db_table_qualified_" + System.currentTimeMillis()
+    def cntDbTableQualified = sql """ SELECT /* ${tokenDbTableQualified} */ count(*) FROM ${tblQual} WHERE a = 1 AND b = 0; """
+    assertEquals("5000", cntDbTableQualified[0][0].toString())
+
+    def profileDbTableQualified = getProfileWithToken(tokenDbTableQualified)
+    def metricsDbTableQualified = extractProfileBlockMetrics(profileDbTableQualified, "SegmentIterator")
+    assertTrue(metricsDbTableQualified.containsKey("PredicateLMStage2ByRowIdsBatches"),
+            "Profile missing PredicateLMStage2ByRowIdsBatches\n" + profileDbTableQualified)
+    assertTrue(parseLongOrZero(metricsDbTableQualified["PredicateLMStage2ByRowIdsBatches"]) > 0,
+            "Expected stage2-by-rowids for db.table-qualified stage1 cols but got: "
+                    + metricsDbTableQualified.toString() + "\n" + profileDbTableQualified)
+
+    // Reset for cleanliness
+    sql """ set predicate_lm_stage1_cols = ''; """
+    sql """ set enable_multi_stage_predicate_lm = false; """
+    sql """ set predicate_lm_stage1_survival_ratio_threshold = 0.8; """
+    sql """ set enable_profile = false; """
+
 }

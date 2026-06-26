@@ -240,7 +240,10 @@ Status OlapScanner::_prepare_impl() {
             if (qopts.__isset.predicate_lm_stage1_cols && !qopts.predicate_lm_stage1_cols.empty()) {
                 std::vector<ColumnId> stage1_column_ids;
                 RETURN_IF_ERROR(parse_predicate_lm_stage1_cols_to_column_ids(
-                        qopts.predicate_lm_stage1_cols, tablet_schema, &stage1_column_ids));
+                        qopts.predicate_lm_stage1_cols, tablet_schema,
+                        olap_scan_node.__isset.db_name ? std::string_view(olap_scan_node.db_name)
+                                                       : std::string_view(),
+                        olap_scan_node.table_name, &stage1_column_ids));
                 _tablet_reader_params.predicate_lm_stage1_column_ids = std::move(stage1_column_ids);
             }
         }

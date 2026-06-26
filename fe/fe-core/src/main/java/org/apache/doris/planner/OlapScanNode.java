@@ -1317,6 +1317,7 @@ public class OlapScanNode extends ScanNode {
             tableName = tableName + "(" + getSelectedIndexName() + ")";
         }
         msg.olap_scan_node.setTableName(tableName);
+        msg.olap_scan_node.setDbName(olapTable.getQualifiedDbName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         // Set MOR value predicate pushdown flag based on session variable
