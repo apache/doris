@@ -21,12 +21,16 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -40,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -85,10 +90,12 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .build();
 
     private final LabelNameInfo labelNameInfo;
+    private final String targetTableName;
     private final Map<String, LoadProperty> loadPropertyMap;
     private RoutineLoadDesc routineLoadDesc;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
+    private long targetTableId;
     private boolean isPartialUpdate;
 
     // save analyzed job properties.
@@ -100,6 +107,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
      * AlterRoutineLoadCommand
      */
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
+                                   String targetTableName,
                                    Map<String, LoadProperty> loadPropertyMap,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
@@ -108,6 +116,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         Objects.requireNonNull(jobProperties, "jobProperties is null");
         Objects.requireNonNull(dataSourceMapProperties, "dataSourceMapProperties is null");
         this.labelNameInfo = labelNameInfo;
+        this.targetTableName = targetTableName;
         this.loadPropertyMap = loadPropertyMap == null ? Maps.newHashMap() : loadPropertyMap;
         this.jobProperties = jobProperties;
         this.dataSourceMapProperties = dataSourceMapProperties;
@@ -118,7 +127,11 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
-        this(labelNameInfo, Maps.newHashMap(), jobProperties, dataSourceMapProperties);
+        this(labelNameInfo, null, Maps.newHashMap(), jobProperties, dataSourceMapProperties);
+    }
+
+    public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo, String targetTableName) {
+        this(labelNameInfo, targetTableName, Maps.newHashMap(), Maps.newHashMap(), Maps.newHashMap());
     }
 
     public String getDbName() {
@@ -131,6 +144,18 @@ public class AlterRoutineLoadCommand extends AlterCommand {
 
     public Map<String, String> getAnalyzedJobProperties() {
         return analyzedJobProperties;
+    }
+
+    public boolean hasTargetTable() {
+        return !StringUtil.isEmpty(targetTableName);
+    }
+
+    public String getTargetTableName() {
+        return targetTableName;
+    }
+
+    public long getTargetTableId() {
+        return targetTableId;
     }
 
     public boolean hasDataSourceProperty() {
@@ -161,18 +186,27 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     public void validate(ConnectContext ctx) throws UserException {
         labelNameInfo.validate(ctx);
         FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
+        if (hasTargetTable() && (MapUtils.isNotEmpty(loadPropertyMap) || MapUtils.isNotEmpty(jobProperties)
+                || MapUtils.isNotEmpty(dataSourceMapProperties))) {
+            throw new AnalysisException("ALTER ROUTINE LOAD target table change does not support other properties");
+        }
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check load properties
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getJobName());
-        this.routineLoadDesc = CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
-                job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
+        if (MapUtils.isNotEmpty(loadPropertyMap)) {
+            this.routineLoadDesc = CreateRoutineLoadInfo.checkLoadProperties(ctx, loadPropertyMap,
+                    job.getDbFullName(), job.getTableName(), job.isMultiTable(), job.getMergeType());
+        }
         // check data source properties
         checkDataSourceProperties();
+        if (hasTargetTable()) {
+            validateTargetTable(ctx, job);
+        }
         checkPartialUpdate();
         if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)
-                && routineLoadDesc == null) {
+                && MapUtils.isEmpty(loadPropertyMap) && !hasTargetTable()) {
             throw new AnalysisException("No properties are specified");
         }
     }
@@ -333,15 +367,42 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             return;
         }
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                .getJob(getDbName(), getDbName());
+                .getJob(getDbName(), getJobName());
         if (job.isMultiTable()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
-        Table table = db.getTableOrAnalysisException(job.getTableName());
+        String tableName = hasTargetTable() ? targetTableName : job.getTableName();
+        Table table = db.getTableOrAnalysisException(tableName);
         if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
+    }
+
+    private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job) throws UserException {
+        if (job.isMultiTable()) {
+            throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
+        Table table = db.getTableOrAnalysisException(targetTableName);
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("ALTER ROUTINE LOAD target table only supports OLAP table");
+        }
+        OlapTable olapTable = (OlapTable) table;
+        if (olapTable.isTemporary()) {
+            throw new AnalysisException("Do not support load for temporary table " + olapTable.getDisplayName());
+        }
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                job.getDbFullName(), targetTableName, PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(), job.getDbFullName() + ": " + targetTableName);
+        }
+        if (job.isLoadToSingleTablet()
+                && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
+            throw new AnalysisException("if load_to_single_tablet set to true, the olap table must be with random distribution");
+        }
+        job.validateTargetTable(db, olapTable);
+        this.targetTableId = olapTable.getId();
     }
 
     @Override

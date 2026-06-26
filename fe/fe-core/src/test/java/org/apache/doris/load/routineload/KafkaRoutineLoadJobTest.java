@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 
@@ -413,6 +414,24 @@ public class KafkaRoutineLoadJobTest {
             Assert.assertEquals(kafkaPartitionString, Joiner.on(",").join(kafkaPartitionResult));
             Assert.assertEquals(sequenceColumnName, kafkaRoutineLoadJob.getSequenceCol());
         }
+    }
+
+    @Test
+    public void testReplayModifyPropertiesSwitchesTargetTableWithoutResettingProgress() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                101L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<Integer, Long> partitionToOffset = Maps.newHashMap();
+        partitionToOffset.put(1, 123L);
+        KafkaProgress progress = new KafkaProgress(partitionToOffset);
+        Deencapsulation.setField(routineLoadJob, "progress", progress);
+
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(1L,
+                Maps.newHashMap(), null, 202L);
+        routineLoadJob.replayModifyProperties(log);
+
+        Assert.assertEquals(202L, routineLoadJob.getTableId());
+        Assert.assertSame(progress, routineLoadJob.getProgress());
+        Assert.assertEquals(Long.valueOf(123L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
     }
 
     private CreateRoutineLoadInfo initCreateRoutineLoadInfo() {

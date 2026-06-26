@@ -19,14 +19,18 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -86,4 +90,63 @@ public class AlterRoutineLoadOperationLogTest {
     }
 
 
+    @Test
+    public void testSerializeAlterRoutineLoadOperationLogWithTargetTableId() throws Exception {
+        long jobId = 1000;
+        long targetTableId = 2001;
+        Map<String, String> jobProperties = Maps.newHashMap();
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("property.group.id", "mygroup");
+        KafkaDataSourceProperties routineLoadDataSourceProperties = new KafkaDataSourceProperties(
+                dataSourceProperties);
+        routineLoadDataSourceProperties.setAlter(true);
+        routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
+        routineLoadDataSourceProperties.analyze();
+
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId, jobProperties,
+                routineLoadDataSourceProperties, targetTableId);
+
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
+            log.write(out);
+        }
+
+        AlterRoutineLoadJobOperationLog readLog;
+        try (DataInputStream in = new DataInputStream(
+                new ByteArrayInputStream(byteArrayOutputStream.toByteArray()))) {
+            readLog = AlterRoutineLoadJobOperationLog.read(in);
+        }
+
+        Assert.assertEquals(targetTableId, readLog.getTargetTableId());
+    }
+
+    @Test
+    public void testDeserializeAlterRoutineLoadOperationLogWithoutTargetTableId() throws Exception {
+        long jobId = 1000;
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("property.group.id", "mygroup");
+        KafkaDataSourceProperties routineLoadDataSourceProperties = new KafkaDataSourceProperties(
+                dataSourceProperties);
+        routineLoadDataSourceProperties.setAlter(true);
+        routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
+        routineLoadDataSourceProperties.analyze();
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
+                jobProperties, routineLoadDataSourceProperties, 0L);
+        String legacyJson = GsonUtils.GSON.toJson(log).replace(",\"targetTableId\":0", "");
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(byteArrayOutputStream)) {
+            Text.writeString(out, legacyJson);
+        }
+
+        AlterRoutineLoadJobOperationLog readLog;
+        try (DataInputStream in = new DataInputStream(
+                new ByteArrayInputStream(byteArrayOutputStream.toByteArray()))) {
+            readLog = AlterRoutineLoadJobOperationLog.read(in);
+        }
+
+        Assert.assertEquals(0L, readLog.getTargetTableId());
+        Assert.assertEquals("5", readLog.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+    }
 }

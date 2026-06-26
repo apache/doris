@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -292,6 +293,196 @@ suite("test_routine_load_alter","p0") {
         } finally {
             sql "stop routine load for ${jobName}"
             sql "truncate table ${tableName}"
+        }
+
+        // test alter target table
+        def srcTableName = "test_routine_load_alter_src"
+        def dstTableName = "test_routine_load_alter_dst"
+        def alterTargetTopic = "test_routine_load_alter_target_table_${System.currentTimeMillis()}"
+        def alterTargetJob = "test_alter_target_table_${System.currentTimeMillis()}"
+        def alterTopicProducer = null
+        def alterTopicAdmin = null
+        try {
+            sql """ DROP TABLE IF EXISTS ${srcTableName} """
+            sql """ DROP TABLE IF EXISTS ${dstTableName} """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${srcTableName} (
+                    `k1` int(20) NULL,
+                    `k2` string NULL,
+                    `v1` date  NULL,
+                    `v2` string  NULL,
+                    `v3` datetime  NULL,
+                    `v4` string  NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                COMMENT 'OLAP'
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+            """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${dstTableName} (
+                    `k1` int(20) NULL,
+                    `k2` string NULL,
+                    `v1` date  NULL,
+                    `v2` string  NULL,
+                    `v3` datetime  NULL,
+                    `v4` string  NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                COMMENT 'OLAP'
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+                PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+            """
+            sql "sync"
+
+            def topicProps = new Properties()
+            topicProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+            alterTopicAdmin = AdminClient.create(topicProps)
+            alterTopicAdmin.createTopics([new NewTopic(alterTargetTopic, 1, (short) 1)]).all().get()
+
+            def producerProps = new Properties()
+            producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+            producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                    "org.apache.kafka.common.serialization.StringSerializer")
+            producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                    "org.apache.kafka.common.serialization.StringSerializer")
+            producerProps.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")
+            producerProps.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+            alterTopicProducer = new KafkaProducer<>(producerProps)
+
+            def firstBatch = new File("""${context.file.parent}/data/${kafkaCsvTpoics[0]}.csv""").readLines()
+            firstBatch.each { line ->
+                alterTopicProducer.send(new ProducerRecord<>(alterTargetTopic, null, line)).get()
+            }
+            alterTopicProducer.flush()
+
+            sql """
+                CREATE ROUTINE LOAD ${alterTargetJob} ON ${srcTableName}
+                COLUMNS TERMINATED BY ","
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${alterTargetTopic}",
+                    "kafka_partitions" = "0",
+                    "kafka_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql "sync"
+
+            count = 0
+            while (true) {
+                def res = sql "select count(*) from ${srcTableName}"
+                def state = sql "show routine load for ${alterTargetJob}"
+                log.info("routine load state: ${state[0][8].toString()}".toString())
+                log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                if (res[0][0] >= 3) {
+                    break
+                }
+                if (count >= 120) {
+                    log.error("routine load can not visible for long time")
+                    assertEquals(3, res[0][0])
+                    break
+                }
+                sleep(1000)
+                count++
+            }
+
+            sql "pause routine load for ${alterTargetJob}"
+            def showBeforeAlter = sql "show routine load for ${alterTargetJob}"
+            assertEquals(srcTableName, showBeforeAlter[0][6].toString())
+            def progressBeforeAlter = showBeforeAlter[0][15].toString()
+
+            sql "ALTER ROUTINE LOAD FOR ${alterTargetJob} ON ${dstTableName}"
+
+            def showAfterAlter = sql "show routine load for ${alterTargetJob}"
+            assertEquals(dstTableName, showAfterAlter[0][6].toString())
+            assertEquals(progressBeforeAlter, showAfterAlter[0][15].toString())
+
+            def secondBatch = [
+                "4,eab,2023-07-16,def,2023-07-21:05:48:31,ghi",
+                "5,eab,2023-07-17,def,2023-07-22:05:48:31,ghi",
+                "6,eab,2023-07-18,def,2023-07-23:05:48:31,ghi"
+            ]
+            secondBatch.each { line ->
+                alterTopicProducer.send(new ProducerRecord<>(alterTargetTopic, null, line)).get()
+            }
+            alterTopicProducer.flush()
+
+            sql "resume routine load for ${alterTargetJob}"
+
+            count = 0
+            def stableCount = 0
+            while (true) {
+                def srcCount = sql "select count(*) from ${srcTableName}"
+                def dstCount = sql "select count(*) from ${dstTableName}"
+                long srcCountValue = (srcCount[0][0] as Number).longValue()
+                long dstCountValue = (dstCount[0][0] as Number).longValue()
+                log.info("src count: ${srcCountValue}".toString())
+                log.info("dst count: ${dstCountValue}".toString())
+                if (srcCountValue == 3 && dstCountValue == 3) {
+                    stableCount++
+                    if (stableCount >= 5) {
+                        sleep(2000)
+                        def finalSrcCount = sql "select count(*) from ${srcTableName}"
+                        def finalDstCount = sql "select count(*) from ${dstTableName}"
+                        assertEquals(3L, (finalSrcCount[0][0] as Number).longValue())
+                        assertEquals(3L, (finalDstCount[0][0] as Number).longValue())
+                        break
+                    }
+                } else {
+                    stableCount = 0
+                    if (srcCountValue > 3 || dstCountValue > 3) {
+                        assertEquals(3L, srcCountValue)
+                        assertEquals(3L, dstCountValue)
+                    }
+                }
+                if (count >= 120) {
+                    log.error("routine load target table alter can not visible for long time")
+                    assertEquals(3L, srcCountValue)
+                    assertEquals(3L, dstCountValue)
+                    break
+                }
+                sleep(1000)
+                count++
+            }
+
+            def srcRows = sql "select k1, k2 from ${srcTableName} order by k1"
+            def dstRows = sql "select k1, k2 from ${dstTableName} order by k1"
+            assertEquals(3, srcRows.size())
+            assertEquals(3, dstRows.size())
+            assertEquals(1, srcRows[0][0])
+            assertEquals("eab", srcRows[0][1])
+            assertEquals(2, srcRows[1][0])
+            assertEquals("eab", srcRows[1][1])
+            assertEquals(3, srcRows[2][0])
+            assertEquals("eab", srcRows[2][1])
+            assertEquals(4, dstRows[0][0])
+            assertEquals("eab", dstRows[0][1])
+            assertEquals(5, dstRows[1][0])
+            assertEquals("eab", dstRows[1][1])
+            assertEquals(6, dstRows[2][0])
+            assertEquals("eab", dstRows[2][1])
+        } finally {
+            try {
+                sql "stop routine load for ${alterTargetJob}"
+            } catch (Exception e) {
+                logger.warn("failed to stop alter target routine load: ${e.message}".toString())
+            }
+            if (alterTopicProducer != null) {
+                alterTopicProducer.close()
+            }
+            if (alterTopicAdmin != null) {
+                alterTopicAdmin.close()
+            }
+            sql "truncate table ${srcTableName}"
+            sql "truncate table ${dstTableName}"
         }
     }
 }

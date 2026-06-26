@@ -9284,6 +9284,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
 
+        if (ctx.table != null) {
+            return new AlterRoutineLoadCommand(labelNameInfo, ctx.table.getText());
+        }
+
         Map<String, String> properties = new HashMap<>();
         if (ctx.properties != null) {
             properties.putAll(visitPropertyClause(ctx.properties));
@@ -9309,7 +9313,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties);
+        return new AlterRoutineLoadCommand(labelNameInfo, null,
+                loadPropertyMap, properties, dataSourceMapProperties);
     }
 
     @Override

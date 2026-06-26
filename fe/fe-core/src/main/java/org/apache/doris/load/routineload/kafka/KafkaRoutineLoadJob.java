@@ -757,9 +757,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             }
 
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            if (command.hasTargetTable()) {
+                this.tableId = command.getTargetTableId();
+            }
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties, command.getTargetTableId());
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -883,6 +886,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
+            if (log.getTargetTableId() != 0) {
+                this.tableId = log.getTargetTableId();
+            }
         } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);

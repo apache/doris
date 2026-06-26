@@ -468,6 +468,31 @@ public abstract class RoutineLoadJob
         }
     }
 
+    protected RoutineLoadDesc buildRoutineLoadDescSnapshot() {
+        List<org.apache.doris.analysis.ImportColumnDesc> columnsInfo = null;
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+            columnsInfo = new ArrayList<>(columnDescs.descs);
+        }
+        return new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo, precedingFilter, whereExpr,
+                partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
+    }
+
+    public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
+        if (isMultiTable) {
+            throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
+        }
+        checkMeta(targetTable, buildRoutineLoadDescSnapshot());
+
+        targetTable.readLock();
+        try {
+            NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, targetTable,
+                    toNereidsRoutineLoadTaskInfo());
+            planner.plan(new TUniqueId(0, 0));
+        } finally {
+            targetTable.readUnlock();
+        }
+    }
+
     @Override
     public long getId() {
         return id;

@@ -334,10 +334,13 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
-    | ALTER ROUTINE LOAD FOR name=multipartIdentifier 
-            (loadProperty (COMMA loadProperty)*)?
-            properties=propertyClause?
-            (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier
+            (
+                ON table=identifier
+                | (loadProperty (COMMA loadProperty)*)?
+                  properties=propertyClause?
+                  (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?
+            )                                                                               #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
