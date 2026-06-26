@@ -43,10 +43,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -217,6 +221,37 @@ public class IcebergRowLevelDmlTransformTest {
 
         Assertions.assertTrue(plan instanceof LogicalIcebergDeleteSink, plan.getClass().getName());
         Assertions.assertSame(table, ((LogicalIcebergDeleteSink<?>) plan).getTargetTable());
+    }
+
+    @Test
+    public void setupConflictDetectionPluginArmIsNoOp() {
+        // Post-flip: the plugin arm runs the conflict filter ONLY through the SPI path
+        // (applyWriteConstraintIfPresent), so setupConflictDetection short-circuits before the legacy native
+        // 3-hop. It must NOT touch the executor (the legacy arm would cast it to Iceberg{Delete,Merge}Executor
+        // and call setConflictDetectionFilter). MUTATION: dropping the early return -> the (IcebergExternalTable)
+        // table cast CCEs on a plugin table -> assertDoesNotThrow fails.
+        BaseExternalTableInsertExecutor executor = Mockito.mock(PluginDrivenInsertExecutor.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Plan analyzedPlan = Mockito.mock(Plan.class);
+
+        Assertions.assertDoesNotThrow(() ->
+                transform.setupConflictDetection(executor, analyzedPlan, table, RowLevelDmlOp.DELETE));
+        Mockito.verifyNoInteractions(executor);
+    }
+
+    @Test
+    public void finalizeSinkPluginArmRoutesToConnectorFinalize() {
+        // Post-flip: finalize goes through the connector's single transaction model (no rewritable-delete
+        // overlay); the shell routes to PluginDrivenInsertExecutor.finalizeRowLevelDmlSink. MUTATION: dropping
+        // the plugin arm -> the (IcebergDeleteExecutor) executor cast CCEs on a PluginDrivenInsertExecutor.
+        PluginDrivenInsertExecutor executor = Mockito.mock(PluginDrivenInsertExecutor.class);
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        DataSink sink = Mockito.mock(DataSink.class);
+        PhysicalSink<?> physicalSink = Mockito.mock(PhysicalSink.class);
+
+        transform.finalizeSink(executor, RowLevelDmlOp.DELETE, fragment, sink, physicalSink);
+
+        Mockito.verify(executor).finalizeRowLevelDmlSink(fragment, sink, physicalSink);
     }
 
     @Test

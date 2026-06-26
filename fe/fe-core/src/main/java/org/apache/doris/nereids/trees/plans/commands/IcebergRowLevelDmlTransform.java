@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergDeleteExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergMergeExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
@@ -179,6 +180,14 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     @Override
     public BaseExternalTableInsertExecutor newExecutor(ConnectContext ctx, TableIf table, String label,
             NereidsPlanner planner, boolean emptyInsert, RowLevelDmlOp op) {
+        if (table instanceof PluginDrivenExternalTable) {
+            // Post-flip: the connector-driven executor opens an SPI ConnectorTransaction (non-null), which
+            // activates the neutral O5-2 conflict path in RowLevelDmlCommand.applyWriteConstraintIfPresent. The
+            // op rides the sink's WriteOperation (set by the translator), so one executor serves DELETE/MERGE;
+            // no InsertCommandContext is needed for a row-level write (mirrors IcebergDeleteExecutor's empty ctx).
+            return new PluginDrivenInsertExecutor(ctx, (PluginDrivenExternalTable) table, label, planner,
+                    Optional.empty(), emptyInsert, -1L);
+        }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         if (op == RowLevelDmlOp.DELETE) {
             return new IcebergDeleteExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
@@ -233,6 +242,16 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     @Override
     public void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table,
             RowLevelDmlOp op) {
+        if (table instanceof PluginDrivenExternalTable) {
+            // Post-flip: the conflict filter is supplied through the neutral SPI path
+            // (RowLevelDmlCommand.applyWriteConstraintIfPresent -> extractWriteConstraint ->
+            // ConnectorTransaction.applyWriteConstraint), converted to a native iceberg Expression lazily at
+            // commit. The legacy native 3-hop below is skipped: it casts to the legacy Iceberg{Delete,Merge}-
+            // Executor, which the plugin arm (a PluginDrivenInsertExecutor) is not. Running ONLY the SPI path
+            // avoids double-filtering; the SPI converter is byte-verified equivalent to legacy, the residual
+            // divergence only widening the filter -> at worst a harmless extra OCC retry (see [DEC-S5]).
+            return;
+        }
         Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
                 IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
                         analyzedPlan, (IcebergExternalTable) table);
@@ -246,6 +265,14 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     @Override
     public void finalizeSink(BaseExternalTableInsertExecutor executor, RowLevelDmlOp op, PlanFragment fragment,
             DataSink sink, PhysicalSink<?> physicalSink) {
+        if (executor instanceof PluginDrivenInsertExecutor) {
+            // Post-flip: finalize through the connector's single transaction model (bind tx -> bindDataSink ->
+            // planWrite), which supplies rewritable_delete_file_sets itself via the scan-time stash. NO manual
+            // overlay (the legacy arms below append it on top of super.finalizeSink) -> exactly one finalize,
+            // no double-overlay.
+            ((PluginDrivenInsertExecutor) executor).finalizeRowLevelDmlSink(fragment, sink, physicalSink);
+            return;
+        }
         if (op == RowLevelDmlOp.DELETE) {
             ((IcebergDeleteExecutor) executor).finalizeSinkForDelete(fragment, sink, physicalSink);
         } else {

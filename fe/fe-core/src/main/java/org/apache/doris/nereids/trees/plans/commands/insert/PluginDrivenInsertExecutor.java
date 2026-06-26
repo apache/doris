@@ -103,6 +103,20 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         super.finalizeSink(fragment, sink, physicalSink);
     }
 
+    /**
+     * Public finalize entry for the row-level DML shell ({@code RowLevelDmlCommand} via
+     * {@code IcebergRowLevelDmlTransform.finalizeSink}), which lives outside this package and so cannot reach
+     * the {@code protected} {@link #finalizeSink}. Mirrors the legacy
+     * {@code IcebergDeleteExecutor.finalizeSinkForDelete} public entry, but with NO rewritable-delete overlay:
+     * the connector's {@code planWrite} supplies {@code rewritable_delete_file_sets} via the write handle (the
+     * scan-time stash), so the base finalize (bind tx &rarr; {@code bindDataSink} &rarr; {@code planWrite}) is
+     * the single, complete finalize for a row-level DELETE/MERGE write. {@code executeSingleInsert} does not
+     * finalize, so this is the one and only finalize call on the row-level DML path.
+     */
+    public void finalizeRowLevelDmlSink(PlanFragment fragment, DataSink sink, PhysicalSink<?> physicalSink) {
+        finalizeSink(fragment, sink, physicalSink);
+    }
+
     @Override
     protected void beforeExec() throws UserException {
         // Single transaction model: the connector write session is created by planWrite
