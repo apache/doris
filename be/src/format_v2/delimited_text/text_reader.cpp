@@ -155,4 +155,10 @@ Status TextReader::_deserialize_one_cell(const RequestedColumn& column, IColumn*
     return column.serde->deserialize_one_cell_from_hive_text(*output, value, _options);
 }
 
+bool TextReader::_empty_line_as_record() const {
+    // Hive TEXTFILE treats an empty physical line as a record. The splitter maps it
+    // to one empty field and missing trailing fields are filled with null_format.
+    return true;
+}
+
 } // namespace doris::format::text

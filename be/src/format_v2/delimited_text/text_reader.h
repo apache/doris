@@ -56,6 +56,7 @@ private:
     void _split_line_multi_char(const Slice& line);
     Status _deserialize_one_cell(const RequestedColumn& column, IColumn* output,
                                  Slice value) override;
+    bool _empty_line_as_record() const override;
 };
 
 } // namespace doris::format::text
