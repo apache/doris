@@ -66,6 +66,8 @@ private:
     // 选择提供 shape 信息的子 reader（第一个非空或包含 repeated 子节点的 reader）。
     // shape source 的 def/rep levels 用于确定 struct 的 null 状态和嵌套边界。
     ParquetColumnReader* shape_source_reader() const;
+    Status advance_child_past_null_parent(ParquetColumnReader* child_reader,
+                                          int64_t parent_level_idx) const;
 
     std::vector<std::unique_ptr<ParquetColumnReader>> _children; // 被 projected 的子 reader 列表
     std::vector<int> _child_output_indices; // 子 reader → struct 输出位置的映射

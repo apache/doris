@@ -45,6 +45,50 @@ ParquetColumnReader* StructColumnReader::shape_source_reader() const {
     return _children[0].get();
 }
 
+Status StructColumnReader::advance_child_past_null_parent(ParquetColumnReader* child_reader,
+                                                          int64_t parent_level_idx) const {
+    DORIS_CHECK(child_reader != nullptr);
+    const int64_t next_child_cursor = parent_level_idx + 1;
+    if (auto* scalar_child = dynamic_cast<ScalarColumnReader*>(child_reader)) {
+        if (next_child_cursor > scalar_child->nested_levels_written()) {
+            return Status::Corruption(
+                    "Parquet STRUCT child {} ended before null parent row in column {}",
+                    scalar_child->name(), _name);
+        }
+        scalar_child->set_nested_build_level_cursor(
+                std::max(scalar_child->nested_build_level_cursor(), next_child_cursor));
+        return Status::OK();
+    }
+    if (auto* struct_child = dynamic_cast<StructColumnReader*>(child_reader);
+        struct_child != nullptr && !struct_child->is_or_has_repeated_child()) {
+        if (next_child_cursor > struct_child->nested_levels_written()) {
+            return Status::Corruption(
+                    "Parquet STRUCT child {} ended before null parent row in column {}",
+                    struct_child->name(), _name);
+        }
+        struct_child->set_nested_build_level_cursor(
+                std::max(struct_child->nested_build_level_cursor(), next_child_cursor));
+        for (auto& grandchild : struct_child->_children) {
+            RETURN_IF_ERROR(struct_child->advance_child_past_null_parent(grandchild.get(),
+                                                                         parent_level_idx));
+        }
+        return Status::OK();
+    }
+
+    int64_t child_cursor = child_reader->nested_build_level_cursor();
+    const auto& child_rep_levels = child_reader->nested_repetition_levels();
+    const int64_t child_levels_written = child_reader->nested_levels_written();
+    while (child_cursor < child_levels_written) {
+        const int16_t child_rep_level = child_rep_levels[child_cursor];
+        ++child_cursor;
+        if (!child_reader->is_or_has_repeated_child() || child_rep_level <= _repetition_level) {
+            break;
+        }
+    }
+    child_reader->set_nested_build_level_cursor(child_cursor);
+    return Status::OK();
+}
+
 Status StructColumnReader::read(int64_t rows, MutableColumnPtr& column, int64_t* rows_read) {
     RETURN_IF_ERROR(load_nested_batch(rows));
     return build_nested_column(rows, column, rows_read);
@@ -182,24 +226,8 @@ Status StructColumnReader::build_nested_column(int64_t length_upper_bound, Mutab
             }
             RETURN_IF_ERROR(flush_present_rows());
             child_columns[output_idx]->insert_default();
-            if (auto* scalar_child =
-                        dynamic_cast<ScalarColumnReader*>(_children[child_idx].get())) {
-                // Scalar struct children have one level slot for a null struct parent, but that
-                // slot is below the scalar value threshold. Advance past the exact parent level,
-                // not just one slot from the current child cursor: the cursor may be parked before
-                // ancestor LIST/MAP null/empty shape slots after a previous present-row flush.
-                const int64_t child_cursor = scalar_child->nested_build_level_cursor();
-                const int64_t next_child_cursor = parent_level_indices[parent_idx] + 1;
-                if (next_child_cursor > scalar_child->nested_levels_written()) {
-                    return Status::Corruption(
-                            "Parquet STRUCT child {} ended before null parent row in column {}",
-                            scalar_child->name(), _name);
-                }
-                scalar_child->set_nested_build_level_cursor(
-                        std::max(child_cursor, next_child_cursor));
-            } else {
-                RETURN_IF_ERROR(_children[child_idx]->skip_nested_column(1));
-            }
+            RETURN_IF_ERROR(advance_child_past_null_parent(_children[child_idx].get(),
+                                                           parent_level_indices[parent_idx]));
             ++total_child_rows;
         }
         RETURN_IF_ERROR(flush_present_rows());

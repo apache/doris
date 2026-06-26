@@ -113,6 +113,8 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
     NullMap parent_nulls;
     *values_read = 0;
     int64_t level_idx = nested_build_level_cursor();
+    const int16_t min_parent_definition_level =
+            static_cast<int16_t>(_definition_level - 1 - (_type->is_nullable() ? 1 : 0));
     while (level_idx < levels_written) {
         const int16_t def_level = def_levels[level_idx];
         const int16_t rep_level = rep_levels[level_idx];
@@ -122,7 +124,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         }
         const int64_t current_level_idx = level_idx;
         ++level_idx;
-        if (rep_level > _repetition_level ||
+        if (rep_level > _repetition_level || def_level < min_parent_definition_level ||
             (!starts_parent && def_level < _repeated_ancestor_definition_level)) {
             continue;
         }
@@ -175,6 +177,7 @@ Status MapColumnReader::build_nested_column(int64_t length_upper_bound, MutableC
         for (const int64_t key_level_idx : map_level_indices) {
             while (value_level_idx < value_levels_written &&
                    (value_rep_levels[value_level_idx] > _repetition_level ||
+                    value_def_levels[value_level_idx] < min_parent_definition_level ||
                     (value_rep_levels[value_level_idx] >= _repetition_level &&
                      value_def_levels[value_level_idx] < _repeated_ancestor_definition_level))) {
                 ++value_level_idx;
