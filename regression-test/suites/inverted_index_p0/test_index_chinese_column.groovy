@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_index_chinese_column", "inverted_index_select"){
+suite("test_index_chinese_column", "inverted_index_select, nonConcurrent"){
     def createAndInsertData = { table_name, inverted_index_storage_format ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
@@ -39,7 +39,8 @@ suite("test_index_chinese_column", "inverted_index_select"){
 
     sql "set enable_unicode_name_support=true"
     sql """ set enable_segment_limit_pushdown = true """
-
-    // createAndInsertData(table_name_v1, "V1")
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+    createAndInsertData(table_name_v1, "V1")
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     createAndInsertData(table_name_v2, "V2")
 }

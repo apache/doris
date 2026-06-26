@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_predefine_ddl", "p0") { 
+suite("test_predefine_ddl", "p0, nonConcurrent") {
 
     def timeout = 60000
     def delta_time = 1000
@@ -282,24 +282,27 @@ suite("test_predefine_ddl", "p0") {
         exception("invalid INVERTED index")
     }
 
-    // test {
-    //     sql "DROP TABLE IF EXISTS ${tableName}"
-    //     sql """CREATE TABLE ${tableName} (
-    //         `id` bigint NULL,
-    //         `var` string NULL,
-    //         INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
-    //         INDEX idx_ab_2 (var) USING INVERTED
-    //     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-    //     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
-    //     exception("column: var cannot have multiple inverted indexes with file storage format: V1")
-    // }
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+    test {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` string NULL,
+            INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
+            INDEX idx_ab_2 (var) USING INVERTED
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
+        exception("column: var cannot have multiple inverted indexes with file storage format: V1")
+    }
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
     test {
         sql """CREATE TABLE ${tableName} (
             `id` bigint NULL,
             `var` variant <'c' :char(10)> NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "v1")"""
         exception("VARIANT unsupported sub-type: char(10)")
     }
 

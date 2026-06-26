@@ -32,11 +32,11 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     sql """ set default_variant_enable_doc_mode = false """
     // create 1 replica table
-    // def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-    def storageFormat = "V2"
+    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
     if (storageFormat == "V1" && isCloudMode()) {
         return;
     }
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
     sql """
 	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
@@ -58,6 +58,7 @@ suite("test_array_contains_with_inverted_index", "p0,nonConcurrent") {
     "inverted_index_storage_format" = "$storageFormat"
     );
     """
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', ${variantV2Function}('{"inventors":["a","b","c"]}')); """
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', ${variantV2Function}('{"inventors":["d","e","f","g","h","i","j","k","l"]}')); """

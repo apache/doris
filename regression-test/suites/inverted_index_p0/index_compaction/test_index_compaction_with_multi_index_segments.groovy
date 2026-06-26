@@ -106,6 +106,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         */
         tableName = "test_index_compaction_with_multi_index_segments_dups"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
             CREATE TABLE ${tableName} (
                 `file_time` DATETIME NOT NULL,
@@ -120,9 +121,10 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
-            "inverted_index_storage_format" = "V2"
+            "inverted_index_storage_format" = "V1"
             );
         """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         // insert 10 rows
         sql """ INSERT INTO ${tableName} VALUES ("2018-02-21 12:00:00", 1, "I\'m using the builds"),
@@ -233,6 +235,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         */
         tableName = "test_index_compaction_with_multi_index_segments_unique"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
             CREATE TABLE ${tableName} (
                 `file_time` DATETIME NOT NULL,
@@ -248,9 +251,10 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             "replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true",
-            "inverted_index_storage_format" = "V2"
+            "inverted_index_storage_format" = "V1"
             );
         """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         // insert 10 rows
         sql """ INSERT INTO ${tableName} VALUES ("2018-02-21 12:00:00", 1, "I\'m using the builds"),

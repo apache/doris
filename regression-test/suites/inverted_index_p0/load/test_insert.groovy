@@ -76,7 +76,9 @@ suite("test_insert_with_index", "p0, nonConcurrent") {
         if (isCloudMode()) {
             return;
         }
-        // test.call("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        test.call("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
@@ -84,7 +86,9 @@ suite("test_insert_with_index", "p0, nonConcurrent") {
         if (isCloudMode()) {
             return;
         }
-        // test.call("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        test.call("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "true")

@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nereids_show_index") {
+suite("test_nereids_show_index", "nonConcurrent") {
     sql "DROP DATABASE IF EXISTS test_show_index"
     sql "CREATE DATABASE IF NOT EXISTS test_show_index"
     sql "DROP TABLE IF EXISTS test_show_index.test_show_index_tbl1"
     sql "DROP TABLE IF EXISTS test_show_index.test_show_index_tbl2"
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
     sql """
         CREATE TABLE IF NOT EXISTS test_show_index.test_show_index_tbl1 (
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
@@ -32,7 +33,7 @@ suite("test_nereids_show_index") {
             INDEX idx_note1 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
         """
     sql """
         CREATE TABLE IF NOT EXISTS test_show_index.test_show_index_tbl2 (
@@ -46,9 +47,9 @@ suite("test_nereids_show_index") {
             INDEX idx_note2 (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
         """
-
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     checkNereidsExecute("show index from test_show_index.test_show_index_tbl2;")
     checkNereidsExecute("show indexes from test_show_index.test_show_index_tbl1;")
     checkNereidsExecute("show key from test_show_index.test_show_index_tbl1;")

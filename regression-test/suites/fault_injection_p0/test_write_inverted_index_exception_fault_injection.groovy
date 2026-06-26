@@ -167,7 +167,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "IndexFileWriter::copyFile_openInput_error",
         "IndexFileWriter::copyFile_remainder_is_not_zero",
         "IndexFileWriter::copyFile_diff_not_equals_length",
-        // "IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
+        "IndexFileWriter::write_v1_out_dir_createOutput_nullptr",
         "FSIndexInput::~SharedHandle_reader_close_error",
         "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error",
         "DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
@@ -229,7 +229,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index"
     ]
 
-    def inverted_index_storage_format = ["v2"]
+    def inverted_index_storage_format = ["v1", "v2"]
     try {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
@@ -253,7 +253,9 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         check_config.call("inverted_index_ram_dir_enable", "false");
         inverted_index_storage_format.each { format ->
             def tableName = "${tableNamePrefix}_${format}"
+            if (format == "v1") sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
             creata_table("${tableName}", format)
+            if (format == "v1") sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
             // for each debug point, enable it, run the insert, check the count, and disable the debug point
             // catch any exceptions and disable the debug point

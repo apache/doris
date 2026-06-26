@@ -92,6 +92,7 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         check_config.call("inverted_index_compaction_enable", "true");
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
             CREATE TABLE ${tableName} (
                 `id` int(11) NULL,
@@ -105,8 +106,9 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """

@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_4") {
+suite("test_index_change_4", "nonConcurrent") {
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
@@ -124,6 +124,7 @@ suite("test_index_change_4") {
 
     tableName = "test_index_change_4_v1"
 
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -137,7 +138,7 @@ suite("test_index_change_4") {
             INDEX idx_note (`note`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
         """
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -184,6 +185,7 @@ suite("test_index_change_4") {
         build_index_on_table("idx_note", tableName)
         wait_for_build_index_on_partition_finish(tableName, timeout)
     }
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_multi_match", "p0"){
+suite("test_index_multi_match", "p0, nonConcurrent"){
     def indexTbName1 = "test_index_multi_match_1"
     def indexTbName2 = "test_index_multi_match_2"
     def indexTbName3 = "test_index_multi_match_3"
@@ -89,9 +89,13 @@ suite("test_index_multi_match", "p0"){
     }
 
     try {
-        create_table(indexTbName1, 'V2')
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        create_table(indexTbName1, 'V1')
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         create_table(indexTbName2, 'V2')
-        create_table(indexTbName3, 'V2')
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        create_table(indexTbName3, 'V1')
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         create_table(indexTbName4, 'V2')
 
         load_httplogs_data.call(indexTbName1, 'test_index_multi_match_1', 'true', 'json', 'documents-1000.json')
