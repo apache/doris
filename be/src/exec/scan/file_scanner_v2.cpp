@@ -48,6 +48,8 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/iceberg_sys_table_reader.h"
 #include "format_v2/jni/jdbc_reader.h"
+#include "format_v2/jni/max_compute_jni_reader.h"
+#include "format_v2/jni/trino_connector_jni_reader.h"
 #include "format_v2/table/hive_reader.h"
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_reader.h"
@@ -96,7 +98,8 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
                range.table_format_params.paimon_params.__isset.reader_type &&
                range.table_format_params.paimon_params.reader_type == TPaimonReaderType::PAIMON_JNI;
     }
-    return table_format == "jdbc" || table_format == "iceberg";
+    return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
+           table_format == "max_compute" || table_format == "trino_connector";
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
@@ -357,9 +360,16 @@ Status FileScannerV2::_create_table_reader_for_format(
     } else if (table_format == "paimon") {
         *reader = std::make_unique<format::paimon::PaimonHybridReader>();
     } else if (table_format == "hudi") {
-        *reader = format::hudi::HudiReader::create_unique();
+        *reader = std::make_unique<format::hudi::HudiHybridReader>();
     } else if (table_format == "jdbc") {
         *reader = std::make_unique<format::jdbc::JdbcJniReader>();
+    } else if (table_format == "max_compute") {
+        const auto* mc_desc =
+                static_cast<const MaxComputeTableDescriptor*>(_output_tuple_desc->table_desc());
+        RETURN_IF_ERROR(mc_desc->init_status());
+        *reader = std::make_unique<format::max_compute::MaxComputeJniReader>(mc_desc);
+    } else if (table_format == "trino_connector") {
+        *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }

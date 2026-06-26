@@ -54,14 +54,16 @@ public:
 protected:
     // Subclasses should implement these methods to specify the Java scanner class
     virtual std::string connector_class() const = 0;
+    virtual Status validate_scan_range(const TFileRangeDesc&) const { return Status::OK(); }
     // Subclasses should implement this method to build the scanner params map
     virtual Status build_scanner_params(std::map<std::string, std::string>* params) const = 0;
     // Subclasses can override this method when Java transfer types differ from output types.
     virtual Status build_jni_columns(std::vector<JniColumn>* columns) const;
     virtual Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows);
     // used for profile
-    virtual int64_t self_split_weight() const { return -1; }
+    virtual int64_t self_split_weight() const;
     const std::vector<JniColumn>& jni_columns() const { return _jni_columns; }
+    TFileRangeDesc _current_range;
 
 private:
     // init

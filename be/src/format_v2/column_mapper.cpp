@@ -189,29 +189,6 @@ std::string data_type_debug_string(const DataTypePtr& type) {
     return type == nullptr ? "null" : type->get_name();
 }
 
-const Field* find_partition_value(const ColumnDefinition& table_column,
-                                  const std::map<std::string, Field>& partition_values) {
-    const auto find_by_name = [&](const std::string& name) -> const Field* {
-        const auto value_it = partition_values.find(name);
-        return value_it == partition_values.end() ? nullptr : &value_it->second;
-    };
-    if (const auto* value = find_by_name(table_column.name); value != nullptr) {
-        return value;
-    }
-    if (table_column.has_identifier_name()) {
-        if (const auto* value = find_by_name(table_column.get_identifier_name());
-            value != nullptr) {
-            return value;
-        }
-    }
-    for (const auto& alias : table_column.name_mapping) {
-        if (const auto* value = find_by_name(alias); value != nullptr) {
-            return value;
-        }
-    }
-    return nullptr;
-}
-
 std::string field_debug_string(const Field& field) {
     std::ostringstream out;
     out << "Field{type=" << type_to_string(field.get_type()) << ", value=";
@@ -251,6 +228,29 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 }
 
 } // namespace
+
+const Field* find_partition_value(const ColumnDefinition& table_column,
+                                  const std::map<std::string, Field>& partition_values) {
+    const auto find_by_name = [&](const std::string& name) -> const Field* {
+        const auto value_it = partition_values.find(name);
+        return value_it == partition_values.end() ? nullptr : &value_it->second;
+    };
+    if (const auto* value = find_by_name(table_column.name); value != nullptr) {
+        return value;
+    }
+    if (table_column.has_identifier_name()) {
+        if (const auto* value = find_by_name(table_column.get_identifier_name());
+            value != nullptr) {
+            return value;
+        }
+    }
+    for (const auto& alias : table_column.name_mapping) {
+        if (const auto* value = find_by_name(alias); value != nullptr) {
+            return value;
+        }
+    }
+    return nullptr;
+}
 
 struct FileSlotRewriteInfo {
     size_t block_position = 0;

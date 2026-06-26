@@ -22,35 +22,30 @@
 #include <vector>
 
 #include "common/status.h"
-#include "core/data_type/data_type.h"
-#include "core/types.h"
 #include "format_v2/jni/jni_table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace doris::format::jdbc {
+namespace doris {
+class MaxComputeTableDescriptor;
+} // namespace doris
 
-class JdbcJniReader final : public format::JniTableReader {
+namespace doris::format::max_compute {
+
+class MaxComputeJniReader final : public format::JniTableReader {
 public:
-    ~JdbcJniReader() override = default;
-
-    Status prepare_split(const format::SplitReadOptions& options) override;
+    explicit MaxComputeJniReader(const doris::MaxComputeTableDescriptor* table_desc);
+    ~MaxComputeJniReader() override = default;
 
 protected:
     std::string connector_class() const override;
+    Status validate_scan_range(const TFileRangeDesc& range) const override;
     Status build_scanner_params(std::map<std::string, std::string>* params) const override;
     Status build_jni_columns(
             std::vector<format::JniTableReader::JniColumn>* columns) const override;
     Status finalize_jni_block(Block* jni_block, Block* output_block, size_t* rows) override;
 
 private:
-    bool _is_special_type(PrimitiveType type) const;
-    std::string _replace_type_for(PrimitiveType type) const;
-    DataTypePtr _transfer_type_for(const DataTypePtr& output_type) const;
-    Status _cast_string_to_special_type(const format::JniTableReader::JniColumn& column,
-                                        Block* jni_block, size_t jni_column_index,
-                                        Block* output_block, size_t rows);
-
-    std::map<std::string, std::string> _jdbc_params;
+    const doris::MaxComputeTableDescriptor* _table_desc = nullptr;
 };
 
-} // namespace doris::format::jdbc
+} // namespace doris::format::max_compute
