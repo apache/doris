@@ -386,15 +386,8 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     return Status::OK();
 }
 
-// do_projection: for some query(e.g. in MultiCastDataStreamerSourceOperator::get_block()),
-// output_vexpr_ctxs will output the same column more than once, and if the output_block
-// is mem-reused later, it will trigger DCHECK_EQ(d.column->use_count(), 1) failure when
-// doing Block::clear_column_data, set do_projection to true to copy the column data to
-// avoid this problem.
 Status VExprContext::get_output_block_after_execute_exprs(
-        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
-        bool do_projection) {
-    auto rows = input_block.rows();
+        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block) {
     ColumnsWithTypeAndName result_columns;
     _reset_memory_usage(output_vexpr_ctxs);
 
@@ -406,12 +399,7 @@ Status VExprContext::get_output_block_after_execute_exprs(
         const auto& name = vexpr_ctx->expr_name();
 
         vexpr_ctx->_memory_usage += result_column->allocated_bytes();
-        if (do_projection) {
-            result_columns.emplace_back(result_column->clone_resized(rows), type, name);
-
-        } else {
-            result_columns.emplace_back(result_column, type, name);
-        }
+        result_columns.emplace_back(result_column, type, name);
     }
     *output_block = {result_columns};
     return Status::OK();
@@ -440,8 +428,9 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, bool* ann_range_search_executed) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        bool* ann_range_search_executed) {
     if (ann_range_search_executed != nullptr) {
         *ann_range_search_executed = false;
     }
@@ -452,7 +441,7 @@ Status VExprContext::evaluate_ann_range_search(
     AnnRangeSearchEvaluationResult evaluation_result;
     RETURN_IF_ERROR(_root->evaluate_ann_range_search(
             _ann_range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
+            rows_of_segment, row_bitmap, ann_index_stats, enable_result_cache, evaluation_result));
 
     if (!evaluation_result.executed) {
         return Status::OK();

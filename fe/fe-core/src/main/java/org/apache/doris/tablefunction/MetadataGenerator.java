@@ -1830,6 +1830,7 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setDoubleVal(
                             entryStats.getAverageLoadPenaltyNanos() / TimeUnit.MILLISECONDS.toNanos(1)));
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionCount())); // EVICTION_COUNT
+                    trow.addToColumnValue(new TCell().setDoubleVal(entryStats.getEvictionRate())); // EVICTION_RATE
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getInvalidateCount())); // INVALIDATE_COUNT
                     trow.addToColumnValue(new TCell().setStringVal(
                             formatMetaCacheTime(entryStats.getLastLoadSuccessTimeMs(), timeZone)));
@@ -2115,9 +2116,9 @@ public class MetadataGenerator {
 
         HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(tbl));
-        Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
+        Map<String, List<String>> valuesMap = hivePartitionValues.getNameToPartitionValues();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();
             List<String> values = entry.getValue();
             if (values.size() != partitionCols.size()) {

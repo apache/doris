@@ -25,10 +25,10 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/sink/writer/iceberg/iceberg_partition_path.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
-#include "exec/sink/writer/vhive_utils.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/iceberg/partition_spec_parser.h"
@@ -206,7 +206,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
     }
     Block output_block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
-                                                                       &output_block, false));
+                                                                       &output_block));
     materialize_block_inplace(output_block);
     return _write_prepared_block(output_block);
 }
@@ -436,23 +436,8 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
 
 Status VIcebergTableWriter::_filter_block(doris::Block& block, const IColumn::Filter* filter,
                                           doris::Block* output_block) {
-    const ColumnsWithTypeAndName& columns_with_type_and_name =
-            block.get_columns_with_type_and_name();
-    ColumnsWithTypeAndName result_columns;
-    for (const auto& col : columns_with_type_and_name) {
-        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
-                                    col.name);
-    }
-    *output_block = {std::move(result_columns)};
-
-    std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = output_block->columns();
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
-    }
-
-    Block::filter_block_internal(output_block, columns_to_filter, *filter);
+    *output_block = block;
+    Block::filter_block_internal(output_block, *filter);
     return Status::OK();
 }
 
@@ -516,7 +501,7 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
 }
 
 std::string VIcebergTableWriter::_escape(const std::string& path) {
-    return VHiveUtils::escape_path_name(path);
+    return IcebergPartitionPath::escape(path);
 }
 
 std::vector<std::string> VIcebergTableWriter::_partition_values(
@@ -651,7 +636,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     //1) get the partition column ptr
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
     CHECK(col_ptr);
-    if (col_ptr->is_nullable()) {
+    if (is_column_nullable(*col_ptr)) {
         const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(col_ptr.get());
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {

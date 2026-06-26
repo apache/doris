@@ -379,14 +379,20 @@ bool ColumnStruct::has_enough_capacity(const IColumn& src) const {
     return true;
 }
 
-void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {
+void ColumnStruct::for_each_subcolumn(MutableColumnCallback callback) {
     for (auto& column : columns) {
         callback(column);
     }
 }
 
+void ColumnStruct::for_each_subcolumn(ColumnCallback callback) const {
+    for (const auto& column : columns) {
+        callback(*static_cast<const IColumn::Ptr&>(column));
+    }
+}
+
 bool ColumnStruct::structure_equals(const IColumn& rhs) const {
-    if (const auto* rhs_tuple = typeid_cast<const ColumnStruct*>(&rhs)) {
+    if (const auto* rhs_tuple = check_and_get_column<ColumnStruct>(&rhs)) {
         const size_t tuple_size = columns.size();
         if (tuple_size != rhs_tuple->columns.size()) {
             return false;

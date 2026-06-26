@@ -106,8 +106,9 @@ private:
 
     EncodingTypePB _encoding_type;
 
-    // Binary-plain flavor (V1 or V2) used both for the dictionary word page and for the data
-    // page when the dictionary overflows. Resolved from PageBuilderOptions::dict_binary_plain_encoding.
+    // On-disk binary plain encoding (PLAIN_ENCODING / PLAIN_ENCODING_V2 / PLAIN_ENCODING_V3)
+    // used both for the dictionary word page and for the dict-overflow data page. Copied
+    // verbatim from PageBuilderOptions::dict_binary_plain_encoding.
     const EncodingTypePB _binary_plain_encoding_type;
 
     struct HashOfSlice {

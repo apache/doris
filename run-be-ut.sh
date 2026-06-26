@@ -49,6 +49,68 @@ export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
 
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+is_valid_extra_module_feature() {
+    local feature="$1"
+    [[ "${feature}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+feature_to_cmake_name() {
+    local feature="$1"
+    printf '%s' "${feature}" | tr '[:lower:]-' '[:upper:]_'
+}
+
+parse_extra_be_modules() {
+    local spec_value="$1"
+    local entry feature module_path existing
+    local -a feature_keys=()
+
+    BE_EXTRA_FEATURE_KEYS=()
+    BE_EXTRA_MODULE_PATHS=()
+    if [[ -z "${spec_value}" ]]; then
+        return
+    fi
+
+    IFS=',' read -r -a entries <<<"${spec_value}"
+    for entry in "${entries[@]}"; do
+        entry="$(trim_whitespace "${entry}")"
+        if [[ -z "${entry}" || "${entry}" != *=* ]]; then
+            echo "Invalid EXTRA_BE_MODULES entry '${entry}': expected feature=module_path"
+            exit 1
+        fi
+
+        feature="$(trim_whitespace "${entry%%=*}")"
+        module_path="$(trim_whitespace "${entry#*=}")"
+        if [[ -z "${feature}" || -z "${module_path}" ]]; then
+            echo "Invalid EXTRA_BE_MODULES entry '${entry}': feature and module_path must be non-empty"
+            exit 1
+        fi
+        if ! is_valid_extra_module_feature "${feature}"; then
+            echo "Invalid EXTRA_BE_MODULES feature '${feature}'"
+            exit 1
+        fi
+        for existing in "${feature_keys[@]}"; do
+            if [[ "${existing}" == "${feature}" ]]; then
+                echo "Duplicate EXTRA_BE_MODULES feature '${feature}'"
+                exit 1
+            fi
+        done
+        if [[ ! -d "${DORIS_HOME}/be/src/${module_path}" ]]; then
+            echo "Missing EXTRA_BE_MODULES module directory: ${DORIS_HOME}/be/src/${module_path}"
+            exit 1
+        fi
+        feature_keys+=("${feature}")
+        BE_EXTRA_FEATURE_KEYS+=("${feature}")
+        BE_EXTRA_MODULE_PATHS+=("${module_path}")
+    done
+}
+
 # Check args
 usage() {
     echo "
@@ -148,11 +210,21 @@ fi
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
 CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
+EXTRA_BE_MODULES="${EXTRA_BE_MODULES:-}"
+parse_extra_be_modules "${EXTRA_BE_MODULES}"
+
+BE_EXTRA_CMAKE_ARGS=()
+for ((i = 0; i < ${#BE_EXTRA_FEATURE_KEYS[@]}; i++)); do
+    feature_name="$(feature_to_cmake_name "${BE_EXTRA_FEATURE_KEYS[i]}")"
+    BE_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
+    BE_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${BE_EXTRA_MODULE_PATHS[i]}")
+done
+
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
-    WITH_TDE_DIR        -- ${WITH_TDE_DIR}
+    EXTRA_BE_MODULES    -- ${EXTRA_BE_MODULES}
 "
 echo "Build Backend UT"
 
@@ -281,7 +353,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
-    -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+    "${BE_EXTRA_CMAKE_ARGS[@]}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 

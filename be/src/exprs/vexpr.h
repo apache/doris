@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/extended_types.h"
+#include "core/string_view.h"
 #include "core/types.h"
 #include "core/value/large_int_value.h"
 #include "core/value/timestamptz_value.h"
@@ -54,7 +55,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-class BitmapFilterFuncBase;
 class BloomFilterFuncBase;
 class HybridSetBase;
 class ObjectPool;
@@ -325,13 +325,6 @@ public:
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
-    // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
-    virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        throw Exception(Status::FatalError(
-                "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
-                this->debug_string()));
-    }
-
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(VExprContext* context, const Selector* selector, size_t count,
                       ColumnPtr& result_column) const;
@@ -355,8 +348,9 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache, AnnRangeSearchEvaluationResult& result);
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+            AnnRangeSearchEvaluationResult& result);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
@@ -491,7 +485,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
     } else if constexpr (T == TYPE_LARGEINT) {
         // data may not be 16-byte aligned; use unaligned_load to avoid UB.
-        int128_t origin_value = unaligned_load<int128_t>(data);
+        auto origin_value = unaligned_load<int128_t>(data);
         (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
         TLargeIntLiteral large_int_literal;
         large_int_literal.__set_value(LargeIntValue::to_string(origin_value));
@@ -540,7 +534,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
     } else if constexpr (T == TYPE_DECIMALV2) {
         // data may not be 16-byte aligned (DecimalV2Value stores int128_t);
         // use unaligned_load to avoid UB.
-        DecimalV2Value origin_value = unaligned_load<DecimalV2Value>(data);
+        auto origin_value = unaligned_load<DecimalV2Value>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         decimal_literal.__set_value(origin_value.to_string());
@@ -562,7 +556,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL128I) {
         // data may not be 16-byte aligned; use unaligned_load to avoid UB.
-        Decimal<int128_t> origin_value = unaligned_load<Decimal<int128_t>>(data);
+        auto origin_value = unaligned_load<Decimal<int128_t>>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         // e.g. For a decimal(26,6) column, the initial value of the _min of the MinMax RF
@@ -627,10 +621,10 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_node_type(TExprNodeType::TIMEV2_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2, precision, scale));
     } else if constexpr (T == TYPE_VARBINARY) {
-        const auto* origin_value = reinterpret_cast<const std::string*>(data);
+        const auto* origin_value = reinterpret_cast<const StringView*>(data);
         (*node).__set_node_type(TExprNodeType::VARBINARY_LITERAL);
         TVarBinaryLiteral varbinary_literal;
-        varbinary_literal.__set_value(*origin_value);
+        varbinary_literal.__set_value(std::string(origin_value->data(), origin_value->size()));
         (*node).__set_varbinary_literal(varbinary_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_VARBINARY));
     } else {

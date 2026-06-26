@@ -45,7 +45,7 @@ suite("test_ipv6_cidr_to_range_function") {
         (9, 'ffff:0000:0000:0000:0000:0000:0000:0000', NULL)
         """
 
-    qt_sql "select id, struct_element(ipv6_cidr_to_range(addr, cidr), 'min') as min_range, struct_element(ipv6_cidr_to_range(addr, cidr), 'max') as max_range from test_ipv6_cidr_to_range_function order by id"
+    qt_sql "select id, element_at(ipv6_cidr_to_range(addr, cidr), 'min') as min_range, element_at(ipv6_cidr_to_range(addr, cidr), 'max') as max_range from test_ipv6_cidr_to_range_function order by id"
     qt_sql "select id, ipv6_cidr_to_range(addr, 16) from test_ipv6_cidr_to_range_function order by id;"
     sql """ delete from test_ipv6_cidr_to_range_function where id in (2,3,6);"""
     test {
@@ -89,7 +89,7 @@ suite("test_ipv6_cidr_to_range_function") {
         (9, 'ffff:0000:0000:0000:0000:0000:0000:0000', NULL)
         """
 
-    qt_sql "select id, struct_element(ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num_or_null(addr)), cidr), 'min') as min_range, struct_element(ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num_or_null(addr)), cidr), 'max') as max_range from test_str_cidr_to_range_function order by id"
+    qt_sql "select id, element_at(ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num_or_null(addr)), cidr), 'min') as min_range, element_at(ipv6_cidr_to_range(ipv6_num_to_string(ipv6_string_to_num_or_null(addr)), cidr), 'max') as max_range from test_str_cidr_to_range_function order by id"
 
     sql """ DROP TABLE IF EXISTS test_str_cidr_to_range_function """
 

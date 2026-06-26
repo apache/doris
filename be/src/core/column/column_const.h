@@ -261,17 +261,20 @@ public:
         }
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
+    void for_each_subcolumn(MutableColumnCallback callback) override { callback(data); }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const IColumn::Ptr&>(data));
+    }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (const auto* rhs_concrete = typeid_cast<const ColumnConst*>(&rhs)) {
+        if (const auto* rhs_concrete = check_and_get_column<ColumnConst>(&rhs)) {
             return data->structure_equals(*rhs_concrete->data);
         }
         return false;
     }
 
-    // ColumnConst is not nullable, but may be concrete nullable.
-    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
+    bool is_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 

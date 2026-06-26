@@ -523,8 +523,14 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
         } else {
             unique_id = col_ordinal_to_unique_id.at(col_ordinal);
         }
-        col_ordinal++;
         init_column_from_tcolumn(unique_id, tcolumn, column);
+
+        if (column->name() == BINLOG_LSN_COL) {
+            tablet_schema_pb->set_binlog_lsn_col_idx(col_ordinal);
+        } else if (column->name() == BINLOG_TIMESTAMP_COL) {
+            tablet_schema_pb->set_binlog_timestamp_col_idx(col_ordinal);
+        }
+        col_ordinal++;
 
         if (column->is_bf_column()) {
             has_bf_columns = true;
@@ -603,11 +609,6 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.variant_enable_flatten_nested) {
         tablet_schema_pb->set_enable_variant_flatten_nested(
                 tablet_schema.variant_enable_flatten_nested);
-    }
-
-    if (tablet_schema.__isset.enable_single_replica_compaction) {
-        tablet_schema_pb->set_enable_single_replica_compaction(
-                tablet_schema.enable_single_replica_compaction);
     }
 
     if (tablet_schema.__isset.delete_sign_idx) {

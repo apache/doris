@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -69,6 +70,9 @@ public:
         int64_t limit;
         bool aggregation;
         bool read_row_binlog = false;
+        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        std::optional<int64_t> start_tso;
+        std::optional<int64_t> end_tso;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -97,6 +101,8 @@ private:
                     predicates,
             const std::vector<FunctionFilter>& function_filters);
 
+    [[nodiscard]] Status _init_row_binlog_tso_predicates();
+
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
 #ifndef NDEBUG
@@ -107,9 +113,8 @@ private:
 
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
-
-    int64_t _bytes_read_from_local = 0;
-    int64_t _bytes_read_from_remote = 0;
+    std::optional<int64_t> _start_tso;
+    std::optional<int64_t> _end_tso;
 
 public:
     std::vector<ColumnId> _return_columns;

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("memtbl_on_sink") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "drop table if exists memtbl_on_sink"
     test {
         sql """

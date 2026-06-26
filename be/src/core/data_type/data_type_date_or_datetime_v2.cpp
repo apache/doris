@@ -89,13 +89,13 @@ MutableColumnPtr DataTypeDateV2::create_column() const {
 
 void DataTypeDateV2::cast_to_date_time(const DateV2Value<DateV2ValueType> from,
                                        VecDateTimeValue& to) {
-    auto& to_value = (VecDateTimeValue&)to;
+    auto& to_value = to;
     auto& from_value = (DateV2Value<DateV2ValueType>&)from;
     to_value.create_from_date_v2(from_value, TimeType::TIME_DATETIME);
 }
 
 void DataTypeDateV2::cast_to_date(const DateV2Value<DateV2ValueType> from, VecDateTimeValue& to) {
-    auto& to_value = (VecDateTimeValue&)(to);
+    auto& to_value = to;
     auto& from_value = (DateV2Value<DateV2ValueType>&)from;
     to_value.create_from_date_v2(from_value, TimeType::TIME_DATE);
 }
@@ -137,14 +137,14 @@ MutableColumnPtr DataTypeDateTimeV2::create_column() const {
 
 void DataTypeDateTimeV2::cast_to_date_time(const DateV2Value<DateTimeV2ValueType> from,
                                            VecDateTimeValue& to) {
-    auto& to_value = (VecDateTimeValue&)to;
+    auto& to_value = to;
     auto& from_value = (DateV2Value<DateTimeV2ValueType>&)from;
     to_value.create_from_date_v2(from_value, TimeType::TIME_DATETIME);
 }
 
 void DataTypeDateTimeV2::cast_to_date(const DateV2Value<DateTimeV2ValueType> from,
                                       VecDateTimeValue& to) {
-    auto& to_value = (VecDateTimeValue&)(to);
+    auto& to_value = to;
     auto& from_value = (DateV2Value<DateTimeV2ValueType>&)from;
     to_value.create_from_date_v2(from_value, TimeType::TIME_DATE);
 }

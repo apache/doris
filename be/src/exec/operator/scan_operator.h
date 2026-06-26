@@ -166,9 +166,6 @@ protected:
     virtual PushDownType _should_push_down_topn_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual PushDownType _should_push_down_bitmap_filter() const {
-        return PushDownType::UNACCEPTABLE;
-    }
     virtual PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const {
         return PushDownType::UNACCEPTABLE;
     }
@@ -199,10 +196,6 @@ protected:
                                   SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
-    Status _normalize_bitmap_filter(VExprContext* expr_ctx, const VExprSPtr& root,
-                                    SlotDescriptor* slot,
-                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                    PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
@@ -238,9 +231,9 @@ class ScanLocalState : public ScanLocalStateBase {
             : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
-    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
@@ -360,9 +353,9 @@ class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
-        Status status = get_block(state, block, eos);
+        Status status = OperatorX<LocalStateType>::get_block(state, block, eos);
         if (status.ok()) {
             state->get_local_state(operator_id())->update_output_block_counters(*block);
         }
@@ -388,14 +381,18 @@ public:
 
     [[nodiscard]] virtual int get_column_id(const std::string& col_name) const { return -1; }
 
+    [[nodiscard]] virtual bool can_push_down_column_predicate(const SlotDescriptor*) const {
+        return true;
+    }
+
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::BUCKET_HASH_SHUFFLE};
+        return {TLocalPartitionType::BUCKET_HASH_SHUFFLE};
     }
 
     void set_low_memory_mode(RuntimeState* state) override {

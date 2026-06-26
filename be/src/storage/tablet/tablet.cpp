@@ -87,7 +87,6 @@
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction/full_compaction.h"
-#include "storage/compaction/single_replica_compaction.h"
 #include "storage/delete/delete_bitmap_calculator.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/primary_key_index.h"
@@ -530,7 +529,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
 
 Status Tablet::add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset) {
     DCHECK(rowset != nullptr);
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     // If the rowset already exist, just return directly.  The rowset_id is an unique-id,
     // we can use it to check this situation.
@@ -846,7 +845,7 @@ RowsetSharedPtr Tablet::_rowset_with_largest_size() {
 Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset,
                               const RowsetSharedPtr& row_binlog_rowset) {
     DCHECK(rowset != nullptr);
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (_contains_rowset(rowset->rowset_id())) {
         // Ensure binlog<row> is also added on retry.
@@ -883,7 +882,7 @@ void Tablet::delete_expired_stale_rowset() {
     std::vector<std::pair<Version, std::vector<RowsetId>>> deleted_stale_rowsets;
     // hold write lock while processing stable rowset
     {
-        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        std::lock_guard wrlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
         int64_t expired_stale_sweep_endtime =
@@ -894,8 +893,8 @@ void Tablet::delete_expired_stale_rowset() {
 
         std::vector<int64_t> path_id_vec;
         // capture the path version to delete
-        _timestamped_version_tracker.capture_expired_paths(
-                static_cast<int64_t>(expired_stale_sweep_endtime), &path_id_vec);
+        _timestamped_version_tracker.capture_expired_paths(expired_stale_sweep_endtime,
+                                                           &path_id_vec);
 
         if (path_id_vec.empty()) {
             return;
@@ -1065,7 +1064,7 @@ void Tablet::delete_expired_stale_rowset() {
     }
 #ifndef BE_TEST
     {
-        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        std::shared_lock rlock(_meta_lock);
         save_meta();
     }
 #endif
@@ -1192,7 +1191,10 @@ uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
     {
         // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
         std::shared_lock rdlock(_meta_lock);
-        int32_t score = get_real_compaction_score();
+        // Use the unlocked variant: we already hold a shared `_meta_lock` here,
+        // and the lock is writer-preferring, so recursively re-acquiring it
+        // would self-deadlock if a writer queues in between.
+        int32_t score = get_real_compaction_score_unlocked();
         if (_compaction_score > 0 && _compaction_score != score) {
             LOG(WARNING) << "cumu cache score not equal real score, cache score; "
                          << _compaction_score << ", real score: " << score
@@ -1206,6 +1208,17 @@ uint32_t Tablet::calc_compaction_score(CompactionType compaction_type,
 bool Tablet::suitable_for_compaction(
         CompactionType compaction_type,
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+#ifndef BE_TEST
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION &&
+        cumulative_compaction_policy != nullptr) {
+        std::lock_guard wrlock(_meta_lock);
+        if (_cumulative_compaction_policy == nullptr ||
+            _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
+            _cumulative_compaction_policy = cumulative_compaction_policy;
+        }
+    }
+#endif
+
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     std::shared_lock rdlock(_meta_lock);
     int32_t score = -1;
@@ -1253,12 +1266,6 @@ uint32_t Tablet::_calc_cumulative_compaction_score(
     if (cumulative_compaction_policy == nullptr) [[unlikely]] {
         return 0;
     }
-#ifndef BE_TEST
-    if (_cumulative_compaction_policy == nullptr ||
-        _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
-        _cumulative_compaction_policy = cumulative_compaction_policy;
-    }
-#endif
     DBUG_EXECUTE_IF("Tablet._calc_cumulative_compaction_score.return", {
         LOG_WARNING("Tablet._calc_cumulative_compaction_score.return")
                 .tag("tablet id", tablet_id());
@@ -1334,7 +1341,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
 }
 
 void Tablet::calculate_cumulative_point() {
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::lock_guard wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     int64_t ret_cumulative_point;
     _cumulative_compaction_policy->calculate_cumulative_point(
@@ -1392,12 +1399,17 @@ Status Tablet::_contains_version(const Version& version) {
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
+    std::shared_lock rlock(_meta_lock);
+    return pick_candidate_rowsets_to_cumulative_compaction_unlocked();
+}
+
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction_unlocked() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return candidate_rowsets;
     }
-    return _pick_visible_rowsets_to_compaction(_cumulative_point,
-                                               std::numeric_limits<int64_t>::max());
+    return _pick_visible_rowsets_to_compaction_unlocked(_cumulative_point,
+                                                        std::numeric_limits<int64_t>::max());
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction() {
@@ -1407,6 +1419,12 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction()
 
 std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction(
         int64_t min_start_version, int64_t max_start_version) {
+    std::shared_lock rlock(_meta_lock);
+    return _pick_visible_rowsets_to_compaction_unlocked(min_start_version, max_start_version);
+}
+
+std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction_unlocked(
+        int64_t min_start_version, int64_t max_start_version) {
     auto [visible_version, update_ts] = get_visible_version_and_time();
     bool update_time_long = MonotonicMillis() - update_ts >
                             config::compaction_keep_invisible_version_timeout_sec * 1000L;
@@ -1414,25 +1432,24 @@ std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction(
             update_time_long ? config::compaction_keep_invisible_version_min_count
                              : config::compaction_keep_invisible_version_max_count;
 
+    // Caller MUST hold shared `_meta_lock`; do not re-acquire it here (the lock
+    // is writer-preferring, recursive shared acquisition self-deadlocks).
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (const auto& [version, rs] : _rs_version_map) {
-            int64_t version_start = version.first;
-            // rowset is remote or rowset is not in given range
-            if (!rs->is_local() || version_start < min_start_version ||
-                version_start > max_start_version) {
-                continue;
-            }
+    for (const auto& [version, rs] : _rs_version_map) {
+        int64_t version_start = version.first;
+        // rowset is remote or rowset is not in given range
+        if (!rs->is_local() || version_start < min_start_version ||
+            version_start > max_start_version) {
+            continue;
+        }
 
-            // can compact, met one of the conditions:
-            // 1. had been visible;
-            // 2. exceeds the limit of keep invisible versions.
-            int64_t version_end = version.second;
-            if (version_end <= visible_version ||
-                version_end > visible_version + keep_invisible_version_limit) {
-                candidate_rowsets.push_back(rs);
-            }
+        // can compact, met one of the conditions:
+        // 1. had been visible;
+        // 2. exceeds the limit of keep invisible versions.
+        int64_t version_end = version.second;
+        if (version_end <= visible_version ||
+            version_end > visible_version + keep_invisible_version_limit) {
+            candidate_rowsets.push_back(rs);
         }
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
@@ -1638,33 +1655,6 @@ void Tablet::get_compaction_status(std::string* json_result) {
     //     "last failure status": "",
     //     "last fetched rowset": "[8-10]"
     // }
-    rapidjson::Document status;
-    status.SetObject();
-    TReplicaInfo replica_info;
-    std::string dummp_token;
-    if (tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
-        _engine.get_peer_replica_info(tablet_id(), &replica_info, &dummp_token)) {
-        // remote peer
-        rapidjson::Value peer_addr;
-        std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
-        peer_addr.SetString(addr.c_str(), cast_set<uint32_t>(addr.length()), status.GetAllocator());
-        status.AddMember("remote peer", peer_addr, status.GetAllocator());
-        // last failure status
-        rapidjson::Value compaction_status;
-        compaction_status.SetString(
-                _last_single_compaction_failure_status.c_str(),
-                cast_set<uint32_t>(_last_single_compaction_failure_status.length()),
-                status.GetAllocator());
-        status.AddMember("last failure status", compaction_status, status.GetAllocator());
-        // last fetched rowset
-        rapidjson::Value version;
-        std::string fetched_version = _last_fetched_version.to_string();
-        version.SetString(fetched_version.c_str(), cast_set<uint32_t>(fetched_version.length()),
-                          status.GetAllocator());
-        status.AddMember("last fetched rowset", version, status.GetAllocator());
-        root.AddMember("single replica compaction status", status, root.GetAllocator());
-    }
-
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
     rapidjson::Document missing_versions_arr;
@@ -2136,33 +2126,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         permits = compaction->get_compaction_permits();
     }
     return Status::OK();
-}
-
-void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compaction) {
-    Status res = compaction.execute_compact();
-    if (!res.ok()) {
-        set_last_failure_time(this, compaction, UnixMillis());
-        set_last_single_compaction_failure_status(res.to_string());
-        if (res.is<CANCELLED>()) {
-            DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
-            // "CANCELLED" indicates that the peer has not performed compaction,
-            // wait for the peer to perform compaction
-            set_skip_compaction(true, compaction.real_compact_type(), UnixSeconds());
-            VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
-                          << ", tablet=" << tablet_id();
-        } else {
-            DorisMetrics::instance()->single_compaction_request_failed->increment(1);
-            LOG(WARNING) << "failed to do single replica compaction. res=" << res
-                         << ", tablet=" << tablet_id();
-        }
-        return;
-    }
-    set_last_failure_time(this, compaction, 0);
-}
-
-bool Tablet::should_fetch_from_peer() {
-    return tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
-           _engine.should_fetch_from_peer(tablet_id());
 }
 
 std::vector<Version> Tablet::get_all_local_versions() {

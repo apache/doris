@@ -345,7 +345,7 @@ TEST_F(TabletMgrTest, GetRowsetId) {
 }
 
 TEST_F(TabletMgrTest, FindTabletWithCompact) {
-    auto create_tablet = [this](int64_t tablet_id, bool enable_single_compact, int rowset_size) {
+    auto create_tablet = [this](int64_t tablet_id, int rowset_size) {
         std::vector<TColumn> cols;
         TColumn col1;
         col1.column_type.type = TPrimitiveType::SMALLINT;
@@ -375,7 +375,6 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         tablet_schema.__set_storage_type(TStorageType::COLUMN);
         tablet_schema.__set_columns(cols);
         tablet_schema.__set_sequence_col_idx(1);
-        tablet_schema.__set_enable_single_replica_compaction(enable_single_compact);
         TCreateTabletReq create_tablet_req;
         create_tablet_req.__set_tablet_schema(tablet_schema);
         create_tablet_req.__set_tablet_id(tablet_id);
@@ -422,7 +421,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
 
     // create 10 tablets
     for (int64_t id = 1; id <= 10; ++id) {
-        create_tablet(id, false, rowset_size++);
+        create_tablet(id, rowset_size++);
     }
 
     std::unordered_set<TabletSharedPtr> cumu_set;
@@ -442,32 +441,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_EQ(compact_tablets[0].tablet->tablet_id(), 10);
     ASSERT_EQ(score, 14);
 
-    // create 10 tablets enable single compact
-    // 5 tablets do cumu compaction, 5 tablets do single compaction
-    // if BE_TEST is defined, tablet_id % 2 == 0 means that tablet needs to do single compact
-    for (int64_t id = 11; id <= 20; ++id) {
-        create_tablet(id, true, rowset_size++);
-    }
-
-    compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
-            CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
-            cumulative_compaction_policies);
-    ASSERT_EQ(compact_tablets.size(), 2);
-    ASSERT_EQ(compact_tablets[0].tablet->tablet_id(), 19);
-    ASSERT_EQ(compact_tablets[1].tablet->tablet_id(), 20);
-    ASSERT_EQ(score, 24);
-
-    create_tablet(21, false, rowset_size++);
-
-    compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
-            CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
-            cumulative_compaction_policies);
-    ASSERT_EQ(compact_tablets.size(), 1);
-    ASSERT_EQ(compact_tablets[0].tablet->tablet_id(), 21);
-    ASSERT_EQ(score, 25);
-
     // drop all tablets
-    for (int64_t id = 1; id <= 21; ++id) {
+    for (int64_t id = 1; id <= 10; ++id) {
         Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
         ASSERT_TRUE(drop_st.ok()) << drop_st;
     }
@@ -475,7 +450,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     {
         k_engine->_compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 100; ++i) {
-            create_tablet(10000 + i, false, i);
+            create_tablet(10000 + i, i);
         }
 
         compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
@@ -499,41 +474,8 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
 
     {
         k_engine->_compaction_num_per_round = 10;
-        for (int64_t i = 1; i <= 100; ++i) {
-            create_tablet(20000 + i, false, i);
-        }
-        create_tablet(20102, true, 200);
-
-        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
-                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
-                cumulative_compaction_policies);
-        ASSERT_EQ(compact_tablets.size(), 11);
-        for (int i = 0; i < 10; ++i) {
-            ASSERT_EQ(compact_tablets[i].tablet->tablet_id(), 20100 - i);
-            ASSERT_EQ(compact_tablets[i].tablet->calc_compaction_score(
-                              CompactionType::CUMULATIVE_COMPACTION),
-                      100 - i);
-        }
-        ASSERT_EQ(compact_tablets[10].tablet->tablet_id(), 20102);
-        ASSERT_EQ(compact_tablets[10].tablet->calc_compaction_score(
-                          CompactionType::CUMULATIVE_COMPACTION),
-                  200);
-
-        k_engine->_compaction_num_per_round = 1;
-        // drop all tablets
-        for (int64_t id = 20001; id <= 20100; ++id) {
-            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
-            ASSERT_TRUE(drop_st.ok()) << drop_st;
-        }
-
-        Status drop_st = _tablet_mgr->drop_tablet(20102, 20102 * 10, false);
-        ASSERT_TRUE(drop_st.ok()) << drop_st;
-    }
-
-    {
-        k_engine->_compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 5; ++i) {
-            create_tablet(30000 + i, false, i + 5);
+            create_tablet(30000 + i, i + 5);
         }
 
         compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(

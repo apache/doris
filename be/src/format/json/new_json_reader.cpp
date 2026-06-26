@@ -455,7 +455,7 @@ Status NewJsonReader::_get_range_params() {
 Status json_reader_detail::append_null_for_malformed_json(Block& block) {
     for (int i = 0; i < block.columns(); ++i) {
         auto& column_with_type = block.get_by_position(i);
-        if (!column_with_type.column->is_nullable()) [[unlikely]] {
+        if (!is_column_nullable(*column_with_type.column)) [[unlikely]] {
             return Status::DataQualityError("malformed json, but the column `{}` is not nullable.",
                                             column_with_type.column->get_name());
         }
@@ -513,7 +513,8 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
                     io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                     io::PrefetchRange(_range.start_offset, _range.size)));
         }
-        _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+        _file_reader = _io_ctx && _io_ctx->file_reader_stats
+                               ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
                                : file_reader;
     }
@@ -1118,7 +1119,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     IColumn* data_column_ptr = column_ptr;
     DataTypeSerDeSPtr data_serde = serde;
 
-    if (column_ptr->is_nullable()) {
+    if (is_column_nullable(*column_ptr)) {
         nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
 
         data_column_ptr = nullable_column->get_nested_column().get_ptr().get();
@@ -1224,14 +1225,14 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                     sub_serdes[sub_column_idx], valid));
         }
 
-        //fill missing subcolumn
+        // fill missing subcolumn
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
             if (has_value[sub_col_idx]) {
                 continue;
             }
 
             auto sub_column_ptr = struct_column_ptr->get_column(sub_col_idx).get_ptr();
-            if (sub_column_ptr->is_nullable()) {
+            if (is_column_nullable(*sub_column_ptr)) {
                 sub_column_ptr->insert_default();
                 continue;
             } else [[unlikely]] {
@@ -1257,7 +1258,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                         DataTypeSerDe::FormatOptions serde_options, bool* valid) {
                 auto* data_column_ptr = column_ptr;
                 auto data_serde = serde;
-                if (column_ptr->is_nullable()) {
+                if (is_column_nullable(*column_ptr)) {
                     auto* nullable_column = static_cast<ColumnNullable*>(column_ptr);
 
                     nullable_column->get_null_map_data().push_back(0);

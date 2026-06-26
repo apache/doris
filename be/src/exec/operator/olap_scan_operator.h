@@ -87,10 +87,6 @@ private:
     }
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::ACCEPTABLE;
-    }
-
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
@@ -268,6 +264,10 @@ private:
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
     RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_topn_fallback_by_small_candidate_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_topn_fallback_small_candidate_rows = nullptr;
+    RuntimeProfile::Counter* _ann_range_fallback_by_small_candidate_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_range_fallback_small_candidate_rows = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

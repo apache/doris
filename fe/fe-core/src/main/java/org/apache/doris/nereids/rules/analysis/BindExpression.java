@@ -63,7 +63,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -431,11 +432,11 @@ public class BindExpression implements AnalysisRuleFactory {
                 if (boundSlot.getDataType() instanceof StructType
                         && generate.getExpandColumnAlias().get(i).size() > 1) {
                     // if the alias is not empty, we should bind it with struct_element as child expr with alias
-                    // struct_element(#expand_col#k, #k) as #k
-                    // struct_element(#expand_col#v, #v) as #v
+                    // element_at(#expand_col#k, #k) as #k
+                    // element_at(#expand_col#v, #v) as #v
                     List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
                     for (int idx = 0; idx < fields.size(); ++idx) {
-                        expandAlias.add(new Alias(new StructElement(
+                        expandAlias.add(new Alias(new ElementAt(
                                 boundSlot, new StringLiteral(fields.get(idx).getName())),
                                 generate.getExpandColumnAlias().get(i).get(idx),
                                 slot.getQualifier()));
@@ -914,7 +915,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         return new LogicalJoin<>(join.getJoinType(),
                 hashConjuncts, otherConjuncts,
-                join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
+                join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
     }
 
@@ -969,6 +970,7 @@ public class BindExpression implements AnalysisRuleFactory {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(using, cascadesContext);
 
         Builder<Expression> hashEqExprs = ImmutableList.builderWithExpectedSize(unboundHashJoinConjunct.size());
+        List<Slot> leftConjunctsSlots = Lists.newArrayList();
         List<Slot> rightConjunctsSlots = Lists.newArrayList();
         for (Expression usingColumn : unboundHashJoinConjunct) {
             ExpressionAnalyzer leftExprAnalyzer = new ExpressionAnalyzer(
@@ -978,15 +980,61 @@ public class BindExpression implements AnalysisRuleFactory {
             ExpressionAnalyzer rightExprAnalyzer = new ExpressionAnalyzer(
                     using, rightScope, cascadesContext, true, false);
             Expression usingRightSlot = rightExprAnalyzer.analyze(usingColumn, rewriteContext);
+            leftConjunctsSlots.add((Slot) usingLeftSlot);
             rightConjunctsSlots.add((Slot) usingRightSlot);
             hashEqExprs.add(new EqualTo(usingLeftSlot, usingRightSlot));
         }
 
-        return new LogicalJoin<>(
-                    using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
-                    hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
-                    using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
-                    using.children(), null);
+        JoinType joinType = using.getJoinType() == JoinType.CROSS_JOIN
+                ? JoinType.INNER_JOIN : using.getJoinType();
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType,
+                hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
+                using.getDistributeHint(), Optional.empty(),
+                using.children(), null);
+
+        // Build Project on top of join with correct merge key semantics
+        List<Slot> joinOutput = join.getOutput();
+        Set<Slot> leftUsingSlotSet = ImmutableSet.copyOf(leftConjunctsSlots);
+        Set<Slot> rightUsingSlotSet = ImmutableSet.copyOf(rightConjunctsSlots);
+
+        // Build project expressions: merged key(s) + all join output columns
+        ImmutableList.Builder<NamedExpression> projectExprs = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> asteriskOutputs = ImmutableList.builder();
+
+        // 1. Add merged key columns (without qualifier)
+        for (int i = 0; i < leftConjunctsSlots.size(); i++) {
+            Slot leftSlot = leftConjunctsSlots.get(i);
+            Slot rightSlot = rightConjunctsSlots.get(i);
+            String colName = leftSlot.getName();
+            NamedExpression mergeExpr;
+            if (joinType.isFullOuterJoin()) {
+                // FULL OUTER JOIN: COALESCE(left, right)
+                mergeExpr = new Alias(new Coalesce(leftSlot, rightSlot), colName);
+            } else if (joinType.isRightJoin() || joinType.isRightSemiOrAntiJoin()) {
+                // RIGHT OUTER / RIGHT SEMI / RIGHT ANTI: use right side (preserved side)
+                mergeExpr = new Alias(rightSlot, colName);
+            } else {
+                // LEFT OUTER / INNER / LEFT SEMI / LEFT ANTI / CROSS: use left side
+                mergeExpr = new Alias(leftSlot, colName);
+            }
+            projectExprs.add(mergeExpr);
+            asteriskOutputs.add(mergeExpr);
+        }
+
+        // 2. Pass through all join output columns (with original qualifiers)
+        for (Slot slot : joinOutput) {
+            projectExprs.add(slot);
+        }
+
+        // 3. Build asterisk output: merged USING keys + child asterisk output without current USING keys.
+        for (Slot slot : join.getAsteriskOutput()) {
+            if (!leftUsingSlotSet.contains(slot) && !rightUsingSlotSet.contains(slot)) {
+                asteriskOutputs.add(slot);
+            }
+        }
+
+        return new LogicalProject<>(projectExprs.build(), false,
+                asteriskOutputs.build(), ImmutableList.of(join));
     }
 
     private Plan bindProject(MatchingContext<LogicalProject<Plan>> ctx) {

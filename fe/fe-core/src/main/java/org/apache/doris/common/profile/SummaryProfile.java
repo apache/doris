@@ -62,6 +62,12 @@ public class SummaryProfile {
     public static final String END_TIME = "End Time";
     public static final String TOTAL_TIME = "Total";
     public static final String TASK_STATE = "Task State";
+    public static final String PROFILE_COMPLETION_STATE = "Profile Completion State";
+    public static final String PROFILE_COMPLETION_STATE_RUNNING = "RUNNING";
+    public static final String PROFILE_COMPLETION_STATE_COLLECTING = "COLLECTING";
+    public static final String PROFILE_COMPLETION_STATE_COMPLETE = "COMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_INCOMPLETE = "INCOMPLETE";
+    public static final String PROFILE_COMPLETION_STATE_UNKNOWN = "UNKNOWN";
     public static final String USER = "User";
     public static final String DEFAULT_CATALOG = "Default Catalog";
     public static final String DEFAULT_DB = "Default Db";
@@ -118,6 +124,7 @@ public class SummaryProfile {
     public static final String REMOTE_READ_BYTES_PER_SECOND = "Remote Read Bytes Per Second";
 
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
+    public static final String NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME = "Nereids Preload External Metadata Time";
     public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
@@ -185,6 +192,7 @@ public class SummaryProfile {
             PARSE_SQL_TIME,
             PLAN_TIME,
             NEREIDS_GARBAGE_COLLECT_TIME,
+            NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
             NEREIDS_LOCK_TABLE_TIME,
             NEREIDS_ANALYSIS_TIME,
             NEREIDS_REWRITE_TIME,
@@ -242,6 +250,7 @@ public class SummaryProfile {
     public static ImmutableMap<String, Integer> EXECUTION_SUMMARY_KEYS_INDENTATION
             = ImmutableMap.<String, Integer>builder()
             .put(NEREIDS_GARBAGE_COLLECT_TIME, 1)
+            .put(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME, 1)
             .put(NEREIDS_LOCK_TABLE_TIME, 1)
             .put(NEREIDS_ANALYSIS_TIME, 1)
             .put(NEREIDS_REWRITE_TIME, 1)
@@ -304,6 +313,10 @@ public class SummaryProfile {
     private long parseSqlStartTime = -1;
     @SerializedName(value = "parseSqlFinishTime")
     private long parseSqlFinishTime = -1;
+    @SerializedName(value = "nereidsPreloadExternalMetadataTime")
+    private long nereidsPreloadExternalMetadataTime = 0;
+    @SerializedName(value = "nereidsLockTableStartTime")
+    private long nereidsLockTableStartTime = -1;
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
@@ -521,6 +534,10 @@ public class SummaryProfile {
         return summaryProfile;
     }
 
+    public void setProfileCompletionState(String profileCompletionState) {
+        summaryProfile.addInfoString(PROFILE_COMPLETION_STATE, profileCompletionState);
+    }
+
     public RuntimeProfile getExecutionSummary() {
         return executionSummaryProfile;
     }
@@ -577,6 +594,8 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(PARSE_SQL_TIME, getPrettyParseSqlTime());
         executionSummaryProfile.addInfoString(PLAN_TIME,
                 getPrettyTime(queryPlanFinishTime, parseSqlFinishTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
+                getPrettyNereidsPreloadExternalMetadataTime());
         executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
@@ -693,6 +712,10 @@ public class SummaryProfile {
 
     public void setParseSqlFinishTime(long parseSqlFinishTime) {
         this.parseSqlFinishTime = parseSqlFinishTime;
+    }
+
+    public void setNereidsLockTableStartTime(long lockTableStartTime) {
+        this.nereidsLockTableStartTime = lockTableStartTime;
     }
 
     public void setNereidsLockTableFinishTime(long lockTableFinishTime) {
@@ -872,7 +895,11 @@ public class SummaryProfile {
     }
 
     public int getNereidsLockTableTimeMs() {
-        return getTimeMs(nereidsLockTableFinishTime, parseSqlFinishTime);
+        return getTimeMs(nereidsLockTableFinishTime, nereidsLockTableStartTime);
+    }
+
+    public long getNereidsPreloadExternalMetadataTimeMs() {
+        return nereidsPreloadExternalMetadataTime;
     }
 
     public int getNereidsAnalysisTimeMs() {
@@ -960,8 +987,12 @@ public class SummaryProfile {
         return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
 
+    public String getPrettyNereidsPreloadExternalMetadataTime() {
+        return RuntimeProfile.printCounter(nereidsPreloadExternalMetadataTime, TUnit.TIME_MS);
+    }
+
     public String getPrettyNereidsLockTableTime() {
-        return getPrettyTime(nereidsLockTableFinishTime, parseSqlFinishTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsLockTableFinishTime, nereidsLockTableStartTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsAnalysisTime() {
@@ -1232,6 +1263,10 @@ public class SummaryProfile {
 
     public void addNereidsMvRewriteTime(long ms) {
         this.nereidsMvRewriteTime += ms;
+    }
+
+    public void addNereidsPreloadExternalMetadataTime(long ms) {
+        this.nereidsPreloadExternalMetadataTime += ms;
     }
 
     public long getNereidsMvRewriteTimeMs() {

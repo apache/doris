@@ -164,6 +164,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
         break;
     }
+    case TYPE_VARBINARY: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARBINARY>(data, &node));
+        break;
+    }
     case TYPE_IPV4: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(data, &node));
         break;
@@ -1038,8 +1042,8 @@ Status VExpr::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats, bool enable_result_cache,
-        AnnRangeSearchEvaluationResult& result) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats,
+        bool enable_result_cache, AnnRangeSearchEvaluationResult& result) {
     result = {};
     return Status::OK();
 }

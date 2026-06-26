@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -32,6 +33,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/bvars.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
@@ -443,7 +445,16 @@ private:
      */
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
-                         std::function<int()> loop_done = nullptr);
+                         std::function<int()> loop_done = nullptr,
+                         std::function<bool(std::string*)> next_begin_getter = nullptr);
+
+    static int next_recycle_rowset_tablet_key(const std::string& instance_id, int64_t tablet_id,
+                                              std::string* next_key);
+
+    int scan_recycle_rowsets_by_tablet(
+            std::string begin, std::string_view end,
+            std::function<int(std::string_view k, std::string_view v)> recycle_func,
+            std::function<int()> loop_done = nullptr);
 
     // return 0 for success otherwise error
     int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);

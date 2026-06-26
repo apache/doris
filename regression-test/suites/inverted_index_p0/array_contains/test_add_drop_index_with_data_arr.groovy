@@ -26,8 +26,7 @@ suite("test_add_drop_index_with_data_arr", "array_contains_inverted_index") {
     sql """ set enable_profile=true"""
     sql """ set enable_pipeline_x_engine=true;"""
     sql """ set enable_inverted_index_query=true"""
-    sql """ set enable_common_expr_pushdown=true """
-    sql """ set enable_common_expr_pushdown_for_inverted_index=true """
+    sql """ set enable_segment_limit_pushdown=true """
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){

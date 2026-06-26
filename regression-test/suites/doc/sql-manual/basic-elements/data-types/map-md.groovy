@@ -483,7 +483,7 @@ suite("map-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} VALUES (1, MAP('key1', STRUCT(1, 'John'), 'key2', STRUCT(3, 'Jane'))) """
 
-    qt_sql """ SELECT STRUCT_ELEMENT(map_struct['key1'], 1), STRUCT_ELEMENT(map_struct['key1'], 'name') FROM ${tableName} order by id """
+    qt_sql """ SELECT element_at(map_struct['key1'], 1), element_at(map_struct['key1'], 'name') FROM ${tableName} order by id """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """

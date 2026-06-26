@@ -66,7 +66,6 @@ namespace doris {
 class Tablet;
 class CumulativeCompactionPolicy;
 class CompactionMixin;
-class SingleReplicaCompaction;
 class RowsetWriter;
 struct RowsetWriterContext;
 class TTabletInfo;
@@ -215,7 +214,7 @@ public:
     Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
 
     // meta lock
-    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    BthreadSharedMutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
@@ -306,17 +305,15 @@ public:
         _last_full_compaction_schedule_millis = millis;
     }
 
-    void set_last_single_compaction_failure_status(std::string status) {
-        _last_single_compaction_failure_status = std::move(status);
-    }
-
-    void set_last_fetched_version(Version version) { _last_fetched_version = std::move(version); }
-
     void delete_all_files();
 
     void check_tablet_path_exists();
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    // MUST hold shared `_meta_lock`. Use this when the caller already holds the
+    // header lock (e.g. the time-series cumulative score path under
+    // suitable_for_compaction) to avoid recursive shared acquisition.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction();
@@ -353,7 +350,6 @@ public:
             int8_t prefer_compaction_level = -1);
 
     void execute_compaction(CompactionMixin& compaction);
-    void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
@@ -393,8 +389,6 @@ public:
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
         _visible_version.store(visible_version);
     }
-
-    bool should_fetch_from_peer();
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -587,6 +581,9 @@ private:
 
     std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
                                                                      int64_t max_start_version);
+    // MUST hold shared `_meta_lock`.
+    std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction_unlocked(
+            int64_t min_start_version, int64_t max_start_version);
 
     void _init_context_common_fields(RowsetWriterContext& context);
 
@@ -668,10 +665,6 @@ private:
     std::string _last_base_compaction_status;
     std::string _last_full_compaction_status;
     std::string _last_binlog_compaction_status;
-
-    // single replica compaction status
-    std::string _last_single_compaction_failure_status;
-    Version _last_fetched_version;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;

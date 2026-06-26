@@ -25,7 +25,7 @@ github:
     - lakehouse
     - ai
     - agent
-    - elt
+    - observability
     - sql
     - snowflake
     - redshift

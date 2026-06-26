@@ -89,17 +89,13 @@ bool is_recursively_exclusive(const IColumn& column) {
     }
 
     bool exclusive = true;
-    IColumn::ColumnCallback callback = [&](IColumn::WrappedPtr& subcolumn) {
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
         if (!exclusive) {
             return;
         }
-        const ColumnPtr& subcolumn_ptr = const_cast<const IColumn::WrappedPtr&>(subcolumn);
-        DCHECK(subcolumn_ptr);
-        exclusive = is_recursively_exclusive(*subcolumn_ptr);
+        exclusive = is_recursively_exclusive(subcolumn);
     };
-    // `for_each_subcolumn` only exposes a mutable callback type. This callback
-    // only reads the wrapped pointers and never calls the non-const accessors.
-    const_cast<IColumn&>(column).for_each_subcolumn(callback);
+    column.for_each_subcolumn(callback);
     return exclusive;
 }
 
@@ -343,6 +339,21 @@ Status Block::check_type_and_column() const {
     return Status::OK();
 }
 
+Status Block::check_column_and_type_not_null() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        if (!elem.column) {
+            return Status::InternalError("Column in block is nullptr, column index: {}, name: {}",
+                                         i, elem.name);
+        }
+        if (!elem.type) {
+            return Status::InternalError("Type in block is nullptr, column index: {}, name: {}", i,
+                                         elem.name);
+        }
+    }
+    return Status::OK();
+}
+
 size_t Block::rows() const {
     for (const auto& elem : data) {
         if (elem.column) {
@@ -464,8 +475,7 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
 
             // This value-extraction logic is preserved from your original function
             // to maintain consistency, especially for handling nullability mismatches.
-            if (data[i].column && data[i].type->is_nullable() &&
-                !data[i].column->is_concrete_nullable()) {
+            if (data[i].column && data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                 // This branch handles a specific internal representation of nullable columns.
                 // The original code would assert here if allow_null_mismatch is false.
                 assert(allow_null_mismatch);
@@ -530,7 +540,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             std::string s;
             if (data[i].column) { // column may be const
                 // for code inside `default_implementation_for_nulls`, there's could have: type = null, col != null
-                if (data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
+                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                     assert(allow_null_mismatch);
                     s = assert_cast<const DataTypeNullable*>(data[i].type.get())
                                 ->get_nested_type()

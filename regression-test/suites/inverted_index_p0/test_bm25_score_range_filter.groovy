@@ -43,7 +43,7 @@ suite("test_bm25_score_range_filter", "p0") {
     sql """ INSERT INTO ${tableName} VALUES (8, 'apple apple banana cherry'); """
 
     sql "sync"
-    sql """ set enable_common_expr_pushdown = true; """
+    sql """ set enable_segment_limit_pushdown = true; """
 
     // Test 1: Basic score range filter with GT (>)
     qt_score_gt """

@@ -570,7 +570,7 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
 
     {
         // drop tablet will update tablet meta, should lock
-        std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
+        std::lock_guard wrlock(to_drop_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // NOTE: has to update tablet here, but must not update tablet meta directly.
         // because other thread may hold the tablet object, they may save meta too.
@@ -751,10 +751,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
                                                 ? "binlog"
                                                 : "cumulative";
     uint32_t highest_score = 0;
-    // find the single compaction tablet
-    uint32_t single_compact_highest_score = 0;
     TabletScore best_tablet_context;
-    TabletScore best_single_compact_tablet_context;
     int64_t compaction_num_per_round =
             ExecEnv::GetInstance()->storage_engine().to_local().get_compaction_num_per_round();
     auto cmp = [](TabletScore left, TabletScore right) { return left.score > right.score; };
@@ -833,21 +830,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
             return;
         }
 
-        // tablet should do single compaction
-        if (current_compaction_score > single_compact_highest_score &&
-            tablet_ptr->should_fetch_from_peer()) {
-            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
-                                                           cumulative_compaction_policy);
-            if (ret) {
-                single_compact_highest_score = current_compaction_score;
-                best_single_compact_tablet_context = {
-                        .tablet_ptr = tablet_ptr,
-                        .score = current_compaction_score,
-                        .prefer_compaction_level = prefer_compaction_level};
-            }
-        }
-
-        if (compaction_num_per_round > 1 && !tablet_ptr->should_fetch_from_peer()) {
+        if (compaction_num_per_round > 1) {
             TabletScore ts;
             ts.score = current_compaction_score;
             ts.tablet_ptr = tablet_ptr;
@@ -866,7 +849,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
                 }
             }
         } else {
-            if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
+            if (current_compaction_score > highest_score) {
                 bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
                                                                cumulative_compaction_policy);
                 if (ret) {
@@ -885,9 +868,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
         VLOG_CRITICAL << "Found the best tablet for compaction. "
                       << "compaction_type=" << compaction_type_str
                       << ", tablet_id=" << best_tablet_context.tablet_ptr->tablet_id()
-                      << ", path=" << data_dir->path() << ", highest_score=" << highest_score
-                      << ", fetch from peer: "
-                      << best_tablet_context.tablet_ptr->should_fetch_from_peer();
+                      << ", path=" << data_dir->path() << ", highest_score=" << highest_score;
         picked_tablet_contexts.emplace_back(TabletCompactionContext {
                 .tablet = std::move(best_tablet_context.tablet_ptr),
                 .prefer_compaction_level = best_tablet_context.prefer_compaction_level});
@@ -904,22 +885,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
                 .tablet = it->tablet_ptr, .prefer_compaction_level = it->prefer_compaction_level});
     }
 
-    // pick single compaction tablet needs the highest score
-    if (best_single_compact_tablet_context.tablet_ptr != nullptr &&
-        single_compact_highest_score >= highest_score) {
-        VLOG_CRITICAL << "Found the best tablet for single compaction. "
-                      << "compaction_type=" << compaction_type_str << ", tablet_id="
-                      << best_single_compact_tablet_context.tablet_ptr->tablet_id()
-                      << ", path=" << data_dir->path()
-                      << ", highest_score=" << single_compact_highest_score << ", fetch from peer: "
-                      << best_single_compact_tablet_context.tablet_ptr->should_fetch_from_peer();
-        picked_tablet_contexts.emplace_back(TabletCompactionContext {
-                .tablet = std::move(best_single_compact_tablet_context.tablet_ptr),
-                .prefer_compaction_level =
-                        best_single_compact_tablet_context.prefer_compaction_level});
-    }
-    *score = highest_score > single_compact_highest_score ? highest_score
-                                                          : single_compact_highest_score;
+    *score = highest_score;
     return picked_tablet_contexts;
 }
 

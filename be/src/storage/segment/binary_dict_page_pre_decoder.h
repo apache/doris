@@ -21,6 +21,7 @@
 #include "storage/segment/binary_dict_page.h"
 #include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
+#include "storage/segment/binary_plain_page_v3_pre_decoder.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/segment/encoding_info.h"
 #include "util/coding.h"
@@ -73,10 +74,10 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
         auto encoding_type =
                 static_cast<EncodingTypePB>(decode_fixed32_le((const uint8_t*)page_slice->data));
         if (encoding_type != DICT_ENCODING && encoding_type != PLAIN_ENCODING_V2 &&
-            encoding_type != PLAIN_ENCODING) {
+            encoding_type != PLAIN_ENCODING_V3 && encoding_type != PLAIN_ENCODING) {
             return Status::Corruption(
                     "Unknown encoding type: {} in file: {}, should one of <DICT_ENCODING, "
-                    "PLAIN_ENCODING_V2, PLAIN_ENCODING>",
+                    "PLAIN_ENCODING_V2, PLAIN_ENCODING_V3, PLAIN_ENCODING>",
                     encoding_type, file_path);
         }
         // For PLAIN_ENCODING, non-CHAR pages can be used as-is; CHAR pages
@@ -112,6 +113,12 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
         case PLAIN_ENCODING_V2: {
             BinaryPlainPageV2PreDecoder<IS_CHAR> v2_decoder;
             status = v2_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
+                                       _use_cache, page_type, file_path, total_prefix);
+            break;
+        }
+        case PLAIN_ENCODING_V3: {
+            BinaryPlainPageV3PreDecoder<IS_CHAR> v3_decoder;
+            status = v3_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
                                        _use_cache, page_type, file_path, total_prefix);
             break;
         }

@@ -250,7 +250,7 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
+    void for_each_subcolumn(MutableColumnCallback callback) override {
         callback(_nested_column);
 
         IColumn::WrappedPtr null_map(std::move(static_cast<ColumnUInt8::Ptr&>(_null_map)));
@@ -260,15 +260,19 @@ public:
         callback(null_map);
     }
 
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const IColumn::Ptr&>(_nested_column));
+        callback(*static_cast<const ColumnUInt8::Ptr&>(_null_map));
+    }
+
     bool structure_equals(const IColumn& rhs) const override {
-        if (const auto* rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
+        if (const auto* rhs_nullable = check_and_get_column<ColumnNullable>(&rhs)) {
             return _nested_column->structure_equals(*rhs_nullable->_nested_column);
         }
         return false;
     }
 
     bool is_nullable() const override { return true; }
-    bool is_concrete_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {

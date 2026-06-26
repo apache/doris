@@ -128,7 +128,7 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
         return expressions.get();
     }
 
-    public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {
+    public LogicalTopN<CHILD_TYPE> withOrderKeys(List<OrderKey> orderKeys) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalTopN<>(orderKeys, limit, offset,
                 Optional.empty(), Optional.of(getLogicalProperties()), child()));

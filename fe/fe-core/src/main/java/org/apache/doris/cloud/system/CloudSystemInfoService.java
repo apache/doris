@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.system;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -118,16 +119,98 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public ComputeGroup getComputeGroupByName(String computeGroupName) {
-        LOG.debug("get id {} computeGroupIdToComputeGroup : {} ", computeGroupName, computeGroupIdToComputeGroup);
+        // rlock guards the compound name->id->group lookup: writers (add/remove/rename)
+        // update both maps under wlock, and the read must observe a consistent snapshot
+        // so callers like getPhysicalCluster don't transiently see a virtual group name
+        // with a null group and fall back to treating it as a physical cluster.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get id {} computeGroupIdToComputeGroup : {} ", computeGroupName, computeGroupIdToComputeGroup);
+        }
         try {
             rlock.lock();
-            if (!clusterNameToId.containsKey(computeGroupName)) {
-                return null;
-            }
-            return computeGroupIdToComputeGroup.get(clusterNameToId.get(computeGroupName));
+            String id = clusterNameToId.get(computeGroupName);
+            return id == null ? null : computeGroupIdToComputeGroup.get(id);
         } finally {
             rlock.unlock();
         }
+    }
+
+    public boolean containsCloudCluster(String clusterName) {
+        return !Strings.isNullOrEmpty(clusterName) && clusterNameToId.containsKey(clusterName);
+    }
+
+    // Resolve the cluster id for the current ConnectContext: physical-cluster lookup,
+    // priv check, status check (reject MANUAL_SHUTDOWN), wait-for-autoStart, existence
+    // check, finally name->id mapping. The result is identical for every tablet/replica
+    // within a single request, so hot paths should resolve once and reuse the cached value.
+    public String getCurrentClusterId() throws ComputeGroupException {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("connect context is null in getCurrentClusterId");
+            }
+            throw new ComputeGroupException("connect context not set cluster ",
+                    ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
+        }
+
+        String cluster = getPhysicalCluster(context.getCloudCluster());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get compute group by context {}", cluster);
+        }
+
+        UserIdentity currentUid = context.getCurrentUserIdentity();
+        if (currentUid == null || Strings.isNullOrEmpty(currentUid.getQualifiedUser())) {
+            LOG.info("connect context user is null.");
+            throw new ComputeGroupException("connect context's user is null",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+        }
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
+        } catch (Exception e) {
+            LOG.warn("check compute group {} for {} auth failed.", cluster, currentUid);
+            throw new ComputeGroupException(
+                    String.format("context compute group %s check auth failed, user is %s", cluster, currentUid),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+        }
+
+        String clusterStatus = getCloudStatusByName(cluster);
+        if (!Strings.isNullOrEmpty(clusterStatus)
+                && Cloud.ClusterStatus.valueOf(clusterStatus) == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+            LOG.warn("auto start compute group {} in manual shutdown status", cluster);
+            throw new ComputeGroupException(
+                    String.format("The current compute group %s has been manually shutdown", cluster),
+                    ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_BEEN_MANUAL_SHUTDOWN);
+        }
+
+        return resolveClusterIdByName(cluster);
+    }
+
+    // Resolve a known cluster name to its id, handling auto-start (cluster may resume
+    // under a different name) and validating the cluster is registered.
+    public String resolveClusterIdByName(String cluster) throws ComputeGroupException {
+        String wakeUPCluster = "";
+        try {
+            wakeUPCluster = waitForAutoStart(cluster);
+        } catch (DdlException e) {
+            LOG.warn("cant resume compute group {}, exception", cluster, e);
+        }
+        if (!Strings.isNullOrEmpty(wakeUPCluster) && !cluster.equals(wakeUPCluster)) {
+            cluster = wakeUPCluster;
+            LOG.warn("get backend input compute group {} useless, so auto start choose a new one compute group {}",
+                    cluster, wakeUPCluster);
+        }
+        if (Strings.isNullOrEmpty(cluster)) {
+            LOG.warn("failed to get available be, clusterName: {}", cluster);
+            throw new ComputeGroupException("compute group name is empty",
+                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET_COMPUTE_GROUP);
+        }
+        if (!containsCloudCluster(cluster)) {
+            LOG.warn("compute group: {} is not existed", cluster);
+            throw new ComputeGroupException(
+                String.format("The current compute group %s is not registered in the system", cluster),
+                ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_NOT_EXIST);
+        }
+        return getCloudClusterIdByName(cluster);
     }
 
     public ComputeGroup getComputeGroupById(String computeGroupId) {
@@ -1063,7 +1146,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                         .filter(i -> i.getTagMap().containsKey(Tag.CLOUD_CLUSTER_NAME))
                         .collect(Collectors.toList());
                 // The larger bakendId the later it was added, the order matters
-                toAdd.sort((x, y) -> (int) (x.getId() - y.getId()));
+                toAdd.sort((x, y) -> Long.compare(x.getId(), y.getId()));
                 updateCloudClusterMapNoLock(toAdd, new ArrayList<>());
             }
 
