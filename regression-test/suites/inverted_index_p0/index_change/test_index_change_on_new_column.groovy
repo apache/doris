@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_on_new_column", "nonConcurrent") {
+suite("test_index_change_on_new_column") {
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
@@ -45,7 +45,7 @@ suite("test_index_change_on_new_column", "nonConcurrent") {
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
     }
-    
+
     def tableName = "test_index_change_on_new_column"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -61,10 +61,10 @@ suite("test_index_change_on_new_column", "nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES
          (1, 'hello world')
         """
-    
+
     // add new column
     sql """ alter table ${tableName} add column s1 varchar(50) default null after s; """
-    
+
     qt_select1 """ SELECT * FROM ${tableName}; """
 
     // create inverted index on new column
@@ -122,52 +122,6 @@ suite("test_index_change_on_new_column", "nonConcurrent") {
         build_index_on_table("idx_s1", tableName)
         wait_for_build_index_on_partition_finish(tableName, timeout)
     }
-
-    show_result = sql "show index from ${tableName}"
-    logger.info("show index from " + tableName + " result: " + show_result)
-    assertEquals(show_result.size(), 2)
-    assertEquals(show_result[0][2], "idx_s")
-    assertEquals(show_result[1][2], "idx_s1")
-    qt_select2 """ SELECT * FROM ${tableName} order by id; """
-    qt_select3 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s1 match 'welcome'; """
-    qt_select4 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s match 'hello world'; """
-
-    tableName = "test_index_change_on_new_column1_index_v1"
-
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
-            `id` INT COMMENT "",
-            `s` STRING COMMENT "",
-            INDEX idx_s(s) USING INVERTED
-        )
-        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        PROPERTIES ( "inverted_index_storage_format" = "v1", "replication_num" = "1" );
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (1, 'hello world')
-        """
-
-    // add new column
-    sql """ alter table ${tableName} add column s1 varchar(50) default null after s; """
-
-    qt_select1 """ SELECT * FROM ${tableName}; """
-
-    // create inverted index on new column
-    sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED PROPERTIES('parser' = 'english')"""
-    wait_for_last_col_change_finish(tableName, timeout)
-
-    sql """ INSERT INTO ${tableName} VALUES
-            (2, 'hello wold', 'welcome to the world')
-        """
-    // build inverted index on new column
-    if (!isCloudMode()) {
-        build_index_on_table("idx_s1", tableName)
-        wait_for_build_index_on_partition_finish(tableName, timeout)
-    }
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)

@@ -1223,12 +1223,9 @@ public class PropertyAnalyzer {
         }
 
         if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
-            if (!Config.allow_inverted_index_v1_creation) {
-                throw new AnalysisException(
-                        "Inverted index V1 is deprecated and no longer allowed for new index creation."
-                                + " Please use inverted index V2.");
-            }
-            return TInvertedIndexFileStorageFormat.V1;
+            throw new AnalysisException(
+                    "Inverted index V1 is deprecated and no longer allowed for new index creation."
+                            + " Please use inverted index V2.");
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {

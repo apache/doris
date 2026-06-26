@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_contains_with_inverted_index", "nonConcurrent") {
+suite("test_array_contains_with_inverted_index") {
     // prepare test table
     def indexTblName = "tai"
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
@@ -27,11 +27,7 @@ suite("test_array_contains_with_inverted_index", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     sql """ set default_variant_enable_doc_mode = false """
     // create 1 replica table
-    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-    if (storageFormat == "V1" && isCloudMode()) {
-        return;
-    }
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+    def storageFormat = "V2"
     sql """
 	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
@@ -53,7 +49,7 @@ suite("test_array_contains_with_inverted_index", "nonConcurrent") {
     "inverted_index_storage_format" = "$storageFormat"
     );
     """
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
+
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '{"inventors":["a", "b", "c"]}'); """
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', '{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}'); """
         sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', '48a33ec3453a28bce84b8f96fe161956', '{"inventors":["m"]}'); """

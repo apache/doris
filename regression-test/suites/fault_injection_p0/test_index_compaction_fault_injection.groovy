@@ -298,7 +298,6 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         * test for duplicated key table
         */
         sql """ DROP TABLE IF EXISTS ${tableName}; """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
             CREATE TABLE ${tableName} (
                 `id` int(11) NULL,
@@ -312,9 +311,8 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
         """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
@@ -327,7 +325,6 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         tableName = "test_index_compaction_failure_injection_unique"
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql """
             CREATE TABLE ${tableName} (
                 `id` int(11) NULL,
@@ -341,14 +338,13 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES (
+            PROPERTIES ( 
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
                 "enable_unique_key_merge_on_write" = "true",
-                "inverted_index_storage_format" = "V1"
+                "inverted_index_storage_format" = "V2"
             );
         """
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
         run_test.call(tablets)

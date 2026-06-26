@@ -168,10 +168,8 @@ suite("test_spark_load_with_index_p0", "p0") {
     }
     
     set_be_config("inverted_index_ram_dir_enable", "true")
-    test.call("V1")
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
-    test.call("V1")
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "true")
 }

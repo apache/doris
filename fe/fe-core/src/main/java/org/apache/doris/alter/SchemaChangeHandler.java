@@ -3275,15 +3275,8 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
-        // Resolve DEFAULT to its effective format using the system config before checking.
-        TInvertedIndexFileStorageFormat effectiveFormat = olapTable.getInvertedIndexFileStorageFormat();
-        if (effectiveFormat == TInvertedIndexFileStorageFormat.DEFAULT
-                && Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-            effectiveFormat = TInvertedIndexFileStorageFormat.V1;
-        }
         if (indexDef.getIndexType() == IndexType.INVERTED
-                && effectiveFormat == TInvertedIndexFileStorageFormat.V1
-                && !Config.allow_inverted_index_v1_creation) {
+                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
             throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
                     + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
                     + " recreate the table with inverted_index_storage_format = V2.");

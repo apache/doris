@@ -17,10 +17,10 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_1", "nonConcurrent") {
+suite("test_index_change_1") {
     sql "set enable_add_index_for_new_data = true"
     def timeout = 60000
-    
+
     def tableName = "test_index_change_1"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -39,27 +39,27 @@ suite("test_index_change_1", "nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES
          (1, '2017-10-01', 'Beijing China', 10, 1, 'Software Developer')
         """
-    
+
     sql """ INSERT INTO ${tableName} VALUES
          (2, '2017-10-01', 'Beijing China', 10, 1, 'Communication Engineer')
         """
-    
+
     sql """ INSERT INTO ${tableName} VALUES
          (3, '2017-10-01', 'Shanghai China', 10, 1, 'electrical engineer')
         """
-    
+
     sql """ INSERT INTO ${tableName} VALUES
          (4, '2017-10-02', 'Beijing China', 10, 0, 'Both a teacher and a scientist')
         """
-    
+
     sql """ INSERT INTO ${tableName} VALUES
          (5, '2017-10-02', 'Shenzhen China', 10, 1, 'teacher')
         """
-    
+
     sql """ INSERT INTO ${tableName} VALUES
          (6, '2017-10-03', 'Hongkong China', 10, 1, 'Architectural designer')
         """
-    
+
     qt_select1 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex; """
 
     // create inverted index
@@ -83,67 +83,4 @@ suite("test_index_change_1", "nonConcurrent") {
     qt_select5 """ SELECT * FROM ${tableName} t WHERE note MATCH_PHRASE 'electrical engineer' ORDER BY user_id; """
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
-    tableName = "test_index_change_1_v1"
-
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
-            `user_id` LARGEINT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `note` TEXT COMMENT "备注")
-        DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (1, '2017-10-01', 'Beijing China', 10, 1, 'Software Developer')
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (2, '2017-10-01', 'Beijing China', 10, 1, 'Communication Engineer')
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (3, '2017-10-01', 'Shanghai China', 10, 1, 'electrical engineer')
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (4, '2017-10-02', 'Beijing China', 10, 0, 'Both a teacher and a scientist')
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (5, '2017-10-02', 'Shenzhen China', 10, 1, 'teacher')
-        """
-
-    sql """ INSERT INTO ${tableName} VALUES
-         (6, '2017-10-03', 'Hongkong China', 10, 1, 'Architectural designer')
-        """
-
-    qt_select1_v1 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex; """
-
-    // create inverted index
-    sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
-
-    sql """ CREATE INDEX idx_note ON ${tableName}(`note`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
-    wait_for_last_col_change_finish(tableName, timeout)
-    sql """ CREATE INDEX idx_city ON ${tableName}(`city`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
-    wait_for_last_col_change_finish(tableName, timeout)
-    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
-
-    show_result = sql "show index from ${tableName}"
-    logger.info("show index from " + tableName + " result: " + show_result)
-    assertEquals(show_result.size(), 3)
-    assertEquals(show_result[0][2], "idx_user_id")
-    assertEquals(show_result[1][2], "idx_note")
-    assertEquals(show_result[2][2], "idx_city")
-
-    qt_select2_v1 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' ORDER BY user_id; """
-    qt_select3_v1 """ SELECT * FROM ${tableName} t WHERE city MATCH 'beijing' and sex = 1 ORDER BY user_id; """
-    qt_select4_v1 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer' and sex = 0 ORDER BY user_id; """
-    qt_select5_v1 """ SELECT * FROM ${tableName} t WHERE note MATCH_PHRASE 'electrical engineer' ORDER BY user_id; """
-    qt_select6_v1 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 }

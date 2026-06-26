@@ -27,10 +27,7 @@ suite("test_array_index_write", "nonConcurrent"){
                                 
             stmt += strTmp
             stmt = stmt.substring(0, stmt.length()-2)
-            def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-            if (isCloudMode()) {
-                storageFormat = "V2";
-            }
+            def storageFormat = "V2"
             stmt += ") \nENGINE=OLAP\n" +
                         "DUPLICATE KEY(`k1`)\n" +
                         "COMMENT 'OLAP'\n" +
@@ -40,9 +37,8 @@ suite("test_array_index_write", "nonConcurrent"){
         }
 
         def indexTbName = "test_variant_index_parser_empty"
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql create_variant_index_table.call(indexTbName, "")
-        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
+
         def checkpoints_name = "array_inverted_index.write_index"
 
         try {

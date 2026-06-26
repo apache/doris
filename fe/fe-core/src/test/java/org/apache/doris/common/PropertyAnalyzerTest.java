@@ -297,10 +297,10 @@ public class PropertyAnalyzerTest {
             TInvertedIndexFileStorageFormat result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(null);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
-            // Config=V1 with no explicit property: remapped to V2 to block new V1 creation
+            // Config=V1 with no explicit property: V1 config is ignored, falls through to V3
             Config.inverted_index_storage_format = "V1";
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(new HashMap<>());
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
             Map<String, String> propertiesWithV1 = new HashMap<>();
             propertiesWithV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "v1");
@@ -319,12 +319,12 @@ public class PropertyAnalyzerTest {
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithV3);
             Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
-            // "default" + Config=V1: remapped to V2 to block new V1 creation
+            // "default" + Config=V1: falls through to V3 (current default when config is not V2)
             Config.inverted_index_storage_format = "V1";
             Map<String, String> propertiesWithDefaultV1 = new HashMap<>();
             propertiesWithDefaultV1.put(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, "default");
             result = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(propertiesWithDefaultV1);
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V2, result);
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3, result);
 
             Config.inverted_index_storage_format = "V2";
             Map<String, String> propertiesWithDefaultV2 = new HashMap<>();

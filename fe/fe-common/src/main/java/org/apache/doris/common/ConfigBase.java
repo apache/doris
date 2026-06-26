@@ -81,6 +81,32 @@ public class ConfigBase {
         }
     }
 
+    public static class RejectDeprecatedV1Handler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            if ("V1".equalsIgnoreCase(confVal)) {
+                throw new ConfigException("Inverted index V1 is deprecated and no longer allowed"
+                        + " for new index creation. Please use inverted index V2.");
+            }
+            setConfigField(field, confVal);
+        }
+    }
+
+    // Same rejection as RejectDeprecatedV1Handler, but used when validating the value loaded from
+    // fe.conf/fe_custom.conf at FE startup (see DorisFE#start), instead of as the runtime
+    // ADMIN SET FRONTEND CONFIG callback. The message points operators to the config files to fix.
+    public static class RejectStartupInvertedIndexV1Handler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            if ("V1".equalsIgnoreCase(confVal)) {
+                throw new ConfigException(
+                        "inverted_index_storage_format=V1 is no longer supported. "
+                        + "Please update fe.conf (or fe_custom.conf): set inverted_index_storage_format=V2.");
+            }
+            setConfigField(field, confVal);
+        }
+    }
+
     static class CommaSeparatedIntersectConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String newVal) throws Exception {
