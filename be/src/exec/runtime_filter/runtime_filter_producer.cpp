@@ -61,12 +61,12 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             return Status::OK();
         }
         bool ready = false;
-        RETURN_IF_ERROR(context->merger()->merge_from(this, &ready));
+        RETURN_IF_ERROR(context->merger->merge_from(this, &ready));
         if (ready) {
             if (_has_remote_target) {
-                RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger().get()));
+                RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
             } else {
-                RETURN_IF_ERROR(_send_to_local_targets(state, context->merger().get(), true));
+                RETURN_IF_ERROR(_send_to_local_targets(state, context->merger.get(), true));
             }
         }
         return Status::OK();
@@ -131,13 +131,13 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
             return Status::OK();
         }
         uint64_t received_sum_size = 0;
-        bool ready_to_sync = context->merger()->add_rf_size(local_filter_size);
+        bool ready_to_sync = context->merger->add_rf_size(local_filter_size);
         if (!ready_to_sync) {
             return Status::OK();
         }
-        received_sum_size = context->merger()->get_received_sum_size();
+        received_sum_size = context->merger->get_received_sum_size();
         if (!_has_remote_target) {
-            for (const auto& filter : context->producers()) {
+            for (const auto& filter : context->producers) {
                 filter->set_synced_size(received_sum_size);
             }
             return Status::OK();

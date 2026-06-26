@@ -124,9 +124,9 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
                             ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
                             .ok());
         EXPECT_NE(context, nullptr);
-        EXPECT_NE(context->merger(), nullptr);
-        EXPECT_EQ(context->producers().size(), 1);
-        context->producers().front()->_rf_state =
+        EXPECT_NE(context->merger, nullptr);
+        EXPECT_EQ(context->producers.size(), 1);
+        context->producers.front()->_rf_state =
                 RuntimeFilterProducer::State ::WAITING_FOR_SYNCED_SIZE;
     }
     {

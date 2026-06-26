@@ -28,7 +28,6 @@
 #include <memory>
 #include <mutex>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -56,27 +55,15 @@ template <typename Response>
 class HandleErrorBrpcCallback;
 class SyncSizeCallback;
 
-class LocalMergeContext {
-public:
-    LocalMergeContext(uint32_t stage, std::shared_ptr<RuntimeFilterMerger> merger)
-            : _merger(std::move(merger)), _stage(stage) {}
-
-    void register_producer(std::shared_ptr<RuntimeFilterProducer> producer);
+struct LocalMergeContext {
     std::string debug_string();
 
-    uint32_t stage() const { return _stage; }
-    const std::shared_ptr<RuntimeFilterMerger>& merger() const { return _merger; }
-    const std::vector<std::shared_ptr<RuntimeFilterProducer>>& producers() const {
-        return _producers;
-    }
-
-private:
-    std::shared_ptr<RuntimeFilterMerger> _merger;
-    std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
     // Tracks the recursive CTE round.  When a producer from a newer round
     // registers, RuntimeFilterMgr replaces the whole context and old in-flight
     // users keep the previous context alive through shared_ptr.
-    uint32_t _stage = 0;
+    uint32_t stage = 0;
 };
 
 struct GlobalMergeContext {

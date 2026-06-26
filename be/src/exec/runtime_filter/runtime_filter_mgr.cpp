@@ -93,29 +93,26 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
 
     std::lock_guard<std::mutex> l(_lock);
     auto& context = _local_merge_map[key];
-    if (!context || producer->stage() > context->stage()) {
-        std::shared_ptr<RuntimeFilterMerger> merger;
-        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &desc, &merger));
-        context = std::make_shared<LocalMergeContext>(producer->stage(), std::move(merger));
+    if (!context || producer->stage() > context->stage) {
+        auto new_context = std::make_shared<LocalMergeContext>();
+        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &desc, &new_context->merger));
+        new_context->stage = producer->stage();
+        context = new_context;
     }
 
-    context->register_producer(producer);
+    context->producers.emplace_back(producer);
+    context->merger->set_expected_producer_num(cast_set<int>(context->producers.size()));
+    // Sync the local merger's stage from the producer so that outgoing merge RPCs
+    // (via _push_to_remote) carry the correct recursive CTE round number.
+    context->merger->set_stage(producer->stage());
     return Status::OK();
 }
 
-void LocalMergeContext::register_producer(std::shared_ptr<RuntimeFilterProducer> producer) {
-    _producers.emplace_back(producer);
-    _merger->set_expected_producer_num(cast_set<int>(_producers.size()));
-    // Sync the local merger's stage from the producer so that outgoing merge RPCs
-    // (via _push_to_remote) carry the correct recursive CTE round number.
-    _merger->set_stage(producer->stage());
-}
-
 std::string LocalMergeContext::debug_string() {
-    std::string result = fmt::format(
-            "stage: {}, {}\n", _stage,
-            _merger ? _merger->debug_string() : "local merge context merger is nullptr");
-    for (const auto& producer : _producers) {
+    std::string result =
+            fmt::format("stage: {}, {}\n", stage,
+                        merger ? merger->debug_string() : "local merge context merger is nullptr");
+    for (const auto& producer : producers) {
         result += fmt::format("{}\n", producer->debug_string());
     }
     return result;
@@ -137,7 +134,7 @@ Status RuntimeFilterMgr::get_local_merge_context(int filter_id, uint32_t expecte
     if (!iter->second) {
         return Status::InternalError("local merge context is nullptr for filter_id: {}", filter_id);
     }
-    if (expected_stage != iter->second->stage()) {
+    if (expected_stage != iter->second->stage) {
         return Status::OK();
     }
     *context = iter->second;
@@ -259,7 +256,6 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     Status st = Status::OK();
     // After all runtime filters' size are collected, we should send response to all producers.
     if (cnt_val.merger->add_rf_size(request->filter_size())) {
-        uint64_t received_sum_size = cnt_val.merger->get_received_sum_size();
         cnt_val.sync_size_callbacks.resize(cnt_val.source_addrs.size());
         for (size_t i = 0; i < cnt_val.source_addrs.size(); ++i) {
             auto& addr = cnt_val.source_addrs[i];
@@ -294,7 +290,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
             }
 
             closure->request_->set_filter_id(filter_id);
-            closure->request_->set_filter_size(received_sum_size);
+            closure->request_->set_filter_size(cnt_val.merger->get_received_sum_size());
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
                                    closure->response_.get(), closure.get());
             closure.release();
@@ -310,7 +306,7 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
         // Filter was removed during a recursive CTE stage reset; discard stale request.
         return Status::OK();
     }
-    for (const auto& producer : context->producers()) {
+    for (const auto& producer : context->producers) {
         producer->set_synced_size(request->filter_size());
     }
     return Status::OK();
