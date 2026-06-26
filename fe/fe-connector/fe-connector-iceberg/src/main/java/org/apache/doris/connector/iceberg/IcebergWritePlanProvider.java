@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -58,6 +60,8 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.LocationUtil;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -93,6 +97,28 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // constant for the doris/spark-sql forms).
     private static final String COMPRESSION_CODEC = "compression-codec";
     private static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
+
+    // Connector-local literal copy of fe-core's Column.ICEBERG_ROWID_COL (connectors must not import
+    // fe-core). The fe-core ConnectorColumnConverterTest contract pin asserts that converting this exact
+    // declared shape yields the legacy IcebergRowId.createHiddenColumn() (name / STRUCT / invisible /
+    // not-null), so a drift on either side turns one of the two tests red.
+    private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+
+    // The single request-scoped synthetic write column iceberg declares: the row-id STRUCT carrying the
+    // per-row write metadata (file_path / row_position / partition_spec_id / partition_data). Same for
+    // every iceberg table regardless of format/partitioning (mirrors legacy IcebergRowId), so it is a
+    // shared immutable instance.
+    private static final List<ConnectorColumn> SYNTHETIC_WRITE_COLUMNS =
+            Collections.singletonList(buildRowIdColumn());
+
+    private static ConnectorColumn buildRowIdColumn() {
+        ConnectorType rowIdStruct = ConnectorType.structOf(
+                Arrays.asList("file_path", "row_position", "partition_spec_id", "partition_data"),
+                Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"),
+                        ConnectorType.of("INT"), ConnectorType.of("STRING")));
+        return new ConnectorColumn(DORIS_ICEBERG_ROWID_COL, rowIdStruct,
+                "Iceberg row position metadata", false, null, false).invisible();
+    }
 
     private final Map<String, String> properties;
     private final IcebergCatalogOps catalogOps;
@@ -214,6 +240,17 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                     transform, parseTransformParam(transform), sourceColumnName, field.name(), field.sourceId()));
         }
         return new ConnectorWritePartitionSpec(spec.specId(), fields);
+    }
+
+    @Override
+    public List<ConnectorColumn> getSyntheticWriteColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        // The iceberg row-id hidden column is the same for every iceberg table regardless of
+        // format/partitioning — it mirrors legacy IcebergExternalTable.getFullSchema appending
+        // IcebergRowId.createHiddenColumn() whenever a DML (or show-hidden) is in flight. fe-core gates the
+        // actual injection request-side (show-hidden / synthetic-write-column ctx flag); here we only
+        // declare it, so neither the session nor the table handle is consulted.
+        return SYNTHETIC_WRITE_COLUMNS;
     }
 
     /** Parses the bracket argument of an iceberg transform string ({@code bucket[16] -> 16}); null when absent. */

@@ -19,6 +19,11 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -89,7 +94,7 @@ public class IcebergNereidsUtils {
      * Inject $row_id column only for the specified target table.
      * Used by MERGE INTO where source may also be an Iceberg table.
      */
-    public static LogicalPlan injectRowIdColumn(LogicalPlan plan, IcebergExternalTable targetTable) {
+    public static LogicalPlan injectRowIdColumn(LogicalPlan plan, ExternalTable targetTable) {
         if (hasUnboundPlan(plan)) {
             return plan;
         }
@@ -123,7 +128,7 @@ public class IcebergNereidsUtils {
     }
 
     /** Resolve the row-id Column definition from the table's full schema. */
-    public static Column getRowIdColumn(IcebergExternalTable table) {
+    public static Column getRowIdColumn(ExternalTable table) {
         List<Column> fullSchema = table.getFullSchema();
         if (fullSchema != null) {
             for (Column column : fullSchema) {
@@ -133,6 +138,32 @@ public class IcebergNereidsUtils {
             }
         }
         return IcebergRowId.createHiddenColumn();
+    }
+
+    /**
+     * Whether a scan's table is a row-id-injection target. Pre-flip this is a legacy
+     * {@link IcebergExternalTable}; post-flip an iceberg table is a {@link PluginDrivenExternalTable}, which
+     * is identified by the neutral row-level-DML connector capability rather than {@code instanceof Iceberg*}
+     * (iron-law: the new arm is connector-capability-driven). Only the iceberg connector declares
+     * supportsDelete/supportsMerge, so this precisely selects iceberg scans among a mixed plan (e.g. a MERGE
+     * whose source is a different table type).
+     */
+    static boolean isRowIdInjectionTarget(ExternalTable table) {
+        return table instanceof IcebergExternalTable
+                || (table instanceof PluginDrivenExternalTable
+                    && pluginConnectorSupportsRowLevelDml((PluginDrivenExternalTable) table));
+    }
+
+    private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        Connector connector = catalog.getConnector();
+        if (connector == null) {
+            // A catalog dropped mid-DML-planning nulls its transient connector; degrade to "not a target"
+            // rather than NPE-aborting the query, mirroring PluginDrivenExternalTable.fetchSyntheticWriteColumns.
+            return false;
+        }
+        ConnectorMetadata metadata = connector.getMetadata(catalog.buildConnectorSession());
+        return metadata.supportsDelete() || metadata.supportsMerge();
     }
 
     /** Check if a plan tree contains any unbound nodes or expressions. */
@@ -148,25 +179,25 @@ public class IcebergNereidsUtils {
      */
     private static class IcebergRowIdInjector extends DefaultPlanRewriter<Void> {
         @Nullable
-        private final IcebergExternalTable targetTable;
+        private final ExternalTable targetTable;
 
-        IcebergRowIdInjector(@Nullable IcebergExternalTable targetTable) {
+        IcebergRowIdInjector(@Nullable ExternalTable targetTable) {
             this.targetTable = targetTable;
         }
 
         @Override
         public Plan visitLogicalFileScan(LogicalFileScan scan, Void context) {
-            if (!(scan.getTable() instanceof IcebergExternalTable)) {
+            if (!isRowIdInjectionTarget(scan.getTable())) {
                 return scan;
             }
             if (targetTable != null
-                    && ((IcebergExternalTable) scan.getTable()).getId() != targetTable.getId()) {
+                    && scan.getTable().getId() != targetTable.getId()) {
                 return scan;
             }
             if (hasRowIdSlot(scan.getOutput())) {
                 return scan;
             }
-            IcebergExternalTable table = (IcebergExternalTable) scan.getTable();
+            ExternalTable table = scan.getTable();
             Column rowIdColumn = getRowIdColumn(table);
             SlotReference rowIdSlot = SlotReference.fromColumn(
                     StatementScopeIdGenerator.newExprId(), table, rowIdColumn, scan.getQualifier());

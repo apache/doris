@@ -17,10 +17,12 @@
 
 package org.apache.doris.connector.api.write;
 
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -114,5 +116,32 @@ public interface ConnectorWritePlanProvider {
     default ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
         return null;
+    }
+
+    /**
+     * Declares the connector's <b>synthetic write columns</b> for the target — request-scoped hidden
+     * columns the engine injects into {@code PluginDrivenExternalTable.getFullSchema()} while a write/DML
+     * over this table is in flight, in an engine-neutral form. The engine appends these (converted via
+     * its {@code ConnectorColumnConverter}) to the table's full schema only when the request signals it
+     * (show-hidden, or the synthetic-write-column ctx flag set for this table during row-level DML), so a
+     * synthesized DELETE/UPDATE/MERGE plan can bind slots that reference them.
+     *
+     * <p>These are the per-row write metadata a connector needs for row-level DML — for iceberg the
+     * {@code __DORIS_ICEBERG_ROWID_COL__} STRUCT (file_path / row_position / partition_spec_id /
+     * partition_data), declared {@link ConnectorColumn#invisible() invisible} so it never surfaces in
+     * SELECT/SHOW. Distinct from the connector's <i>always-present</i> hidden columns (e.g. iceberg v3
+     * row-lineage), which are declared through the schema SPI and cached: those live in the schema cache,
+     * whereas synthetic write columns are request-scoped and must not be cached. Depends only on the
+     * target table (not the bound write), so it takes the {@link ConnectorTableHandle}. Default: empty —
+     * a connector without synthetic write columns (jdbc / es / paimon / maxcompute) injects nothing,
+     * keeping its byte-identical full schema.</p>
+     *
+     * @param session     the current session
+     * @param tableHandle the target table handle
+     * @return the synthetic write columns to inject, or an empty list if the target has none
+     */
+    default List<ConnectorColumn> getSyntheticWriteColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return Collections.emptyList();
     }
 }

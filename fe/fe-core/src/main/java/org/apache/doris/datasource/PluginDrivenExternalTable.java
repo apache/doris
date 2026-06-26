@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
@@ -32,9 +33,11 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -256,6 +259,71 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumns())
                 .orElse(Collections.emptyList());
+    }
+
+    /**
+     * Opens the hidden-column gate while a row-level DML over THIS table is in flight, mirroring legacy
+     * {@code IcebergExternalTable.needInternalHiddenColumns}. The signal is the neutral per-table ctx flag
+     * the generic {@code RowLevelDmlCommand} sets (not an iceberg concept); a connector with no synthetic
+     * write columns appends nothing even with the gate open, so this stays correct for every connector type.
+     */
+    @Override
+    protected boolean needInternalHiddenColumns() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.needsSyntheticWriteColForTable(getId());
+    }
+
+    /**
+     * Appends the connector's request-scoped synthetic write columns to the full schema when a write/DML
+     * over this table is in flight. The base schema (including any always-present hidden columns the
+     * connector declares through the schema cache, e.g. iceberg v3 row-lineage) comes from
+     * {@code super.getFullSchema()}; the request-scoped columns (e.g. iceberg's row-id STRUCT) are fetched
+     * live from the connector — they must not be cached — and appended only when the request gate is open:
+     * show-hidden, or the synthetic-write-column ctx flag set for this table during row-level DML. Mirrors
+     * legacy {@code IcebergExternalTable.getFullSchema}, but connector-agnostic (iron-law: no iceberg branch
+     * here) — a connector with no synthetic write columns (jdbc/es/paimon/maxcompute) keeps its byte-identical
+     * full schema.
+     */
+    @Override
+    public List<Column> getFullSchema() {
+        List<Column> schema = super.getFullSchema();
+        if (schema == null || !(Util.showHiddenColumns() || needInternalHiddenColumns())) {
+            return schema;
+        }
+        List<ConnectorColumn> synthetic = fetchSyntheticWriteColumns();
+        if (synthetic.isEmpty()) {
+            return schema;
+        }
+        List<Column> result = new ArrayList<>(schema);
+        result.addAll(ConnectorColumnConverter.convertColumns(synthetic));
+        return result;
+    }
+
+    /**
+     * Fetches the connector's declared synthetic write columns for this table, in engine-neutral form.
+     * Degrades to an empty list on any miss (non-plugin catalog, a read-only connector with no write-plan
+     * provider, or an unresolvable table handle) and never throws — schema resolution must not fail a query.
+     */
+    private List<ConnectorColumn> fetchSyntheticWriteColumns() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Collections.emptyList();
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        if (writePlanProvider == null) {
+            return Collections.emptyList();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
     }
 
     /**

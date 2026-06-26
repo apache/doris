@@ -26,6 +26,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.datasource.iceberg.IcebergRowId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -238,5 +239,33 @@ class ConnectorColumnConverterTest {
                 "an invisible ConnectorColumn carrying a reserved uniqueId must convert to a Doris column with that id");
         Assertions.assertFalse(col.isVisible(),
                 "the invisible marker must survive alongside the carried uniqueId");
+    }
+
+    @Test
+    void convertColumnReconstructsIcebergRowIdHiddenColumn() {
+        // CONTRACT PIN (③ C3b-core, fe-core half): the iceberg connector declares the request-scoped row-id
+        // synthetic write column (__DORIS_ICEBERG_ROWID_COL__) as an engine-neutral invisible STRUCT
+        // ConnectorColumn through ConnectorWritePlanProvider.getSyntheticWriteColumns (pinned connector-side by
+        // IcebergWritePlanProviderTest.getSyntheticWriteColumnsDeclaresRowIdStruct). fe-core cannot import the
+        // connector, so this two-sided pin asserts that converting that exact agreed shape yields the legacy
+        // fe-core IcebergRowId.createHiddenColumn() byte-for-byte (name / STRUCT type / hidden / not-null) — the
+        // column post-flip getFullSchema appends. If the connector's literal and the legacy IcebergRowId drift
+        // apart, one of the two sides turns red.
+        ConnectorType rowIdStruct = ConnectorType.structOf(
+                Arrays.asList("file_path", "row_position", "partition_spec_id", "partition_data"),
+                Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"),
+                        ConnectorType.of("INT"), ConnectorType.of("STRING")));
+        Column converted = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("__DORIS_ICEBERG_ROWID_COL__", rowIdStruct,
+                        "Iceberg row position metadata", false, null, false).invisible());
+
+        Column legacy = IcebergRowId.createHiddenColumn();
+        Assertions.assertEquals(Column.ICEBERG_ROWID_COL, converted.getName());
+        Assertions.assertEquals(legacy.getName(), converted.getName());
+        Assertions.assertEquals(legacy.getType(), converted.getType(),
+                "the converted STRUCT must equal the legacy IcebergRowId struct type");
+        Assertions.assertFalse(converted.isVisible(), "the row-id column must be hidden");
+        Assertions.assertEquals(legacy.isVisible(), converted.isVisible());
+        Assertions.assertEquals(legacy.isAllowNull(), converted.isAllowNull());
     }
 }

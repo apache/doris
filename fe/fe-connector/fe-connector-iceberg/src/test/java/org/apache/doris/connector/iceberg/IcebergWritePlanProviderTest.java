@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -60,6 +61,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -449,6 +451,41 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals("id", f.getSourceColumnName(), "source column is the base column, not the partition field");
         Assertions.assertEquals("id_bucket", f.getFieldName(), "partition field name is iceberg's derived 'id_bucket'");
         Assertions.assertEquals(table.schema().findField("id").fieldId(), f.getSourceId());
+    }
+
+    // ───────────────────── getSyntheticWriteColumns (connector declares the row-id STRUCT, ③ C3b-core) ─────────────────────
+    //
+    // WHY: post-flip the iceberg DML hidden column __DORIS_ICEBERG_ROWID_COL__ that legacy
+    // IcebergExternalTable.getFullSchema injected is unreachable — a PluginDrivenExternalTable carries no
+    // iceberg knowledge. The connector therefore declares it as an engine-neutral invisible ConnectorColumn;
+    // fe-core converts + appends it (gated request-side) while a DML over the table is in flight. This pins
+    // the carried STRUCT shape (name / 4 fields / types / invisible / not-null) against the legacy
+    // fe-core IcebergRowId.createHiddenColumn() (its mirror is the fe-core ConnectorColumnConverter contract pin).
+
+    @Test
+    public void getSyntheticWriteColumnsDeclaresRowIdStruct() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        List<ConnectorColumn> cols = providerFor(table, contextWithStorage())
+                .getSyntheticWriteColumns(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "t2"));
+
+        Assertions.assertEquals(1, cols.size(), "iceberg declares exactly the row-id synthetic write column");
+        ConnectorColumn rowId = cols.get(0);
+        Assertions.assertEquals("__DORIS_ICEBERG_ROWID_COL__", rowId.getName());
+        Assertions.assertFalse(rowId.isVisible(), "the row-id column must be hidden (invisible)");
+        Assertions.assertFalse(rowId.isNullable(), "matches legacy IcebergRowId not-null");
+
+        ConnectorType type = rowId.getType();
+        Assertions.assertEquals("STRUCT", type.getTypeName());
+        Assertions.assertEquals(
+                Arrays.asList("file_path", "row_position", "partition_spec_id", "partition_data"),
+                type.getFieldNames());
+        List<ConnectorType> fieldTypes = type.getChildren();
+        Assertions.assertEquals(4, fieldTypes.size());
+        Assertions.assertEquals("STRING", fieldTypes.get(0).getTypeName());
+        Assertions.assertEquals("BIGINT", fieldTypes.get(1).getTypeName());
+        Assertions.assertEquals("INT", fieldTypes.get(2).getTypeName());
+        Assertions.assertEquals("STRING", fieldTypes.get(3).getTypeName());
     }
 
     // ───────────────────────────── fail-loud ─────────────────────────────

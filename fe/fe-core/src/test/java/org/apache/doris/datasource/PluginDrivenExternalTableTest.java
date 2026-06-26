@@ -1,0 +1,185 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Pins {@link PluginDrivenExternalTable#getFullSchema()} request-scoped synthetic-write-column injection
+ * (③ C3b-core). Post-flip, the iceberg DML row-id hidden column that legacy
+ * {@code IcebergExternalTable.getFullSchema} appended is gone (a {@link PluginDrivenExternalTable} carries
+ * no iceberg knowledge); the generic table must instead append whatever the connector declares through
+ * {@link ConnectorWritePlanProvider#getSyntheticWriteColumns}, gated request-side by show-hidden / the
+ * synthetic-write-column ctx flag. The injection is connector-agnostic (iron-law: no iceberg branch here),
+ * so these tests use a generic invisible synthetic column.
+ *
+ * <p>Mockito {@code CALLS_REAL_METHODS} runs the real getFullSchema/needInternalHiddenColumns/fetch+append
+ * over stubbed seams (schema cache, the connector chain), mirroring {@code PhysicalIcebergMergeSinkTest}.</p>
+ */
+public class PluginDrivenExternalTableTest {
+
+    private static final List<Column> BASE_SCHEMA = ImmutableList.of(
+            new Column("id", ScalarType.INT, true, null, true, null, ""),
+            new Column("name", ScalarType.createStringType(), false, null, true, null, ""));
+
+    /** A generic, connector-declared invisible synthetic write column (stands in for iceberg's row-id STRUCT). */
+    private static final ConnectorColumn SYNTHETIC =
+            new ConnectorColumn("__syn_write_col__", ConnectorType.of("BIGINT"), "", false, null, false).invisible();
+
+    @AfterEach
+    public void clearCtx() {
+        ConnectContext.remove();
+    }
+
+    /**
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable wired to a stubbed connector chain whose
+     * write-plan provider returns {@code synthetic}. {@code writeProviderPresent=false} models a read-only
+     * connector; {@code handlePresent=false} models an unresolvable handle.
+     */
+    private static PluginDrivenExternalTable pluginTable(List<ConnectorColumn> synthetic,
+            boolean writeProviderPresent, boolean handlePresent) {
+        ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
+        Mockito.when(provider.getSyntheticWriteColumns(Mockito.any(), Mockito.any())).thenReturn(synthetic);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(handlePresent ? Optional.of(handle) : Optional.empty());
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getWritePlanProvider()).thenReturn(writeProviderPresent ? provider : null);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        SchemaCacheValue scv = Mockito.mock(SchemaCacheValue.class);
+        Mockito.when(scv.getSchema()).thenReturn(BASE_SCHEMA);
+        Mockito.doReturn(Optional.of(scv)).when(table).getSchemaCacheValue();
+        return table;
+    }
+
+    @Test
+    public void getFullSchemaAppendsConvertedSyntheticColumnsWhenGated() {
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, true);
+        // Gate open: a DML over this table is in flight (the ctx flag drives needInternalHiddenColumns()).
+        Mockito.doReturn(true).when(table).needInternalHiddenColumns();
+
+        List<Column> schema = table.getFullSchema();
+
+        Assertions.assertEquals(BASE_SCHEMA.size() + 1, schema.size(),
+                "the connector's synthetic write column is appended after the base schema");
+        Assertions.assertEquals("id", schema.get(0).getName());
+        Assertions.assertEquals("name", schema.get(1).getName());
+        Column appended = schema.get(2);
+        Assertions.assertEquals("__syn_write_col__", appended.getName(),
+                "the appended column is the converted connector-declared synthetic write column");
+        Assertions.assertFalse(appended.isVisible(),
+                "the synthetic write column's invisible marker survives the SPI conversion");
+    }
+
+    @Test
+    public void getFullSchemaReturnsBaseScheamWhenNotGated() {
+        // MUTATION: dropping the show-hidden/ctx gate (always append) makes this red — an ordinary query
+        // (no DML, no show-hidden) must see exactly the base schema, never the synthetic write column.
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, true);
+        Mockito.doReturn(false).when(table).needInternalHiddenColumns();
+
+        List<Column> schema = table.getFullSchema();
+
+        Assertions.assertEquals(BASE_SCHEMA.size(), schema.size(),
+                "ungated getFullSchema returns the base schema with no synthetic write column");
+        Assertions.assertTrue(schema.stream().noneMatch(c -> "__syn_write_col__".equals(c.getName())));
+    }
+
+    @Test
+    public void getFullSchemaReturnsBaseWhenConnectorDeclaresNoSyntheticColumns() {
+        // A connector with no synthetic write columns (jdbc/es/paimon/maxcompute) keeps its byte-identical
+        // full schema even while gated.
+        PluginDrivenExternalTable table = pluginTable(Collections.emptyList(), true, true);
+        Mockito.doReturn(true).when(table).needInternalHiddenColumns();
+
+        Assertions.assertEquals(BASE_SCHEMA.size(), table.getFullSchema().size());
+    }
+
+    @Test
+    public void getFullSchemaDegradesWhenWriteProviderAbsent() {
+        // MUTATION: dropping the null-write-provider guard throws NPE here — a read-only connector
+        // (getWritePlanProvider()==null) must degrade to the base schema, never fail schema resolution.
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), false, true);
+        Mockito.doReturn(true).when(table).needInternalHiddenColumns();
+
+        Assertions.assertEquals(BASE_SCHEMA.size(), table.getFullSchema().size());
+    }
+
+    @Test
+    public void getFullSchemaDegradesWhenTableHandleAbsent() {
+        // MUTATION: dropping the absent-handle guard NPEs on handleOpt.get() — an unresolvable table handle
+        // must degrade to the base schema.
+        PluginDrivenExternalTable table = pluginTable(Collections.singletonList(SYNTHETIC), true, false);
+        Mockito.doReturn(true).when(table).needInternalHiddenColumns();
+
+        Assertions.assertEquals(BASE_SCHEMA.size(), table.getFullSchema().size());
+    }
+
+    @Test
+    public void needInternalHiddenColumnsTracksSyntheticWriteCtxFlag() {
+        // MUTATION: a needInternalHiddenColumns() that ignores the ctx flag (always false) makes post-flip
+        // DML skip the row-id injection. This pins the neutral ctx signal (set per-table during row-level DML).
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(99L).when(table).getId();
+
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+
+        ctx.setSyntheticWriteColTargetTableId(99L);
+        Assertions.assertTrue(table.needInternalHiddenColumns(),
+                "the ctx synthetic-write flag for this table id opens the hidden-column gate");
+
+        ctx.setSyntheticWriteColTargetTableId(101L);
+        Assertions.assertFalse(table.needInternalHiddenColumns(),
+                "the flag set for a different table id does not open the gate for this table");
+
+        ctx.setSyntheticWriteColTargetTableId(-1L);
+        Assertions.assertFalse(table.needInternalHiddenColumns(),
+                "the cleared (-1) flag closes the gate");
+    }
+}

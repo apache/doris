@@ -18,6 +18,12 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -1000,5 +1006,84 @@ public class IcebergNereidsUtilsTest {
         Assertions.assertTrue(resultStr.contains("30"));
         Assertions.assertTrue(resultStr.contains("50"));
         Assertions.assertTrue(resultStr.contains("65"));
+    }
+
+    // ───────────────── isRowIdInjectionTarget (③ C3b-core: post-flip row-id injector guard) ─────────────────
+    //
+    // Post-flip an iceberg table is a PluginDrivenExternalTable (not an IcebergExternalTable), so the
+    // IcebergRowIdInjector guard must recognize it by the neutral row-level-DML connector capability rather
+    // than instanceof Iceberg*, while still admitting the legacy class pre-flip. End-to-end pre-flip parity of
+    // the actual slot injection is covered by IcebergDDLAndDMLPlanTest; this isolates the guard predicate.
+
+    /** A plugin-driven table whose connector declares the given row-level-DML capabilities. */
+    private static PluginDrivenExternalTable pluginTableWithCapability(boolean supportsDelete, boolean supportsMerge) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.supportsDelete()).thenReturn(supportsDelete);
+        Mockito.when(metadata.supportsMerge()).thenReturn(supportsMerge);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        return table;
+    }
+
+    @Test
+    public void isRowIdInjectionTargetAcceptsLegacyIcebergExternalTable() {
+        // MUTATION: dropping the IcebergExternalTable arm makes this red — pre-flip DELETE/UPDATE/MERGE would
+        // stop injecting the row-id slot.
+        Assertions.assertTrue(
+                IcebergNereidsUtils.isRowIdInjectionTarget(Mockito.mock(IcebergExternalTable.class)));
+    }
+
+    @Test
+    public void isRowIdInjectionTargetAcceptsDeleteOnlyPluginDrivenTable() {
+        // Post-flip arm: an iceberg PluginDrivenExternalTable is recognized by the neutral capability
+        // (supportsDelete OR supportsMerge). delete-only (true,false) pins the delete arm + an OR->AND mutation
+        // (which would reject it). MUTATION: dropping the plugin arm makes this red (post-flip row-id injection
+        // would never fire).
+        Assertions.assertTrue(
+                IcebergNereidsUtils.isRowIdInjectionTarget(pluginTableWithCapability(true, false)));
+    }
+
+    @Test
+    public void isRowIdInjectionTargetAcceptsMergeOnlyPluginDrivenTable() {
+        // merge-only (false,true) pins the OTHER arm of the OR: iceberg supports MERGE, so a 'drop
+        // ||supportsMerge()' mutation (return supportsDelete()) must die here. Without this case the delete-only
+        // test above leaves that mutation surviving.
+        Assertions.assertTrue(
+                IcebergNereidsUtils.isRowIdInjectionTarget(pluginTableWithCapability(false, true)));
+    }
+
+    @Test
+    public void isRowIdInjectionTargetRejectsPluginDrivenTableWithoutCapability() {
+        // A non-iceberg plugin-driven table (jdbc/es/trino/max_compute/paimon) declares neither capability,
+        // so it is not a row-id-injection target — the guard must not inject into its scans.
+        Assertions.assertFalse(
+                IcebergNereidsUtils.isRowIdInjectionTarget(pluginTableWithCapability(false, false)));
+    }
+
+    @Test
+    public void isRowIdInjectionTargetRejectsUnrelatedExternalTable() {
+        // Any other table type (e.g. an HMS/olap external table) is never a row-id-injection target.
+        Assertions.assertFalse(
+                IcebergNereidsUtils.isRowIdInjectionTarget(Mockito.mock(ExternalTable.class)));
+    }
+
+    @Test
+    public void isRowIdInjectionTargetDegradesWhenConnectorDropped() {
+        // A catalog dropped mid-DML-planning nulls its transient connector; the guard must degrade to
+        // "not a target" rather than NPE-aborting the query, mirroring the defensive
+        // PluginDrivenExternalTable.fetchSyntheticWriteColumns. MUTATION: dropping the null-connector guard
+        // NPEs here.
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(null);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+
+        Assertions.assertFalse(IcebergNereidsUtils.isRowIdInjectionTarget(table));
     }
 }
