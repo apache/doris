@@ -28,6 +28,7 @@
 #include <random>
 #include <thread>
 
+#include "common/exception.h"
 #include "exec/scan/task_executor/ticker.h"
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
