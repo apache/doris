@@ -37,6 +37,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
@@ -44,7 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -363,20 +364,33 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     }
 
     private void checkPartialUpdate() throws UserException {
-        if (!isPartialUpdate) {
-            return;
-        }
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getJobName());
+        TUniqueKeyUpdateMode uniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(job);
+        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+            return;
+        }
         if (job.isMultiTable()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
         String tableName = hasTargetTable() ? targetTableName : job.getTableName();
         Table table = db.getTableOrAnalysisException(tableName);
-        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+        if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
             throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
+    }
+
+    private TUniqueKeyUpdateMode getEffectiveUniqueKeyUpdateMode(RoutineLoadJob job) {
+        if (analyzedJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            return TUniqueKeyUpdateMode.valueOf(
+                    analyzedJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+        }
+        if (analyzedJobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS) && isPartialUpdate
+                && job.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPSERT) {
+            return TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS;
+        }
+        return job.getUniqueKeyUpdateMode();
     }
 
     private void validateTargetTable(ConnectContext ctx, RoutineLoadJob job) throws UserException {

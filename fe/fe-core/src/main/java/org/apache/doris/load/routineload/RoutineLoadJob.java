@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
@@ -469,7 +470,7 @@ public abstract class RoutineLoadJob
     }
 
     protected RoutineLoadDesc buildRoutineLoadDescSnapshot() {
-        List<org.apache.doris.analysis.ImportColumnDesc> columnsInfo = null;
+        List<ImportColumnDesc> columnsInfo = null;
         if (columnDescs != null && !columnDescs.descs.isEmpty()) {
             columnsInfo = new ArrayList<>(columnDescs.descs);
         }

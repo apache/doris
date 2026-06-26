@@ -271,4 +271,38 @@ public class AlterRoutineLoadCommandTest {
 
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
     }
+
+    @Test
+    public void testValidateTargetTableRejectsExistingFlexiblePartialUpdateOnNonMowTable() throws Exception {
+        runBefore();
+        OlapTable targetTable = Mockito.mock(OlapTable.class);
+        Mockito.when(targetTable.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(targetTable.isTemporary()).thenReturn(false);
+        Mockito.when(targetTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
+        Mockito.doReturn(targetTable).when(db).getTableOrAnalysisException("testTable2");
+        Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
+        Mockito.doThrow(new AnalysisException("Only unique key merge on write support partial update"))
+                .when(routineLoadJob).validateTargetTable(Mockito.any(Database.class), Mockito.any(OlapTable.class));
+
+        AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) PARSER.parseSingle(
+                "ALTER ROUTINE LOAD FOR testDb.label1 ON testTable2");
+
+        Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
+                .getMessage().contains("partial update"));
+    }
+
+    @Test
+    public void testValidateRejectsUniqueKeyUpdateModeOnNonMowTable() {
+        runBefore();
+        Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPSERT);
+        Mockito.when(currentTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FIXED_COLUMNS");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
+
+        Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
+                .getMessage().contains("PARTIAL_COLUMNS"));
+    }
 }
