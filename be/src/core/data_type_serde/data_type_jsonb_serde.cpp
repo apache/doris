@@ -144,12 +144,11 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
-        const auto* array_data = concrete_array->GetValue(start);
 
         JsonBinaryValue value;
-        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = array_data + (offset_i * width);
+                const auto* raw_data = concrete_array->GetValue(offset_i);
 
                 RETURN_IF_ERROR(
                         value.from_json_string(reinterpret_cast<const char*>(raw_data), width));
