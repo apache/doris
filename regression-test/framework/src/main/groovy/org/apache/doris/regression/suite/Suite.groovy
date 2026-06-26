@@ -1624,8 +1624,8 @@ class Suite implements GroovyInterceptable {
         return sql_impl(context.getSparkIcebergConnection(), cleanedSqlStr, isOrder)
     }
 
-    private List spark_sql_multi(String sqlStatements, boolean isOrder = false) {
-        def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
+    private List spark_sql_multi(Object sqlStatements, boolean isOrder = false) {
+        def statements = sqlStatements.toString().split(';').collect { it.trim() }.findAll { it }
 
         if (statements.isEmpty()) {
             return []
@@ -1660,7 +1660,7 @@ class Suite implements GroovyInterceptable {
      *       INSERT INTO demo.test_db.t1 VALUES (1);
      *   '''
      */
-    List spark_iceberg_multi(String sqlStatements, boolean isOrder = false) {
+    List spark_iceberg_multi(Object sqlStatements, boolean isOrder = false) {
         return spark_sql_multi(sqlStatements, isOrder)
     }
 
@@ -1674,6 +1674,22 @@ class Suite implements GroovyInterceptable {
      */
     List<List<Object>> spark_paimon(String sqlStr, boolean isOrder = false) {
         return spark_sql(sqlStr, isOrder)
+    }
+
+    /**
+     * Execute multiple Spark SQL statements with the Paimon catalog on the Spark ThriftServer via Hive JDBC.
+     * Statements are separated by semicolons.
+     * All statements are executed on one JDBC connection to reduce startup overhead.
+     *
+     * Usage:
+     *   spark_paimon_multi '''
+     *       CREATE DATABASE IF NOT EXISTS paimon.test_db;
+     *       CREATE TABLE paimon.test_db.t1 (id INT) USING paimon;
+     *       INSERT INTO paimon.test_db.t1 VALUES (1);
+     *   '''
+     */
+    List spark_paimon_multi(Object sqlStatements, boolean isOrder = false) {
+        return spark_sql_multi(sqlStatements, isOrder)
     }
 
     List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
