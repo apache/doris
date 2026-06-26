@@ -111,7 +111,6 @@ class Suite implements GroovyInterceptable {
 
     private AmazonS3 s3Client = null
     private FileSystem fs = null
-    private String sparkIcebergContainerNameCache = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -1618,80 +1617,54 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    /**
-     * Get the spark-iceberg container name by querying docker.
-     * Uses 'docker ps --filter name=spark-iceberg' to find the container.
-     */
-    private String getSparkIcebergContainerName() {
-        if (!Strings.isNullOrEmpty(sparkIcebergContainerNameCache)) {
-            return sparkIcebergContainerNameCache
+    private String getSparkIcebergJdbcUrl() {
+        String sparkHost = context.config.otherConfigs.get("externalEnvIp")
+        String sparkPort = context.config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
+        return "jdbc:hive2://${sparkHost}:${sparkPort}/;auth=noSasl"
+    }
+
+    private List<List<Object>> spark_sql(String sqlStr, boolean isOrder = false) {
+        Class.forName("org.apache.hive.jdbc.HiveDriver")
+        String sparkJdbcUrl = getSparkIcebergJdbcUrl()
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
+        logger.info("Execute Spark JDBC SQL: ${cleanedSqlStr}".toString())
+        logger.info("Spark JDBC URL: ${sparkJdbcUrl}".toString())
+        return connect("hadoop", "hadoop", sparkJdbcUrl) {
+            return sql(cleanedSqlStr, isOrder)
+        }
+    }
+
+    private List spark_sql_multi(String sqlStatements, boolean isOrder = false) {
+        def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
+
+        if (statements.isEmpty()) {
+            return []
         }
 
-        try {
-            // Use docker ps with filter to find containers with 'spark-iceberg' in the name
-            String command = "docker ps --filter name=spark-iceberg --format {{.Names}}"
-            def process = command.execute()
-            process.waitFor()
-            String output = process.in.text.trim()
-
-            if (output) {
-                // Get the first matching container
-                String containerName = output.split('\n')[0].trim()
-                if (containerName) {
-                    sparkIcebergContainerNameCache = containerName
-                    logger.info("Found spark-iceberg container: ${containerName}".toString())
-                    return containerName
-                }
-            }
-
-            logger.warn("No spark-iceberg container found via docker ps")
-            return null
-        } catch (Exception e) {
-            logger.warn("Failed to get spark-iceberg container via docker ps: ${e.message}".toString())
-            return null
+        Class.forName("org.apache.hive.jdbc.HiveDriver")
+        String sparkJdbcUrl = getSparkIcebergJdbcUrl()
+        logger.info("Execute Spark JDBC SQL statements via ${sparkJdbcUrl}: ${statements}".toString())
+        return connect("hadoop", "hadoop", sparkJdbcUrl) {
+            return statements.collect { statement -> sql(statement, isOrder) }
         }
     }
 
     /**
-     * Execute Spark SQL on the spark-iceberg container via docker exec.
+     * Execute Spark SQL on the Spark ThriftServer via Hive JDBC.
      *
      * Usage in test suite:
      *   spark_iceberg "CREATE TABLE demo.test_db.t1 (id INT) USING iceberg"
      *   spark_iceberg "INSERT INTO demo.test_db.t1 VALUES (1)"
      *   def result = spark_iceberg "SELECT * FROM demo.test_db.t1"
-     *
-     * The container name is found by querying 'docker ps --filter name=spark-iceberg'
      */
-    String spark_iceberg(String sqlStr, int timeoutSeconds = 120) {
-        String containerName = getSparkIcebergContainerName()
-        if (containerName == null) {
-            throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
-        }
-        String masterUrl = "spark://${containerName}:7077"
-        
-        // Escape double quotes in SQL string for shell command
-        String escapedSql = sqlStr.replaceAll('"', '\\\\"')
-        
-        // Build docker exec command
-        String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -e "${escapedSql}" """
-        
-        logger.info("Executing Spark Iceberg SQL: ${sqlStr}".toString())
-        logger.info("Container: ${containerName}".toString())
-        
-        try {
-            String result = cmd(command, timeoutSeconds)
-            logger.info("Spark Iceberg SQL result: ${result}".toString())
-            return result
-        } catch (Exception e) {
-            logger.error("Spark Iceberg SQL failed: ${e.message}".toString())
-            throw e
-        }
+    List<List<Object>> spark_iceberg(String sqlStr, boolean isOrder = false) {
+        return spark_sql(sqlStr, isOrder)
     }
 
     /**
-     * Execute multiple Spark SQL statements on the spark-iceberg container.
+     * Execute multiple Spark SQL statements on the Spark ThriftServer via Hive JDBC.
      * Statements are separated by semicolons.
-     * All statements are executed in one spark-sql process to reduce startup overhead.
+     * All statements are executed on one JDBC connection to reduce startup overhead.
      * 
      * Usage:
      *   spark_iceberg_multi '''
@@ -1700,46 +1673,20 @@ class Suite implements GroovyInterceptable {
      *       INSERT INTO demo.test_db.t1 VALUES (1);
      *   '''
      */
-    List<String> spark_iceberg_multi(String sqlStatements, int timeoutSeconds = 300) {
-        def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
-
-        if (statements.isEmpty()) {
-            return []
-        }
-
-        String combinedSql = statements.collect { "${it};" }.join(" ")
-        return [spark_iceberg(combinedSql, timeoutSeconds)]
+    List spark_iceberg_multi(String sqlStatements, boolean isOrder = false) {
+        return spark_sql_multi(sqlStatements, isOrder)
     }
 
     /**
-     * Execute Spark SQL on the spark-iceberg container with Paimon extensions enabled.
+     * Execute Spark SQL with the Paimon catalog on the Spark ThriftServer via Hive JDBC.
      *
      * Usage in test suite:
      *   spark_paimon "CREATE TABLE paimon.test_db.t1 (id INT) USING paimon"
      *   spark_paimon "INSERT INTO paimon.test_db.t1 VALUES (1)"
      *   def result = spark_paimon "SELECT * FROM paimon.test_db.t1"
      */
-    String spark_paimon(String sqlStr, int timeoutSeconds = 120) {
-        String containerName = getSparkIcebergContainerName()
-        if (containerName == null) {
-            throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
-        }
-        String masterUrl = "spark://${containerName}:7077"
-
-        String escapedSql = sqlStr.replaceAll('"', '\\\\"')
-        String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -e "${escapedSql}" """
-
-        logger.info("Executing Spark Paimon SQL: ${sqlStr}".toString())
-        logger.info("Container: ${containerName}".toString())
-
-        try {
-            String result = cmd(command, timeoutSeconds)
-            logger.info("Spark Paimon SQL result: ${result}".toString())
-            return result
-        } catch (Exception e) {
-            logger.error("Spark Paimon SQL failed: ${e.message}".toString())
-            throw e
-        }
+    List<List<Object>> spark_paimon(String sqlStr, boolean isOrder = false) {
+        return spark_sql(sqlStr, isOrder)
     }
 
     List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
