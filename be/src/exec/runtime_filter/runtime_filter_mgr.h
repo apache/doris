@@ -28,6 +28,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -55,24 +56,26 @@ template <typename Response>
 class HandleErrorBrpcCallback;
 class SyncSizeCallback;
 
-struct LocalMergeContextSnapshot {
-    std::shared_ptr<RuntimeFilterMerger> merger;
-    std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
-};
-
 class LocalMergeContext {
 public:
-    Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
-                             std::shared_ptr<RuntimeFilterProducer> producer);
-    Status snapshot(uint32_t expected_stage, LocalMergeContextSnapshot* snapshot);
+    LocalMergeContext(uint32_t stage, std::shared_ptr<RuntimeFilterMerger> merger)
+            : _merger(std::move(merger)), _stage(stage) {}
+
+    void register_producer(std::shared_ptr<RuntimeFilterProducer> producer);
     std::string debug_string();
 
+    uint32_t stage() const { return _stage; }
+    const std::shared_ptr<RuntimeFilterMerger>& merger() const { return _merger; }
+    const std::vector<std::shared_ptr<RuntimeFilterProducer>>& producers() const {
+        return _producers;
+    }
+
 private:
-    std::mutex _mtx;
     std::shared_ptr<RuntimeFilterMerger> _merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
     // Tracks the recursive CTE round.  When a producer from a newer round
-    // registers, the context is reset (merger recreated, old producers dropped).
+    // registers, RuntimeFilterMgr replaces the whole context and old in-flight
+    // users keep the previous context alive through shared_ptr.
     uint32_t _stage = 0;
 };
 
@@ -111,8 +114,8 @@ public:
                                                  const TRuntimeFilterDesc& desc,
                                                  std::shared_ptr<RuntimeFilterProducer> producer);
 
-    Status get_local_merge_snapshot(int filter_id, uint32_t expected_stage,
-                                    LocalMergeContextSnapshot* snapshot);
+    Status get_local_merge_context(int filter_id, uint32_t expected_stage,
+                                   std::shared_ptr<LocalMergeContext>* context);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
     Status register_producer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
@@ -128,8 +131,8 @@ public:
     void remove_filter(int32_t filter_id) {
         std::lock_guard<std::mutex> l(_lock);
         _consumer_map.erase(filter_id);
-        // NOTE: _local_merge_map is NOT erased here.  It is reset lazily in
-        // LocalMergeContext::register_producer when a producer from a newer
+        // NOTE: _local_merge_map is NOT erased here.  It is replaced lazily in
+        // register_local_merger_producer_filter when a producer from a newer
         // recursive CTE round registers.  Erasing eagerly here would race with
         // multi-fragment REBUILD: a consumer-only fragment's remove_filter could
         // delete the entry that the producer fragment just re-registered.
@@ -154,7 +157,7 @@ private:
     // key: "filter-id"
     std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map;
     std::set<int32_t> _producer_id_set;
-    std::map<int32_t, LocalMergeContext> _local_merge_map;
+    std::map<int32_t, std::shared_ptr<LocalMergeContext>> _local_merge_map;
 
     std::unique_ptr<MemTracker> _tracker;
 

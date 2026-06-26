@@ -103,31 +103,30 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
                              .ok());
         EXPECT_NE(producer_filter, nullptr);
 
-        LocalMergeContextSnapshot snapshot;
+        std::shared_ptr<LocalMergeContext> context;
         // filter_id not yet registered: global mgr returns OK with nullptr
         // (graceful skip for recursive CTE stage reset).
-        EXPECT_TRUE(
-                global_runtime_filter_mgr
-                        ->get_local_merge_snapshot(filter_id, producer_filter->stage(), &snapshot)
-                        .ok());
-        EXPECT_EQ(snapshot.merger, nullptr);
+        EXPECT_TRUE(global_runtime_filter_mgr
+                            ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
+                            .ok());
+        EXPECT_EQ(context, nullptr);
         // local mgr always returns error (not supported)
         EXPECT_FALSE(
                 local_runtime_filter_mgr
-                        ->get_local_merge_snapshot(filter_id, producer_filter->stage(), &snapshot)
+                        ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
                         .ok());
         // Register local merge filter
         EXPECT_TRUE(
                 global_runtime_filter_mgr
                         ->register_local_merger_producer_filter(ctx.get(), desc, producer_filter)
                         .ok());
-        EXPECT_TRUE(
-                global_runtime_filter_mgr
-                        ->get_local_merge_snapshot(filter_id, producer_filter->stage(), &snapshot)
-                        .ok());
-        EXPECT_NE(snapshot.merger, nullptr);
-        EXPECT_EQ(snapshot.producers.size(), 1);
-        snapshot.producers.front()->_rf_state =
+        EXPECT_TRUE(global_runtime_filter_mgr
+                            ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
+                            .ok());
+        EXPECT_NE(context, nullptr);
+        EXPECT_NE(context->merger(), nullptr);
+        EXPECT_EQ(context->producers().size(), 1);
+        context->producers().front()->_rf_state =
                 RuntimeFilterProducer::State ::WAITING_FOR_SYNCED_SIZE;
     }
     {
