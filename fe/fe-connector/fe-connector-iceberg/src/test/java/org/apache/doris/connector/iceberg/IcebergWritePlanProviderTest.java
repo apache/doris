@@ -38,8 +38,10 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
+import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TSortField;
 import org.apache.doris.thrift.TSortInfo;
@@ -564,6 +566,137 @@ public class IcebergWritePlanProviderTest {
                 "a v3 delete with no live delete files to rewrite must not set rewritable sets (legacy gates on non-empty)");
     }
 
+    // ── commit-bridge supply (S4 part 2): planWrite drains the scan-time stash into rewritable_delete_file_sets ──
+
+    private static final String STASH_QID = "qid-stash";
+
+    private static IcebergWritePlanProvider providerWithStash(Table table, RecordingConnectorContext ctx,
+            IcebergRewritableDeleteStash stash) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        return new IcebergWritePlanProvider(NON_REST_PROPS, ops, ctx, stash);
+    }
+
+    private static WriteSession stashSession(Table table, RecordingConnectorContext ctx, String queryId) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+        return new WriteSession(txn, queryId);
+    }
+
+    private static List<TIcebergDeleteFileDesc> dvDescs(String path, long offset, long size) {
+        TIcebergDeleteFileDesc d = new TIcebergDeleteFileDesc();
+        d.setPath(path);
+        d.setContent(3);
+        d.setContentOffset(offset);
+        d.setContentSizeInBytes(size);
+        return Collections.singletonList(d);
+    }
+
+    @Test
+    public void planWriteDeleteSinkAttachesRewritableSetsFromStashAndEvicts() {
+        // The scan stashed this statement's old DV (referenced data file -> its non-equality deletes); planWrite
+        // must drain it onto the sink so the BE OR-merges those deletes into the new DV. MUTATION: not reading
+        // the stash / not setting the field -> the BE writes a DV without the old deletes -> resurrection.
+        Table table = formatVersionThreeTable(freshCatalog());
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        stash.accumulate(STASH_QID, "oss://bucket/wh/db1/tv3/data/f1.parquet",
+                dvDescs("oss://bucket/wh/db1/tv3/data/dv1.puffin", 16L, 64L));
+
+        ConnectorSinkPlan plan = providerWithStash(table, ctx, stash).planWrite(
+                stashSession(table, ctx, STASH_QID),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.DELETE));
+        TIcebergDeleteSink sink = plan.getDataSink().getIcebergDeleteSink();
+
+        Assertions.assertTrue(sink.isSetRewritableDeleteFileSets());
+        Assertions.assertEquals(1, sink.getRewritableDeleteFileSetsSize());
+        TIcebergRewritableDeleteFileSet set = sink.getRewritableDeleteFileSets().get(0);
+        // The set is keyed on the RAW referenced data-file path the BE matches on.
+        Assertions.assertEquals("oss://bucket/wh/db1/tv3/data/f1.parquet", set.getReferencedDataFilePath());
+        Assertions.assertEquals(1, set.getDeleteFilesSize());
+        Assertions.assertEquals("oss://bucket/wh/db1/tv3/data/dv1.puffin", set.getDeleteFiles().get(0).getPath());
+        Assertions.assertEquals(3, set.getDeleteFiles().get(0).getContent());
+        // The retrieve is the primary eviction; a second statement must not re-read this entry.
+        Assertions.assertEquals(0, stash.size(), "planWrite must evict the stash entry it consumed");
+    }
+
+    @Test
+    public void planWriteMergeSinkAttachesRewritableSetsFromStash() {
+        Table table = formatVersionThreeTable(freshCatalog());
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        stash.accumulate(STASH_QID, "oss://bucket/wh/db1/tv3/data/f1.parquet",
+                dvDescs("oss://bucket/wh/db1/tv3/data/dv1.puffin", 8L, 32L));
+
+        ConnectorSinkPlan plan = providerWithStash(table, ctx, stash).planWrite(
+                stashSession(table, ctx, STASH_QID),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.MERGE));
+        TIcebergMergeSink sink = plan.getDataSink().getIcebergMergeSink();
+
+        Assertions.assertTrue(sink.isSetRewritableDeleteFileSets(),
+                "a v3 MERGE must carry rewritable_delete_file_sets (thrift field 25) too");
+        Assertions.assertEquals("oss://bucket/wh/db1/tv3/data/f1.parquet",
+                sink.getRewritableDeleteFileSets().get(0).getReferencedDataFilePath());
+        Assertions.assertEquals(0, stash.size());
+    }
+
+    @Test
+    public void planWriteDeleteSinkLeavesSetsUnsetWhenNoStashEntryForQuery() {
+        // A v3 DELETE whose scan stashed nothing for this queryId (no live deletes) leaves the field unset —
+        // byte-identical to legacy's empty gate.
+        Table table = formatVersionThreeTable(freshCatalog());
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        stash.accumulate("some-other-query", "oss://bucket/wh/db1/tv3/data/f1.parquet",
+                dvDescs("dv", 1L, 2L));
+
+        ConnectorSinkPlan plan = providerWithStash(table, ctx, stash).planWrite(
+                stashSession(table, ctx, STASH_QID),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.DELETE));
+
+        Assertions.assertFalse(plan.getDataSink().getIcebergDeleteSink().isSetRewritableDeleteFileSets());
+        // The other query's entry is untouched.
+        Assertions.assertEquals(1, stash.size());
+    }
+
+    @Test
+    public void planWriteVersionTwoDeleteNeverAttachesRewritableSetsButStillEvicts() {
+        // v2 deletes are plain position-delete files (no DV union), so even a stashed supply must NOT be emitted
+        // (the BE ignores field 15 below v3). MUTATION: dropping the formatVersion>=3 gate would emit it. The
+        // retrieve still evicts (no leak).
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "tv2"), SCHEMA,
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "2"));
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        stash.accumulate(STASH_QID, "oss://bucket/wh/db1/tv2/data/f1.parquet", dvDescs("dv", 1L, 2L));
+
+        ConnectorSinkPlan plan = providerWithStash(table, ctx, stash).planWrite(
+                stashSession(table, ctx, STASH_QID),
+                new WriteHandle(new IcebergTableHandle("db1", "tv2")).writeOperation(WriteOperation.DELETE));
+
+        Assertions.assertFalse(plan.getDataSink().getIcebergDeleteSink().isSetRewritableDeleteFileSets());
+        Assertions.assertEquals(0, stash.size(), "the retrieve evicts even when the v3 gate drops the supply");
+    }
+
+    @Test
+    public void planWriteInsertEvictsStashEntryForTheStatement() {
+        // INSERT ... SELECT FROM an iceberg source stashes the source scan's deletes, but the INSERT write does
+        // not consume them; planWrite must still evict the entry so it does not leak. MUTATION: gating the
+        // retrieve on DELETE/MERGE only would leak the INSERT path's entry.
+        Table table = formatVersionThreeTable(freshCatalog());
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        stash.accumulate(STASH_QID, "oss://bucket/wh/db1/tv3/data/src.parquet", dvDescs("dv", 1L, 2L));
+
+        providerWithStash(table, ctx, stash).planWrite(
+                stashSession(table, ctx, STASH_QID),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.INSERT));
+
+        Assertions.assertEquals(0, stash.size(), "an INSERT write still evicts its statement's stash entry");
+    }
+
     @Test
     public void planWriteThreadsPinnedReadSnapshotFromHandleToTransaction() {
         // [SHOULD-2] / Fix B: planWrite must read the MVCC read-snapshot pin off the (pinned) write table
@@ -765,9 +898,15 @@ public class IcebergWritePlanProviderTest {
     /** A session that returns the bound connector transaction; the timezone feeds beginWrite. */
     private static final class WriteSession implements ConnectorSession {
         private final ConnectorTransaction txn;
+        private final String queryId;
 
         WriteSession(ConnectorTransaction txn) {
+            this(txn, "q");
+        }
+
+        WriteSession(ConnectorTransaction txn, String queryId) {
             this.txn = txn;
+            this.queryId = queryId;
         }
 
         @Override
@@ -777,7 +916,7 @@ public class IcebergWritePlanProviderTest {
 
         @Override
         public String getQueryId() {
-            return "q";
+            return queryId;
         }
 
         @Override

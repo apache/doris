@@ -118,6 +118,11 @@ public class IcebergConnector implements Connector {
     // meta.cache.iceberg.manifest.enable is set (default off → scan uses the SDK planFiles path).
     private final IcebergLatestSnapshotCache latestSnapshotCache;
     private final IcebergManifestCache manifestCache = new IcebergManifestCache();
+    // commit-bridge supply (S4 part 2): per-catalog stash carrying a row-level DML's non-equality delete supply
+    // across the scan->write seam — the scan provider fills it (keyed by queryId), the write provider drains it
+    // into rewritable_delete_file_sets. Like the caches above, a REFRESH CATALOG rebuilds the connector and thus
+    // drops it. Inert pre-cutover (iceberg scans/writes do not route through the providers until P6.6).
+    private final IcebergRewritableDeleteStash rewritableDeleteStash = new IcebergRewritableDeleteStash();
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
@@ -188,7 +193,8 @@ public class IcebergConnector implements Connector {
         // (nested-namespace / view / external-catalog name) that getMetadata threads are irrelevant here —
         // the 1-arg CatalogBackedIcebergCatalogOps (with their defaults) suffices.
         return new IcebergScanPlanProvider(properties,
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context, manifestCache);
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context, manifestCache,
+                rewritableDeleteStash);
     }
 
     @Override
@@ -197,7 +203,8 @@ public class IcebergConnector implements Connector {
         // provider builds the TIcebergTableSink and binds the write to the executor-opened
         // IcebergConnectorTransaction. Inert pre-cutover (iceberg writes do not route here until P6.6).
         return new IcebergWritePlanProvider(properties,
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
+                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context,
+                rewritableDeleteStash);
     }
 
     @Override

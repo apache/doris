@@ -660,6 +660,81 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(fd.isSetLastUpdatedSequenceNumber());
     }
 
+    // ── commit-bridge supply (S4 part 2): a v3 scan stashes each data file's non-equality deletes by raw path ──
+
+    @Test
+    public void planScanStashesRewritableDeletesKeyedByRawDataFilePathForV3() {
+        // A v3 scan over a data file that already has a deletion vector must stash that DV keyed on the data
+        // file's RAW path, so a same-statement DELETE/MERGE write can hand it to the BE. MUTATION: not stashing
+        // (or keying on the normalized path) -> the write supplies nothing -> the BE resurrects the deleted rows.
+        Map<String, String> v3 = new HashMap<>();
+        v3.put("format-version", "3");
+        Table table = createTable("v3dv", SCHEMA, PartitionSpec.unpartitioned(), v3);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L))
+                .commit();
+
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), null, null, stash);
+        provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "v3dv"), Collections.emptyList(), Optional.empty());
+
+        Map<String, List<TIcebergDeleteFileDesc>> sets = stash.retrieveAndRemove("q");
+        Assertions.assertNotNull(sets, "a v3 scan with a live DV must stash a supply for queryId 'q'");
+        // Keyed on the RAW data-file path (== originalPath), the string the BE matches a rewritable set against.
+        Assertions.assertTrue(sets.containsKey("s3://b/db/t1/f1.parquet"),
+                "stash must key on the raw data-file path, got keys: " + sets.keySet());
+        List<TIcebergDeleteFileDesc> descs = sets.get("s3://b/db/t1/f1.parquet");
+        Assertions.assertEquals(1, descs.size());
+        Assertions.assertEquals(3, descs.get(0).getContent(), "the DV is content 3");
+    }
+
+    @Test
+    public void planScanDoesNotStashForVersionTwo() {
+        // v2 deletes are plain position-delete files (no DV union); the rewritable supply is a v3-only concept.
+        // A real position delete is committed so the assertion proves the formatVersion>=3 GATE, not an absence
+        // of deletes. MUTATION: dropping the v3 gate -> this v2 position delete would be stashed -> red.
+        Table table = createTable("v2pd", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null))
+                .commit();
+
+        IcebergRewritableDeleteStash stash = new IcebergRewritableDeleteStash();
+        IcebergScanPlanProvider provider =
+                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), null, null, stash);
+        provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "v2pd"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertEquals(0, stash.size(), "a v2 scan must not stash any rewritable supply");
+    }
+
+    @Test
+    public void planScanWithoutStashIsInert() {
+        // The offline 2-arg ctor leaves the stash null; a v3 scan must not NPE — it simply skips stashing.
+        Map<String, String> v3 = new HashMap<>();
+        v3.put("format-version", "3");
+        Table table = createTable("v3ns", SCHEMA, PartitionSpec.unpartitioned(), v3);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(deletionVectorFile("s3://b/db/t1/dv.puffin", 16L, 64L))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "v3ns"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(1, ranges.size());
+    }
+
     @Test
     public void planScanRejectsUnsupportedFileFormatFailLoud() {
         // Legacy IcebergScanNode.getFileFormatType() throws DdlException("Unsupported format name: <fmt> ...") at plan

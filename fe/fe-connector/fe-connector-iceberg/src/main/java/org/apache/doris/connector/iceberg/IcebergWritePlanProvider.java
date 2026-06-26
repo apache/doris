@@ -38,8 +38,10 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
+import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TSortField;
 
@@ -82,10 +84,10 @@ import java.util.Set;
  * <p><b>Scope.</b> INSERT / OVERWRITE ({@code TIcebergTableSink}, T06), DELETE ({@code TIcebergDeleteSink})
  * and UPDATE / MERGE ({@code TIcebergMergeSink}, T07a). REWRITE (procedures, P6.4) is not built here. The
  * write distribution and the vended-credentials overlay of the hadoop config are registered deviations
- * (DV-T0x-vended / -broker / -materialize) closed at the P6.6 cutover. The DELETE / MERGE sink's
- * format-version&ge;3 {@code rewritable_delete_file_sets} is a post-finalize injection driven by the
- * fe-resident rewritable-delete planner and lands with the command shell (T07c); the {@code bindDataSink}
- * port here never stamps it.</p>
+ * (DV-T0x-vended / -broker / -materialize) closed at the P6.6 cutover. At format-version&ge;3 the DELETE /
+ * MERGE sink's {@code rewritable_delete_file_sets} is filled here from the scan-time supply the
+ * {@link IcebergRewritableDeleteStash} carried across the scan&rarr;write seam (commit-bridge S4 part 2),
+ * replacing the legacy fe-resident rewritable-delete planner.</p>
  *
  * <p><b>Gate-closed / dormant.</b> Iceberg is not in {@code SPI_READY_TYPES} until P6.6, so nothing
  * routes iceberg writes through this provider yet; {@link #planWrite} requires the executor-bound
@@ -123,12 +125,23 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     private final Map<String, String> properties;
     private final IcebergCatalogOps catalogOps;
     private final ConnectorContext context;
+    // commit-bridge supply (S4 part 2): the per-catalog stash the scan provider filled with each touched data
+    // file's non-equality delete supply. planWrite retrieves (and evicts) it by queryId to fill the v3
+    // rewritable_delete_file_sets. Nullable — null via the 3-arg ctor (offline tests), in which case no supply is
+    // attached (and the BE would resurrect rows, which is why the cutover wiring injects the real stash).
+    private final IcebergRewritableDeleteStash rewritableDeleteStash;
 
     public IcebergWritePlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
+        this(properties, catalogOps, context, null);
+    }
+
+    public IcebergWritePlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergRewritableDeleteStash rewritableDeleteStash) {
         this.properties = properties;
         this.catalogOps = catalogOps;
         this.context = context;
+        this.rewritableDeleteStash = rewritableDeleteStash;
     }
 
     @Override
@@ -144,6 +157,14 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
 
+        // commit-bridge supply (S4 part 2): retrieve (and evict) the non-equality delete supply the scan provider
+        // stashed for this statement. Done once for every write op — DELETE/MERGE attach it to the sink so the BE
+        // OR-merges old deletes into the new deletion vector (a missing supply silently resurrects deleted rows);
+        // INSERT/OVERWRITE discard it, but the retrieve still evicts the stash entry (e.g. an INSERT ... SELECT
+        // FROM an iceberg source). Null when the stash is absent (offline tests) or nothing was stashed.
+        Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes = rewritableDeleteStash != null
+                ? rewritableDeleteStash.retrieveAndRemove(session.getQueryId()) : null;
+
         // Dispatch on the write operation to the matching BE sink dialect (each is a distinct TDataSinkType,
         // byte-identical to the legacy fe-core planner sink). OVERWRITE shares TIcebergTableSink with INSERT
         // (the overwrite flag is read from the handle); UPDATE shares TIcebergMergeSink with MERGE.
@@ -156,13 +177,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             }
             case DELETE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);
-                dataSink.setIcebergDeleteSink(buildDeleteSink(table, tableHandle));
+                dataSink.setIcebergDeleteSink(buildDeleteSink(table, tableHandle, rewritableDeletes));
                 return new ConnectorSinkPlan(dataSink);
             }
             case UPDATE:
             case MERGE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
-                dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle));
+                dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes));
                 return new ConnectorSinkPlan(dataSink);
             }
             default:
@@ -335,9 +356,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * Builds the {@code TIcebergDeleteSink} (port of legacy {@code planner.IcebergDeleteSink.bindDataSink}).
      * Iceberg delete is always a position delete. ⚠️ The delete sink carries {@code compress_type} (thrift
      * field 6), NOT the table/merge sink's {@code compression_type}. The format-version&ge;3
-     * {@code rewritable_delete_file_sets} is injected post-finalize (T07c), never here.
+     * {@code rewritable_delete_file_sets} is attached from the scan-time supply (commit-bridge S4 part 2),
+     * mirroring legacy {@code IcebergDeleteExecutor.finalizeSinkForDelete} +
+     * {@code IcebergDeleteSink.toThrift}'s {@code formatVersion>=3 && !empty} gate.
      */
-    private TIcebergDeleteSink buildDeleteSink(Table table, IcebergTableHandle tableHandle) {
+    private TIcebergDeleteSink buildDeleteSink(Table table, IcebergTableHandle tableHandle,
+            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes) {
         TIcebergDeleteSink tSink = new TIcebergDeleteSink();
         tSink.setDbName(tableHandle.getDbName());
         tSink.setTbName(tableHandle.getTableName());
@@ -354,7 +378,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (table.spec().isPartitioned()) {
             tSink.setPartitionSpecId(table.spec().specId());
         }
-        tSink.setFormatVersion(IcebergWriterHelper.getFormatVersion(table));
+        int formatVersion = IcebergWriterHelper.getFormatVersion(table);
+        tSink.setFormatVersion(formatVersion);
+        List<TIcebergRewritableDeleteFileSet> sets =
+                buildRewritableDeleteFileSets(formatVersion, rewritableDeletes);
+        if (!sets.isEmpty()) {
+            tSink.setRewritableDeleteFileSets(sets);
+        }
         return tSink;
     }
 
@@ -364,9 +394,12 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * {@code compression_type} (field 8, NOT {@code compress_type}) and {@code sort_fields} (field 6, a
      * {@code List<TSortField>} built directly from the iceberg sort order, NOT the INSERT path's
      * {@code sort_info}). At format-version&ge;3 the schema-json includes the row-lineage fields. The
-     * {@code rewritable_delete_file_sets} is injected post-finalize (T07c), never here.
+     * {@code rewritable_delete_file_sets} is attached from the scan-time supply (commit-bridge S4 part 2),
+     * mirroring legacy {@code IcebergMergeExecutor.finalizeSinkForMerge} + {@code IcebergMergeSink.toThrift}'s
+     * {@code formatVersion>=3 && !empty} gate.
      */
-    private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle) {
+    private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle,
+            Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes) {
         TIcebergMergeSink tSink = new TIcebergMergeSink();
         tSink.setDbName(tableHandle.getDbName());
         tSink.setTbName(tableHandle.getTableName());
@@ -406,7 +439,35 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (table.spec().isPartitioned()) {
             tSink.setPartitionSpecIdForDelete(table.spec().specId());
         }
+        List<TIcebergRewritableDeleteFileSet> sets =
+                buildRewritableDeleteFileSets(formatVersion, rewritableDeletes);
+        if (!sets.isEmpty()) {
+            tSink.setRewritableDeleteFileSets(sets);
+        }
         return tSink;
+    }
+
+    /**
+     * Builds the format-version&ge;3 {@code rewritable_delete_file_sets} thrift from the scan-time supply: one
+     * {@code TIcebergRewritableDeleteFileSet} per touched data file (its raw path + its old non-equality delete
+     * descs), so the BE OR-merges those old deletes into the new deletion vector. Returns empty — so the caller
+     * leaves the thrift field unset, byte-identical to a no-rewrite write — for {@code formatVersion < 3} (v2
+     * deletes are plain position-delete files, not DV-merged) or when there is no supply. Ports legacy
+     * {@code IcebergRewritableDeletePlanner} (which keys on the same raw {@code originalPath}).
+     */
+    private static List<TIcebergRewritableDeleteFileSet> buildRewritableDeleteFileSets(
+            int formatVersion, Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes) {
+        if (formatVersion < 3 || rewritableDeletes == null || rewritableDeletes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<TIcebergRewritableDeleteFileSet> sets = new ArrayList<>(rewritableDeletes.size());
+        for (Map.Entry<String, List<TIcebergDeleteFileDesc>> entry : rewritableDeletes.entrySet()) {
+            TIcebergRewritableDeleteFileSet set = new TIcebergRewritableDeleteFileSet();
+            set.setReferencedDataFilePath(entry.getKey());
+            set.setDeleteFiles(entry.getValue());
+            sets.add(set);
+        }
+        return sets;
     }
 
     private static List<TSortField> buildMergeSortFields(Table table, SortOrder sortOrder) {

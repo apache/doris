@@ -417,4 +417,60 @@ public class IcebergScanRangeTest {
         // No columns-from-path on a sys split (the metadata table is not path-partitioned).
         Assertions.assertFalse(rangeDesc.isSetColumnsFromPath());
     }
+
+    // ── commit-bridge supply (S4 part 2): getOriginalPath() key + rewritableDeleteDescs() non-equality filter ──
+
+    @Test
+    public void getOriginalPathReturnsRawDataFilePathTheBeMatchesOn() {
+        // The stash keys on this exact string (the BE matches a rewritable delete set against it). It is the RAW
+        // path, distinct from the scheme-normalized open path. MUTATION: returning the normalized path here would
+        // make every BE lookup miss -> resurrection.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet")
+                .originalPath("oss://b/db/t/f.parquet")
+                .build();
+        Assertions.assertEquals("oss://b/db/t/f.parquet", range.getOriginalPath());
+    }
+
+    @Test
+    public void rewritableDeleteDescsKeepsDvAndPositionButDropsEquality() {
+        // The rewritable supply is OR-merged into the new DV; only position deletes (content 1) and deletion
+        // vectors (content 3) participate. Equality deletes (content 2) are re-applied by the reader, never
+        // rewritten, so they MUST be excluded (mirrors legacy deleteFilesDescByReferencedDataFile). MUTATION:
+        // including the equality delete -> the BE would treat equality rows as positions / over-delete.
+        IcebergScanRange.DeleteFile dv = IcebergScanRange.DeleteFile.deletionVector(
+                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L);
+        IcebergScanRange.DeleteFile pos = IcebergScanRange.DeleteFile.positionDelete(
+                "s3://b/db/t/pos.parquet", TFileFormatType.FORMAT_PARQUET, 1L, 9L);
+        IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
+                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3, 7));
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3)
+                .deleteFiles(Arrays.asList(dv, pos, eq)).build();
+
+        List<TIcebergDeleteFileDesc> descs = range.rewritableDeleteDescs();
+        Assertions.assertEquals(2, descs.size());
+        Assertions.assertEquals(3, descs.get(0).getContent());
+        Assertions.assertEquals("s3://b/db/t/dv.puffin", descs.get(0).getPath());
+        // DV carries the blob coordinates the BE needs to read it.
+        Assertions.assertEquals(16L, descs.get(0).getContentOffset());
+        Assertions.assertEquals(64L, descs.get(0).getContentSizeInBytes());
+        Assertions.assertEquals(1, descs.get(1).getContent());
+        // Position delete carries its file_format.
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, descs.get(1).getFileFormat());
+    }
+
+    @Test
+    public void rewritableDeleteDescsEmptyWhenNoDeletesOrAllEquality() {
+        IcebergScanRange none = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3).build();
+        Assertions.assertTrue(none.rewritableDeleteDescs().isEmpty());
+
+        IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
+                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3));
+        IcebergScanRange onlyEq = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3)
+                .deleteFiles(Collections.singletonList(eq)).build();
+        Assertions.assertTrue(onlyEq.rewritableDeleteDescs().isEmpty());
+    }
 }

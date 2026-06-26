@@ -167,22 +167,35 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // Nullable — null via the 2-/3-arg ctors (offline tests, default-disabled gate); when null the gate is
     // forced off and planScan uses the SDK splitFiles path.
     private final IcebergManifestCache manifestCache;
+    // commit-bridge supply (S4 part 2): owned by the long-lived IcebergConnector, shared with the write provider.
+    // A format-version>=3 DELETE/MERGE scan stashes its non-equality delete supply here keyed by queryId; the
+    // write provider retrieves it to fill rewritable_delete_file_sets. Nullable — null via the 2-/3-/4-arg ctors
+    // (offline tests), in which case stashing is skipped (the supply is exercised only on the post-cutover write
+    // path; pre-flip the provider never runs at all).
+    private final IcebergRewritableDeleteStash rewritableDeleteStash;
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps) {
-        this(properties, catalogOps, null, null);
+        this(properties, catalogOps, null, null, null);
     }
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
-        this(properties, catalogOps, context, null);
+        this(properties, catalogOps, context, null, null);
     }
 
     public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergManifestCache manifestCache) {
+        this(properties, catalogOps, context, manifestCache, null);
+    }
+
+    public IcebergScanPlanProvider(Map<String, String> properties, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergManifestCache manifestCache,
+            IcebergRewritableDeleteStash rewritableDeleteStash) {
         this.properties = properties;
         this.catalogOps = catalogOps;
         this.context = context;
         this.manifestCache = manifestCache;
+        this.rewritableDeleteStash = rewritableDeleteStash;
     }
 
     /**
@@ -304,12 +317,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // and emit one BE-ready IcebergScanRange per task, populating the typed iceberg carriers — incl. the
         // merge-on-read delete files (T04) — mirroring legacy IcebergScanNode.createIcebergSplit. The field-id
         // history dict (T06, scan-level), MVCC pin, and vended credentials (T09) land later.
+        // commit-bridge supply (S4 part 2): for a format-version>=3 scan, stash each data file's non-equality
+        // delete supply (old DVs + old position deletes) keyed by the statement queryId, so a DELETE/MERGE write
+        // on the same statement can fill rewritable_delete_file_sets and the BE OR-merges those old deletes into
+        // the new deletion vector — a missing supply silently resurrects previously-deleted rows. queryId is read
+        // once (stable across this statement's scan and write sessions). Skipped pre-v3 and when the stash is
+        // absent (offline tests / pre-cutover the provider never runs); a non-DML scan just leaves a leaked entry
+        // the stash ages out, and accumulate() itself no-ops a blank queryId or an empty (no non-eq delete) list.
+        boolean stashRewritableDeletes = rewritableDeleteStash != null && formatVersion >= 3;
+        String stashQueryId = stashRewritableDeletes ? session.getQueryId() : null;
+
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = planFileScanTask(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 DataFile dataFile = task.file();
-                ranges.add(buildRange(table, dataFile, task, formatVersion, partitioned, orderedPartitionKeys,
-                        zone, vendedToken, -1));
+                IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
+                        orderedPartitionKeys, zone, vendedToken, -1);
+                ranges.add(range);
+                if (stashRewritableDeletes) {
+                    rewritableDeleteStash.accumulate(stashQueryId, range.getOriginalPath(),
+                            range.rewritableDeleteDescs());
+                }
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to enumerate iceberg file scan tasks, error message is:"

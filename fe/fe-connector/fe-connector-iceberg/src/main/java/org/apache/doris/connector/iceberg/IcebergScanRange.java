@@ -194,6 +194,37 @@ public class IcebergScanRange implements ConnectorScanRange {
         return serializedSplit;
     }
 
+    /**
+     * The RAW (un-normalized) iceberg data-file path of this range — the key the BE matches a rewritable delete
+     * set against (and the {@code original_file_path} it emits). The plugin write path stashes the merge-on-read
+     * supply keyed on this, mirroring legacy {@code IcebergScanNode.deleteFilesByReferencedDataFile} (keyed on
+     * {@code getOriginalPath()}). Package-private — only the connector's scan/stash wiring reads it.
+     */
+    String getOriginalPath() {
+        return originalPath;
+    }
+
+    /**
+     * This data file's merge-on-read delete files MINUS equality deletes, as BE-facing thrift descs — the
+     * "rewritable delete" supply a format-version&ge;3 DELETE/MERGE hands the BE to OR-merge old deletes into the
+     * new deletion vector (mirrors legacy {@code IcebergScanNode.deleteFilesDescByReferencedDataFile}, which
+     * filters out {@code EQUALITY_DELETES}). Empty when this range carries no (non-equality) deletes. The
+     * equality exclusion matches the BE contract — only position deletes and deletion vectors are OR-merged into
+     * the new DV; equality deletes are re-applied by the reader, not rewritten. Package-private (stash wiring).
+     */
+    List<TIcebergDeleteFileDesc> rewritableDeleteDescs() {
+        if (deleteFiles.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<TIcebergDeleteFileDesc> descs = new ArrayList<>(deleteFiles.size());
+        for (DeleteFile delete : deleteFiles) {
+            if (delete.getContent() != DeleteFile.CONTENT_EQUALITY_DELETE) {
+                descs.add(delete.toThrift());
+            }
+        }
+        return descs;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         // Iceberg carries its per-range payload as typed fields (see populateRangeParams), not as string
