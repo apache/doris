@@ -1617,21 +1617,11 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    private String getSparkIcebergJdbcUrl() {
-        String sparkHost = context.config.otherConfigs.get("externalEnvIp")
-        String sparkPort = context.config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
-        return "jdbc:hive2://${sparkHost}:${sparkPort}/;auth=noSasl"
-    }
-
     private List<List<Object>> spark_sql(String sqlStr, boolean isOrder = false) {
-        Class.forName("org.apache.hive.jdbc.HiveDriver")
-        String sparkJdbcUrl = getSparkIcebergJdbcUrl()
         String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         logger.info("Execute Spark JDBC SQL: ${cleanedSqlStr}".toString())
-        logger.info("Spark JDBC URL: ${sparkJdbcUrl}".toString())
-        return connect("hadoop", "hadoop", sparkJdbcUrl) {
-            return sql(cleanedSqlStr, isOrder)
-        }
+        logger.info("Spark JDBC URL: ${context.getSparkIcebergJdbcUrl()}".toString())
+        return sql_impl(context.getSparkIcebergConnection(), cleanedSqlStr, isOrder)
     }
 
     private List spark_sql_multi(String sqlStatements, boolean isOrder = false) {
@@ -1641,12 +1631,9 @@ class Suite implements GroovyInterceptable {
             return []
         }
 
-        Class.forName("org.apache.hive.jdbc.HiveDriver")
-        String sparkJdbcUrl = getSparkIcebergJdbcUrl()
-        logger.info("Execute Spark JDBC SQL statements via ${sparkJdbcUrl}: ${statements}".toString())
-        return connect("hadoop", "hadoop", sparkJdbcUrl) {
-            return statements.collect { statement -> sql(statement, isOrder) }
-        }
+        logger.info("Execute Spark JDBC SQL statements via ${context.getSparkIcebergJdbcUrl()}: ${statements}".toString())
+        Connection sparkConn = context.getSparkIcebergConnection()
+        return statements.collect { statement -> sql_impl(sparkConn, statement, isOrder) }
     }
 
     /**
