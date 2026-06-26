@@ -56,7 +56,7 @@ class HandleErrorBrpcCallback;
 class SyncSizeCallback;
 
 struct LocalMergeContext {
-    std::string debug_string();
+    std::string debug_string() const;
 
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
@@ -97,9 +97,9 @@ public:
                                     int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
-    Status register_local_merger_producer_filter(const QueryContext* query_ctx,
-                                                 const TRuntimeFilterDesc& desc,
-                                                 std::shared_ptr<RuntimeFilterProducer> producer);
+    Status register_local_merge_producer_filter(const QueryContext* query_ctx,
+                                                const TRuntimeFilterDesc& desc,
+                                                std::shared_ptr<RuntimeFilterProducer> producer);
 
     Status get_local_merge_context(int filter_id, uint32_t expected_stage,
                                    std::shared_ptr<LocalMergeContext>* context);
@@ -119,7 +119,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         _consumer_map.erase(filter_id);
         // NOTE: _local_merge_map is NOT erased here.  It is replaced lazily in
-        // register_local_merger_producer_filter when a producer from a newer
+        // register_local_merge_producer_filter when a producer from a newer
         // recursive CTE round registers.  Erasing eagerly here would race with
         // multi-fragment REBUILD: a consumer-only fragment's remove_filter could
         // delete the entry that the producer fragment just re-registered.

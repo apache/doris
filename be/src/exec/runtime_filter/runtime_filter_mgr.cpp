@@ -75,7 +75,7 @@ Status RuntimeFilterMgr::register_consumer_filter(
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::register_local_merger_producer_filter(
+Status RuntimeFilterMgr::register_local_merge_producer_filter(
         const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
         std::shared_ptr<RuntimeFilterProducer> producer) {
     if (!_is_global) [[unlikely]] {
@@ -108,7 +108,7 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
     return Status::OK();
 }
 
-std::string LocalMergeContext::debug_string() {
+std::string LocalMergeContext::debug_string() const {
     std::string result =
             fmt::format("stage: {}, {}\n", stage,
                         merger ? merger->debug_string() : "local merge context merger is nullptr");
@@ -314,20 +314,23 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 
 std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Local Merger Info:\n";
-    std::vector<std::pair<int32_t, std::shared_ptr<LocalMergeContext>>> local_merge_contexts;
+    std::vector<std::pair<int32_t, LocalMergeContext>> local_merge_contexts;
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> consumers;
     {
         std::lock_guard l(_lock);
         for (auto& [filter_id, ctx] : _local_merge_map) {
-            local_merge_contexts.emplace_back(filter_id, ctx);
+            if (ctx) {
+                local_merge_contexts.emplace_back(filter_id, *ctx);
+            } else {
+                result += fmt::format("filter_id: {}, local merge context is nullptr\n", filter_id);
+            }
         }
         for (const auto& [filter_id, filter_consumers] : _consumer_map) {
             consumers.insert(consumers.end(), filter_consumers.begin(), filter_consumers.end());
         }
     }
     for (const auto& [filter_id, ctx] : local_merge_contexts) {
-        result += fmt::format("filter_id: {}, {}", filter_id,
-                              ctx ? ctx->debug_string() : "local merge context is nullptr\n");
+        result += fmt::format("filter_id: {}, {}", filter_id, ctx.debug_string());
     }
     result += "Consumer Info:\n";
     for (const auto& consumer : consumers) {
