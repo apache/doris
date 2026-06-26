@@ -570,7 +570,7 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
 
     {
         // drop tablet will update tablet meta, should lock
-        std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
+        std::lock_guard wrlock(to_drop_tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // NOTE: has to update tablet here, but must not update tablet meta directly.
         // because other thread may hold the tablet object, they may save meta too.

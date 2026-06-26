@@ -206,7 +206,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
     }
     Block output_block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
-                                                                       &output_block, false));
+                                                                       &output_block));
     materialize_block_inplace(output_block);
     return _write_prepared_block(output_block);
 }
@@ -436,23 +436,8 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
 
 Status VIcebergTableWriter::_filter_block(doris::Block& block, const IColumn::Filter* filter,
                                           doris::Block* output_block) {
-    const ColumnsWithTypeAndName& columns_with_type_and_name =
-            block.get_columns_with_type_and_name();
-    ColumnsWithTypeAndName result_columns;
-    for (const auto& col : columns_with_type_and_name) {
-        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
-                                    col.name);
-    }
-    *output_block = {std::move(result_columns)};
-
-    std::vector<uint32_t> columns_to_filter;
-    int column_to_keep = output_block->columns();
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
-    }
-
-    Block::filter_block_internal(output_block, columns_to_filter, *filter);
+    *output_block = block;
+    Block::filter_block_internal(output_block, *filter);
     return Status::OK();
 }
 

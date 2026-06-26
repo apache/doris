@@ -103,6 +103,19 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     @Override
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
+        super.initialize(jobId, dataSource, config);
+        // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
+        if (serializer instanceof PostgresDebeziumJsonDeserializer) {
+            ((PostgresDebeziumJsonDeserializer) serializer)
+                    .setPgSchemaRefresher(
+                            tableId -> refreshSingleTableSchema(tableId, config, jobId));
+        }
+    }
+
+    // First open only, NOT initialize: a rebuilt reader must not recreate a dropped slot.
+    @Override
+    public void createSourceResources(
+            String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         // Doris-owned publication: pre-create it covering all include_tables (autocreate is
@@ -117,13 +130,6 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                 LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
                 createSlotForGlobalStreamSplit(dialect);
             }
-        }
-        super.initialize(jobId, dataSource, config);
-        // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
-        if (serializer instanceof PostgresDebeziumJsonDeserializer) {
-            ((PostgresDebeziumJsonDeserializer) serializer)
-                    .setPgSchemaRefresher(
-                            tableId -> refreshSingleTableSchema(tableId, config, jobId));
         }
     }
 
