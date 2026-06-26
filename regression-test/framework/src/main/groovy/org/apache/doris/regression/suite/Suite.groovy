@@ -2178,8 +2178,21 @@ class Suite implements GroovyInterceptable {
                 origin.put(key, rows[0].Value as String)
             }
         }
+
         try {
             tempVars.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+        } catch (Exception e) {
+            def err = e.getMessage()
+            log.warn("skip this case ${context.suiteName}, because ${err}")
+            if (err.toUpperCase().contains("ADMIN")) {
+                return
+            }
+
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+            throw e
+        }
+
+        try {
             actionSupplier()
         } finally {
             origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
