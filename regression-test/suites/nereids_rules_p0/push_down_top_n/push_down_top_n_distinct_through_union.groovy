@@ -72,6 +72,26 @@ suite("push_down_top_n_distinct_through_union") {
         explain shape plan select * from ((select * from table2 t1 limit 5) union (select * from table2 t2 limit 5)) sub order by id limit 10;
     """
 
+    // Make sure to use getRegularChildOutput to obtain the child output corresponding to the union output in PushDownTopNDistinctThroughUnion
+    sql """
+        select *
+        from (
+          select *
+          from (
+            select id, score, score, row_number() over (order by id desc)
+            from table2
+          ) u1
+          union
+          select *
+          from (
+            select id, score, score, row_number() over (order by id desc)
+            from table2
+          ) u2
+        ) u
+        order by 1
+        limit 10;
+    """
+
     qt_push_down_topn_union_complex_conditions """
         explain shape plan select * from (select * from table2 t1 where t1.score > 10 and t1.name = 'Test' union select * from table2 t2 where t2.id < 5 and t2.score < 20) sub order by id limit 10;
     """

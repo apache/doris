@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -63,23 +64,23 @@ public class PushDownTopNDistinctThroughUnion implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalTopN(logicalAggregate(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
-                        .when(agg -> agg.isDistinct()))
+                        .when(Aggregate::isDistinct))
                         .then(topN -> {
                             LogicalAggregate<LogicalUnion> agg = topN.child();
                             LogicalUnion union = agg.child();
                             List<Plan> newChildren = new ArrayList<>();
-                            for (Plan child : union.children()) {
+                            for (int i = 0; i < union.arity(); ++i) {
                                 Map<Expression, Expression> replaceMap = new HashMap<>();
-                                for (int i = 0; i < union.getOutputs().size(); ++i) {
-                                    NamedExpression output = union.getOutputs().get(i);
-                                    replaceMap.put(output, child.getOutput().get(i));
+                                for (int j = 0; j < union.getOutputs().size(); ++j) {
+                                    NamedExpression output = union.getOutputs().get(j);
+                                    replaceMap.put(output, union.getRegularChildOutput(i).get(j));
                                 }
                                 List<OrderKey> orderKeys = topN.getOrderKeys().stream()
                                         .map(orderKey -> orderKey.withExpression(
                                                 ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
                                         .collect(ImmutableList.toImmutableList());
                                 newChildren.add(new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0,
-                                        PlanUtils.distinct(child)));
+                                        PlanUtils.distinct(union.child(i))));
                             }
                             if (union.children().equals(newChildren)) {
                                 return null;
