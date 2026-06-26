@@ -907,6 +907,72 @@ TEST_F(NewParquetReaderTest, ReadMultipleRowGroups) {
     EXPECT_EQ(values, std::vector<std::string>({"one", "two", "three", "four", "five"}));
 }
 
+TEST_F(NewParquetReaderTest, RewriteSameLocalPathDoesNotReuseUnknownMtimePageCache) {
+    RuntimeProfile first_profile("new_parquet_reader_first_unknown_mtime");
+    {
+        auto reader = create_reader(0, -1, &first_profile);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0), field_projection(1)};
+        ASSERT_TRUE(reader->open(request).ok());
+
+        bool eof = false;
+        while (!eof) {
+            Block block = build_file_block(schema);
+            size_t rows = 0;
+            ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        }
+    }
+
+    ASSERT_NE(first_profile.get_counter("PageReadCount"), nullptr);
+    ASSERT_NE(first_profile.get_counter("PageCacheWriteCount"), nullptr);
+    EXPECT_EQ(first_profile.get_counter("PageReadCount")->value(), 0);
+    EXPECT_EQ(first_profile.get_counter("PageCacheWriteCount")->value(), 0);
+
+    // LocalFileReader reports mtime as 0. Rewriting the same path must not reuse page-cache bytes
+    // from the previous physical file, even when the query option enables parquet file page cache.
+    write_int_pair_parquet_file(_file_path);
+    RuntimeProfile second_profile("new_parquet_reader_second_unknown_mtime");
+    auto reader = create_reader(0, -1, &second_profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    std::vector<int32_t> scores;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = nullable_nested_column<ColumnInt32>(block, 0);
+        const auto& score_column = nullable_nested_column<ColumnInt32>(block, 1);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+            scores.push_back(score_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 2, 3, 4, 5}));
+    EXPECT_EQ(scores, std::vector<int32_t>({1, 2, 3, 4, 5}));
+    ASSERT_NE(second_profile.get_counter("PageReadCount"), nullptr);
+    ASSERT_NE(second_profile.get_counter("PageCacheWriteCount"), nullptr);
+    EXPECT_EQ(second_profile.get_counter("PageReadCount")->value(), 0);
+    EXPECT_EQ(second_profile.get_counter("PageCacheWriteCount")->value(), 0);
+}
+
 TEST_F(NewParquetReaderTest, ReadPredicateAndNonPredicateColumnsWithSelection) {
     RuntimeProfile profile("new_parquet_reader_filter_profile");
     auto reader = create_reader(0, -1, &profile);
