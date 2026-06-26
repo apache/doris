@@ -39,7 +39,9 @@ done
 start-master.sh -p 7077
 start-worker.sh spark://doris--spark-iceberg:7077
 start-history-server.sh
-start-thriftserver.sh --driver-java-options "-Dderby.system.home=/tmp/derby"
+start-thriftserver.sh \
+  --master spark://doris--spark-iceberg:7077 \
+  --driver-java-options "-Dderby.system.home=/tmp/derby"
 
 # The creation of a Spark SQL client is time-consuming,
 # and reopening a new client for each SQL file execution leads to significant overhead.
