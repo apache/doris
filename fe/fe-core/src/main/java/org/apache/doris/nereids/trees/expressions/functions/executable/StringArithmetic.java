@@ -431,13 +431,38 @@ public class StringArithmetic {
     @ExecFunction(name = "concat_ws")
     public static Expression concatWsVarcharArray(StringLikeLiteral first, ArrayLiteral second) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < second.getValue().size() - 1; i++) {
-            if (!(second.getValue().get(i) instanceof NullLiteral)) {
-                sb.append(second.getValue().get(i).getValue());
-                sb.append(first.getValue());
+        boolean hasValue = false;
+        for (Literal value : second.getValue()) {
+            if (!(value instanceof NullLiteral)) {
+                if (hasValue) {
+                    sb.append(first.getValue());
+                }
+                sb.append(value.getValue());
+                hasValue = true;
             }
         }
-        sb.append(second.getValue().get(second.getValue().size() - 1).getValue());
+        return castStringLikeLiteral(first, sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions ConcatWs
+     */
+    @ExecFunction(name = "concat_ws")
+    public static Expression concatWsVarcharLiteral(StringLikeLiteral first, Literal... second) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasValue = false;
+        for (Literal value : second) {
+            if (value instanceof ArrayLiteral) {
+                throw new AnalysisException("Unsupported concat_ws array varargs to fold const by fe");
+            }
+            if (!(value instanceof NullLiteral)) {
+                if (hasValue) {
+                    sb.append(first.getValue());
+                }
+                sb.append(value.getValue());
+                hasValue = true;
+            }
+        }
         return castStringLikeLiteral(first, sb.toString());
     }
 
@@ -447,11 +472,12 @@ public class StringArithmetic {
     @ExecFunction(name = "concat_ws")
     public static Expression concatWsVarcharVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < second.length - 1; i++) {
+        for (int i = 0; i < second.length; i++) {
+            if (i > 0) {
+                sb.append(first.getValue());
+            }
             sb.append(second[i].getValue());
-            sb.append(first.getValue());
         }
-        sb.append(second[second.length - 1].getValue());
         return castStringLikeLiteral(first, sb.toString());
     }
 
@@ -493,7 +519,7 @@ public class StringArithmetic {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
             // Update the digest with the input bytes
-            md.update(first.getValue().getBytes());
+            md.update(first.getValue().getBytes(StandardCharsets.UTF_8));
             return castStringLikeLiteral(first, bytesToHex(md.digest()));
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
@@ -516,7 +542,7 @@ public class StringArithmetic {
             }
 
             // Step 3: Convert the combined string to a byte array and pass it to the digest() method
-            byte[] messageDigest = md.digest(combinedInput.toString().getBytes());
+            byte[] messageDigest = md.digest(combinedInput.toString().getBytes(StandardCharsets.UTF_8));
 
             // Step 4: Convert the byte array into a hexadecimal string
             StringBuilder hexString = new StringBuilder();

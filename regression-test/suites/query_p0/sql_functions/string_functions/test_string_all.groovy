@@ -115,6 +115,8 @@ suite("string_functions_all") {
     testFoldConst("SELECT CONCAT_WS('x', 'ṭṛì', 'ḍḍumai'), CONCAT_WS('→', ['ṭṛì', 'ḍḍumai', 'hello']);")
     qt_concat_ws_42 "SELECT CONCAT_WS(',', 'Name', 'Age', 'City'), CONCAT_WS('/', 'home', 'user', 'documents', 'file.txt');"
     testFoldConst("SELECT CONCAT_WS(',', 'Name', 'Age', 'City'), CONCAT_WS('/', 'home', 'user', 'documents', 'file.txt');")
+    testFoldConst("SELECT CONCAT_WS(',', ['a', NULL]), CONCAT_WS(',', [NULL, 'a', NULL]), CONCAT_WS(',', [NULL]);")
+    testFoldConst("SELECT CONCAT_WS(',', 'a', NULL), CONCAT_WS(',', NULL, 'a', NULL), CONCAT_WS(',', NULL);")
 
     // CONCAT tests
     qt_concat_43 "SELECT CONCAT('a', 'b'), CONCAT('a', 'b', 'c');"
@@ -435,6 +437,9 @@ suite("string_functions_all") {
     testFoldConst("SELECT LTRIM('000123', '0'), LTRIM('123abc123', '123');")
     qt_ltrim_185 "SELECT LTRIM('---text---', '-'), LTRIM('@@hello@@', '@');"
     testFoldConst("SELECT LTRIM('---text---', '-'), LTRIM('@@hello@@', '@');")
+
+    // MD5 tests
+    testFoldConst("SELECT MD5('doris'), MD5('ṭṛì'), MD5SUM('do', 'ris'), MD5SUM('ṭ', 'ṛ', 'ì');")
 
     // MAKE_SET tests
     qt_make_set_186 "SELECT make_set(3, 'dog', 'cat', 'bird');"
