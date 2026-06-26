@@ -659,7 +659,7 @@ public class OlapTableSink extends DataSink {
 
     public static Map<Long, Map<Long, AdaptiveBucketAssignment>> computeAdaptiveRandomBucketAssignments(
             List<Long> sinkBackendIds, List<TOlapTablePartition> partitions,
-            List<TTabletLocation> tabletLocations, int planFragmentNum) {
+            List<TTabletLocation> tabletLocations, int sinkInstanceNum) {
         Map<Long, Map<Long, AdaptiveBucketAssignment>> assignments = new HashMap<>();
         List<Long> orderedSinkBackendIds = sinkBackendIds.stream()
                 .distinct()
@@ -688,7 +688,7 @@ public class OlapTableSink extends DataSink {
             int fallbackBucketIdx = (int) Math.floorMod(baseTabletIndex, (long) partition.getNumBuckets());
             int targetBucketNum = Math.min(
                     Math.min(orderedSinkBackendIds.size(), partition.getNumBuckets()),
-                    Math.max(planFragmentNum, 1));
+                    Math.max(sinkInstanceNum, 1));
             if (targetBucketNum <= 0) {
                 continue;
             }

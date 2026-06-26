@@ -910,6 +910,9 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         return Status::OK();
     }
 
+    // FE exposes this feature as adaptive random bucket load. At the add-block protocol layer,
+    // the same mode is named receiver-side random bucket because the receiver routes rows by
+    // partition id and advances its own selected tablet state.
     if (request.is_receiver_side_random_bucket()) {
         std::unordered_map<int64_t /* partition_id */, DorisVector<uint32_t> /* row index */>
                 partition_to_rowidxs;

@@ -340,6 +340,7 @@ public:
 protected:
     // make a real open request for relative BE's load channel.
     void _open_internal(bool is_incremental);
+    void _set_adaptive_random_bucket_open_request(PTabletWriterOpenRequest* request);
 
     void _close_check();
     void _cancel_with_msg(const std::string& msg);

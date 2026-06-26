@@ -749,8 +749,6 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 DEFINE_mBool(enable_adaptive_write_buffer_size, "true");
-// Whether random bucket load rotates to the next local bucket when memtable flushes.
-DEFINE_mBool(enable_adaptive_random_bucket_load_bucket_rotation, "true");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");

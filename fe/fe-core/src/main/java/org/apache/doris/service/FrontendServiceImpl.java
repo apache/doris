@@ -5772,13 +5772,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private static final class AdaptiveBucketSinkContext {
         private final boolean enableAdaptiveRandomBucket;
         private final List<Long> sinkBackendIds;
-        private final int planFragmentNum;
+        private final int sinkInstanceNum;
 
         private AdaptiveBucketSinkContext(boolean enableAdaptiveRandomBucket, List<Long> sinkBackendIds,
-                int planFragmentNum) {
+                int sinkInstanceNum) {
             this.enableAdaptiveRandomBucket = enableAdaptiveRandomBucket;
             this.sinkBackendIds = sinkBackendIds;
-            this.planFragmentNum = planFragmentNum;
+            this.sinkInstanceNum = sinkInstanceNum;
         }
     }
 
@@ -5799,12 +5799,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     coordinator.getAdaptiveRandomBucketSinkContext(tableId);
             if (context.isPresent()) {
                 return new AdaptiveBucketSinkContext(
-                        true, context.get().getSinkBackendIds(), context.get().getPlanFragmentNum());
+                        true, context.get().getSinkBackendIds(), context.get().getSinkInstanceNum());
             }
             return disabledAdaptiveBucketSinkContext();
         }
         Set<Long> sinkBackendIds = new TreeSet<>();
-        int planFragmentNum = 0;
+        int sinkInstanceNum = 0;
         for (PipelineDistributedPlan distributedPlan :
                 ((NereidsCoordinator) coordinator).getCoordinatorContext().distributedPlans) {
             if (!(distributedPlan.getFragmentJob().getFragment().getSink() instanceof OlapTableSink)) {
@@ -5817,7 +5817,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!sink.shouldAssignAdaptiveRandomBucket()) {
                 continue;
             }
-            planFragmentNum += distributedPlan.getInstanceJobs().size();
+            sinkInstanceNum += distributedPlan.getInstanceJobs().size();
             for (AssignedJob assignedJob : distributedPlan.getInstanceJobs()) {
                 sinkBackendIds.add(assignedJob.getAssignedWorker().id());
             }
@@ -5825,7 +5825,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (sinkBackendIds.isEmpty()) {
             return disabledAdaptiveBucketSinkContext();
         }
-        return new AdaptiveBucketSinkContext(true, new ArrayList<>(sinkBackendIds), Math.max(planFragmentNum, 1));
+        return new AdaptiveBucketSinkContext(true, new ArrayList<>(sinkBackendIds), Math.max(sinkInstanceNum, 1));
     }
 
     private static void assignAdaptiveBucketToPartition(TOlapTablePartition partition,
@@ -5844,14 +5844,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (LOG.isInfoEnabled()) {
             LOG.info("Adaptive random bucket replanning partition={}, currentBeId={}, tableId={}, queryId={}, "
-                            + "sinkBackendIds={}, planFragmentNum={}",
+                            + "sinkBackendIds={}, sinkInstanceNum={}",
                     partition.getId(), currentBeId, tableId, queryId, sinkContext.sinkBackendIds,
-                    sinkContext.planFragmentNum);
+                    sinkContext.sinkInstanceNum);
         }
         Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
                 OlapTableSink.computeAdaptiveRandomBucketAssignments(
                         sinkContext.sinkBackendIds, Lists.newArrayList(partition), partitionTablets,
-                        sinkContext.planFragmentNum);
+                        sinkContext.sinkInstanceNum);
         Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments = assignments.get(currentBeId);
         if (partitionAssignments == null || !partitionAssignments.containsKey(partition.getId())) {
             LOG.warn("Adaptive random bucket found no partition assignment for partition {}, currentBeId={}, "

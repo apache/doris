@@ -807,8 +807,6 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 DECLARE_mBool(enable_adaptive_write_buffer_size);
-// Whether random bucket load rotates to the next local bucket when memtable flushes.
-DECLARE_mBool(enable_adaptive_random_bucket_load_bucket_rotation);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
 

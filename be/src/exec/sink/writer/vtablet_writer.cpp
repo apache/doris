@@ -628,6 +628,8 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_sender_id(_parent->_sender_id);
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
+    // Adaptive random bucket is carried as receiver-side random bucket in add-block RPCs
+    // because the receiver routes rows by partition id instead of sender-selected tablet ids.
     _cur_add_block_request->set_is_receiver_side_random_bucket(
             _parent->_tablet_finder->is_adaptive_random_bucket());
 
@@ -675,6 +677,75 @@ Status VNodeChannel::init(RuntimeState* state) {
     return Status::OK();
 }
 
+void VNodeChannel::_set_adaptive_random_bucket_open_request(PTabletWriterOpenRequest* request) {
+    std::unordered_map<int64_t, std::vector<int64_t>> partition_to_ordered_tablets;
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> partition_to_local_tablets;
+    for (const auto& tablet : _all_tablets) {
+        partition_to_ordered_tablets[tablet.partition_id].push_back(tablet.tablet_id);
+        partition_to_local_tablets[tablet.partition_id].insert(tablet.tablet_id);
+    }
+    std::unordered_map<int64_t, const VOlapTablePartition*> id_to_partition;
+    for (const auto* part : _parent->_vpartition->get_partitions()) {
+        id_to_partition.emplace(part->id, part);
+    }
+    for (const auto& [partition_id, ordered_tablets] : partition_to_ordered_tablets) {
+        auto partition_it = id_to_partition.find(partition_id);
+        if (partition_it == id_to_partition.end()) {
+            LOG(WARNING) << "unknown partition for adaptive random bucket, load_id="
+                         << _parent->_load_id << ", partition_id=" << partition_id;
+            continue;
+        }
+        const auto* index_info =
+                find_partition_index(*partition_it->second, _index_channel->_index_id);
+        if (index_info == nullptr) {
+            LOG(WARNING) << "unknown index for adaptive random bucket, load_id="
+                         << _parent->_load_id << ", partition_id=" << partition_id
+                         << ", index_id=" << _index_channel->_index_id;
+            continue;
+        }
+        std::vector<int64_t> selected_ordered_tablets;
+        const auto& local_bucket_seqs =
+                adaptive_local_bucket_seqs(*partition_it->second, index_info);
+        if (!local_bucket_seqs.empty()) {
+            const auto& full_ordered_tablets = index_info->tablets;
+            for (auto bucket_seq : local_bucket_seqs) {
+                if (bucket_seq < 0 ||
+                    bucket_seq >= cast_set<int32_t>(full_ordered_tablets.size())) {
+                    LOG(WARNING) << "invalid local bucket seq, load_id=" << _parent->_load_id
+                                 << ", partition_id=" << partition_id
+                                 << ", bucket_seq=" << bucket_seq
+                                 << ", full_ordered_tablets_size=" << full_ordered_tablets.size();
+                    continue;
+                }
+                auto tablet_id = full_ordered_tablets[bucket_seq];
+                if (!partition_to_local_tablets[partition_id].contains(tablet_id)) {
+                    LOG(WARNING) << "skip non-local tablet selected by local bucket seq, load_id="
+                                 << _parent->_load_id << ", partition_id=" << partition_id
+                                 << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
+                                 << ", node_id=" << _node_id;
+                    continue;
+                }
+                selected_ordered_tablets.push_back(tablet_id);
+            }
+        } else {
+            selected_ordered_tablets = ordered_tablets;
+        }
+        if (selected_ordered_tablets.empty()) {
+            VLOG_DEBUG << "skip adaptive random bucket partition without selected local "
+                          "tablet, load_id="
+                       << _parent->_load_id << ", partition_id=" << partition_id
+                       << ", node_id=" << _node_id;
+            continue;
+        }
+        _adaptive_partition_compat_tablets[partition_id] = selected_ordered_tablets.front();
+        auto* random_bucket_partition = request->add_random_bucket_partitions();
+        random_bucket_partition->set_partition_id(partition_id);
+        for (auto tablet_id : selected_ordered_tablets) {
+            random_bucket_partition->add_ordered_tablet_ids(tablet_id);
+        }
+    }
+}
+
 void VNodeChannel::_open_internal(bool is_incremental) {
     if (_tablets_wait_open.empty()) {
         return;
@@ -689,6 +760,8 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
         request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
     }
+    // Adaptive random bucket is carried as receiver-side random bucket in open RPCs
+    // because the receiver owns the selected-tablet rotation state.
     request->set_is_receiver_side_random_bucket(
             _parent->_tablet_finder->is_adaptive_random_bucket());
     std::set<int64_t> deduper;
@@ -717,74 +790,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_write_file_cache(_parent->_write_file_cache);
 
     if (_parent->_tablet_finder->is_adaptive_random_bucket()) {
-        std::unordered_map<int64_t, std::vector<int64_t>> partition_to_ordered_tablets;
-        std::unordered_map<int64_t, std::unordered_set<int64_t>> partition_to_local_tablets;
-        for (const auto& tablet : _all_tablets) {
-            partition_to_ordered_tablets[tablet.partition_id].push_back(tablet.tablet_id);
-            partition_to_local_tablets[tablet.partition_id].insert(tablet.tablet_id);
-        }
-        std::unordered_map<int64_t, const VOlapTablePartition*> id_to_partition;
-        for (const auto* part : _parent->_vpartition->get_partitions()) {
-            id_to_partition.emplace(part->id, part);
-        }
-        for (const auto& [partition_id, ordered_tablets] : partition_to_ordered_tablets) {
-            auto partition_it = id_to_partition.find(partition_id);
-            if (partition_it == id_to_partition.end()) {
-                LOG(WARNING) << "unknown partition for adaptive random bucket, load_id="
-                             << _parent->_load_id << ", partition_id=" << partition_id;
-                continue;
-            }
-            const auto* index_info =
-                    find_partition_index(*partition_it->second, _index_channel->_index_id);
-            if (index_info == nullptr) {
-                LOG(WARNING) << "unknown index for adaptive random bucket, load_id="
-                             << _parent->_load_id << ", partition_id=" << partition_id
-                             << ", index_id=" << _index_channel->_index_id;
-                continue;
-            }
-            std::vector<int64_t> selected_ordered_tablets;
-            const auto& local_bucket_seqs =
-                    adaptive_local_bucket_seqs(*partition_it->second, index_info);
-            if (!local_bucket_seqs.empty()) {
-                const auto& full_ordered_tablets = index_info->tablets;
-                for (auto bucket_seq : local_bucket_seqs) {
-                    if (bucket_seq < 0 ||
-                        bucket_seq >= cast_set<int32_t>(full_ordered_tablets.size())) {
-                        LOG(WARNING)
-                                << "invalid local bucket seq, load_id=" << _parent->_load_id
-                                << ", partition_id=" << partition_id
-                                << ", bucket_seq=" << bucket_seq
-                                << ", full_ordered_tablets_size=" << full_ordered_tablets.size();
-                        continue;
-                    }
-                    auto tablet_id = full_ordered_tablets[bucket_seq];
-                    if (!partition_to_local_tablets[partition_id].contains(tablet_id)) {
-                        LOG(WARNING)
-                                << "skip non-local tablet selected by local bucket seq, load_id="
-                                << _parent->_load_id << ", partition_id=" << partition_id
-                                << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
-                                << ", node_id=" << _node_id;
-                        continue;
-                    }
-                    selected_ordered_tablets.push_back(tablet_id);
-                }
-            } else {
-                selected_ordered_tablets = ordered_tablets;
-            }
-            if (selected_ordered_tablets.empty()) {
-                VLOG_DEBUG << "skip adaptive random bucket partition without selected local "
-                              "tablet, load_id="
-                           << _parent->_load_id << ", partition_id=" << partition_id
-                           << ", node_id=" << _node_id;
-                continue;
-            }
-            _adaptive_partition_compat_tablets[partition_id] = selected_ordered_tablets.front();
-            auto* random_bucket_partition = request->add_random_bucket_partitions();
-            random_bucket_partition->set_partition_id(partition_id);
-            for (auto tablet_id : selected_ordered_tablets) {
-                random_bucket_partition->add_ordered_tablet_ids(tablet_id);
-            }
-        }
+        _set_adaptive_random_bucket_open_request(request.get());
     }
 
     if (_wg_id > 0) {

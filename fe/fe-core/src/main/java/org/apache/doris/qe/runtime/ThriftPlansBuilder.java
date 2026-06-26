@@ -298,17 +298,17 @@ public class ThriftPlansBuilder {
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
-        int planFragmentNum = sinkParams.stream()
+        int sinkInstanceNum = sinkParams.stream()
                 .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
                 .sum();
         if (LOG.isInfoEnabled()) {
             LOG.info("Adaptive random bucket planning in nereids fragment={}, sinkBackendIds={}, "
-                            + "planFragmentNum={}",
-                    sinkParams.get(0).getFragmentId(), sinkBackendIds, planFragmentNum);
+                            + "sinkInstanceNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, sinkInstanceNum);
         }
         Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
                 OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
-                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), planFragmentNum);
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), sinkInstanceNum);
         for (TPipelineFragmentParams sinkParam : sinkParams) {
             Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
                     assignments.get(sinkParam.getBackendId());

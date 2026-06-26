@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "core/custom_allocator.h"
 #include "exec/sink/vtablet_finder.h"
+#include "load/channel/adaptive_random_bucket_state.h"
 #include "runtime/runtime_profile.h"
 #include "util/bitmap.h"
 #include "util/uid_util.h"
@@ -198,6 +199,8 @@ protected:
 
     std::unordered_set<int64_t> _partition_ids;
     std::shared_ptr<AdaptiveRandomBucketState> _adaptive_random_bucket_state;
+    // Protects the lock map. Each entry serializes current-tablet selection, write,
+    // and rotation for one sender/partition adaptive random-bucket stream.
     std::mutex _partition_route_locks_lock;
     std::unordered_map<int32_t, std::unordered_map<int64_t, std::shared_ptr<std::mutex>>>
             _sender_partition_route_locks;

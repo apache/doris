@@ -545,25 +545,25 @@ public class Coordinator implements CoordInterface {
 
     public static final class AdaptiveRandomBucketSinkContext {
         private final List<Long> sinkBackendIds;
-        private final int planFragmentNum;
+        private final int sinkInstanceNum;
 
-        private AdaptiveRandomBucketSinkContext(List<Long> sinkBackendIds, int planFragmentNum) {
+        private AdaptiveRandomBucketSinkContext(List<Long> sinkBackendIds, int sinkInstanceNum) {
             this.sinkBackendIds = sinkBackendIds;
-            this.planFragmentNum = planFragmentNum;
+            this.sinkInstanceNum = sinkInstanceNum;
         }
 
         public List<Long> getSinkBackendIds() {
             return sinkBackendIds;
         }
 
-        public int getPlanFragmentNum() {
-            return planFragmentNum;
+        public int getSinkInstanceNum() {
+            return sinkInstanceNum;
         }
     }
 
     public Optional<AdaptiveRandomBucketSinkContext> getAdaptiveRandomBucketSinkContext(long tableId) {
         Set<Long> sinkBackendIds = new TreeSet<>();
-        int planFragmentNum = 0;
+        int sinkInstanceNum = 0;
         for (PipelineExecContext context : pipelineExecContexts.values()) {
             TPipelineFragmentParams params = context.rpcParams;
             if (params.getFragment().getOutputSink() == null
@@ -578,13 +578,13 @@ public class Coordinator implements CoordInterface {
                 continue;
             }
             sinkBackendIds.add(params.getBackendId());
-            planFragmentNum += params.getLocalParamsSize();
+            sinkInstanceNum += params.getLocalParamsSize();
         }
         if (sinkBackendIds.isEmpty()) {
             return Optional.empty();
         }
         return Optional.of(new AdaptiveRandomBucketSinkContext(
-                new ArrayList<>(sinkBackendIds), Math.max(planFragmentNum, 1)));
+                new ArrayList<>(sinkBackendIds), Math.max(sinkInstanceNum, 1)));
     }
 
     private static void assignAdaptiveRandomBucketForFragment(
@@ -605,17 +605,17 @@ public class Coordinator implements CoordInterface {
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
-        int planFragmentNum = sinkParams.stream()
+        int sinkInstanceNum = sinkParams.stream()
                 .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
                 .sum();
         if (LOG.isInfoEnabled()) {
             LOG.info("Adaptive random bucket planning in legacy fragment={}, sinkBackendIds={}, "
-                            + "planFragmentNum={}",
-                    sinkParams.get(0).getFragmentId(), sinkBackendIds, planFragmentNum);
+                            + "sinkInstanceNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, sinkInstanceNum);
         }
         Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
                 OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
-                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), planFragmentNum);
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), sinkInstanceNum);
         for (TPipelineFragmentParams sinkParam : sinkParams) {
             Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
                     assignments.get(sinkParam.getBackendId());

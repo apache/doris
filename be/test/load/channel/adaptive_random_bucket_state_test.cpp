@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/vtablet_finder.h"
+#include "load/channel/adaptive_random_bucket_state.h"
 
 #include <gtest/gtest.h>
 
