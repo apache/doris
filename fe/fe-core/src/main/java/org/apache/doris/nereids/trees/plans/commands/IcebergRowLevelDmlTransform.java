@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.WriteConstraintExtractor;
@@ -158,7 +159,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public LogicalPlan synthesize(ConnectContext ctx, RowLevelDmlArgs args, RowLevelDmlOp op) {
-        IcebergExternalTable icebergTable = (IcebergExternalTable) args.getTable();
+        ExternalTable icebergTable = (ExternalTable) args.getTable();
         switch (op) {
             case DELETE:
                 return new IcebergDeleteCommand(args.getNameParts(), args.getTableAlias(), args.isTempPart(),

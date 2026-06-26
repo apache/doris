@@ -21,8 +21,9 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
@@ -199,7 +200,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
      */
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
     LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                         IcebergExternalTable icebergTable) {
+                                         ExternalTable icebergTable) {
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
 
         // Convert output to NamedExpression list
@@ -216,7 +217,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
 
         // Wrap query plan with LogicalIcebergDeleteSink
         LogicalIcebergDeleteSink<LogicalPlan> deleteSink = new LogicalIcebergDeleteSink<>(
-                (IcebergExternalDatabase) icebergTable.getDatabase(),
+                (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),  // cols
                 outputExprs,  // outputExprs
@@ -240,7 +241,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
      * 4. These will be written to Position Delete file
      */
     private LogicalPlan buildPositionDeletePlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                                IcebergExternalTable icebergTable) {
+                                                ExternalTable icebergTable) {
         // Step 1: Inject $row_id metadata column into the scan
         LogicalPlan planWithRowId = IcebergNereidsUtils.injectRowIdColumn(logicalQuery);
 

@@ -21,8 +21,9 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
@@ -387,7 +388,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return output;
     }
 
-    private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
+    private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, ExternalTable icebergTable) {
         List<Column> columns = icebergTable.getBaseSchema(true);
 
         LogicalPlan plan = generateBasePlan();
@@ -446,7 +447,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
-    LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
+    LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
         List<NamedExpression> outputExprs;
@@ -461,7 +462,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         }
 
         return new LogicalIcebergMergeSink<>(
-                (IcebergExternalDatabase) icebergTable.getDatabase(),
+                (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),
                 outputExprs,
@@ -542,7 +543,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                 && sink.child(0) instanceof PhysicalEmptyRelation;
     }
 
-    private LogicalPlan injectRowIdColumn(LogicalPlan plan, IcebergExternalTable targetTable) {
+    private LogicalPlan injectRowIdColumn(LogicalPlan plan, ExternalTable targetTable) {
         if (IcebergNereidsUtils.hasUnboundPlan(plan)) {
             return plan;
         }

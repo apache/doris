@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -40,9 +41,12 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -189,6 +193,30 @@ public class IcebergRowLevelDmlTransformTest {
         AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                 () -> transform.checkMode(table, RowLevelDmlOp.DELETE));
         Assertions.assertTrue(e.getMessage().contains("Table not found"), e.getMessage());
+    }
+
+    @Test
+    public void synthesizeDeleteOnPluginTableBuildsSinkTargetingIt() {
+        // Post-flip: synthesize must accept a PluginDrivenExternalTable (instead of CCE on the legacy
+        // (IcebergExternalTable) cast) and build a re-parameterized LogicalIcebergDeleteSink that targets it.
+        // Pins the synthesize cast widening + the Iceberg*Command synthesis-entry widening + the logical-sink
+        // re-parameterization; the full plan execution is flip-e2e-gated. (Reverting the cast/param back to
+        // IcebergExternalTable would not even compile against this plugin-typed argument.)
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        ExternalDatabase database = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getBaseSchema(true))
+                .thenReturn(ImmutableList.of(new Column("id", ScalarType.INT)));
+        Mockito.when(table.getId()).thenReturn(TARGET_ID);
+
+        LogicalPlan query = (LogicalPlan) filterOver(table, "id");
+        RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(table, ImmutableList.of("db", "t"), null,
+                false, ImmutableList.of(), query, new DeleteCommandContext());
+
+        LogicalPlan plan = transform.synthesize(null, args, RowLevelDmlOp.DELETE);
+
+        Assertions.assertTrue(plan instanceof LogicalIcebergDeleteSink, plan.getClass().getName());
+        Assertions.assertSame(table, ((LogicalIcebergDeleteSink<?>) plan).getTargetTable());
     }
 
     @Test

@@ -21,8 +21,9 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
@@ -218,7 +219,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
 
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
     LogicalPlan buildMergePlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                       List<EqualTo> assignments, IcebergExternalTable icebergTable) {
+                                       List<EqualTo> assignments, ExternalTable icebergTable) {
         String tableName = tableAlias != null
                 ? tableAlias
                 : Util.getTempTableDisplayName(icebergTable.getName());
@@ -237,7 +238,7 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         }
 
         return new LogicalIcebergMergeSink<>(
-                (IcebergExternalDatabase) icebergTable.getDatabase(),
+                (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),
                 outputExprs,
