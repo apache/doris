@@ -19,7 +19,7 @@ import java.util.Base64
 import java.util.regex.Pattern
 import groovy.json.JsonSlurper
 
-suite("test_multi_stage_predicate_lm") {
+suite("test_multi_stage_predicate_lm", "p0") {
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
@@ -174,6 +174,36 @@ suite("test_multi_stage_predicate_lm") {
             "Profile missing PredicateLMStage2ByAllRowsBatches\n" + profileAllRows)
     assertTrue(parseLongOrZero(metricsAllRows["PredicateLMStage2ByAllRowsBatches"]) > 0,
             "Expected stage2-by-all-rows but got: " + metricsAllRows.toString() + "\n" + profileAllRows)
+
+    // Strong assert 3: threshold tuning should change stage2 strategy decision
+    // 3.1 Force stage2-by-rowids even for a high-survival stage1 case
+    sql """ set predicate_lm_stage1_survival_ratio_threshold = 1.0; """
+    def tokenForceRowids = "test_multi_stage_predicate_lm_force_rowids_" + System.currentTimeMillis()
+    sql """ SELECT /* ${tokenForceRowids} */ count(*) FROM ${tbl} WHERE a < 19 AND b = 2; """
+    def profileForceRowids = getProfileWithToken(tokenForceRowids)
+    def metricsForceRowids = extractProfileBlockMetrics(profileForceRowids, "SegmentIterator")
+
+    assertTrue(metricsForceRowids.containsKey("PredicateLMStage2ByRowIdsBatches"),
+            "Profile missing PredicateLMStage2ByRowIdsBatches\n" + profileForceRowids)
+    assertTrue(parseLongOrZero(metricsForceRowids["PredicateLMStage2ByRowIdsBatches"]) > 0,
+            "Expected stage2-by-rowids after setting threshold=1.0 but got: "
+                    + metricsForceRowids.toString() + "\n" + profileForceRowids)
+
+    // 3.2 Force stage2-by-all-rows even for a selective stage1 case
+    sql """ set predicate_lm_stage1_survival_ratio_threshold = 0.0; """
+    def tokenForceAllRows = "test_multi_stage_predicate_lm_force_allrows_" + System.currentTimeMillis()
+    sql """ SELECT /* ${tokenForceAllRows} */ count(*) FROM ${tbl} WHERE a = 1 AND b = 2; """
+    def profileForceAllRows = getProfileWithToken(tokenForceAllRows)
+    def metricsForceAllRows = extractProfileBlockMetrics(profileForceAllRows, "SegmentIterator")
+
+    assertTrue(metricsForceAllRows.containsKey("PredicateLMStage2ByAllRowsBatches"),
+            "Profile missing PredicateLMStage2ByAllRowsBatches\n" + profileForceAllRows)
+    assertTrue(parseLongOrZero(metricsForceAllRows["PredicateLMStage2ByAllRowsBatches"]) > 0,
+            "Expected stage2-by-all-rows after setting threshold=0.0 but got: "
+                    + metricsForceAllRows.toString() + "\n" + profileForceAllRows)
+
+    // Reset to default for subsequent cases
+    sql """ set predicate_lm_stage1_survival_ratio_threshold = 0.8; """
 
     // Stage1 cols parsing: whitespace/backticks/dedup should be tolerated
     sql """ set predicate_lm_stage1_cols = ' a ,`b`, a '; """

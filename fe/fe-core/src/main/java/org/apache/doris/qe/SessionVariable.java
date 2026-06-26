@@ -3058,16 +3058,16 @@ public class SessionVariable implements Serializable, Writable {
     public String predicateLmStage1Cols = "";
 
     @VarAttrDef.VarAttr(
-        name = PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD,
-        fuzzy = true,
-        description = {"多阶段谓词延迟物化中 stage1 的存活率阈值，用于选择 stage2 策略。"
-            + "当 stage1 存活率 <= 阈值时倾向按 rowids 读取 stage2 谓词列；"
-            + "当 stage1 存活率 > 阈值时倾向读全量行以避免随机读。范围 [0,1]，默认 0.8。",
-            "Stage1 survival ratio threshold for multi-stage predicate LM. "
-                + "If survival_ratio <= threshold, stage2 prefers by-rowids; otherwise by-all-rows. "
-                + "Range [0,1], default 0.8."},
-        needForward = true,
-        checker = "checkPredicateLmStage1SurvivalRatioThreshold")
+            name = PREDICATE_LM_STAGE1_SURVIVAL_RATIO_THRESHOLD,
+            fuzzy = true,
+            description = {"多阶段谓词延迟物化中 stage1 的存活率阈值，用于选择 stage2 策略。"
+                    + "当 stage1 存活率 <= 阈值时倾向按 rowids 读取 stage2 谓词列；"
+                    + "当 stage1 存活率 > 阈值时倾向读全量行以避免随机读。范围 [0,1]，默认 0.8。",
+                    "Stage1 survival ratio threshold for multi-stage predicate LM. "
+                        + "If survival_ratio <= threshold, stage2 prefers by-rowids; otherwise by-all-rows. "
+                        + "Range [0,1], default 0.8."},
+            needForward = true,
+            checker = "checkPredicateLmStage1SurvivalRatioThreshold")
     public double predicateLmStage1SurvivalRatioThreshold = 0.8;
 
     @VarAttrDef.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
