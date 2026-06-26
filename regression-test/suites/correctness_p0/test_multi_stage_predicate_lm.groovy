@@ -277,19 +277,27 @@ suite("test_multi_stage_predicate_lm", "p0") {
             "Expected stage2-by-rowids for table-qualified stage1 cols but got: "
                     + metricsTableQualified.toString() + "\n" + profileTableQualified)
 
-    // mismatched table qualifier should be ignored => default stage1=a (survival_ratio ~= 1.0) => stage2-by-all-rows
+    // mismatched table qualifier should be ignored.
+    // When stage1 cols are not explicitly applicable and there is no runtime filter,
+    // the implementation falls back to single-stage behavior (no stage2).
     sql """ set predicate_lm_stage1_cols = 'other_tbl.b'; """
-
+    
     def tokenTableMismatch = "test_multi_stage_predicate_lm_table_mismatch_" + System.currentTimeMillis()
     def cntTableMismatch = sql """ SELECT /* ${tokenTableMismatch} */ count(*) FROM ${tblQual} WHERE a = 1 AND b = 0; """
     assertEquals("5000", cntTableMismatch[0][0].toString())
-
+    
     def profileTableMismatch = getProfileWithToken(tokenTableMismatch)
     def metricsTableMismatch = extractProfileBlockMetrics(profileTableMismatch, "SegmentIterator")
     assertTrue(metricsTableMismatch.containsKey("PredicateLMStage2ByAllRowsBatches"),
             "Profile missing PredicateLMStage2ByAllRowsBatches\n" + profileTableMismatch)
-    assertTrue(parseLongOrZero(metricsTableMismatch["PredicateLMStage2ByAllRowsBatches"]) > 0,
-            "Expected stage2-by-all-rows for mismatched table-qualified stage1 cols but got: "
+    assertTrue(metricsTableMismatch.containsKey("PredicateLMStage2ByRowIdsBatches"),
+            "Profile missing PredicateLMStage2ByRowIdsBatches\n" + profileTableMismatch)
+    
+    assertEquals(0L, parseLongOrZero(metricsTableMismatch["PredicateLMStage2ByAllRowsBatches"]),
+            "Expected no stage2 (single-stage fallback) but got: "
+                    + metricsTableMismatch.toString() + "\n" + profileTableMismatch)
+    assertEquals(0L, parseLongOrZero(metricsTableMismatch["PredicateLMStage2ByRowIdsBatches"]),
+            "Expected no stage2 (single-stage fallback) but got: "
                     + metricsTableMismatch.toString() + "\n" + profileTableMismatch)
 
     // db.table-qualified matches current db/table => stage1=b => stage2-by-rowids

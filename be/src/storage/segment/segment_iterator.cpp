@@ -2007,6 +2007,15 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             }
         }
 
+        // If stage1 columns are NOT explicitly configured and there is no runtime filter column,
+        // fall back to the single-stage behavior (equivalent to disabling multi-stage predicate LM).
+        // Rationale: choosing an arbitrary predicate column as stage1 is hard to reason about and
+        // may cause performance regressions.
+        if (_enable_multi_stage_predicate_lazy_materialization &&
+            _opts.predicate_lm_stage1_column_ids.empty() && runtime_filter_cids.empty()) {
+            _enable_multi_stage_predicate_lazy_materialization = false;
+        }
+
         if (_enable_multi_stage_predicate_lazy_materialization) {
             if (!_opts.predicate_lm_stage1_column_ids.empty()) {
                 stage1_pred_col_id_set.insert(_opts.predicate_lm_stage1_column_ids.begin(),
