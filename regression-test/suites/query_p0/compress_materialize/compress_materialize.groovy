@@ -194,5 +194,26 @@ suite("compress_materialize") {
     qt_sort "select * from compressSort order by k desc, v";
     qt_sort "select * from compressSort order by k desc nulls last";
     qt_sort "select * from compressSort order by k desc nulls last, v limit 3";
-}
 
+    order_qt_const_union_group_by """
+        SELECT /*+ SET_VAR(enable_compress_materialize=true) */
+               v,
+               COUNT(*) AS c
+        FROM (
+            SELECT CAST('alpha' AS CHAR(6)) AS v
+            UNION ALL
+            SELECT CAST('beta' AS CHAR(6))
+        ) u
+        GROUP BY v
+    """
+
+    order_qt_const_union_project_order """
+        SELECT v
+        FROM (
+            SELECT CAST('unused' AS CHAR(6)) AS k, CAST('alpha' AS CHAR(6)) AS v
+            UNION ALL
+            SELECT CAST('unused' AS CHAR(6)), CAST('beta' AS CHAR(6))
+        ) u
+        GROUP BY v
+    """
+}
