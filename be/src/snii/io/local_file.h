@@ -1,0 +1,67 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "snii/common/slice.h"
+#include "snii/common/status.h"
+#include "snii/io/file_reader.h"
+#include "snii/io/file_writer.h"
+
+namespace snii::io {
+
+// Local-filesystem FileReader. Uses pread for positional, thread-safe reads
+// (so concurrent batch fetches do not contend on a shared file offset).
+class LocalFileReader : public FileReader {
+public:
+    LocalFileReader() = default;
+    ~LocalFileReader() override;
+
+    LocalFileReader(const LocalFileReader&) = delete;
+    LocalFileReader& operator=(const LocalFileReader&) = delete;
+
+    Status open(const std::string& path);
+    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    uint64_t size() const override { return size_; }
+
+private:
+    int fd_ = -1;
+    uint64_t size_ = 0;
+};
+
+// Local-filesystem append-only FileWriter. Appends accumulate in a fixed
+// userspace buffer and are flushed to the fd in large chunks, collapsing the
+// many tiny per-append ::write() syscalls of the build path (e.g. ~53k writes
+// averaging ~683 B each) into a handful of big writes. The produced file is
+// byte-identical to the unbuffered path; only the syscall count drops.
+class LocalFileWriter : public FileWriter {
+public:
+    LocalFileWriter() = default;
+    ~LocalFileWriter() override;
+
+    LocalFileWriter(const LocalFileWriter&) = delete;
+    LocalFileWriter& operator=(const LocalFileWriter&) = delete;
+
+    Status open(const std::string& path);
+    Status append(Slice data) override;
+    Status finalize() override;
+    uint64_t bytes_written() const override { return bytes_written_; }
+
+private:
+    // Userspace write buffer size. 256 KiB amortizes the write() syscall cost over
+    // many appends while keeping transient RAM negligible vs the index sections.
+    static constexpr size_t kBufCapacity = 256u * 1024;
+
+    // Flushes the userspace buffer to the fd with a robust partial-write loop.
+    Status flush_buffer();
+    // Writes a raw byte span straight to the fd (used for spans larger than the
+    // buffer, bypassing a needless copy).
+    Status write_all(const uint8_t* data, size_t len);
+
+    int fd_ = -1;
+    uint64_t bytes_written_ = 0;
+    std::vector<uint8_t> buf_;
+};
+
+} // namespace snii::io

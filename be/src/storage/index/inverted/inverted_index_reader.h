@@ -230,9 +230,9 @@ public:
                              const Field& query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
 
-    Status read_null_bitmap(const IndexQueryContextPtr& context,
-                            InvertedIndexQueryCacheHandle* cache_handle,
-                            lucene::store::Directory* dir = nullptr);
+    virtual Status read_null_bitmap(const IndexQueryContextPtr& context,
+                                    InvertedIndexQueryCacheHandle* cache_handle,
+                                    lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
 
@@ -335,7 +335,6 @@ public:
     std::string query_min;
     std::string query_max;
 
-public:
     InvertedIndexVisitor(const void* io_ctx, lucene::util::bkd::bkd_reader* r,
                          roaring::Roaring* hits, bool only_count = false);
     ~InvertedIndexVisitor() override = default;

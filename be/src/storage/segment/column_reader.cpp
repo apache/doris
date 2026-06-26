@@ -56,6 +56,7 @@
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/snii_index_reader.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -722,6 +723,17 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     }
 
     IndexReaderPtr index_reader;
+    if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
+        if (!is_string_type(type)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "SNII inverted index storage format does not support BKD index type {}", type);
+        }
+        auto reader_type = should_analyzer ? InvertedIndexReaderType::FULLTEXT
+                                           : InvertedIndexReaderType::STRING_TYPE;
+        index_reader = SniiIndexReader::create_shared(index_meta, index_file_reader, reader_type);
+        _index_readers[index_meta->index_id()] = index_reader;
+        return Status::OK();
+    }
 
     if (is_string_type(type)) {
         if (should_analyzer) {

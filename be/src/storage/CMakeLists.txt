@@ -28,6 +28,7 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 # files in the ann_index directory. They are compiled separately as a .a library
 # and linked by Storage.
 list(FILTER SRC_FILES EXCLUDE REGEX ".*/storage/index/ann/.*\\.cpp$")
+list(FILTER SRC_FILES EXCLUDE REGEX ".*/storage/index/snii/core/src/io/s3_object_store\\.cpp$")
 
 if (ENABLE_VARIANT_NESTED_GROUP)
     list(REMOVE_ITEM SRC_FILES

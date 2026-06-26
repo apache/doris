@@ -421,6 +421,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
 
             std::unique_ptr<IndexFileWriter> index_file_writer = nullptr;
+            if (output_rowset_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::SNII) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "BUILD INDEX is not supported for SNII inverted index storage format yet");
+            }
             if (output_rowset_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
                 auto idx_file_reader_iter = _index_file_readers.find(

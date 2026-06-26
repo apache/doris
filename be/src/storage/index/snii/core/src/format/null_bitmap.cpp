@@ -1,0 +1,99 @@
+#include "snii/format/null_bitmap.h"
+
+#include <limits>
+#include <vector>
+
+#include "roaring/roaring.h"
+#include "roaring/roaring.hh"
+#include "snii/common/slice.h"
+#include "snii/encoding/byte_source.h"
+#include "snii/encoding/section_framer.h"
+
+namespace snii::format {
+
+NullBitmapWriter::NullBitmapWriter() : bitmap_(std::make_unique<roaring::Roaring>()) {}
+
+NullBitmapWriter::~NullBitmapWriter() = default;
+
+void NullBitmapWriter::add_null(uint32_t docid) {
+    bitmap_->add(docid);
+}
+
+uint32_t NullBitmapWriter::null_count() const {
+    return static_cast<uint32_t>(bitmap_->cardinality());
+}
+
+void NullBitmapWriter::finish(uint32_t doc_count, ByteSink* sink) const {
+    // Serialize the Roaring bitmap to its portable on-disk form.
+    const size_t roaring_size = bitmap_->getSizeInBytes();
+    std::vector<char> roaring_buf(roaring_size);
+    bitmap_->write(roaring_buf.data());
+
+    // Build inner payload: [varint64 doc_count][varint64 roaring_size][bytes].
+    ByteSink payload;
+    payload.put_varint64(doc_count);
+    payload.put_varint64(roaring_size);
+    payload.put_bytes(Slice(reinterpret_cast<const uint8_t*>(roaring_buf.data()), roaring_size));
+
+    // Delegate the type + len + crc32c envelope to SectionFramer.
+    SectionFramer::write(*sink, kNullBitmapSectionType, payload.view());
+}
+
+NullBitmapReader::NullBitmapReader() : bitmap_(std::make_unique<roaring::Roaring>()) {}
+
+NullBitmapReader::~NullBitmapReader() = default;
+
+NullBitmapReader::NullBitmapReader(NullBitmapReader&&) noexcept = default;
+NullBitmapReader& NullBitmapReader::operator=(NullBitmapReader&&) noexcept = default;
+
+Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
+    // SectionFramer handles CRC verification, truncation detection, and payload
+    // slicing.
+    ByteSource src(framed);
+    FramedSection sec;
+    SNII_RETURN_IF_ERROR(SectionFramer::read(src, &sec));
+
+    // Parse inner payload: [varint64 doc_count][varint64 roaring_size][bytes].
+    ByteSource payload(sec.payload);
+    uint64_t doc_count = 0;
+    SNII_RETURN_IF_ERROR(payload.get_varint64(&doc_count));
+    if (doc_count > std::numeric_limits<uint32_t>::max()) {
+        return Status::Corruption("null bitmap doc_count overflows uint32");
+    }
+
+    uint64_t roaring_size = 0;
+    SNII_RETURN_IF_ERROR(payload.get_varint64(&roaring_size));
+    // Anti-DoS: the declared roaring_size must not exceed the bytes actually
+    // present, otherwise readSafe could be told to walk past the payload.
+    if (roaring_size > payload.remaining()) {
+        return Status::Corruption("null bitmap roaring_size exceeds payload");
+    }
+
+    Slice roaring_bytes;
+    SNII_RETURN_IF_ERROR(payload.get_bytes(static_cast<size_t>(roaring_size), &roaring_bytes));
+
+    // Validate the Roaring container BEFORE deserializing. A CRC-valid frame can
+    // still carry malformed roaring bytes; Roaring::readSafe / read would then hit
+    // CRoaring's terminate-or-throw path (NULL -> ROARING_TERMINATE). The safe,
+    // non-throwing C probe returns the exact byte count a valid container would
+    // consume, or 0 on malformed/insufficient input.
+    const char* rb = reinterpret_cast<const char*>(roaring_bytes.data());
+    const size_t probed =
+            roaring_bitmap_portable_deserialize_size(rb, static_cast<size_t>(roaring_size));
+    if (probed == 0 || probed != static_cast<size_t>(roaring_size)) {
+        return Status::Corruption("null bitmap: malformed roaring container");
+    }
+    *out->bitmap_ = roaring::Roaring::readSafe(rb, static_cast<size_t>(roaring_size));
+    out->doc_count_ = static_cast<uint32_t>(doc_count);
+    return Status::OK();
+}
+
+bool NullBitmapReader::is_null(uint32_t docid) const {
+    return bitmap_->contains(docid);
+}
+
+uint32_t NullBitmapReader::null_count() const {
+    return static_cast<uint32_t>(bitmap_->cardinality());
+}
+
+} // namespace snii::format

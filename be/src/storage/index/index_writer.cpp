@@ -18,6 +18,7 @@
 #include "common/exception.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/snii/snii_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 
@@ -78,6 +79,22 @@ Status IndexColumnWriter::create(const TabletColumn* column,
                 return Status::NotSupported("unsupported array type for inverted index: " +
                                             std::to_string(int(type)));
             }
+        }
+
+        if (storage_format == InvertedIndexStorageFormatPB::SNII) {
+            if (!is_string_type(type)) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "SNII inverted index storage format does not support BKD index type {}",
+                        type);
+            }
+            *res = std::make_unique<SniiIndexColumnWriter>(index_file_writer, index_meta,
+                                                           single_field);
+            auto st = (*res)->init();
+            if (!st.ok()) {
+                (*res)->close_on_error();
+                return st;
+            }
+            return Status::OK();
         }
 
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index",

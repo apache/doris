@@ -177,6 +177,17 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringLikeType()
+                        || (colType.isArrayType()
+                            && ((ArrayType) colType).getItemType().isStringLikeType());
+                if (!isStringIndex) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support BKD index on column: "
+                                    + indexColName);
+                }
+            }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
             // when the subcolumn type changes, it may result in missing files, causing link file failure.
@@ -279,6 +290,17 @@ public class IndexDefinition {
             if (!isSupportIdxType(DataType.fromCatalogType(columnType))) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                     + "invalid index: " + name);
+            }
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringType()
+                        || (colType.isArrayType()
+                            && ((org.apache.doris.catalog.ArrayType) columnType).getItemType().isStringType());
+                if (!isStringIndex) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support BKD index on column: "
+                                    + indexColName);
+                }
             }
 
             if (indexType == IndexType.ANN && !colType.isArrayType()) {

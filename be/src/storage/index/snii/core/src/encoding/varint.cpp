@@ -1,0 +1,53 @@
+#include "snii/encoding/varint.h"
+
+namespace snii {
+
+size_t varint_len(uint64_t v) {
+    size_t n = 1;
+    while (v >= 0x80) {
+        v >>= 7;
+        ++n;
+    }
+    return n;
+}
+
+size_t encode_varint64(uint64_t v, uint8_t* out) {
+    size_t i = 0;
+    while (v >= 0x80) {
+        out[i++] = static_cast<uint8_t>(v) | 0x80;
+        v >>= 7;
+    }
+    out[i++] = static_cast<uint8_t>(v);
+    return i;
+}
+
+size_t encode_varint32(uint32_t v, uint8_t* out) {
+    return encode_varint64(v, out);
+}
+
+Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v, const uint8_t** next) {
+    uint64_t result = 0;
+    int shift = 0;
+    while (p < end) {
+        uint8_t b = *p++;
+        result |= static_cast<uint64_t>(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            *v = result;
+            *next = p;
+            return Status::OK();
+        }
+        shift += 7;
+        if (shift >= 64) return Status::Corruption("varint64 overflow");
+    }
+    return Status::Corruption("varint truncated");
+}
+
+Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v, const uint8_t** next) {
+    uint64_t tmp;
+    SNII_RETURN_IF_ERROR(decode_varint64(p, end, &tmp, next));
+    if (tmp > 0xFFFFFFFFu) return Status::Corruption("varint32 overflow");
+    *v = static_cast<uint32_t>(tmp);
+    return Status::OK();
+}
+
+} // namespace snii
