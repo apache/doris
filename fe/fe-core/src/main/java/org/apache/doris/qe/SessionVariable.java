@@ -300,9 +300,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
-    // set the default parallelism for send batch when execute InsertStmt operation,
-    // if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config,
-    // then the coordinator be will use the value of `max_send_batch_parallelism_per_job`
+    // Set the default parallelism for send batch when execute InsertStmt operation.
+    // The actual concurrency is bounded by the shared BE `send_batch_thread_pool`
+    // (see BE config `send_batch_thread_pool_thread_num`).
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
     // turn off all automatic join reorder algorithms
