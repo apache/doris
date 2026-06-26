@@ -130,6 +130,49 @@ TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
     EXPECT_EQ(null_map_alias->size(), 1);
 }
 
+TEST(ColumnNullableTest, MutateDetachesTypedNullMap) {
+    auto nested_mut = ColumnInt64::create();
+    nested_mut->insert_value(10);
+    ColumnPtr nested = std::move(nested_mut);
+    ColumnPtr nested_alias = nested;
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    ColumnPtr null_map = std::move(null_map_mut);
+    ColumnPtr null_map_alias = null_map;
+
+    ColumnPtr nullable = ColumnNullable::create(nested, null_map);
+    auto mutated = IColumn::mutate(nullable);
+    auto& mutated_nullable = assert_cast<ColumnNullable&>(*mutated);
+
+    EXPECT_NE(mutated_nullable.get_nested_column_ptr().get(), nested_alias.get());
+    EXPECT_NE(mutated_nullable.get_null_map_column_ptr().get(), null_map_alias.get());
+    EXPECT_EQ(mutated_nullable.get_null_map_data()[0], 0);
+
+    mutated_nullable.get_null_map_data()[0] = 1;
+    const auto& original_null_map = assert_cast<const ColumnUInt8&>(*null_map_alias);
+    EXPECT_EQ(original_null_map.get_data()[0], 0);
+}
+
+TEST(ColumnNullableTest, MutateKeepsExclusiveSubcolumns) {
+    auto nested_mut = ColumnInt64::create();
+    nested_mut->insert_value(10);
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+
+    ColumnPtr nullable = ColumnNullable::create(std::move(nested_mut), std::move(null_map_mut));
+    const auto& nullable_ref = assert_cast<const ColumnNullable&>(*nullable);
+    const auto* nested_raw = nullable_ref.get_nested_column_ptr().get();
+    const auto* null_map_raw = nullable_ref.get_null_map_column_ptr().get();
+
+    auto mutated = IColumn::mutate(std::move(nullable));
+    const auto& mutated_nullable = assert_cast<const ColumnNullable&>(*mutated);
+
+    EXPECT_EQ(mutated_nullable.get_nested_column_ptr().get(), nested_raw);
+    EXPECT_EQ(mutated_nullable.get_null_map_column_ptr().get(), null_map_raw);
+}
+
 TEST(ColumnNullableTest, append_data_by_selector) {
     auto srt_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
             {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},

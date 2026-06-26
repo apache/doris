@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/column/column_array.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
 #include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "core/column/common_column_test.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
@@ -28,6 +31,26 @@
 // for example column_ip should test these functions
 
 namespace doris {
+
+TEST(ColumnArrayCowTest, MutateKeepsExclusiveSubcolumns) {
+    auto data = ColumnInt64::create();
+    data->insert_value(10);
+
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+
+    ColumnPtr array = ColumnArray::create(std::move(data), std::move(offsets));
+    const auto& array_ref = assert_cast<const ColumnArray&>(*array);
+    const auto* data_raw = array_ref.get_data_ptr().get();
+    const auto* offsets_raw = array_ref.get_offsets_ptr().get();
+
+    auto mutated = IColumn::mutate(std::move(array));
+    const auto& mutated_array = assert_cast<const ColumnArray&>(*mutated);
+
+    EXPECT_EQ(mutated_array.get_data_ptr().get(), data_raw);
+    EXPECT_EQ(mutated_array.get_offsets_ptr().get(), offsets_raw);
+}
+
 static std::string test_result_dir;
 class ColumnArrayTest : public CommonColumnTest {
 protected:
