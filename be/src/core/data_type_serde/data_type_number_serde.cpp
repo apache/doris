@@ -27,6 +27,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_data_type_serde.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -647,6 +648,36 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::read_column_from_orc(const std::string& timezone, IColumn& column,
+                                                    const orc::ColumnVectorBatch* orc_col_batch,
+                                                    int64_t start, int64_t end,
+                                                    const UInt8* filter) const {
+    if constexpr (T == TYPE_BOOLEAN) {
+        return orc_serde::read_flat_column<TYPE_BOOLEAN, orc::LongVectorBatch>(
+                column, orc_col_batch, start, end, filter);
+    } else if constexpr (T == TYPE_TINYINT) {
+        return orc_serde::read_flat_column<TYPE_TINYINT, orc::LongVectorBatch>(
+                column, orc_col_batch, start, end, filter);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        return orc_serde::read_flat_column<TYPE_SMALLINT, orc::LongVectorBatch>(
+                column, orc_col_batch, start, end, filter);
+    } else if constexpr (T == TYPE_INT) {
+        return orc_serde::read_int32_column(column, orc_col_batch, start, end, filter);
+    } else if constexpr (T == TYPE_BIGINT) {
+        return orc_serde::read_flat_column<TYPE_BIGINT, orc::LongVectorBatch>(column, orc_col_batch,
+                                                                              start, end, filter);
+    } else if constexpr (T == TYPE_FLOAT) {
+        return orc_serde::read_flat_column<TYPE_FLOAT, orc::DoubleVectorBatch>(
+                column, orc_col_batch, start, end, filter);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        return orc_serde::read_flat_column<TYPE_DOUBLE, orc::DoubleVectorBatch>(
+                column, orc_col_batch, start, end, filter);
+    } else {
+        return Status::NotSupported("read_column_from_orc with type {}", get_name());
+    }
 }
 
 template <PrimitiveType T>

@@ -19,6 +19,7 @@
 
 #include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/orc_data_type_serde.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -328,6 +329,14 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
+        const std::string& timezone, IColumn& column, const orc::ColumnVectorBatch* orc_col_batch,
+        int64_t start, int64_t end, const UInt8* filter) const {
+    return orc_serde::read_string_column(column, orc_col_batch, start, end, _type == TYPE_CHAR,
+                                         filter);
 }
 
 template <typename ColumnType>

@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/orc_data_type_serde.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
@@ -152,6 +153,13 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
     }
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::read_column_from_orc(const std::string& timezone, IColumn& column,
+                                                 const orc::ColumnVectorBatch* orc_col_batch,
+                                                 int64_t start, int64_t end,
+                                                 const UInt8* filter) const {
+    return orc_serde::read_datev2_column(column, orc_col_batch, start, end, filter);
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, Slice& slice,

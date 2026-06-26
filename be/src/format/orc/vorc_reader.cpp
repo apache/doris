@@ -158,14 +158,6 @@ static void align_orc_null_map(const ColumnPtr& src_column, ColumnNullable* dst_
 static constexpr int decimal_precision_for_hive11 = BeConsts::MAX_DECIMAL128_PRECISION;
 static constexpr int decimal_scale_for_hive11 = 10;
 
-#define FOR_FLAT_ORC_COLUMNS(M)                                   \
-    M(PrimitiveType::TYPE_TINYINT, Int8, orc::LongVectorBatch)    \
-    M(PrimitiveType::TYPE_BOOLEAN, UInt8, orc::LongVectorBatch)   \
-    M(PrimitiveType::TYPE_SMALLINT, Int16, orc::LongVectorBatch)  \
-    M(PrimitiveType::TYPE_BIGINT, Int64, orc::LongVectorBatch)    \
-    M(PrimitiveType::TYPE_FLOAT, Float32, orc::DoubleVectorBatch) \
-    M(PrimitiveType::TYPE_DOUBLE, Float64, orc::DoubleVectorBatch)
-
 void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     uint64_t has_read = 0;
     char* out = reinterpret_cast<char*>(buf);
@@ -233,7 +225,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -259,7 +250,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -1720,178 +1710,6 @@ static inline size_t trim_right(const char* s, size_t size) {
     return size;
 }
 
-template <bool is_filter>
-Status OrcReader::_decode_string_column(const std::string& col_name,
-                                        const MutableColumnPtr& data_column,
-                                        const orc::TypeKind& type_kind,
-                                        const orc::ColumnVectorBatch* cvb, size_t num_values) {
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    const auto* data = dynamic_cast<const orc::EncodedStringVectorBatch*>(cvb);
-    if (data == nullptr) {
-        return Status::InternalError(
-                "Wrong data type for column '{}', expected EncodedStringVectorBatch", col_name);
-    }
-    if (data->isEncoded) {
-        return _decode_string_dict_encoded_column<is_filter>(data_column, type_kind, data,
-                                                             num_values);
-    } else {
-        return _decode_string_non_dict_encoded_column<is_filter>(data_column, type_kind, data,
-                                                                 num_values);
-    }
-}
-
-template <bool is_filter>
-Status OrcReader::_decode_string_non_dict_encoded_column(const MutableColumnPtr& data_column,
-                                                         const orc::TypeKind& type_kind,
-                                                         const orc::EncodedStringVectorBatch* cvb,
-                                                         size_t num_values) {
-    const static std::string empty_string;
-    std::vector<StringRef> string_values;
-    string_values.reserve(num_values);
-    if (type_kind == orc::TypeKind::CHAR) {
-        // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
-        if (cvb->hasNulls) {
-            for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
-                    size_t length = trim_right(cvb->data[i], cvb->length[i]);
-                    string_values.emplace_back((length > 0) ? cvb->data[i] : empty_string.data(),
-                                               length);
-                } else {
-                    // Orc doesn't fill null values in new batch, but the former batch has been release.
-                    // Other types like int/long/timestamp... are flat types without pointer in them,
-                    // so other types do not need to be handled separately like string.
-                    string_values.emplace_back(empty_string.data(), 0);
-                }
-            }
-        } else {
-            for (int i = 0; i < num_values; ++i) {
-                size_t length = trim_right(cvb->data[i], cvb->length[i]);
-                string_values.emplace_back((length > 0) ? cvb->data[i] : empty_string.data(),
-                                           length);
-            }
-        }
-    } else {
-        if (cvb->hasNulls) {
-            for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
-                    string_values.emplace_back(
-                            (cvb->length[i] > 0) ? cvb->data[i] : empty_string.data(),
-                            cvb->length[i]);
-                } else {
-                    string_values.emplace_back(empty_string.data(), 0);
-                }
-            }
-        } else {
-            for (int i = 0; i < num_values; ++i) {
-                string_values.emplace_back(
-                        (cvb->length[i] > 0) ? cvb->data[i] : empty_string.data(), cvb->length[i]);
-            }
-        }
-    }
-    if (!string_values.empty()) {
-        data_column->insert_many_strings(string_values.data(), num_values);
-    }
-    return Status::OK();
-}
-
-template <bool is_filter>
-Status OrcReader::_decode_string_dict_encoded_column(const MutableColumnPtr& data_column,
-                                                     const orc::TypeKind& type_kind,
-                                                     const orc::EncodedStringVectorBatch* cvb,
-                                                     size_t num_values) {
-    std::vector<StringRef> string_values;
-    size_t max_value_length = 0;
-    string_values.reserve(num_values);
-
-    UInt8* __restrict filter_data = nullptr;
-    if constexpr (is_filter) {
-        filter_data = _filter->data();
-    }
-
-    auto process_one = [&]<bool is_char>(int i) {
-        if constexpr (is_filter) {
-            if (!filter_data[i]) {
-                string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                return;
-            }
-        }
-
-        char* val_ptr;
-        int64_t length;
-        cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
-
-        if constexpr (is_char) {
-            length = trim_right(val_ptr, length);
-        }
-
-        if (length > max_value_length) {
-            max_value_length = length;
-        }
-
-        string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW, length);
-    };
-
-    if (type_kind == orc::TypeKind::CHAR) {
-        if (cvb->hasNulls) {
-            for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
-                    process_one.template operator()<true>(i);
-                } else {
-                    string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                }
-            }
-        } else {
-            for (int i = 0; i < num_values; ++i) {
-                process_one.template operator()<true>(i);
-            }
-        }
-    } else {
-        if (cvb->hasNulls) {
-            for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
-                    process_one.template operator()<false>(i);
-                } else {
-                    string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                }
-            }
-        } else {
-            for (int i = 0; i < num_values; ++i) {
-                process_one.template operator()<false>(i);
-            }
-        }
-    }
-
-    if (!string_values.empty()) {
-        data_column->insert_many_strings_overflow(string_values.data(), string_values.size(),
-                                                  max_value_length);
-    }
-    return Status::OK();
-}
-
-template <bool is_filter>
-Status OrcReader::_decode_int32_column(const std::string& col_name,
-                                       const MutableColumnPtr& data_column,
-                                       const orc::ColumnVectorBatch* cvb, size_t num_values) {
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    if (dynamic_cast<const orc::LongVectorBatch*>(cvb) != nullptr) {
-        return _decode_flat_column<TYPE_INT, orc::LongVectorBatch>(col_name, data_column, cvb,
-                                                                   num_values);
-    } else if (dynamic_cast<const orc::EncodedStringVectorBatch*>(cvb) != nullptr) {
-        const auto* data = static_cast<const orc::EncodedStringVectorBatch*>(cvb);
-        const auto* cvb_data = data->index.data();
-        auto& column_data = static_cast<ColumnInt32&>(*data_column).get_data();
-        auto origin_size = column_data.size();
-        column_data.resize(origin_size + num_values);
-        for (int i = 0; i < num_values; ++i) {
-            column_data[origin_size + i] = (Int32)cvb_data[i];
-        }
-        return Status::OK();
-    } else {
-        DCHECK(false) << "Bad ColumnVectorBatch type.";
-        return Status::InternalError("Bad ColumnVectorBatch type.");
-    }
-}
-
 Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
                                             ColumnArray::Offsets64& doris_offsets,
                                             const orc::DataBuffer<int64_t>& orc_offsets,
@@ -1924,65 +1742,17 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                           const orc::Type* orc_column_type,
                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
     auto logical_type = data_type->get_primitive_type();
-    // Keep ORC structural traversal in the reader, but prefer serde for leaf-value decode so
-    // timestamp scale/rounding follows the same semantics as other conversion paths.
     if (logical_type != PrimitiveType::TYPE_ARRAY && logical_type != PrimitiveType::TYPE_MAP &&
         logical_type != PrimitiveType::TYPE_STRUCT) {
         const UInt8* filter_data = nullptr;
         if constexpr (is_filter) {
             filter_data = _filter->data();
         }
-        Status serde_status = data_type->get_serde()->read_column_from_orc(
-                _ctz, *data_column, cvb, 0, num_values, filter_data);
-        if (serde_status.ok()) {
-            return Status::OK();
-        }
-        if (!serde_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
-            return serde_status;
-        }
+        return data_type->get_serde()->read_column_from_orc(_ctz, *data_column, cvb, 0, num_values,
+                                                            filter_data);
     }
 
-    switch (logical_type) {
-#define DISPATCH(FlatType, CppType, OrcColumnType) \
-    case FlatType:                                 \
-        return _decode_flat_column<FlatType, OrcColumnType>(col_name, data_column, cvb, num_values);
-        FOR_FLAT_ORC_COLUMNS(DISPATCH)
-#undef DISPATCH
-    case PrimitiveType::TYPE_INT:
-        return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
-    case PrimitiveType::TYPE_DECIMAL32:
-        return _decode_decimal_column<TYPE_DECIMAL32, is_filter>(col_name, data_column, data_type,
-                                                                 cvb, num_values);
-    case PrimitiveType::TYPE_DECIMAL64:
-        return _decode_decimal_column<TYPE_DECIMAL64, is_filter>(col_name, data_column, data_type,
-                                                                 cvb, num_values);
-    case PrimitiveType::TYPE_DECIMALV2:
-        return _decode_decimal_column<TYPE_DECIMALV2, is_filter>(col_name, data_column, data_type,
-                                                                 cvb, num_values);
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return _decode_decimal_column<TYPE_DECIMAL128I, is_filter>(col_name, data_column, data_type,
-                                                                   cvb, num_values);
-    case PrimitiveType::TYPE_DATEV2:
-        return _decode_time_column<DateV2Value<DateV2ValueType>, TYPE_DATEV2, orc::LongVectorBatch,
-                                   is_filter>(col_name, data_column, cvb, num_values);
-    case PrimitiveType::TYPE_DATETIMEV2:
-        return _decode_time_column<DateV2Value<DateTimeV2ValueType>, TYPE_DATETIMEV2,
-                                   orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,
-                                                                         num_values);
-    case PrimitiveType::TYPE_STRING:
-    case PrimitiveType::TYPE_VARCHAR:
-    case PrimitiveType::TYPE_CHAR:
-        return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
-                                                cvb, num_values);
-    case PrimitiveType::TYPE_VARBINARY:
-        // case BINARY:    binary type still use StringVectorBatch, so here we just call _decode_string_column
-        // return encoded ? std::make_unique<EncodedStringVectorBatch>(capacity, memoryPool)
-        //                : std::make_unique<StringVectorBatch>(capacity, memoryPool);
-        return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
-                                                cvb, num_values);
-    case PrimitiveType::TYPE_TIMESTAMPTZ:
-        return _decode_timestamp_tz_column<is_filter>(col_name, data_column, cvb, num_values);
-    case PrimitiveType::TYPE_ARRAY: {
+    if (logical_type == PrimitiveType::TYPE_ARRAY) {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError(
                     "Wrong data type for column '{}', expected list, actual {}", col_name,
@@ -2004,7 +1774,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                 root_node->get_element_node(), nested_orc_type, orc_list->elements.get(),
                 element_size);
     }
-    case PrimitiveType::TYPE_MAP: {
+    if (logical_type == PrimitiveType::TYPE_MAP) {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
             return Status::InternalError("Wrong data type for column '{}', expected map, actual {}",
                                          col_name, orc_column_type->getKind());
@@ -2108,7 +1878,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         }
         return Status::OK();
     }
-    case PrimitiveType::TYPE_STRUCT: {
+    if (logical_type == PrimitiveType::TYPE_STRUCT) {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
             return Status::InternalError(
                     "Wrong data type for column '{}', expected struct, actual {}", col_name,
@@ -2183,9 +1953,6 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                     orc_type, orc_field, num_values));
         }
         return Status::OK();
-    }
-    default:
-        break;
     }
     return Status::InternalError("Unsupported type {} for column '{}'", data_type->get_name(),
                                  col_name);
@@ -2389,8 +2156,6 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
-            // reset decimal_scale_params_index;
-            _decimal_scale_params_index = 0;
             try {
                 _filter_rows_by_condition_cache(read_rows, eof);
                 if (*eof) {
@@ -2541,8 +2306,6 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
-            // reset decimal_scale_params_index;
-            _decimal_scale_params_index = 0;
             try {
                 _filter_rows_by_condition_cache(read_rows, eof);
                 if (*eof) {
