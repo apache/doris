@@ -1202,7 +1202,7 @@ public class StringArithmetic {
         while (pos != 64 && pos < args.length && bit != 0) {
             sb.append(args[pos].getValue());
             sb.append(',');
-            bit &= ~(1 << pos);
+            bit &= ~(1L << pos);
             pos = Long.numberOfTrailingZeros(bit);
         }
         if (sb.length() != 0) {
