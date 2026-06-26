@@ -20,6 +20,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <memory>
+#include <vector>
 
 #include "core/column/column.h"
 #include "core/column/common_column_test.h"
@@ -438,6 +440,24 @@ TEST_F(ColumnVectorTest, pop_back) {
 TEST_F(ColumnVectorTest, filter) {
     _column_vector_common_test(assert_column_vector_filter_callback);
 }
+
+TEST_F(ColumnVectorTest, filter_by_selector_from_external_page) {
+    auto source = ColumnInt32::create();
+    auto owner =
+            std::make_shared<std::vector<int32_t>>(std::initializer_list<int32_t> {10, 20, 30, 40});
+    source->insert_many_fix_len_data_with_owner(reinterpret_cast<const char*>(owner->data()),
+                                                owner->size(), owner);
+
+    uint16_t selector[] = {3, 1, 3};
+    auto result = ColumnInt32::create();
+    ASSERT_TRUE(source->filter_by_selector(selector, 3, result.get()).ok());
+
+    ASSERT_EQ(result->size(), 3);
+    EXPECT_EQ(result->get_element(0), 40);
+    EXPECT_EQ(result->get_element(1), 20);
+    EXPECT_EQ(result->get_element(2), 40);
+}
+
 TEST_F(ColumnVectorTest, get_permutation) {
     assert_column_permutations2(*column_int8, dt_int8);
     assert_column_permutations2(*column_int16, dt_int16);

@@ -691,14 +691,28 @@ public:
                                                        source_column->size() + 1,
                                                        (source_column->size() + 1) >> 1};
                 for (auto pos = check_start_pos.begin(); pos < check_start_pos.end(); ++pos) {
+                    const bool is_array_column = is_column<ColumnArray>(
+                            remove_nullable(
+                                    static_cast<const IColumn*>(source_column.get())->get_ptr())
+                                    .get());
                     if (*pos > source_column->size() || *cl > source_column->size()) {
                         // insert_range_from now we have no any exception error data to handle, so here will meet crash
                         continue;
+                    } else if (*pos >= source_column->size() && *cl > 0) {
+                        if (is_array_column) {
+                            // ColumnArray still treats invalid offset ranges as debug-check-only
+                            // inputs, so keep the historical skip for this generic stress case.
+                            continue;
+                        }
+                        target_column->clear();
+                        // insert_many_from repeats one existing source row. A non-empty repeat from
+                        // one-past-the-end used to hit container-specific UB; keep the test aligned
+                        // with the explicit Doris exception contract.
+                        EXPECT_THROW(target_column->insert_many_from(*source_column, *pos, *cl),
+                                     doris::Exception);
+                        continue;
                     } else if (*pos + *cl > source_column->size()) {
-                        if (is_column<ColumnArray>(
-                                    remove_nullable(static_cast<const IColumn*>(source_column.get())
-                                                            ->get_ptr())
-                                            .get())) {
+                        if (is_array_column) {
                             // insert_range_from in array has DCHECK_LG
                             continue;
                         }

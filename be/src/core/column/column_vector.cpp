@@ -513,16 +513,39 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
 }
 
 template <PrimitiveType T>
+Status ColumnVector<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    const auto values = immutable_data();
+    auto* col = assert_cast<Self*>(col_ptr);
+    auto& res_data = col->get_data();
+    const auto old_size = res_data.size();
+    res_data.resize(old_size + sel_size);
+    for (size_t i = 0; i < sel_size; ++i) {
+        // Lazy materialization can filter a page-backed fixed-length column before it is
+        // materialized into `data`. Read through immutable_data() so both local PODArray storage
+        // and the single external page view have the same selector semantics.
+        res_data[old_size + i] = values[sel[i]];
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
     if (length == 0) {
         // Empty insertion is a valid no-op even when position points one past the source end.
         return;
     }
 
+    auto vals = assert_cast<const Self&>(src).immutable_data();
+    if (UNLIKELY(position >= vals.size())) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Position {} is out of bound in ColumnVector<T>::insert_many_from "
+                               "method (data.size() = {}).",
+                               position, vals.size());
+    }
+
     materialize_external_data();
     auto old_size = data.size();
     data.resize(old_size + length);
-    auto vals = assert_cast<const Self&>(src).immutable_data();
     std::fill(&data[old_size], &data[old_size + length], vals[position]);
 }
 
