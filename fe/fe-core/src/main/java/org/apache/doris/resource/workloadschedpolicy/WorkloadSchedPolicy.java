@@ -275,6 +275,10 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         List<WorkloadAction> actionList = new ArrayList<>();
         for (WorkloadActionMeta actionMeta : actionMetaList) {
             try {
+                if (WorkloadActionType.SET_SESSION_VARIABLE.equals(actionMeta.action)) {
+                    Log.warn("skip deprecated workload policy action " + actionMeta.action);
+                    continue;
+                }
                 WorkloadAction ret = WorkloadAction.createWorkloadAction(actionMeta);
                 actionList.add(ret);
             } catch (UserException ue) {
