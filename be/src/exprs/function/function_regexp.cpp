@@ -33,6 +33,7 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_const.h"
 #include "core/column/column_execute_util.h"
 #include "core/column/column_nullable.h"

@@ -39,8 +39,97 @@
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function_helpers.h"
+#include "util/defer_op.h"
 
 namespace doris {
+
+namespace {
+
+ColumnNumbers collect_non_const_argument_positions(const Block& block,
+                                                   const ColumnNumbers& arguments) {
+    ColumnNumbers non_const_arguments;
+    non_const_arguments.reserve(arguments.size());
+    for (auto column_position : arguments) {
+        const auto& column = block.get_by_position(column_position).column;
+        if (!column || is_column_const(*column) ||
+            std::ranges::find(non_const_arguments, column_position) != non_const_arguments.end()) {
+            continue;
+        }
+        non_const_arguments.push_back(column_position);
+    }
+    return non_const_arguments;
+}
+
+std::vector<std::shared_ptr<ColumnPtrWrapper>> collect_constant_argument_columns(
+        const FunctionContext& context, const Block& block, const ColumnNumbers& arguments) {
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(
+            std::max<size_t>(context.get_num_args(), arguments.size()));
+
+    for (int argument_index = 0; argument_index < context.get_num_args(); ++argument_index) {
+        auto* const_column = context.get_constant_col(argument_index);
+        if (const_column != nullptr) {
+            constant_columns[argument_index] =
+                    std::make_shared<ColumnPtrWrapper>(const_column->column_ptr);
+        }
+    }
+
+    for (size_t argument_index = 0; argument_index < arguments.size(); ++argument_index) {
+        const auto& column = block.get_by_position(arguments[argument_index]).column;
+        if (column && is_column_const(*column)) {
+            constant_columns[argument_index] = std::make_shared<ColumnPtrWrapper>(column);
+        } else {
+            constant_columns[argument_index].reset();
+        }
+    }
+    return constant_columns;
+}
+
+Status run_mock_const_probe(FunctionContext* context, const IFunctionBase& function,
+                            const Block& block, const ColumnNumbers& arguments, uint32_t result,
+                            size_t input_rows_count, const ColumnNumbers& columns_to_mock_const) {
+    if (context == nullptr) {
+        return Status::OK();
+    }
+
+    try {
+        auto& mutable_function = const_cast<IFunctionBase&>(function);
+        Block const_block = block;
+        for (auto column_position : columns_to_mock_const) {
+            auto& column_with_type = const_block.get_by_position(column_position);
+            if (!column_with_type.column || is_column_const(*column_with_type.column)) {
+                continue;
+            }
+            auto one_row = column_with_type.column->cut(0, 1);
+            column_with_type.column = ColumnConst::create(std::move(one_row), input_rows_count);
+        }
+
+        auto mock_context = context->clone();
+        mock_context->set_constant_cols(
+                collect_constant_argument_columns(*mock_context, const_block, arguments));
+        mock_context->set_function_state(FunctionContext::FRAGMENT_LOCAL, std::shared_ptr<void> {});
+        mock_context->set_function_state(FunctionContext::THREAD_LOCAL, std::shared_ptr<void> {});
+        Defer close_probe([&] {
+            static_cast<void>(
+                    mutable_function.close(mock_context.get(), FunctionContext::THREAD_LOCAL));
+            static_cast<void>(
+                    mutable_function.close(mock_context.get(), FunctionContext::FRAGMENT_LOCAL));
+        });
+
+        RETURN_IF_ERROR(mutable_function.open(mock_context.get(), FunctionContext::FRAGMENT_LOCAL));
+        RETURN_IF_ERROR(mutable_function.open(mock_context.get(), FunctionContext::THREAD_LOCAL));
+
+        RETURN_IF_ERROR(
+                mutable_function.prepare(mock_context.get(), const_block, arguments, result)
+                        ->execute(mock_context.get(), const_block, arguments, result,
+                                  input_rows_count));
+    } catch (const Exception&) {
+        // Some columns do not support cut; skip this debug probe in that case.
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t input_rows_count) {
     ColumnPtr result_null_map_column;
@@ -402,6 +491,51 @@ bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
     }
     default:
         return is_date_or_datetime_or_decimal(return_type_ptr, func_return_type_ptr);
+    }
+}
+
+Status IFunctionBase::mock_const_execute(FunctionContext* context, Block& block,
+                                         const ColumnNumbers& arguments, uint32_t result,
+                                         size_t input_rows_count) const {
+    if (!is_udf_function()) {
+        auto non_const_arguments = collect_non_const_argument_positions(block, arguments);
+        if (!non_const_arguments.empty()) {
+            RETURN_IF_ERROR(run_mock_const_probe(context, *this, block, arguments, result,
+                                                 input_rows_count, non_const_arguments));
+
+            // Probe the mixed path by forcing each non-const argument to const one at a time.
+            for (auto column_position : non_const_arguments) {
+                RETURN_IF_ERROR(run_mock_const_probe(context, *this, block, arguments, result,
+                                                     input_rows_count,
+                                                     ColumnNumbers {column_position}));
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status IFunctionBase::execute(FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, uint32_t result,
+                              size_t input_rows_count) const {
+    // Some function implementations may not handle the case where input_rows_count is 0
+    // (e.g., some functions access the 0th row of input columns during execution).
+    // Additionally, some UDF functions may hang if they write 0 rows and then try to read.
+    // Therefore, before executing the function, we first check if input_rows_count is 0.
+    // If it is 0, we directly return an empty result column to avoid executing the function body.
+    if (input_rows_count == 0) {
+        block.get_by_position(result).column = block.get_by_position(result).type->create_column();
+        return Status::OK();
+    }
+
+#ifndef NDEBUG
+    RETURN_IF_ERROR(mock_const_execute(context, block, arguments, result, input_rows_count));
+#endif
+
+    try {
+        return prepare(context, block, arguments, result)
+                ->execute(context, block, arguments, result, input_rows_count);
+    } catch (const Exception& e) {
+        return e.to_status();
     }
 }
 
