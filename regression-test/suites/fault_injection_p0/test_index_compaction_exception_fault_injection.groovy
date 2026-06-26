@@ -264,6 +264,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
     def create_and_test_table = { table_name, key_type, debug_points, is_abnormal ->
         debug_points.each { debug_point ->
             sql """ DROP TABLE IF EXISTS ${table_name}; """
+            sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
             sql """
                 CREATE TABLE ${table_name} (
                     `id` int(11) NULL,
@@ -285,10 +286,11 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
-                "inverted_index_storage_format" = "V2",
+                "inverted_index_storage_format" = "V1",
                 "disable_auto_compaction" = "true"
                 );
             """
+            sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
             def tablets = sql_return_maparray """ show tablets from ${table_name}; """
             run_test.call(tablets, debug_point, is_abnormal)

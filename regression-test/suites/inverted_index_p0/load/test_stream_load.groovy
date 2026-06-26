@@ -109,7 +109,9 @@ suite("test_stream_load_with_inverted_index_p0", "p0, nonConcurrent") {
         if (isCloudMode()) {
             return;
         }
-        // test.call("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        test.call("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")

@@ -251,6 +251,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         * test for duplicated key table
         */
         sql """ DROP TABLE IF EXISTS ${tableName}; """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql  """
             CREATE TABLE IF NOT EXISTS `${tableName}` (
                 `id` int NULL COMMENT "",
@@ -271,9 +272,10 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "disable_auto_compaction" = "true",
                 "in_memory" = "false",
                 "storage_format" = "V2",
-                "inverted_index_storage_format" = "V2"
+                "inverted_index_storage_format" = "V1"
             )
             """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
@@ -286,6 +288,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         tableName = "test_index_compaction_null_unique"
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
         sql  """
             CREATE TABLE IF NOT EXISTS `${tableName}` (
                 `id` int NULL COMMENT "",
@@ -307,9 +310,10 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "enable_unique_key_merge_on_write" = "true",
                 "in_memory" = "false",
                 "storage_format" = "V2",
-                "inverted_index_storage_format" = "V2"
+                "inverted_index_storage_format" = "V1"
             )
             """
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         sql """ set enable_segment_limit_pushdown = true """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """

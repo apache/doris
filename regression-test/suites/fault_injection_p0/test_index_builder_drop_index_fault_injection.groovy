@@ -123,7 +123,9 @@ suite("test_index_builder_drop_index_fault_injection", "nonConcurrent") {
         runTest(indexTbName)
     }
 
-    // createTestTable("v1")
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+    createTestTable("v1")
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     createTestTable("v2")
 
 }

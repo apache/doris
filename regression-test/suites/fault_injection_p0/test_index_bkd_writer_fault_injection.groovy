@@ -22,6 +22,7 @@ suite("test_index_bkd_writer_fault_injection", "nonConcurrent") {
     def tableName = "test_index_bkd_writer_fault_injection"
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
     sql """
         CREATE TABLE ${tableName} (
             `id` int(11) NULL,
@@ -35,8 +36,9 @@ suite("test_index_bkd_writer_fault_injection", "nonConcurrent") {
         DUPLICATE KEY(`id`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
+        PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
     """
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexColumnWriter::add_value_bkd_writer_add_throw_error")

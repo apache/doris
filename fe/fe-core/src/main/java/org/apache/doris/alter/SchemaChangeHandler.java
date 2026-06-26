@@ -3274,15 +3274,19 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
-        //If the table format is V1, the added index is still created in V1 format. 
-        // It should be necessary to upgrade the V2 table format and then add the V2 format index.
+
+        // Resolve DEFAULT to its effective format using the system config before checking.
+        TInvertedIndexFileStorageFormat effectiveFormat = olapTable.getInvertedIndexFileStorageFormat();
+        if (effectiveFormat == TInvertedIndexFileStorageFormat.DEFAULT
+                && Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
+            effectiveFormat = TInvertedIndexFileStorageFormat.V1;
+        }
         if (indexDef.getIndexType() == IndexType.INVERTED
-                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1
+                && effectiveFormat == TInvertedIndexFileStorageFormat.V1
                 && !Config.allow_inverted_index_v1_creation) {
             throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
-                    + " Please use inverted index V2."
-                    + " You can upgrade the table format with: ALTER TABLE " + olapTable.getName()
-                    + " SET (\"inverted_index_storage_format\" = \"V2\");");
+                    + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
+                    + " recreate the table with inverted_index_storage_format = V2.");
         }
 
         for (String col : indexDef.getColumnNames()) {

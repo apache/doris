@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_show_nested_index_file_http_action") {
+suite("test_show_nested_index_file_http_action", "nonConcurrent") {
     def show_nested_index_file_on_tablet = { ip, port, tablet ->
         return http_client("GET", String.format("http://%s:%s/api/show_nested_index_file?tablet_id=%s", ip, port, tablet))
     }
@@ -92,7 +92,8 @@ suite("test_show_nested_index_file_http_action") {
             assertEquals(index_files_count, segment_files_count)
         }
     }
-
-    // run_test("V1")
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+    run_test("V1")
+    sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
     run_test("V2")
 }

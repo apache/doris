@@ -26,6 +26,7 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
   getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
   sql "DROP TABLE IF EXISTS ${tableName1}"
+  sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
   sql """
     CREATE TABLE ${tableName1} (
       `@timestamp` int(11) NULL COMMENT "",
@@ -42,9 +43,10 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
       "disable_auto_compaction" = "true",
-      "inverted_index_storage_format" = "V2"
+      "inverted_index_storage_format" = "V1"
     );
   """
+  sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
 
   sql "DROP TABLE IF EXISTS ${tableName2}"
   sql """

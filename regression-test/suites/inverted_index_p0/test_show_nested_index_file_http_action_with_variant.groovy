@@ -129,7 +129,9 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
     if (isCloudMode()) {
         run_test("V2")
     } else {
-        // run_test("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'true')"
+        run_test("V1")
+        sql "ADMIN SET FRONTEND CONFIG ('allow_inverted_index_v1_creation' = 'false')"
         run_test("V2")
     }
     
