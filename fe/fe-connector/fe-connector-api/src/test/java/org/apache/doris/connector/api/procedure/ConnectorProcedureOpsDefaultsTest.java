@@ -90,6 +90,38 @@ public class ConnectorProcedureOpsDefaultsTest {
     }
 
     @Test
+    public void planRewriteDefaultsToUnsupported() {
+        ConnectorProcedureOps ops = new BareProcedureOps();
+        // planRewrite is only meaningful for a DISTRIBUTED procedure; a connector that declares none must never
+        // have it called (the engine checks getExecutionMode first). The default FAILS LOUD rather than
+        // silently returning an empty plan (which would make a misrouted rewrite a no-op). MUTATION: defaulting
+        // to `return Collections.emptyList()` -> no throw -> red.
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> ops.planRewrite(null, null, "rewrite_data_files",
+                        Collections.emptyMap(), null, Collections.emptyList()));
+    }
+
+    @Test
+    public void rewriteGroupExposesPathsAndStats() {
+        ConnectorRewriteGroup g = new ConnectorRewriteGroup(
+                Collections.singleton("oss://b/db/t1/f1.parquet"), 3, 4096L, 2);
+        // The engine reads the raw paths (to scope each group's scan) and the per-group counts (to sum into the
+        // result row), so all four must be carried verbatim. MUTATION: any getter returning a wrong field -> red.
+        Assertions.assertEquals(Collections.singleton("oss://b/db/t1/f1.parquet"), g.getDataFilePaths());
+        Assertions.assertEquals(3, g.getDataFileCount());
+        Assertions.assertEquals(4096L, g.getTotalSizeBytes());
+        Assertions.assertEquals(2, g.getDeleteFileCount());
+    }
+
+    @Test
+    public void rewriteGroupRejectsNullPaths() {
+        // Fail-loud construction: the engine scopes the scan by these paths, so a null set is a programming
+        // error, not an empty scope.
+        Assertions.assertThrows(NullPointerException.class,
+                () -> new ConnectorRewriteGroup(null, 0, 0L, 0));
+    }
+
+    @Test
     public void procedureResultExposesSchemaAndRows() {
         ConnectorColumn col = new ConnectorColumn("current_snapshot_id", ConnectorType.of("BIGINT"),
                 null, true, null);

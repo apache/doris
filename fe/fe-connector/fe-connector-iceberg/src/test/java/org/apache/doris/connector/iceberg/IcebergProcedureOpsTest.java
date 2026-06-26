@@ -20,10 +20,12 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -119,6 +122,91 @@ public class IcebergProcedureOpsTest {
                 () -> newOps().execute(null, new IcebergTableHandle("db", "tbl"), "rewrite_data_files",
                         Collections.emptyMap(), null, Collections.emptyList()));
         Assertions.assertTrue(e.getMessage().startsWith("Unsupported Iceberg procedure: rewrite_data_files"),
+                e.getMessage());
+    }
+
+    // ─────────────────── WS-REWRITE R3: planRewrite (DISTRIBUTED planning half) ───────────────────
+
+    @Test
+    public void planRewriteGroupsBinPackedFilesWithRawPaths() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, ctx);
+
+        // rewrite-all packs all three small files into one group (one bin, far under max-file-group-size), so a
+        // group is produced without needing the default min-input-files=5.
+        List<ConnectorRewriteGroup> groups = procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                "rewrite_data_files", ImmutableMap.of("rewrite-all", "true"), null, Collections.emptyList());
+
+        Assertions.assertEquals(1, groups.size());
+        ConnectorRewriteGroup g = groups.get(0);
+        // WHY: the engine driver scopes each group's INSERT-SELECT scan by these RAW data-file paths, so the
+        // group must carry them verbatim (the same raw path the scan provider matches — R2 [INV-M1]). MUTATION:
+        // toConnectorRewriteGroup mapping the normalized path / wrong field -> paths mismatch -> red.
+        Assertions.assertEquals(
+                ImmutableSet.of("s3://b/db1/f1.parquet", "s3://b/db1/f2.parquet", "s3://b/db1/f3.parquet"),
+                g.getDataFilePaths());
+        // WHY: the per-group counts/size are summed into the rewrite result row, so they must be carried from the
+        // planner's group verbatim. MUTATION: any stat read off the wrong RewriteDataGroup accessor -> red.
+        Assertions.assertEquals(3, g.getDataFileCount());
+        Assertions.assertEquals(3 * 1024L, g.getTotalSizeBytes());
+        Assertions.assertEquals(0, g.getDeleteFileCount());
+        // WHY: manifest reads run under the catalog auth context (Kerberos), like the procedure bodies; planning
+        // does NOT mutate the table, so it must not invalidate the cache. MUTATION: planning outside auth scope
+        // -> authCount 0 -> red; invalidating after planning -> invalidatedTables non-empty -> red.
+        Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
+        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(), "planning must not invalidate the table");
+    }
+
+    @Test
+    public void planRewriteEmptyTableReturnsNoGroups() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        catalog.createTable(TableIdentifier.of("db1", "t"), schema, PartitionSpec.unpartitioned());
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergProcedureOps procOps =
+                new IcebergProcedureOps(Collections.emptyMap(), ops, new RecordingConnectorContext());
+
+        List<ConnectorRewriteGroup> groups = procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                "rewrite_data_files", Collections.emptyMap(), null, Collections.emptyList());
+
+        // WHY: an empty table (no current snapshot) has nothing to rewrite -> zero groups, so the engine driver
+        // emits the all-zero result row (the legacy short-circuit). MUTATION: planning a non-existent snapshot
+        // -> exception or non-empty -> red.
+        Assertions.assertTrue(groups.isEmpty());
+    }
+
+    @Test
+    public void planRewriteValidatesArgsBeforeTouchingCatalog() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"), "rewrite_data_files",
+                        ImmutableMap.of("min-file-size-bytes", "100", "max-file-size-bytes", "50"),
+                        null, Collections.emptyList()));
+        // WHY: argument validation (byte-identical message) runs BEFORE the catalog is touched, mirroring the
+        // single-call path. MUTATION: planning before validate() -> loadTable called / wrong message -> red.
+        Assertions.assertEquals(
+                "min-file-size-bytes must be less than or equal to max-file-size-bytes", e.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), "validation must fail before the catalog is loaded");
+    }
+
+    @Test
+    public void planRewriteRejectsNonRewriteProcedure() {
+        IcebergProcedureOps procOps = newOps();
+        // WHY: only rewrite_data_files is DISTRIBUTED; a miswired caller passing another name must fail loud, not
+        // build a rewrite action for the wrong procedure. MUTATION: dropping the name guard -> a rollback name
+        // would build a rewrite action -> no throw here -> red.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"), "rollback_to_snapshot",
+                        Collections.emptyMap(), null, Collections.emptyList()));
+        Assertions.assertTrue(e.getMessage().contains("Unsupported distributed iceberg procedure"),
                 e.getMessage());
     }
 
@@ -271,6 +359,18 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(1, ctx.authCount, "the load ran under auth (body executed, then threw)");
         Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
                 "a body failure after a successful load must not invalidate");
+    }
+
+    private static InMemoryCatalog tableWithThreeSmallFiles() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        catalog.createTable(TableIdentifier.of("db1", "t"), schema, PartitionSpec.unpartitioned());
+        append(catalog, "f1", 1L);
+        append(catalog, "f2", 1L);
+        append(catalog, "f3", 1L);
+        return catalog;
     }
 
     private static InMemoryCatalog catalogWithTwoSnapshots() {

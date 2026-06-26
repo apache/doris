@@ -66,6 +66,37 @@ public interface ConnectorProcedureOps {
     }
 
     /**
+     * Plans a {@link ProcedureExecutionMode#DISTRIBUTED} rewrite into bin-packed groups of data files for the
+     * engine rewrite driver to execute (one {@code INSERT-SELECT} per group). The connector owns the
+     * file-selection / grouping decision and returns it as engine-neutral {@link ConnectorRewriteGroup}s; the
+     * engine scopes each group's scan to its file paths and sums the per-group stats into the result row.
+     *
+     * <p>Only meaningful for a procedure whose {@link #getExecutionMode} is {@code DISTRIBUTED}
+     * (today: iceberg {@code rewrite_data_files}). The default throws — a connector with no distributed
+     * procedure never has this called (the engine checks {@code getExecutionMode} first and routes
+     * {@code SINGLE_CALL} procedures through {@link #execute}).</p>
+     *
+     * @param session        the current session
+     * @param table          the target table handle
+     * @param properties      the procedure arguments (validated by the connector against the procedure's spec)
+     * @param whereCondition the engine-lowered {@code WHERE} predicate restricting which files to rewrite, or
+     *                       {@code null}
+     * @param partitionNames the {@code PARTITION (...)} names (pass-through), never {@code null}
+     * @return the bin-packed rewrite groups (empty when there is nothing to rewrite)
+     */
+    default List<ConnectorRewriteGroup> planRewrite(
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            String procedureName,
+            Map<String, String> properties,
+            ConnectorPredicate whereCondition,
+            List<String> partitionNames) {
+        throw new UnsupportedOperationException(
+                "planRewrite is only implemented for DISTRIBUTED procedures; '" + procedureName
+                        + "' is not one");
+    }
+
+    /**
      * Executes a table procedure and returns its result (schema + rows) in an engine-neutral form; the
      * engine wraps these into a {@code ResultSet}.
      *

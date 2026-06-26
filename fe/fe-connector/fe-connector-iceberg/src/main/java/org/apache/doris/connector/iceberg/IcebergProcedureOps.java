@@ -22,15 +22,23 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.action.BaseIcebergAction;
 import org.apache.doris.connector.iceberg.action.IcebergExecuteActionFactory;
+import org.apache.doris.connector.iceberg.action.IcebergRewriteDataFilesAction;
+import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
+import org.apache.doris.connector.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.connector.spi.ConnectorContext;
 
+import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Executes iceberg's {@code ALTER TABLE EXECUTE} procedures (the 9 legacy
@@ -100,6 +108,28 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     }
 
     /**
+     * Plans {@code rewrite_data_files} (the one {@link ProcedureExecutionMode#DISTRIBUTED} iceberg procedure)
+     * into bin-packed groups for the engine rewrite driver (WS-REWRITE R3). Builds the rewrite action directly
+     * — the factory rejects {@code rewrite_data_files} for the single-call {@link #execute} path — validates its
+     * arguments, then runs the connector {@link RewriteDataFilePlanner} (the SDK-only planning half) and returns
+     * each group's data-file paths + stats in engine-neutral form.
+     */
+    @Override
+    public List<ConnectorRewriteGroup> planRewrite(ConnectorSession session, ConnectorTableHandle table,
+            String procedureName, Map<String, String> properties,
+            ConnectorPredicate whereCondition, List<String> partitionNames) {
+        if (!IcebergExecuteActionFactory.REWRITE_DATA_FILES.equalsIgnoreCase(procedureName)) {
+            // Only rewrite_data_files is DISTRIBUTED for iceberg; fail loud on a miswired caller.
+            throw new DorisConnectorException("Unsupported distributed iceberg procedure: " + procedureName);
+        }
+        IcebergTableHandle handle = (IcebergTableHandle) table;
+        IcebergRewriteDataFilesAction action = new IcebergRewriteDataFilesAction(
+                properties, partitionNames, whereCondition);
+        action.validate();
+        return planInAuthScope(handle, action, session);
+    }
+
+    /**
      * Loads the table and runs the procedure body within ONE authenticated scope. The body's SDK
      * manipulation and remote {@code commit()} must run under the catalog's auth context (Kerberized
      * catalogs), mirroring the write path — recon §7 "commit 裹 executeAuthenticated"; this is the auth fix
@@ -134,5 +164,47 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             context.getMetaInvalidator().invalidateTable(handle.getDbName(), handle.getTableName());
         }
         return result;
+    }
+
+    /**
+     * Loads the table and plans the rewrite groups within ONE authenticated scope (manifest reads need the
+     * catalog's auth context on Kerberized catalogs), mirroring {@link #runInAuthScope}. Unlike the procedure
+     * bodies, planning does NOT mutate the table or invalidate caches — it only reads the current snapshot's
+     * file scan tasks.
+     */
+    private List<ConnectorRewriteGroup> planInAuthScope(IcebergTableHandle handle,
+            IcebergRewriteDataFilesAction action, ConnectorSession session) {
+        ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
+        RewriteDataFilePlanner planner = new RewriteDataFilePlanner(action.buildRewriteParameters(), sessionZone);
+        List<RewriteDataGroup> groups;
+        if (context == null) {
+            groups = planner.planAndOrganizeTasks(
+                    catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        } else {
+            try {
+                groups = context.executeAuthenticated(() -> planner.planAndOrganizeTasks(
+                        catalogOps.loadTable(handle.getDbName(), handle.getTableName())));
+            } catch (DorisConnectorException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new DorisConnectorException("Failed to plan rewrite for iceberg table "
+                        + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
+            }
+        }
+        return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+    }
+
+    /**
+     * Converts a connector {@link RewriteDataGroup} to the engine-neutral {@link ConnectorRewriteGroup}: the
+     * data files become their RAW iceberg paths ({@code dataFile.path()}) — the SAME key the scan provider
+     * filters a per-group file scope by (WS-REWRITE R2 [INV-M1]); the counts/size are carried verbatim so the
+     * engine sums them into the procedure's result row. {@code LinkedHashSet} keeps a stable iteration order.
+     */
+    private static ConnectorRewriteGroup toConnectorRewriteGroup(RewriteDataGroup group) {
+        Set<String> dataFilePaths = group.getDataFiles().stream()
+                .map(dataFile -> dataFile.path().toString())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return new ConnectorRewriteGroup(dataFilePaths, group.getDataFiles().size(),
+                group.getTotalSize(), group.getDeleteFileCount());
     }
 }
