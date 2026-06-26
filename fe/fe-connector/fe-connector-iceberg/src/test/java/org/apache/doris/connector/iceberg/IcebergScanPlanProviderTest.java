@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -77,6 +78,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Tests for {@link IcebergScanPlanProvider}. T01 pinned the capability constants + that {@code planScan}
@@ -245,6 +247,58 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1024L, ranges.get(0).getLength());
         Assertions.assertEquals(1024L, ranges.get(0).getFileSize());
         Assertions.assertEquals(2048L, ranges.get(1).getLength());
+    }
+
+    @Test
+    public void planScanRewriteFileScopeKeepsOnlyRawScopedFiles() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        // oss:// data-file paths: the context normalizes oss:// -> s3:// for the BE-facing range path, so this
+        // test proves the rewrite scope matches the RAW iceberg path (oss://) and NOT the normalized BE path.
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f2.parquet", 2048, null, null))
+                .appendFile(dataFile(table.spec(), "oss://b/db/t1/f3.parquet", 4096, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                Collections.emptyMap(), opsReturning(table), new RecordingConnectorContext());
+
+        // A rewrite group bin-packed to f1 + f3 only; f2 must be dropped.
+        IcebergTableHandle scoped = new IcebergTableHandle("db1", "t1").withRewriteFileScope(
+                ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f3.parquet"));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, scoped, Collections.emptyList(), Optional.empty());
+
+        // WHY: each rewrite group's INSERT-SELECT must scan EXACTLY its bin-packed files, identified by the raw
+        // iceberg path. MUTATION: dropping the `scope != null && !scope.contains(...)` guard -> f2 leaks in
+        // (3 files) -> red, an over-read whose RewriteFiles commit would replace more than the group (duplicate
+        // rows). MUTATION (the normalization landmine): matching the normalized BE path (range .path(), s3://)
+        // instead of dataFile.path() (oss://) -> the oss:// scope matches NOTHING -> 0 ranges -> red.
+        Set<String> keptRawPaths = ranges.stream()
+                .map(r -> ((IcebergScanRange) r).getOriginalPath())
+                .collect(ImmutableSet.toImmutableSet());
+        Assertions.assertEquals(
+                ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f3.parquet"), keptRawPaths,
+                "rewrite scope must keep ONLY its files, matched by raw path; f2 dropped");
+        // The kept files are still normalized for BE (the scope filter runs on the raw path BEFORE normalize).
+        Assertions.assertTrue(ranges.stream().allMatch(r -> r.getPath().get().startsWith("s3://")),
+                "kept ranges still carry the scheme-normalized BE path");
+    }
+
+    @Test
+    public void planScanNullRewriteScopeReadsAllFiles() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        // WHY: a bare handle (no rewrite scope) is EVERY normal scan; it must read all files, not zero. MUTATION:
+        // the scope guard firing on a null scope (e.g. `scope.isEmpty()` instead of `scope != null`) -> 0 ranges
+        // -> red.
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+        Assertions.assertEquals(2, ranges.size());
     }
 
     @Test

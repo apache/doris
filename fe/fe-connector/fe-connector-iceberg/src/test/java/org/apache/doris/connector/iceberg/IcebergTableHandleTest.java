@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -245,5 +246,72 @@ public class IcebergTableHandleTest {
         String s = sys.toString();
         Assertions.assertTrue(s.contains("t1$snapshots"), "must render the '$'-joined sys name, was: " + s);
         Assertions.assertTrue(s.contains("snapshotId=42"), "must render the snapshot pin, was: " + s);
+    }
+
+    // ==================== WS-REWRITE R2: rewrite_data_files per-group file scope ====================
+
+    @Test
+    public void bareHandleHasNoRewriteScope() {
+        IcebergTableHandle h = new IcebergTableHandle("db1", "t1");
+        // WHY: every non-rewrite scan must carry NO scope so it reads the whole (filtered) table. The scan
+        // provider treats a non-null scope as "keep ONLY these files", so a default of empty (not null) would
+        // make a normal scan silently return zero files. MUTATION: defaulting rewriteFileScope to an empty set
+        // -> getRewriteFileScope non-null -> red.
+        Assertions.assertNull(h.getRewriteFileScope());
+    }
+
+    @Test
+    public void withRewriteFileScopeCarriesRawPathsAndIsPartOfIdentity() {
+        IcebergTableHandle bare = new IcebergTableHandle("db1", "t1");
+        IcebergTableHandle scoped = bare.withRewriteFileScope(
+                ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f3.parquet"));
+        // WHY: the scope is a rewrite group's bin-packed file set (raw iceberg paths); the getter must return
+        // exactly those so the scan keeps only them. MUTATION: storing null/empty -> getter wrong -> red.
+        Assertions.assertEquals(
+                ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f3.parquet"),
+                scoped.getRewriteFileScope());
+        // WHY: a scoped scan is a DIFFERENT read than the full scan and than a differently-scoped scan, so the
+        // scope is part of the handle identity (consistent with the snapshot pin). MUTATION: equals/hashCode
+        // ignoring rewriteFileScope -> bare.equals(scoped) or the two distinct scopes equal -> red.
+        Assertions.assertNotEquals(bare, scoped);
+        IcebergTableHandle sameScope = new IcebergTableHandle("db1", "t1").withRewriteFileScope(
+                ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f3.parquet"));
+        Assertions.assertEquals(scoped, sameScope);
+        Assertions.assertEquals(scoped.hashCode(), sameScope.hashCode());
+        Assertions.assertNotEquals(scoped,
+                new IcebergTableHandle("db1", "t1").withRewriteFileScope(
+                        ImmutableSet.of("oss://b/db/t1/f1.parquet")));
+    }
+
+    @Test
+    public void rewriteScopeAndSnapshotPinCompose() {
+        // WHY: the rewrite driver pins the starting snapshot AND scopes the file set; applying one copy factory
+        // must not drop the other carrier, else the group would scan the wrong snapshot or the wrong files.
+        // MUTATION: withSnapshot rebuilding without rewriteFileScope -> scope lost -> red.
+        IcebergTableHandle scopedThenPinned = new IcebergTableHandle("db1", "t1")
+                .withRewriteFileScope(ImmutableSet.of("oss://b/db/t1/f1.parquet"))
+                .withSnapshot(42L, null, 3L);
+        Assertions.assertEquals(ImmutableSet.of("oss://b/db/t1/f1.parquet"),
+                scopedThenPinned.getRewriteFileScope());
+        Assertions.assertEquals(42L, scopedThenPinned.getSnapshotId());
+    }
+
+    @Test
+    public void rewriteScopeSurvivesSerializationRoundTrip() throws Exception {
+        IcebergTableHandle original = new IcebergTableHandle("db1", "t1")
+                .withRewriteFileScope(ImmutableSet.of("oss://b/db/t1/f1.parquet", "oss://b/db/t1/f2.parquet"));
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+            oos.writeObject(original);
+        }
+        IcebergTableHandle restored;
+        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(baos.toByteArray()))) {
+            restored = (IcebergTableHandle) ois.readObject();
+        }
+        // WHY: the handle is the plan-reuse / FE-BE wire object, so the scope (an ImmutableSet field) must
+        // survive serialization or a deserialized rewrite handle would forget its scope and scan the whole
+        // table. MUTATION: marking rewriteFileScope transient -> restored scope null -> red.
+        Assertions.assertEquals(original.getRewriteFileScope(), restored.getRewriteFileScope());
+        Assertions.assertEquals(original, restored);
     }
 }

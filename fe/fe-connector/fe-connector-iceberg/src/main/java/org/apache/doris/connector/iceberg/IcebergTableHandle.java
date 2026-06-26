@@ -19,7 +19,10 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Opaque table handle for an Iceberg table, carrying the database (namespace)
@@ -70,18 +73,29 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      */
     private final String sysTableName;
 
+    /**
+     * Restricts the scan to ONLY these data files (by their RAW iceberg path, {@code dataFile.path()}), or
+     * {@code null} for a normal full scan. Set by the {@code rewrite_data_files} engine driver before each
+     * per-group {@code INSERT-SELECT} so the group scans exactly its bin-packed files (WS-REWRITE R2). The key
+     * is the raw path the rewrite planner records — NOT the scheme-normalized BE path — so a normalization
+     * difference can never silently scope to the wrong files. Part of the handle identity (a scoped scan is a
+     * different scan than the full scan), so {@link #equals}/{@link #hashCode}/{@link #toString} include it.
+     */
+    private final Set<String> rewriteFileScope;
+
     public IcebergTableHandle(String dbName, String tableName) {
-        this(dbName, tableName, NO_PIN, null, NO_PIN, null);
+        this(dbName, tableName, NO_PIN, null, NO_PIN, null, null);
     }
 
     private IcebergTableHandle(String dbName, String tableName, long snapshotId, String ref, long schemaId,
-            String sysTableName) {
+            String sysTableName, Set<String> rewriteFileScope) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.snapshotId = snapshotId;
         this.ref = ref;
         this.schemaId = schemaId;
         this.sysTableName = sysTableName;
+        this.rewriteFileScope = rewriteFileScope;
     }
 
     /**
@@ -93,7 +107,7 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      */
     public static IcebergTableHandle forSystemTable(String dbName, String tableName, String sysName,
             long snapshotId, String ref, long schemaId) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysName);
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysName, null);
     }
 
     public String getDbName() {
@@ -135,13 +149,35 @@ public class IcebergTableHandle implements ConnectorTableHandle {
     }
 
     /**
+     * The rewrite file scope (raw iceberg data-file paths the scan is restricted to), or {@code null} for a
+     * normal full scan. See {@link #rewriteFileScope} and {@link #withRewriteFileScope}.
+     */
+    public Set<String> getRewriteFileScope() {
+        return rewriteFileScope;
+    }
+
+    /**
      * Returns a copy of this handle carrying the resolved time-travel pin. Mirrors paimon's
      * {@code PaimonTableHandle.withScanOptions}/{@code withBranch} but with iceberg's typed carriers.
      */
     public IcebergTableHandle withSnapshot(long snapshotId, String ref, long schemaId) {
-        // sysTableName is preserved: threading a resolved time-travel pin in must not degrade a sys
-        // handle (t$snapshots) into a normal data-table handle. Mirrors paimon withScanOptions/withBranch.
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName);
+        // sysTableName and rewriteFileScope are preserved: threading a resolved time-travel pin in must not
+        // degrade a sys handle (t$snapshots) into a normal data-table handle, nor drop a rewrite scope.
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
+                rewriteFileScope);
+    }
+
+    /**
+     * Returns a copy of this handle whose scan is restricted to {@code rawDataFilePaths} (the RAW iceberg
+     * {@code dataFile.path()} of each file in a {@code rewrite_data_files} bin-packed group). The engine
+     * rewrite driver applies this before a group's {@code INSERT-SELECT} so the group scans exactly its files
+     * (WS-REWRITE R2). The paths are matched against the raw path the iceberg SDK reports for each enumerated
+     * file — never the scheme-normalized BE path — so a normalization difference cannot mis-scope the scan.
+     * The other carriers (snapshot/ref/schema/sys) are preserved.
+     */
+    public IcebergTableHandle withRewriteFileScope(Set<String> rawDataFilePaths) {
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
+                ImmutableSet.copyOf(rawDataFilePaths));
     }
 
     @Override
@@ -158,12 +194,13 @@ public class IcebergTableHandle implements ConnectorTableHandle {
                 && Objects.equals(dbName, that.dbName)
                 && Objects.equals(tableName, that.tableName)
                 && Objects.equals(ref, that.ref)
-                && Objects.equals(sysTableName, that.sysTableName);
+                && Objects.equals(sysTableName, that.sysTableName)
+                && Objects.equals(rewriteFileScope, that.rewriteFileScope);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, sysTableName);
+        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, sysTableName, rewriteFileScope);
     }
 
     @Override
@@ -175,6 +212,9 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         if (hasSnapshotPin()) {
             sb.append(", snapshotId=").append(snapshotId).append(", ref=").append(ref)
                     .append(", schemaId=").append(schemaId);
+        }
+        if (rewriteFileScope != null) {
+            sb.append(", rewriteFileScope=").append(rewriteFileScope.size()).append(" files");
         }
         return sb.append('}').toString();
     }

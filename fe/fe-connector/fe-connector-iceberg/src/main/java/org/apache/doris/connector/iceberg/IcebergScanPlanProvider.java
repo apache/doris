@@ -81,6 +81,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -327,10 +328,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean stashRewritableDeletes = rewritableDeleteStash != null && formatVersion >= 3;
         String stashQueryId = stashRewritableDeletes ? session.getQueryId() : null;
 
+        // WS-REWRITE R2 per-group scope: when the handle carries a rewrite file scope (the engine
+        // rewrite_data_files driver sets it before each group's INSERT-SELECT), keep ONLY the data files in
+        // that scope so the group rewrites exactly its bin-packed files. Match on the RAW iceberg path
+        // (dataFile.path(), the SAME value the rewrite planner records into the scope), NOT the
+        // scheme-normalized BE path (the range's .path()) — a normalization difference would silently scope to
+        // the wrong files (over-read -> a RewriteFiles commit replacing more than the group -> duplicate rows).
+        // null = no scope = full scan (every non-rewrite scan). Each kept task keeps its merge-on-read deletes
+        // (buildRange re-attaches task.deletes()), so scoping never drops a delete binding.
+        Set<String> rewriteScope = iceHandle.getRewriteFileScope();
+
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (CloseableIterable<FileScanTask> tasks = planFileScanTask(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 DataFile dataFile = task.file();
+                if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
+                    continue;
+                }
                 IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
                         orderedPartitionKeys, zone, vendedToken, -1);
                 ranges.add(range);
