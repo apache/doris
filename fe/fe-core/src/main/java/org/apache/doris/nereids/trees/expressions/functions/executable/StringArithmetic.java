@@ -46,9 +46,6 @@ import com.google.common.collect.Lists;
 
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -56,6 +53,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -136,11 +134,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "lower")
     public static Expression lowerVarchar(StringLikeLiteral first) {
-        StringBuilder result = new StringBuilder(first.getValue().length());
-        for (char c : first.getValue().toCharArray()) {
-            result.append(Character.toLowerCase(c));
-        }
-        return castStringLikeLiteral(first, result.toString());
+        return castStringLikeLiteral(first, first.getValue().toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -148,11 +142,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "upper")
     public static Expression upperVarchar(StringLikeLiteral first) {
-        StringBuilder result = new StringBuilder(first.getValue().length());
-        for (char c : first.getValue().toCharArray()) {
-            result.append(Character.toUpperCase(c));
-        }
-        return castStringLikeLiteral(first, result.toString());
+        return castStringLikeLiteral(first, first.getValue().toUpperCase(Locale.ROOT));
     }
 
     private static String trimImpl(String first, String second, boolean left, boolean right) {
@@ -327,7 +317,8 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "right")
     public static Expression right(StringLikeLiteral first, IntegerLiteral second) {
-        int inputLength = first.getValue().codePointCount(0, first.getValue().length());
+        String input = first.getValue();
+        int inputLength = input.codePointCount(0, input.length());
         if (second.getValue() < (- inputLength) || Math.abs(second.getValue()) == 0) {
             return castStringLikeLiteral(first, "");
         } else if (second.getValue() >= inputLength) {
@@ -335,13 +326,11 @@ public class StringArithmetic {
         } else {
             // at here second can not be exceeding boundary
             if (second.getValue() >= 0) {
-                int index = first.getValue().offsetByCodePoints(0, second.getValue());
-                return castStringLikeLiteral(first, first.getValue().substring(
-                    inputLength - index, inputLength));
+                int index = input.offsetByCodePoints(0, inputLength - second.getValue());
+                return castStringLikeLiteral(first, input.substring(index));
             } else {
-                int index = first.getValue().offsetByCodePoints(0, Math.abs(second.getValue()) - 1);
-                return castStringLikeLiteral(first, first.getValue().substring(
-                    index, inputLength));
+                int index = input.offsetByCodePoints(0, Math.abs(second.getValue()) - 1);
+                return castStringLikeLiteral(first, input.substring(index));
             }
         }
     }
@@ -400,7 +389,11 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "instr")
     public static Expression instr(StringLikeLiteral first, StringLikeLiteral second) {
-        return new IntegerLiteral(first.getValue().indexOf(second.getValue()) + 1);
+        int index = first.getValue().indexOf(second.getValue());
+        if (index < 0) {
+            return new IntegerLiteral(0);
+        }
+        return new IntegerLiteral(first.getValue().codePointCount(0, index) + 1);
     }
 
     /**
@@ -494,19 +487,22 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "initcap")
     public static Expression initCap(StringLikeLiteral first) {
-        StringBuilder result = new StringBuilder(first.getValue().length());
+        String lower = first.getValue().toLowerCase(Locale.ROOT);
+        StringBuilder result = new StringBuilder(lower.length());
         boolean capitalizeNext = true;
 
-        for (char c : first.getValue().toCharArray()) {
-            if (!Character.isLetterOrDigit(c)) {
-                result.append(c);
+        for (int i = 0; i < lower.length();) {
+            int codePoint = lower.codePointAt(i);
+            if (!Character.isLetterOrDigit(codePoint)) {
+                result.appendCodePoint(codePoint);
                 capitalizeNext = true;  // Next character should be capitalized
             } else if (capitalizeNext) {
-                result.append(Character.toUpperCase(c));
+                result.appendCodePoint(Character.toUpperCase(codePoint));
                 capitalizeNext = false;
             } else {
-                result.append(Character.toLowerCase(c));
+                result.appendCodePoint(codePoint);
             }
+            i += Character.charCount(codePoint);
         }
         return castStringLikeLiteral(first, result.toString());
     }
@@ -580,6 +576,24 @@ public class StringArithmetic {
         return 0;
     }
 
+    private static int compareFloatLiteral(FloatLiteral first, FloatLiteral... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].getValue() == first.getValue()) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    private static int compareDoubleLiteral(DoubleLiteral first, DoubleLiteral... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].getValue() == first.getValue()) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
     /**
      * Executable arithmetic functions field
      */
@@ -625,7 +639,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "field")
     public static Expression fieldFloat(FloatLiteral first, FloatLiteral... second) {
-        return new IntegerLiteral(compareLiteral(first, second));
+        return new IntegerLiteral(compareFloatLiteral(first, second));
     }
 
     /**
@@ -633,7 +647,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "field")
     public static Expression fieldDouble(DoubleLiteral first, DoubleLiteral... second) {
-        return new IntegerLiteral(compareLiteral(first, second));
+        return new IntegerLiteral(compareDoubleLiteral(first, second));
     }
 
     /**
@@ -858,7 +872,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "strcmp")
     public static Expression strcmp(StringLikeLiteral first, StringLikeLiteral second) {
-        int result = first.getValue().compareTo(second.getValue());
+        int result = compareUtf8Bytes(first.getValue(), second.getValue());
         if (result == 0) {
             return new TinyIntLiteral((byte) 0);
         } else if (result < 0) {
@@ -866,6 +880,19 @@ public class StringArithmetic {
         } else {
             return new TinyIntLiteral((byte) 1);
         }
+    }
+
+    private static int compareUtf8Bytes(String left, String right) {
+        byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
+        byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
+        int minLength = Math.min(leftBytes.length, rightBytes.length);
+        for (int i = 0; i < minLength; i++) {
+            int diff = Byte.toUnsignedInt(leftBytes[i]) - Byte.toUnsignedInt(rightBytes[i]);
+            if (diff != 0) {
+                return diff;
+            }
+        }
+        return leftBytes.length - rightBytes.length;
     }
 
     /**
@@ -897,93 +924,137 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "parse_url")
     public static Expression parseurl(StringLikeLiteral first, StringLikeLiteral second) {
-        URI uri = null;
-        try {
-            uri = new URI(first.getValue());
-        } catch (URISyntaxException e) {
-            throw new RuntimeException(e);
-        }
-        StringBuilder sb = new StringBuilder();
-        if (uri.getScheme() == null) {
+        String value = parseUrlRaw(first.getValue(), second.getValue());
+        if (value == null) {
             return new NullLiteral(first.getDataType());
         }
-        switch (second.getValue().toUpperCase()) {
+        return castStringLikeLiteral(first, value);
+    }
+
+    private static String parseUrlRaw(String url, String part) {
+        String trimmedUrl = url.trim();
+        int protocolPos = trimmedUrl.indexOf("://");
+        if (protocolPos < 0) {
+            return null;
+        }
+        String protocolEnd = trimmedUrl.substring(protocolPos + "://".length());
+        switch (part.toUpperCase(Locale.ROOT)) {
             case "PROTOCOL":
-                String scheme = uri.getScheme();
-                if (scheme == null) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(scheme); // e.g., http, https
-                break;
+                return trimmedUrl.substring(0, protocolPos);
             case "HOST":
-                String host = uri.getHost();
-                if (host == null) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(host);  // e.g., www.example.com
-                break;
+                return parseUrlHost(protocolEnd);
             case "PATH":
-                String path = uri.getPath();
-                if (path == null) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(path);  // e.g., /page
-                break;
+                return parseUrlPath(protocolEnd);
             case "REF":
-                try {
-                    String ref = uri.toURL().getRef();
-                    if (ref == null) {
-                        return new NullLiteral(first.getDataType());
-                    }
-                    sb.append(ref);  // e.g., /page
-                } catch (MalformedURLException e) {
-                    throw new RuntimeException(e);
-                }
-                break;
+                return parseUrlRef(protocolEnd);
             case "AUTHORITY":
-                String authority = uri.getAuthority();
-                if (authority == null) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(authority);  // e.g., param1=value1&param2=value2
-                break;
+                return parseUrlAuthority(protocolEnd);
             case "FILE":
-                try {
-                    String file = uri.toURL().getFile();
-                    if (file == null) {
-                        return new NullLiteral(first.getDataType());
-                    }
-                    sb.append(file);  // e.g., param1=value1&param2=value2
-                } catch (MalformedURLException e) {
-                    throw new RuntimeException(e);
-                }
-                break;
+                return parseUrlFile(protocolEnd);
             case "QUERY":
-                String query = uri.getQuery();
-                if (query == null) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(query);  // e.g., param1=value1&param2=value2
-                break;
+                return parseUrlQuery(protocolEnd);
             case "PORT":
-                int port = uri.getPort();
-                if (port == -1) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(port);
-                break;
+                return parseUrlPort(protocolEnd);
             case "USERINFO":
-                String userInfo = uri.getUserInfo();
-                if (userInfo == null) {
-                    return new NullLiteral(first.getDataType());
-                }
-                sb.append(userInfo);  // e.g., user:pass
-                break;
+                return parseUrlUserInfo(protocolEnd);
             default:
                 throw new RuntimeException("Valid URL parts are 'PROTOCOL', 'HOST', "
                         + "'PATH', 'REF', 'AUTHORITY', 'FILE', 'USERINFO', 'PORT' and 'QUERY'");
         }
-        return castStringLikeLiteral(first, sb.toString());
+    }
+
+    private static int firstIndexOf(String value, char first, char second) {
+        int firstIndex = value.indexOf(first);
+        int secondIndex = value.indexOf(second);
+        if (firstIndex < 0) {
+            return secondIndex;
+        }
+        if (secondIndex < 0) {
+            return firstIndex;
+        }
+        return Math.min(firstIndex, secondIndex);
+    }
+
+    private static String substringEnd(String value, int end) {
+        return end < 0 ? value : value.substring(0, end);
+    }
+
+    private static String parseUrlAuthority(String protocolEnd) {
+        return substringEnd(protocolEnd, protocolEnd.indexOf('/'));
+    }
+
+    private static String parseUrlPath(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('/');
+        if (startPos < 0) {
+            return "";
+        }
+        String pathStart = protocolEnd.substring(startPos);
+        return substringEnd(pathStart, firstIndexOf(pathStart, '?', '#'));
+    }
+
+    private static String parseUrlFile(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('/');
+        if (startPos < 0) {
+            return "";
+        }
+        String pathStart = protocolEnd.substring(startPos);
+        return substringEnd(pathStart, pathStart.indexOf('#'));
+    }
+
+    private static String parseUrlHost(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('@');
+        startPos = startPos < 0 ? 0 : startPos + 1;
+        String hostStart = protocolEnd.substring(startPos);
+        int queryStartPos = hostStart.indexOf('?');
+        if (queryStartPos > 0) {
+            hostStart = hostStart.substring(0, queryStartPos);
+        }
+        int endPos = hostStart.indexOf(':');
+        if (endPos < 0) {
+            endPos = hostStart.indexOf('/');
+        }
+        return substringEnd(hostStart, endPos);
+    }
+
+    private static String parseUrlQuery(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('?');
+        if (startPos < 0) {
+            return null;
+        }
+        String queryStart = protocolEnd.substring(startPos + 1);
+        return substringEnd(queryStart, queryStart.indexOf('#'));
+    }
+
+    private static String parseUrlRef(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('#');
+        if (startPos < 0) {
+            return null;
+        }
+        return protocolEnd.substring(startPos + 1);
+    }
+
+    private static String parseUrlUserInfo(String protocolEnd) {
+        int endPos = protocolEnd.indexOf('@');
+        if (endPos < 0) {
+            return null;
+        }
+        return protocolEnd.substring(0, endPos);
+    }
+
+    private static String parseUrlPort(String protocolEnd) {
+        int startPos = protocolEnd.indexOf('@');
+        startPos = startPos < 0 ? 0 : startPos + 1;
+        String hostStart = protocolEnd.substring(startPos);
+        int endPos = hostStart.indexOf(':');
+        if (endPos < 0) {
+            return null;
+        }
+        String portStart = hostStart.substring(endPos + 1);
+        int portEndPos = portStart.indexOf('/');
+        if (portEndPos < 0) {
+            portEndPos = portStart.indexOf('?');
+        }
+        return substringEnd(portStart, portEndPos);
     }
 
     /**
@@ -1042,25 +1113,26 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "extract_url_parameter")
     public static Expression extractUrlParameter(StringLikeLiteral first, StringLikeLiteral second) {
-        if (first.getValue() == null || first.getValue().indexOf('?') == -1) {
+        if (second.getValue().isEmpty()) {
             return castStringLikeLiteral(first, "");
         }
-        URI uri;
-        try {
-            uri = new URI(first.getValue());
-        } catch (URISyntaxException e) {
-            throw new RuntimeException(e);
+        String trimmedUrl = first.getValue().trim();
+        int questionPos = trimmedUrl.indexOf('?');
+        if (questionPos < 0) {
+            return castStringLikeLiteral(first, "");
         }
-
-        String query = uri.getQuery();
-        if (query != null) {
-            String[] pairs = query.split("&", -1);
-
-            for (String pair : pairs) {
-                String[] keyValue = pair.split("=", -1);
-                if (second.getValue().equals(keyValue[0])) {
-                    return castStringLikeLiteral(first, keyValue[1]);
-                }
+        int hashPos = trimmedUrl.indexOf('#');
+        String subUrl = hashPos < 0
+                ? trimmedUrl.substring(questionPos + 1)
+                : trimmedUrl.substring(questionPos + 1, hashPos);
+        String[] pairs = subUrl.split("&", -1);
+        for (String pair : pairs) {
+            int eqPos = pair.indexOf('=');
+            if (eqPos < 0) {
+                continue;
+            }
+            if (second.getValue().equals(pair.substring(0, eqPos))) {
+                return castStringLikeLiteral(first, pair.substring(eqPos + 1));
             }
         }
         return castStringLikeLiteral(first, "");
