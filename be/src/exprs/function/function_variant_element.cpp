@@ -263,9 +263,9 @@ private:
         if (src.empty()) {
             *result = ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode());
             // src subcolumns empty but src row count may not be 0
-            (*result)->assume_mutable()->insert_many_defaults(src.size());
+            (*result)->assert_mutable()->insert_many_defaults(src.size());
             // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
-            (*result)->assume_mutable()->finalize();
+            (*result)->assert_mutable()->finalize();
             return Status::OK();
         }
         if (src.is_scalar_variant() && is_string_type(src.get_root_type()->get_primitive_type())) {
@@ -290,7 +290,7 @@ private:
             }
             *result = ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(), type,
                                             std::move(result_column));
-            (*result)->assume_mutable()->finalize();
+            (*result)->assert_mutable()->finalize();
             return Status::OK();
         } else {
             auto mutable_src = src.clone_finalized();

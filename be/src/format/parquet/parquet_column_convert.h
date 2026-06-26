@@ -293,7 +293,7 @@ public:
         const size_t dst_old_rows = get_mutable_inner_column_size(dst_logical_col);
         const size_t dst_old_null_map_size =
                 get_null_map_size_or_inner_column_size(dst_logical_col);
-        auto converted_column = dst_logical_col->assume_mutable();
+        auto converted_column = dst_logical_col->assert_mutable();
         RETURN_IF_ERROR(_logical_converter->convert(src_logical_column, converted_column));
         const size_t dst_new_rows = get_mutable_inner_column_size(dst_logical_col) - dst_old_rows;
         align_null_map(src_logical_column, dst_logical_col, dst_old_null_map_size, dst_new_rows,
