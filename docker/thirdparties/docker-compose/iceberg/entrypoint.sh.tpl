@@ -26,6 +26,7 @@ done
 set -ex
 
 mkdir -p /opt/spark/events
+SPARK_THRIFT_EXTENSIONS="org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions"
 
 for f in /opt/spark/sbin/*; do
   ln -s $f /usr/local/bin/$(basename $f)
@@ -39,9 +40,6 @@ done
 start-master.sh -p 7077
 start-worker.sh spark://doris--spark-iceberg:7077
 start-history-server.sh
-start-thriftserver.sh \
-  --master spark://doris--spark-iceberg:7077 \
-  --driver-java-options "-Dderby.system.home=/tmp/derby"
 
 # The creation of a Spark SQL client is time-consuming,
 # and reopening a new client for each SQL file execution leads to significant overhead.
@@ -69,6 +67,19 @@ spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions
 END_TIME3=$(date +%s)
 EXECUTION_TIME3=$((END_TIME3 - START_TIME3))
 echo "Script iceberg load total: {} executed in $EXECUTION_TIME3 seconds"
+
+start-thriftserver.sh \
+  --master spark://doris--spark-iceberg:7077 \
+  --conf "spark.sql.extensions=${SPARK_THRIFT_EXTENSIONS}" \
+  --driver-java-options "-Dderby.system.home=/tmp/derby"
+
+while ! beeline \
+  -u "jdbc:hive2://localhost:10000/;auth=noSasl" \
+  -n hadoop \
+  -p hadoop \
+  -e "SELECT 1" >/tmp/spark-thriftserver-ready.log 2>&1; do
+    sleep 1
+done
 
 touch /mnt/SUCCESS;
 
