@@ -32,9 +32,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
-#include "exprs/vexpr_context.h"
 #include "format/line_reader.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/materialized_reader_util.h"
 #include "io/file_factory.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
@@ -341,36 +341,14 @@ Status DelimitedTextReader::get_block(Block* file_block, size_t* rows, bool* eof
     const size_t rows_before_filter = *rows;
     update_counter(_text_profile.rows_read_before_filter, rows_before_filter);
 
-    size_t rows_after_delete_filter = rows_before_filter;
-    if (_request != nullptr && rows_before_filter > 0 && !_request->delete_conjuncts.empty()) {
-        {
-            SCOPED_TIMER(_text_profile.delete_conjunct_filter_time);
-            RETURN_IF_ERROR(VExprContext::filter_block(_request->delete_conjuncts, file_block,
-                                                       file_block->columns()));
-        }
-        rows_after_delete_filter =
-                file_block->columns() == 0 ? rows_before_filter : file_block->rows();
-        update_counter(_text_profile.rows_filtered_by_delete_conjunct,
-                       rows_before_filter - rows_after_delete_filter);
-    }
-
-    size_t rows_after_filter = rows_after_delete_filter;
-    if (_request != nullptr && rows_after_delete_filter > 0 && !_request->conjuncts.empty()) {
-        {
-            SCOPED_TIMER(_text_profile.conjunct_filter_time);
-            RETURN_IF_ERROR(VExprContext::filter_block(_request->conjuncts, file_block,
-                                                       file_block->columns()));
-        }
-        rows_after_filter =
-                file_block->columns() == 0 ? rows_after_delete_filter : file_block->rows();
-        const auto rows_filtered_by_conjunct = rows_after_delete_filter - rows_after_filter;
-        update_counter(_text_profile.rows_filtered_by_conjunct, rows_filtered_by_conjunct);
-        if (_io_ctx != nullptr) {
-            _io_ctx->predicate_filtered_rows += rows_filtered_by_conjunct;
-        }
-    }
-
-    *rows = rows_after_filter;
+    MaterializedReaderFilterProfile filter_profile;
+    filter_profile.delete_conjunct_filter_time = _text_profile.delete_conjunct_filter_time;
+    filter_profile.conjunct_filter_time = _text_profile.conjunct_filter_time;
+    filter_profile.rows_filtered_by_delete_conjunct =
+            _text_profile.rows_filtered_by_delete_conjunct;
+    filter_profile.rows_filtered_by_conjunct = _text_profile.rows_filtered_by_conjunct;
+    RETURN_IF_ERROR(apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block,
+                                                      rows, &filter_profile));
     update_counter(_text_profile.rows_returned, *rows);
     _reader_statistics.read_rows += *rows;
     *eof = _line_reader_eof && *rows == 0;

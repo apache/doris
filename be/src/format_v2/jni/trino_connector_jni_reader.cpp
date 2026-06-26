@@ -32,8 +32,7 @@ constexpr std::string_view TRINO_CONNECTOR_NAME = "connector.name";
 
 Status TrinoConnectorJniReader::validate_scan_range(const TFileRangeDesc& range) const {
     if (!range.__isset.table_format_params) {
-        return Status::InternalError(
-                "missing table_format_params for trino connector jni reader");
+        return Status::InternalError("missing table_format_params for trino connector jni reader");
     }
     if (!range.table_format_params.__isset.trino_connector_params) {
         return Status::InternalError(
@@ -52,8 +51,7 @@ Status TrinoConnectorJniReader::validate_scan_range(const TFileRangeDesc& range)
                 "missing trino connector.name option for trino connector jni reader, possibly "
                 "caused by FE/BE protocol mismatch");
     }
-    if (!trino_params.__isset.trino_connector_split ||
-        trino_params.trino_connector_split.empty()) {
+    if (!trino_params.__isset.trino_connector_split || trino_params.trino_connector_split.empty()) {
         return Status::InternalError(
                 "missing trino_connector_split for trino connector jni reader, possibly caused "
                 "by FE/BE protocol mismatch");
@@ -109,8 +107,7 @@ Status TrinoConnectorJniReader::build_scanner_params(
     (*params)["trino_connector_column_handles"] = trino_params.trino_connector_column_handles;
     (*params)["trino_connector_column_metadata"] = trino_params.trino_connector_column_metadata;
     (*params)["trino_connector_predicate"] = trino_params.trino_connector_predicate;
-    (*params)["trino_connector_trascation_handle"] =
-            trino_params.trino_connector_trascation_handle;
+    (*params)["trino_connector_trascation_handle"] = trino_params.trino_connector_trascation_handle;
 
     for (const auto& kv : trino_params.trino_connector_options) {
         (*params)[std::string(TRINO_CONNECTOR_OPTION_PREFIX) + kv.first] = kv.second;
@@ -125,13 +122,12 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() const {
     Jni::LocalClass plugin_loader_cls;
     const std::string plugin_loader_class =
             "org/apache/doris/trinoconnector/TrinoConnectorPluginLoader";
-    RETURN_IF_ERROR(Jni::Util::get_jni_scanner_class(env, plugin_loader_class.c_str(),
-                                                     &plugin_loader_cls));
+    RETURN_IF_ERROR(
+            Jni::Util::get_jni_scanner_class(env, plugin_loader_class.c_str(), &plugin_loader_cls));
 
     Jni::MethodId set_plugins_dir_method;
-    RETURN_IF_ERROR(plugin_loader_cls.get_static_method(env, "setPluginsDir",
-                                                        "(Ljava/lang/String;)V",
-                                                        &set_plugins_dir_method));
+    RETURN_IF_ERROR(plugin_loader_cls.get_static_method(
+            env, "setPluginsDir", "(Ljava/lang/String;)V", &set_plugins_dir_method));
 
     Jni::LocalString trino_connector_plugin_path;
     RETURN_IF_ERROR(Jni::LocalString::new_string(

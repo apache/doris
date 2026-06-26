@@ -66,8 +66,7 @@ std::string MaxComputeJniReader::connector_class() const {
     return "org/apache/doris/maxcompute/MaxComputeJniScanner";
 }
 
-Status MaxComputeJniReader::build_scanner_params(
-        std::map<std::string, std::string>* params) const {
+Status MaxComputeJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {
     DORIS_CHECK(params != nullptr);
     DORIS_CHECK(_table_desc != nullptr);
     params->clear();

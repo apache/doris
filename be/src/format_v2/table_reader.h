@@ -124,9 +124,8 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
-    // File formats without self-describing metadata, such as CSV, need the original FE slot
-    // descriptors to build their file-local schema and deserialize values. Self-describing formats
-    // ignore this field and use metadata parsed from the file footer/header.
+    // File formats without complete self-describing metadata, such as CSV, Text, and JSON, need
+    // the FE-planned physical file slots to build their file-local schema and deserialize values.
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
     // Push-down aggregate type.
     const TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;

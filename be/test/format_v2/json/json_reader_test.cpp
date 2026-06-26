@@ -35,7 +35,10 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -214,6 +217,57 @@ int32_t nullable_int_at(const IColumn& column, size_t row) {
 bool nullable_is_null_at(const IColumn& column, size_t row) {
     const auto& nullable = assert_cast<const ColumnNullable&>(column);
     return nullable.is_null_at(row);
+}
+
+class NullableIntGreaterThanExpr final : public VExpr {
+public:
+    NullableIntGreaterThanExpr(size_t block_position, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _block_position(block_position),
+              _value(value) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    bool is_constant() const override { return false; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_block_position).column);
+        const auto& data = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
+
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const auto source_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] =
+                    !nullable.is_null_at(source_row) && data.get_element(source_row) > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = std::make_shared<NullableIntGreaterThanExpr>(_block_position, _value);
+        return Status::OK();
+    }
+
+private:
+    size_t _block_position;
+    int32_t _value;
+    const std::string _name = "NullableIntGreaterThanExpr";
+};
+
+VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
+    auto context = VExprContext::create_shared(expr);
+    auto status = context->prepare(state, RowDescriptor());
+    EXPECT_TRUE(status.ok()) << status;
+    status = context->open(state);
+    EXPECT_TRUE(status.ok()) << status;
+    return context;
 }
 
 } // namespace
@@ -397,6 +451,52 @@ TEST(JsonReaderTest, SkipsEmptyJsonLine) {
     ASSERT_EQ(result.rows, 1);
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 15);
     EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "nancy");
+}
+
+// Scenario: JSON, Native, CSV, and Hive text all share the same file-local filter order:
+// delete conjuncts run first, ordinary conjuncts run second, and only ordinary conjuncts contribute
+// to IOContext::predicate_filtered_rows. This guards the JSON caller of the shared helper because
+// CSV/Text already assert the optional profile-counter path.
+TEST(JsonReaderTest, AppliesDeleteAndNormalConjunctsWithPredicateFilterAccounting) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    const auto file_path = write_json_file("filters.jsonl", R"({"id":1,"name":"alice"})"
+                                                            "\n"
+                                                            R"({"id":2,"name":"bob"})"
+                                                            "\n"
+                                                            R"({"id":3,"name":"carol"})"
+                                                            "\n");
+    auto params = json_scan_params();
+    auto range = file_range(file_path);
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    system_properties->system_type = TFileType::FILE_LOCAL;
+    auto desc = file_description(file_path.string());
+    RuntimeProfile profile("json_v2_reader_filter_test");
+    MockRuntimeState state;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    JsonReader reader(system_properties, desc, io_ctx, &profile, &params, range, slots);
+
+    ASSERT_TRUE(reader.init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader.get_schema(&schema).ok());
+
+    auto request = std::make_shared<FileScanRequest>();
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    request->delete_conjuncts = {
+            prepared_conjunct(&state, std::make_shared<NullableIntGreaterThanExpr>(0, 1))};
+    request->conjuncts = {
+            prepared_conjunct(&state, std::make_shared<NullableIntGreaterThanExpr>(0, 2))};
+    ASSERT_TRUE(reader.open(request).ok());
+
+    auto block = make_block(schema, {0, 1});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader.get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 3);
+    EXPECT_EQ(nullable_string_at(*block.get_by_position(1).column, 0), "carol");
+    EXPECT_EQ(io_ctx->predicate_filtered_rows, 1);
 }
 
 } // namespace doris::format::json
