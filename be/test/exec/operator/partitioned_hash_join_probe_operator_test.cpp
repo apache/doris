@@ -49,6 +49,17 @@ protected:
 
 namespace {
 
+constexpr auto CANCEL_REASON = "partitioned hash join probe cancelled";
+
+void cancel_state(RuntimeState* state) {
+    state->cancel(Status::Cancelled(CANCEL_REASON));
+}
+
+void expect_cancelled(const Status& status) {
+    EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find(CANCEL_REASON), std::string::npos) << status.to_string();
+}
+
 SpillFileSPtr create_probe_test_spill_file(RuntimeState* state, RuntimeProfile* profile,
                                            int node_id, const std::string& prefix,
                                            const std::vector<std::vector<int32_t>>& batches) {
@@ -123,6 +134,28 @@ Status prepare_probe_local_state_for_repartition(PartitionedHashJoinProbeOperato
 }
 
 } // namespace
+
+TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildAndProbeReturnCancelAtEntry) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+    std::shared_ptr<MockPartitionedHashJoinSharedState> shared_state;
+    auto* local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
+                                                         probe_operator.get(), shared_state);
+    JoinSpillPartitionInfo build_partition(nullptr, nullptr, 0);
+    JoinSpillPartitionInfo probe_partition(nullptr, nullptr, 0);
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(local_state->recover_build_blocks_from_partition(_helper.runtime_state.get(),
+                                                                      build_partition));
+    expect_cancelled(local_state->recover_probe_blocks_from_partition(_helper.runtime_state.get(),
+                                                                      probe_partition));
+}
+
+TEST_F(PartitionedHashJoinProbeOperatorTest, RevokeMemoryReturnsCancelAtEntry) {
+    auto [probe_operator, sink_operator] = _helper.create_operators();
+
+    cancel_state(_helper.runtime_state.get());
+    expect_cancelled(probe_operator->revoke_memory(_helper.runtime_state.get()));
+}
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
     auto [probe_operator, sink_operator] = _helper.create_operators();
