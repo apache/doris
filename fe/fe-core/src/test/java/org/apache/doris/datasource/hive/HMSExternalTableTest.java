@@ -29,7 +29,6 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.thrift.TFileFormatType;
 
-import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
@@ -43,7 +42,6 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 
 /**
@@ -299,13 +297,9 @@ public class HMSExternalTableTest {
                     Lists.newArrayList(Type.VARCHAR),
                     true);
             PartitionItem partitionItem = new ListPartitionItem(Lists.newArrayList(partitionKey));
-            long partitionId = 1L;
-            Map<Long, PartitionItem> idToPartitionItem = ImmutableMap.of(partitionId, partitionItem);
             this.partitionValues = new HiveExternalMetaCache.HivePartitionValues(
-                    idToPartitionItem,
-                    HashBiMap.create(ImmutableMap.of("dt=" + partitionValue, partitionId)),
-                    ImmutableMap.of(partitionId, Collections.singletonList(partitionValue)),
-                    partitionId + 1);
+                    ImmutableMap.of("dt=" + partitionValue, partitionItem),
+                    ImmutableMap.of("dt=" + partitionValue, Collections.singletonList(partitionValue)));
         }
 
         @Override

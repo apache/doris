@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
@@ -24,13 +25,13 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 
-import com.google.common.collect.HashBiMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -125,17 +126,16 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
-    public void testHivePartitionValuesNextPartitionIdIsCopiedAndMonotonic() {
+    public void testHivePartitionValuesCopyKeepsIndependentNameMaps() {
+        Map<String, PartitionItem> nameToPartitionItem = new HashMap<>();
+        Map<String, List<String>> nameToPartitionValues = new HashMap<>();
+        nameToPartitionValues.put("dt=2026-06-26", Collections.singletonList("2026-06-26"));
         HiveExternalMetaCache.HivePartitionValues partitionValues =
-                new HiveExternalMetaCache.HivePartitionValues(
-                        new HashMap<>(), HashBiMap.create(), new HashMap<>(), 2L);
-
-        Assertions.assertEquals(2L, partitionValues.getAndIncrementNextPartitionId());
-        Assertions.assertEquals(3L, partitionValues.getAndIncrementNextPartitionId());
+                new HiveExternalMetaCache.HivePartitionValues(nameToPartitionItem, nameToPartitionValues);
 
         HiveExternalMetaCache.HivePartitionValues copy = partitionValues.copy();
-        Assertions.assertEquals(4L, copy.getAndIncrementNextPartitionId());
-        Assertions.assertEquals(4L, partitionValues.getAndIncrementNextPartitionId());
+        copy.getNameToPartitionValues().put("dt=2026-06-27", Collections.singletonList("2026-06-27"));
+        Assertions.assertFalse(partitionValues.getNameToPartitionValues().containsKey("dt=2026-06-27"));
     }
 
     private void putCache(
