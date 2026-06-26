@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -38,6 +39,7 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
@@ -500,6 +502,49 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsMerge() {
         return true;
+    }
+
+    /**
+     * Rejects row-level DML on iceberg copy-on-write tables (Doris only supports merge-on-read deletes /
+     * deletion vectors). Reads the per-operation write-mode property ({@code write.delete.mode} /
+     * {@code write.update.mode} / {@code write.merge.mode}, defaulting to {@code merge-on-read}) and throws if
+     * it resolves to {@code copy-on-write}. Mirrors the legacy fe-resident
+     * {@code IcebergDmlCommandUtils.checkNotCopyOnWrite}, but the message — and the iceberg property knowledge —
+     * now lives in the connector. {@code op} values other than DELETE/UPDATE/MERGE are not row-level DML and
+     * return without loading the table.
+     */
+    @Override
+    public void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
+        String modeProperty;
+        String defaultMode;
+        String operationLabel;
+        switch (op) {
+            case DELETE:
+                modeProperty = TableProperties.DELETE_MODE;
+                defaultMode = TableProperties.DELETE_MODE_DEFAULT;
+                operationLabel = "DELETE";
+                break;
+            case UPDATE:
+                modeProperty = TableProperties.UPDATE_MODE;
+                defaultMode = TableProperties.UPDATE_MODE_DEFAULT;
+                operationLabel = "UPDATE";
+                break;
+            case MERGE:
+                modeProperty = TableProperties.MERGE_MODE;
+                defaultMode = TableProperties.MERGE_MODE_DEFAULT;
+                operationLabel = "MERGE INTO";
+                break;
+            default:
+                return;
+        }
+        Table table = loadTable((IcebergTableHandle) handle);
+        String mode = table.properties().getOrDefault(modeProperty, defaultMode);
+        if (RowLevelOperationMode.COPY_ON_WRITE.modeName().equalsIgnoreCase(mode)) {
+            throw new DorisConnectorException(String.format(
+                    "Doris does not support %s on Iceberg copy-on-write tables. "
+                            + "Set table property '%s' to 'merge-on-read'.",
+                    operationLabel, modeProperty));
+        }
     }
 
     /**

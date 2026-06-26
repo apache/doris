@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -96,6 +100,10 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public void checkMode(TableIf table, RowLevelDmlOp op) {
+        if (table instanceof PluginDrivenExternalTable) {
+            checkPluginMode((PluginDrivenExternalTable) table, op);
+            return;
+        }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         switch (op) {
             case DELETE:
@@ -107,6 +115,44 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
             default:
                 IcebergDmlCommandUtils.checkMergeMode(icebergTable);
                 break;
+        }
+    }
+
+    /**
+     * Post-cutover {@link #checkMode}: route the copy-on-write rejection through the connector's neutral
+     * {@code validateRowLevelDmlMode} SPI, so the iceberg property knowledge and the message stay in the
+     * connector. A connector {@link DorisConnectorException} is surfaced as the analysis-time
+     * {@link AnalysisException} the legacy native path threw, preserving the user-facing message and the
+     * exception type.
+     *
+     * <p>Dormant until the C5 cutover: today no live table presents as a {@link PluginDrivenExternalTable}
+     * here (iceberg is not yet in {@code SPI_READY_TYPES}), so the legacy {@code IcebergDmlCommandUtils} arm
+     * still runs.</p>
+     */
+    private static void checkPluginMode(PluginDrivenExternalTable table, RowLevelDmlOp op) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                        session, table.getRemoteDbName(), table.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: "
+                        + table.getRemoteDbName() + "." + table.getRemoteName()
+                        + " in catalog " + catalog.getName()));
+        try {
+            metadata.validateRowLevelDmlMode(session, handle, toWriteOperation(op));
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    private static WriteOperation toWriteOperation(RowLevelDmlOp op) {
+        switch (op) {
+            case DELETE:
+                return WriteOperation.DELETE;
+            case UPDATE:
+                return WriteOperation.UPDATE;
+            default:
+                return WriteOperation.MERGE;
         }
     }
 

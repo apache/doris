@@ -19,11 +19,15 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -85,6 +89,90 @@ public class IcebergConnectorMetadataTest {
         IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
         Assertions.assertTrue(metadata.supportsDelete(), "iceberg must declare DELETE support");
         Assertions.assertTrue(metadata.supportsMerge(), "iceberg must declare MERGE support");
+    }
+
+    /** A metadata over a single table {@code db1.t1} carrying the given iceberg table properties. */
+    private static IcebergConnectorMetadata metadataWithTableProps(Map<String, String> tableProps) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", tableProps);
+        return metadataWith(ops);
+    }
+
+    private static void assertCopyOnWriteRejected(
+            IcebergConnectorMetadata md, WriteOperation op, String operationLabel, String property) {
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), op));
+        Assertions.assertTrue(e.getMessage().contains(operationLabel), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("copy-on-write"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains(property), e.getMessage());
+    }
+
+    @Test
+    public void validateRowLevelDmlModeDefaultRejectsCopyOnWrite() {
+        // WHY: iceberg's DELETE/UPDATE/MERGE mode defaults to copy-on-write (TableProperties.*_MODE_DEFAULT),
+        // which Doris cannot execute (it does merge-on-read position deletes / DVs only). With NO mode
+        // property set, every row-level op must be rejected — byte-identical to the legacy fe-resident
+        // IcebergDmlCommandUtilsTest.testDefaultModesRejectCopyOnWriteOperations. MUTATION: swapping the
+        // getOrDefault fallback to merge-on-read -> default tables wrongly admitted -> red.
+        IcebergConnectorMetadata md = metadataWithTableProps(new HashMap<>());
+        assertCopyOnWriteRejected(md, WriteOperation.DELETE, "DELETE", TableProperties.DELETE_MODE);
+        assertCopyOnWriteRejected(md, WriteOperation.UPDATE, "UPDATE", TableProperties.UPDATE_MODE);
+        assertCopyOnWriteRejected(md, WriteOperation.MERGE, "MERGE INTO", TableProperties.MERGE_MODE);
+    }
+
+    @Test
+    public void validateRowLevelDmlModeExplicitCopyOnWriteRejects() {
+        Map<String, String> props = new HashMap<>();
+        props.put(TableProperties.DELETE_MODE, RowLevelOperationMode.COPY_ON_WRITE.modeName());
+        props.put(TableProperties.UPDATE_MODE, RowLevelOperationMode.COPY_ON_WRITE.modeName());
+        props.put(TableProperties.MERGE_MODE, RowLevelOperationMode.COPY_ON_WRITE.modeName());
+        IcebergConnectorMetadata md = metadataWithTableProps(props);
+        assertCopyOnWriteRejected(md, WriteOperation.DELETE, "DELETE", TableProperties.DELETE_MODE);
+        assertCopyOnWriteRejected(md, WriteOperation.UPDATE, "UPDATE", TableProperties.UPDATE_MODE);
+        assertCopyOnWriteRejected(md, WriteOperation.MERGE, "MERGE INTO", TableProperties.MERGE_MODE);
+    }
+
+    @Test
+    public void validateRowLevelDmlModeMergeOnReadAllows() {
+        Map<String, String> props = new HashMap<>();
+        props.put(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        props.put(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        props.put(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        IcebergConnectorMetadata md = metadataWithTableProps(props);
+        Assertions.assertDoesNotThrow(() ->
+                md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.DELETE));
+        Assertions.assertDoesNotThrow(() ->
+                md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.UPDATE));
+        Assertions.assertDoesNotThrow(() ->
+                md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.MERGE));
+    }
+
+    @Test
+    public void validateRowLevelDmlModeSelectsPropertyPerOperation() {
+        // Load-bearing: each op reads ITS OWN mode property. Only DELETE is set to merge-on-read; UPDATE and
+        // MERGE fall back to the copy-on-write default and must still be rejected. MUTATION: routing every op
+        // to DELETE_MODE -> UPDATE/MERGE wrongly admitted -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        IcebergConnectorMetadata md = metadataWithTableProps(props);
+        Assertions.assertDoesNotThrow(() ->
+                md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.DELETE));
+        assertCopyOnWriteRejected(md, WriteOperation.UPDATE, "UPDATE", TableProperties.UPDATE_MODE);
+        assertCopyOnWriteRejected(md, WriteOperation.MERGE, "MERGE INTO", TableProperties.MERGE_MODE);
+    }
+
+    @Test
+    public void validateRowLevelDmlModeIsNoOpForNonRowLevelOps() {
+        // INSERT / OVERWRITE / REWRITE are not row-level DML: validate is a no-op and never even loads the
+        // table to read a mode property — so a copy-on-write table is NOT rejected for a plain append.
+        Map<String, String> props = new HashMap<>();
+        props.put(TableProperties.DELETE_MODE, RowLevelOperationMode.COPY_ON_WRITE.modeName());
+        IcebergConnectorMetadata md = metadataWithTableProps(props);
+        Assertions.assertDoesNotThrow(() ->
+                md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.INSERT));
+        Assertions.assertDoesNotThrow(() ->
+                md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.OVERWRITE));
     }
 
     @Test

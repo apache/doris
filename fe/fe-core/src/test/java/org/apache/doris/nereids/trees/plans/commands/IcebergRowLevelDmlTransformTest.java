@@ -23,11 +23,15 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -113,6 +117,78 @@ public class IcebergRowLevelDmlTransformTest {
         // A plugin connector with neither capability (e.g. jdbc/es/paimon today) must NOT be admitted,
         // else its row-level DML would route through the iceberg synthesis path.
         Assertions.assertFalse(transform.handles(pluginTable(false, false)));
+    }
+
+    /**
+     * A {@link PluginDrivenExternalTable} (db1.t1) whose connector resolves to {@code metadata}. Used to
+     * drive the post-flip {@link IcebergRowLevelDmlTransform#checkMode} plugin arm, which routes the
+     * copy-on-write rejection through the connector's neutral {@code validateRowLevelDmlMode} SPI.
+     */
+    private static PluginDrivenExternalTable pluginTableWithMetadata(
+            ConnectorMetadata metadata, ConnectorSession session) {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getRemoteDbName()).thenReturn("db1");
+        Mockito.when(table.getRemoteName()).thenReturn("t1");
+        Mockito.when(catalog.getName()).thenReturn("ice_cat");
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
+        return table;
+    }
+
+    @Test
+    public void checkModePluginArmRoutesEachOpToConnectorMode() {
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
+        PluginDrivenExternalTable table = pluginTableWithMetadata(metadata, session);
+
+        transform.checkMode(table, RowLevelDmlOp.DELETE);
+        transform.checkMode(table, RowLevelDmlOp.UPDATE);
+        transform.checkMode(table, RowLevelDmlOp.MERGE);
+
+        // Post-flip: the mode check delegates to the connector SPI on the resolved handle. The neutral op axis
+        // must map DELETE->DELETE, UPDATE->UPDATE, MERGE->MERGE so the connector reads the matching
+        // write.{delete,update,merge}.mode property. MUTATION: collapsing toWriteOperation to one value -> the
+        // wrong property is checked -> these verifies fail.
+        Mockito.verify(metadata).validateRowLevelDmlMode(session, handle, WriteOperation.DELETE);
+        Mockito.verify(metadata).validateRowLevelDmlMode(session, handle, WriteOperation.UPDATE);
+        Mockito.verify(metadata).validateRowLevelDmlMode(session, handle, WriteOperation.MERGE);
+    }
+
+    @Test
+    public void checkModePluginArmWrapsConnectorRejectionAsAnalysisException() {
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.of(handle));
+        Mockito.doThrow(new DorisConnectorException(
+                        "Doris does not support DELETE on Iceberg copy-on-write tables."))
+                .when(metadata).validateRowLevelDmlMode(session, handle, WriteOperation.DELETE);
+        PluginDrivenExternalTable table = pluginTableWithMetadata(metadata, session);
+
+        // The connector throws its own DorisConnectorException; the transform surfaces it as the analysis-time
+        // AnalysisException the legacy path threw, preserving the message. MUTATION: dropping the catch/rethrow
+        // -> a DorisConnectorException escapes (wrong type) -> red.
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> transform.checkMode(table, RowLevelDmlOp.DELETE));
+        Assertions.assertTrue(e.getMessage().contains("copy-on-write"), e.getMessage());
+    }
+
+    @Test
+    public void checkModePluginArmThrowsWhenTableHandleMissing() {
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getTableHandle(session, "db1", "t1")).thenReturn(Optional.empty());
+        PluginDrivenExternalTable table = pluginTableWithMetadata(metadata, session);
+
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> transform.checkMode(table, RowLevelDmlOp.DELETE));
+        Assertions.assertTrue(e.getMessage().contains("Table not found"), e.getMessage());
     }
 
     @Test

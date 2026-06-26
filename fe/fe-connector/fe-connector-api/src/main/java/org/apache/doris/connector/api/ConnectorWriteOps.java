@@ -17,7 +17,9 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteOperation;
 
 /**
  * Write (DML) operations that a connector may support.
@@ -70,6 +72,23 @@ public interface ConnectorWriteOps {
      */
     default boolean supportsWriteBranch() {
         return false;
+    }
+
+    /**
+     * Validates that a row-level DML {@code op} ({@link WriteOperation#DELETE} / {@link WriteOperation#UPDATE} /
+     * {@link WriteOperation#MERGE}) is permitted on {@code handle} under the table's configured write mode,
+     * throwing a {@link DorisConnectorException} with a connector-authored message otherwise. Called at analysis
+     * time, before synthesizing the write plan, so the engine rejects an unsupported statement up front (fail
+     * loud) rather than producing a broken write.
+     *
+     * <p>The default permits everything: connectors with no per-table mode constraint need not override. A
+     * connector whose tables can be configured in a mode that forbids row-level DML (e.g. iceberg
+     * copy-on-write) MUST override this and throw, so the rejection — and its message — stay in the connector
+     * rather than being drafted by the engine. {@code op} values other than DELETE/UPDATE/MERGE are not
+     * row-level DML and an overriding connector should treat them as a no-op.</p>
+     */
+    default void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
+        // default: no per-table mode constraint
     }
 
     // ──────────────────── TRANSACTION ────────────────────
