@@ -50,6 +50,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.datasource.ExternalTable;
@@ -121,6 +122,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBaseExternalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
@@ -594,10 +596,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                                        PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        IcebergDeleteSink sink = new IcebergDeleteSink(
-                (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
-                icebergDeleteSink.getDeleteContext());
-        rootFragment.setSink(sink);
+        // Post-flip the DELETE target is a PluginDrivenExternalTable: route through the connector's
+        // PluginDrivenTableSink with WriteOperation.DELETE so the connector's planWrite emits its
+        // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
+        // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
+        // resolves it by block-name, not by output-expr name. Pre-flip the native IcebergDeleteSink path is
+        // byte-identical.
+        if (icebergDeleteSink.getTargetTable() instanceof PluginDrivenExternalTable) {
+            rootFragment.setSink(buildPluginRowLevelDmlSink(icebergDeleteSink, WriteOperation.DELETE));
+        } else {
+            IcebergDeleteSink sink = new IcebergDeleteSink(
+                    (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
+                    icebergDeleteSink.getDeleteContext());
+            rootFragment.setSink(sink);
+        }
         return rootFragment;
     }
 
@@ -606,6 +618,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                                       PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergMergeSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        // The slot-name loop runs for BOTH the native and the plugin arm. BE's viceberg_merge_sink resolves
+        // the operation / row-id columns by the output-expr names (TPlanFragment.output_exprs), which are the
+        // sink-input slots' col_names — independent of the sink dialect. The synthesized operation column has
+        // no backing Column, so its slot col_name is empty unless we materialize the label here; this must
+        // happen before either sink is built (the connector receives only ConnectorColumns + table metadata
+        // and cannot recover the slot hint).
         List<Expr> outputExprs = Lists.newArrayList();
         for (Slot slot : icebergMergeSink.getOutput()) {
             SlotRef slotRef = Objects.requireNonNull(context.findSlotRef(slot.getExprId()),
@@ -623,11 +641,66 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputExprs.add(slotRef);
         }
         rootFragment.setOutputExprs(outputExprs);
-        IcebergMergeSink sink = new IcebergMergeSink(
-                (IcebergExternalTable) icebergMergeSink.getTargetTable(),
-                icebergMergeSink.getDeleteContext());
-        rootFragment.setSink(sink);
+        // Post-flip the MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
+        // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
+        // TIcebergMergeSink dialect (which threads its own sort_fields). Pre-flip the native IcebergMergeSink
+        // path is byte-identical.
+        if (icebergMergeSink.getTargetTable() instanceof PluginDrivenExternalTable) {
+            rootFragment.setSink(buildPluginRowLevelDmlSink(icebergMergeSink, WriteOperation.MERGE));
+        } else {
+            IcebergMergeSink sink = new IcebergMergeSink(
+                    (IcebergExternalTable) icebergMergeSink.getTargetTable(),
+                    icebergMergeSink.getDeleteContext());
+            rootFragment.setSink(sink);
+        }
         return rootFragment;
+    }
+
+    /**
+     * Builds the plugin-driven sink for a post-flip iceberg row-level DML (DELETE / MERGE) whose target has
+     * been flipped to a {@link PluginDrivenExternalTable}. Mirrors {@link #visitPhysicalConnectorTableSink}'s
+     * connector resolution (catalog -&gt; connector -&gt; metadata -&gt; pinned table handle) but threads the
+     * given {@link WriteOperation} so the connector's {@code planWrite} dispatches to its DELETE / MERGE BE sink
+     * dialect ({@code TIcebergDeleteSink} / {@code TIcebergMergeSink}) instead of the INSERT dialect. A
+     * row-level DML has no engine write-sort ({@code writeSortInfo == null}): DELETE is unsorted and MERGE
+     * carries its sort inside the connector's {@code TIcebergMergeSink.sort_fields}. The statement's MVCC read
+     * snapshot is pinned onto the write handle (reusing the scan-side pin, Fix B) so the connector's RowDelta
+     * re-derives its deletes from the same snapshot the scan read.
+     */
+    private PluginDrivenTableSink buildPluginRowLevelDmlSink(
+            PhysicalBaseExternalTableSink<? extends Plan> sink, WriteOperation writeOperation) {
+        PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) sink.getTargetTable();
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) targetTable.getCatalog();
+
+        Connector connector = catalog.getConnector();
+        ConnectorSession connSession = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(connSession);
+
+        List<ConnectorColumn> connectorColumns = sink.getCols().stream()
+                .map(col -> new ConnectorColumn(col.getName(),
+                        ConnectorType.of(col.getType().getPrimitiveType().toString()),
+                        null, col.isAllowNull(), null))
+                .collect(java.util.stream.Collectors.toList());
+
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        if (writePlanProvider == null) {
+            throw new AnalysisException(
+                    "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
+                            + ") does not support row-level DML operations");
+        }
+        ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
+                targetTable.getRemoteDbName(), targetTable.getRemoteName())
+                .orElseThrow(() -> new AnalysisException(
+                        "Table not found: " + targetTable.getRemoteDbName()
+                                + "." + targetTable.getRemoteName()
+                                + " in catalog " + catalog.getName()));
+        providerTableHandle = PluginDrivenScanNode.applyMvccSnapshotPin(
+                metadata, connSession, providerTableHandle, MvccUtil.getSnapshotFromContext(targetTable));
+
+        // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
+        // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
+        return new PluginDrivenTableSink(targetTable, writePlanProvider, connSession,
+                providerTableHandle, connectorColumns, null, writeOperation);
     }
 
     @Override
