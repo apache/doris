@@ -32,9 +32,13 @@ import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -42,6 +46,7 @@ import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -49,6 +54,7 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ContentFileUtil;
@@ -65,10 +71,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Iceberg connector transaction (ports the legacy
@@ -147,10 +155,6 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     // after beginWrite has loaded the table). volatile: applyWriteConstraint and commit may run on different
     // threads.
     private volatile ConnectorPredicate writeConstraint;
-    // V3 deletion-vector "rewrite previous delete files": old file-scoped delete files to remove from the
-    // RowDelta, keyed by the referenced data-file path. Fed by the engine (T07 product path); consumed by the
-    // RowDelta removeDeletes step. Defaults to empty (no rewrite).
-    private volatile Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     public IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
@@ -261,15 +265,6 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     @Override
     public void applyWriteConstraint(ConnectorPredicate targetOnlyFilter) {
         this.writeConstraint = targetOnlyFilter;
-    }
-
-    /**
-     * Sets the map of old file-scoped delete files (keyed by referenced data-file path) to remove from the
-     * V3 deletion-vector RowDelta. Fed by the engine's plan synthesis (T07 product path); package-visible for
-     * the unit tests. Mirrors legacy {@code IcebergTransaction.setRewrittenDeleteFilesByReferencedDataFile}.
-     */
-    void setRewrittenDeleteFilesByReferencedDataFile(Map<String, List<DeleteFile>> map) {
-        this.rewrittenDeleteFilesByReferencedDataFile = map == null ? Collections.emptyMap() : map;
     }
 
     /**
@@ -864,33 +859,78 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     }
 
     /**
-     * Collects the old file-scoped delete files to remove from the V3 RowDelta: for each delete fragment that
-     * references a data-file path present in {@link #rewrittenDeleteFilesByReferencedDataFile}, take its old
-     * file-scoped delete files, deduped by {@link #buildDeleteFileDedupKey}. Ported from legacy
-     * {@code IcebergTransaction.collectRewrittenDeleteFiles}.
+     * Collects the old file-scoped delete files to {@code removeDeletes} from the V3 deletion-vector RowDelta,
+     * re-derived at commit time (Trino-style, mirroring {@code DefaultDeletionVectorWriter
+     * .getExistingDeletesByMetadataOnly}): a metadata-only read of the base snapshot's delete manifests, keyed by
+     * the data-file paths this commit touched ({@link TIcebergCommitData#getReferencedDataFilePath}). The old
+     * file-scoped deletes (legacy file-scoped position deletes + V3 deletion vectors) referencing those data
+     * files are exactly the ones a V3 commit must remove so each data file keeps at most one deletion file.
+     * Deduped by {@link #buildDeleteFileDedupKey}.
+     *
+     * <p>Unlike legacy {@code IcebergTransaction.collectRewrittenDeleteFiles} (which looked the old files up in a
+     * scan-time map fed from the read plan), this reads them from the write-time {@link #baseSnapshotId} the
+     * RowDelta validates against, so the removed deletes are snapshot-consistent with the commit by construction
+     * (no read-vs-write snapshot skew). Post-flip deviation DV-S2-rederive (dormant: iceberg is not yet a
+     * plugin-driven type, so this commit path runs only after the C5 flip).</p>
      */
     List<DeleteFile> collectRewrittenDeleteFiles(List<TIcebergCommitData> deleteCommitData) {
-        if (deleteCommitData == null || deleteCommitData.isEmpty()
-                || rewrittenDeleteFilesByReferencedDataFile.isEmpty()) {
+        if (deleteCommitData == null || deleteCommitData.isEmpty() || baseSnapshotId == null || table == null) {
             return Collections.emptyList();
         }
-
-        Map<String, DeleteFile> dedup = new LinkedHashMap<>();
+        Set<String> touchedDataFilePaths = new HashSet<>();
         for (TIcebergCommitData commitData : deleteCommitData) {
-            if (!commitData.isSetReferencedDataFilePath()
-                    || commitData.getReferencedDataFilePath() == null
-                    || commitData.getReferencedDataFilePath().isEmpty()) {
-                continue;
+            if (commitData.isSetReferencedDataFilePath()
+                    && commitData.getReferencedDataFilePath() != null
+                    && !commitData.getReferencedDataFilePath().isEmpty()) {
+                touchedDataFilePaths.add(commitData.getReferencedDataFilePath());
             }
-            List<DeleteFile> oldDeleteFiles =
-                    rewrittenDeleteFilesByReferencedDataFile.get(commitData.getReferencedDataFilePath());
-            if (oldDeleteFiles == null) {
-                continue;
-            }
-            for (DeleteFile deleteFile : oldDeleteFiles) {
-                if (deleteFile != null && ContentFileUtil.isFileScoped(deleteFile)) {
-                    dedup.putIfAbsent(buildDeleteFileDedupKey(deleteFile), deleteFile);
+        }
+        if (touchedDataFilePaths.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return readExistingFileScopedDeletes(table, baseSnapshotId, touchedDataFilePaths);
+    }
+
+    /**
+     * Reads the base snapshot's delete manifests (metadata-only — no data-file reads) and returns the file-scoped
+     * position deletes / deletion vectors whose referenced data file is among {@code touchedDataFilePaths},
+     * deduped by {@link #buildDeleteFileDedupKey}. Mirrors Trino
+     * {@code DefaultDeletionVectorWriter.getExistingDeletesByMetadataOnly} (POSITION_DELETES content, file-scoped
+     * only — partition-scoped deletes are never removed).
+     *
+     * <p>Intentional divergence from Trino: when a data file (on a v2&rarr;v3 upgraded table) carries BOTH a
+     * legacy file-scoped position delete AND a deletion vector, this returns BOTH (Trino suppresses the legacy
+     * file once a DV exists). Doris's BE unions the old positions from both kinds into the new DV
+     * ({@code viceberg_delete_sink} load_rewritable_delete_rows), so both old files are fully superseded and both
+     * must be removed — leaving the legacy file would orphan a stale delete.
+     *
+     * <p>Each {@link DeleteFile} is defensively copied so the returned list stays valid after the reader closes.
+     */
+    private List<DeleteFile> readExistingFileScopedDeletes(
+            Table baseTable, long snapshotId, Set<String> touchedDataFilePaths) {
+        Snapshot snapshot = baseTable.snapshot(snapshotId);
+        if (snapshot == null) {
+            return Collections.emptyList();
+        }
+        FileIO io = baseTable.io();
+        Map<Integer, PartitionSpec> specsById = baseTable.specs();
+        Map<String, DeleteFile> dedup = new LinkedHashMap<>();
+        for (ManifestFile manifest : snapshot.deleteManifests(io)) {
+            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(manifest, io, specsById)) {
+                for (DeleteFile deleteFile : reader) {
+                    if (deleteFile.content() != FileContent.POSITION_DELETES
+                            || !ContentFileUtil.isFileScoped(deleteFile)) {
+                        continue;
+                    }
+                    String referenced = deleteFile.referencedDataFile();
+                    if (referenced == null || !touchedDataFilePaths.contains(referenced)) {
+                        continue;
+                    }
+                    dedup.putIfAbsent(buildDeleteFileDedupKey(deleteFile), deleteFile.copy());
                 }
+            } catch (IOException e) {
+                throw new DorisConnectorException(
+                        "Failed to read iceberg delete manifest " + manifest.path() + ": " + e.getMessage(), e);
             }
         }
         return new ArrayList<>(dedup.values());

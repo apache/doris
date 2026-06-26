@@ -800,56 +800,156 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
-    public void collectRewrittenDeleteFilesDedupsFileScopedDeletes() {
-        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+    public void collectRewrittenDeleteFilesOnlyForTouchedDataFiles() {
+        // The re-derive is keyed by the data files this commit touched (referencedDataFilePath): the existing DV
+        // of a data file the commit did NOT touch must not be returned (nor removeDeletes-ed).
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
         PartitionSpec spec = PartitionSpec.unpartitioned();
+        String data1 = "s3://b/db1/t1/data-1.parquet";
+        String data2 = "s3://b/db1/t1/data-2.parquet";
+        Table table = catalog.createTable(id, SCHEMA, spec, props("format-version", "3"));
+        table.newAppend()
+                .appendFile(dataFile(spec, data1, 10L))
+                .appendFile(dataFile(spec, data2, 10L))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(deletionVector(spec, "s3://b/db1/t1/dv-1.puffin", data1, 0L, 64L))
+                .addDeletes(deletionVector(spec, "s3://b/db1/t1/dv-2.puffin", data2, 0L, 64L))
+                .commit();
 
-        // Two distinct old file-scoped (referenced) delete files for one referenced data file, plus a dup.
-        DeleteFile old1 = fileScopedDelete(spec, "s3://b/db1/t1/old-del-1.parquet", "s3://b/db1/t1/data-1.parquet");
-        DeleteFile old1Dup = fileScopedDelete(spec, "s3://b/db1/t1/old-del-1.parquet", "s3://b/db1/t1/data-1.parquet");
-        DeleteFile old2 = fileScopedDelete(spec, "s3://b/db1/t1/old-del-2.parquet", "s3://b/db1/t1/data-1.parquet");
-        Map<String, List<DeleteFile>> map = new HashMap<>();
-        map.put("s3://b/db1/t1/data-1.parquet", Arrays.asList(old1, old1Dup, old2));
-        txn.setRewrittenDeleteFilesByReferencedDataFile(map);
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
 
-        TIcebergCommitData newDelete = positionDeleteItem(
-                "s3://b/db1/t1/new-del.parquet", 1L, "s3://b/db1/t1/data-1.parquet");
+        // Only data-1 is touched by this commit.
+        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(
+                Collections.singletonList(positionDeleteItem("s3://b/db1/t1/new-del.puffin", 1L, data1)));
 
-        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(Collections.singletonList(newDelete));
-
-        Assertions.assertEquals(2, rewritten.size(), "the duplicate old delete file must be deduped away");
-
-        // An empty rewrite map yields no rewritten files.
-        IcebergConnectorTransaction empty = txnFor(opsReturning(null), new RecordingConnectorContext());
-        Assertions.assertTrue(
-                empty.collectRewrittenDeleteFiles(Collections.singletonList(newDelete)).isEmpty());
+        Assertions.assertEquals(1, rewritten.size(), "only the touched data file's existing delete is collected");
+        Assertions.assertEquals("s3://b/db1/t1/dv-1.puffin", rewritten.get(0).path().toString());
     }
 
     @Test
-    public void collectRewrittenDeleteFilesDedupsPuffinByPathOffsetSize() {
-        // DV-T04 parity: buildDeleteFileDedupKey keys PUFFIN (deletion-vector) deletes by
-        // path#contentOffset#contentSizeInBytes, NOT the bare path. Two DVs in the SAME puffin file (same path)
-        // with distinct (offset,size) are BOTH kept; an exact (path,offset,size) duplicate is deduped. The
-        // existing dedup test uses only PARQUET file-scoped deletes (keyed by path), so this PUFFIN arm was
-        // unexercised — a regression that dropped the offset/size from the key would silently merge distinct DVs.
-        IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+    public void collectRewrittenDeleteFilesKeepsDistinctDeletionVectorsSharingOnePuffin() {
+        // DV-T04 parity preserved under the re-derive: buildDeleteFileDedupKey keys PUFFIN deletion vectors by
+        // path#contentOffset#contentSizeInBytes, NOT the bare path. Two DVs packed into the SAME puffin file (one
+        // per data file, distinct offset/size) must BOTH survive — keying by bare path would silently merge them
+        // and drop one data file's DV from removeDeletes.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
         PartitionSpec spec = PartitionSpec.unpartitioned();
+        String data1 = "s3://b/db1/t1/data-1.parquet";
+        String data2 = "s3://b/db1/t1/data-2.parquet";
         String puffin = "s3://b/db1/t1/deletes.puffin";
-        String data = "s3://b/db1/t1/data-1.parquet";
+        Table table = catalog.createTable(id, SCHEMA, spec, props("format-version", "3"));
+        table.newAppend()
+                .appendFile(dataFile(spec, data1, 10L))
+                .appendFile(dataFile(spec, data2, 10L))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(deletionVector(spec, puffin, data1, 0L, 64L))
+                .addDeletes(deletionVector(spec, puffin, data2, 64L, 80L))
+                .commit();
 
-        DeleteFile dv1 = deletionVector(spec, puffin, data, 0L, 64L);
-        DeleteFile dv1Dup = deletionVector(spec, puffin, data, 0L, 64L);   // same path+offset+size -> deduped
-        DeleteFile dv2 = deletionVector(spec, puffin, data, 64L, 80L);     // same path, different offset+size -> kept
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
 
-        Map<String, List<DeleteFile>> map = new HashMap<>();
-        map.put(data, Arrays.asList(dv1, dv1Dup, dv2));
-        txn.setRewrittenDeleteFilesByReferencedDataFile(map);
-
-        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(
-                Collections.singletonList(positionDeleteItem("s3://b/db1/t1/new-del.parquet", 1L, data)));
+        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(Arrays.asList(
+                positionDeleteItem("s3://b/db1/t1/new-1.puffin", 1L, data1),
+                positionDeleteItem("s3://b/db1/t1/new-2.puffin", 1L, data2)));
 
         Assertions.assertEquals(2, rewritten.size(),
-                "two DVs in one puffin file with distinct (offset,size) survive; the exact duplicate is deduped");
+                "two DVs in one puffin file with distinct (offset,size) are both kept (key includes offset/size)");
+    }
+
+    @Test
+    public void collectRewrittenDeleteFilesRemovesBothLegacyAndDeletionVectorForUpgradedTable() {
+        // Intentional divergence from Trino, locked in: on a v2->v3 upgraded table where one data file carries
+        // BOTH a legacy file-scoped position delete AND a deletion vector, BOTH must be returned (and removed).
+        // Doris's BE unions the old positions from both kinds into the new DV, so both old files are superseded;
+        // Trino instead suppresses the legacy file once a DV exists. A regression toward the Trino behavior
+        // (dropping the legacy file) would return 1 here.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        String data1 = "s3://b/db1/t1/data-1.parquet";
+        Table table = catalog.createTable(id, SCHEMA, spec, props("format-version", "2"));
+        table.newAppend().appendFile(dataFile(spec, data1, 10L)).commit();
+        // v2: a legacy parquet file-scoped position delete for data-1.
+        table.newRowDelta().addDeletes(fileScopedDelete(spec, "s3://b/db1/t1/legacy.parquet", data1)).commit();
+        // upgrade to v3, then add a deletion vector for the SAME data file (both survive in the delete manifests).
+        catalog.loadTable(id).updateProperties().set("format-version", "3").commit();
+        catalog.loadTable(id).newRowDelta()
+                .addDeletes(deletionVector(spec, "s3://b/db1/t1/dv.puffin", data1, 0L, 64L))
+                .commit();
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+
+        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(
+                Collections.singletonList(positionDeleteItem("s3://b/db1/t1/new-del.puffin", 1L, data1)));
+
+        Assertions.assertEquals(2, rewritten.size(),
+                "both the legacy file-scoped delete and the deletion vector for the touched data file are removed "
+                        + "(Doris's BE unions both into the new DV; unlike Trino which suppresses the legacy file)");
+    }
+
+    @Test
+    public void collectRewrittenDeleteFilesEmptyWhenCommitCarriesNoReferencedDataFile() {
+        // The keystone is TIcebergCommitData.referencedDataFilePath; a delete fragment without it contributes no
+        // touched data file, so nothing is re-derived (mirrors a data-only fragment).
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        String data1 = "s3://b/db1/t1/data-1.parquet";
+        Table table = catalog.createTable(id, SCHEMA, spec, props("format-version", "3"));
+        table.newAppend().appendFile(dataFile(spec, data1, 10L)).commit();
+        table.newRowDelta()
+                .addDeletes(deletionVector(spec, "s3://b/db1/t1/dv-1.puffin", data1, 0L, 64L))
+                .commit();
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+
+        TIcebergCommitData noRef = new TIcebergCommitData();
+        noRef.setFilePath("s3://b/db1/t1/new-del.puffin");
+        noRef.setRowCount(1L);
+        noRef.setFileContent(TFileContent.POSITION_DELETES);
+
+        Assertions.assertTrue(txn.collectRewrittenDeleteFiles(Collections.singletonList(noRef)).isEmpty(),
+                "a delete fragment with no referencedDataFilePath touches no data file -> nothing to rewrite");
+    }
+
+    @Test
+    public void collectRewrittenDeleteFilesReDerivesFromBaseSnapshotManifest() {
+        // Trino-style commit-time re-derive (option D): the old file-scoped delete files to removeDeletes are
+        // read from the base snapshot's delete manifests (metadata-only), keyed by the data-file paths the
+        // commit touched (TIcebergCommitData.referencedDataFilePath) — NOT from any scan-time map.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        String dataPath = "s3://b/db1/t1/data-1.parquet";
+        Table table = catalog.createTable(id, SCHEMA, spec, props("format-version", "3"));
+        table.newAppend().appendFile(dataFile(spec, dataPath, 10L)).commit();
+        // Seed an existing file-scoped deletion vector for the data file into the snapshot beginWrite will pin.
+        table.newRowDelta()
+                .addDeletes(deletionVector(spec, "s3://b/db1/t1/old.puffin", dataPath, 0L, 64L))
+                .commit();
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+
+        List<DeleteFile> rewritten = txn.collectRewrittenDeleteFiles(
+                Collections.singletonList(positionDeleteItem("s3://b/db1/t1/new-del.puffin", 1L, dataPath)));
+
+        Assertions.assertEquals(1, rewritten.size(),
+                "the existing file-scoped delete for the touched data file is re-derived from the base snapshot");
+        Assertions.assertEquals("s3://b/db1/t1/old.puffin", rewritten.get(0).path().toString());
     }
 
     @Test
