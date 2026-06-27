@@ -761,8 +761,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 writePlanProvider.getWriteSortColumns(connSession, providerTableHandle),
                 connectorTableSink, context);
 
+        // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
+        // planWrite enters its REWRITE arm (RewriteFiles semantics) instead of the plain-INSERT append; the
+        // rewrite marker rides on the sink (PhysicalConnectorTableSink.isRewrite), not on a ConnectContext or
+        // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
+        WriteOperation writeOperation = connectorTableSink.isRewrite()
+                ? WriteOperation.REWRITE : WriteOperation.INSERT;
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
-                writePlanProvider, connSession, providerTableHandle, connectorColumns, writeSortInfo);
+                writePlanProvider, connSession, providerTableHandle, connectorColumns, writeSortInfo,
+                writeOperation);
         rootFragment.setSink(providerSink);
         return rootFragment;
     }

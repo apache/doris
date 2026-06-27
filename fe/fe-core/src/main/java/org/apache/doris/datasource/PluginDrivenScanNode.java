@@ -49,6 +49,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TColumnCategory;
@@ -678,6 +679,47 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Threads a distributed {@code rewrite_data_files} group's per-group file scope onto {@code handle}
+     * BEFORE {@code planScan}, so the group's INSERT-SELECT scans ONLY the data files that group bin-packed
+     * (mirrors {@link #applyMvccSnapshotPin}). {@code rawDataFilePaths} are the RAW paths the connector's
+     * {@code planRewrite} emitted; the connector's {@link ConnectorMetadata#applyRewriteFileScope} matches its
+     * re-enumerated tasks against the SAME raw strings.
+     *
+     * <p>A {@code null}/empty path list is a no-op (returns {@code handle} unchanged — full-table scan): an
+     * absent scope must read everything, and an EMPTY scope must NOT be threaded down (it would scope to
+     * "match nothing"). Public static so the pin-vs-skip decision is unit-testable directly on a Mockito mock,
+     * exactly like {@link #applyMvccSnapshotPin}.</p>
+     */
+    public static ConnectorTableHandle applyRewriteFileScopePin(ConnectorMetadata metadata,
+            ConnectorSession session, ConnectorTableHandle handle, List<String> rawDataFilePaths) {
+        if (rawDataFilePaths == null || rawDataFilePaths.isEmpty()) {
+            return handle;
+        }
+        return metadata.applyRewriteFileScope(session, handle, new HashSet<>(rawDataFilePaths));
+    }
+
+    /**
+     * Resolves the per-group rewrite file scope from the statement context and threads it onto
+     * {@link #currentHandle} (mutates exactly like {@link #pinMvccSnapshot}). Called at every scan-side
+     * handle-consumption point so the split path, the async batch path and the serialized-table path all scan
+     * the scoped file set. NON-consuming read (the per-group {@code StatementContext} is single-use, so the
+     * scope is the same at every site within the statement); a no-op for every non-rewrite scan, so it is
+     * byte-identical for normal reads.
+     */
+    private void pinRewriteFileScope() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getStatementContext() == null) {
+            return;
+        }
+        List<String> scope = ctx.getStatementContext().getRewriteSourceFilePaths();
+        if (scope == null || scope.isEmpty()) {
+            return;
+        }
+        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        currentHandle = applyRewriteFileScopePin(metadata, connectorSession, currentHandle, scope);
+    }
+
+    /**
      * Resolves the time-travel pin for a {@link PluginDrivenSysExternalTable} query whose pin never
      * enters the {@link org.apache.doris.nereids.StatementContext} MVCC map (the sys table is not an
      * {@link MvccTable}; see {@link #pinMvccSnapshot}). Delegates to the SOURCE table's
@@ -792,6 +834,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // immediately before planScan consumes it, so the native split path reads at the pinned
         // snapshot. getSplits already declares UserException, so a getTargetTable() failure propagates.
         pinMvccSnapshot();
+        // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
+        pinRewriteFileScope();
 
         // If buildRemainingFilter stripped non-pushable (CAST) conjuncts (filteredToOriginalIndex
         // != null), suppress source-side LIMIT pushdown: the connector now sees a filter that no
@@ -994,6 +1038,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             splitAssignment.setException(e);
             return;
         }
+        // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
+        pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         final List<String> allPartitions =
@@ -1176,6 +1222,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 } catch (UserException e) {
                     throw new RuntimeException("Failed to pin MVCC snapshot for plugin-driven scan", e);
                 }
+                // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
+                pinRewriteFileScope();
                 cachedPropertiesResult = scanProvider.getScanNodePropertiesResult(
                         connectorSession, currentHandle, columns, filter);
             }

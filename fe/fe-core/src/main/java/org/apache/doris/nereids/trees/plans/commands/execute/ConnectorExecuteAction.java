@@ -36,6 +36,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 import org.apache.doris.datasource.ConnectorColumnConverter;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -114,14 +115,16 @@ public class ConnectorExecuteAction implements ExecuteAction {
             throw new DdlException("Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                     + ") does not support EXECUTE actions");
         }
-        // WHERE lowering is deferred to the rewrite_data_files write-path RFC (R-B): the only procedure that
-        // accepts a WHERE is rewrite_data_files, which is not routed through this dispatch yet; the eight
-        // pure-SDK procedures reject any WHERE. Until lowering lands, a present WHERE is rejected here (fail-loud
-        // over silently dropping it). Pre-flip deviation logged with the T08 DV batch (DV-T07-where).
+        // WHERE lowering is deferred (DV-T07-where). The only procedure that accepts a WHERE is
+        // rewrite_data_files; its WHERE -> ConnectorPredicate lowering is a later step, and the eight pure-SDK
+        // procedures reject any WHERE. Until lowering lands a present WHERE is rejected up-front (fail-loud over
+        // silently dropping it), BEFORE the connector is reached for any execution mode (pre-flip contract).
         if (whereCondition.isPresent()) {
             throw new DdlException("WHERE condition is not yet supported for connector EXECUTE actions");
         }
 
+        // Resolve the shared connector prerequisites — both dispatch arms (single-call and distributed) need
+        // the session, the resolved table handle and the partition names.
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
         ConnectorTableHandle tableHandle = metadata
@@ -131,6 +134,20 @@ public class ConnectorExecuteAction implements ExecuteAction {
         List<String> partitionNames = partitionNamesInfo
                 .map(PartitionNamesInfo::getPartitionNames).orElse(Collections.emptyList());
 
+        // Route on the neutral execution-mode key (the connector decides; no instanceof Iceberg and no
+        // procedure name hard-coded in the engine). A DISTRIBUTED procedure (rewrite_data_files) cannot be
+        // expressed by the single-row execute() contract, so it goes to the distributed rewrite driver.
+        if (procedureOps.getExecutionMode(actionType) == ProcedureExecutionMode.DISTRIBUTED) {
+            ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ConnectContext.get(), table, catalog,
+                    metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames);
+            try {
+                return wrapResult(driver.run());
+            } catch (DorisConnectorException e) {
+                throw new UserException(e.getMessage(), e);
+            }
+        }
+
+        // SINGLE_CALL: a synchronous single-result procedure.
         try {
             ConnectorProcedureResult result = procedureOps.execute(
                     session, tableHandle, actionType, properties, null, partitionNames);

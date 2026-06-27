@@ -18,8 +18,14 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PluginDrivenTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
@@ -45,6 +51,25 @@ public class ConnectorRewriteExecutor extends BaseExternalTableInsertExecutor {
             Optional<InsertCommandContext> insertCtx,
             boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+    }
+
+    @Override
+    protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
+        // Bind the SHARED rewrite transaction (opened once by the distributed rewrite driver and stashed on
+        // this group's StatementContext) onto the SINK's session BEFORE super.finalizeSink -> bindDataSink ->
+        // planWrite, which resolves it via ConnectorSession.getCurrentTransaction(). Mirrors
+        // PluginDrivenInsertExecutor.finalizeSink, but the transaction is the driver's shared one (this
+        // executor opens none of its own), so every group's write joins the single rewrite transaction and
+        // its commit data flows to one place. No-op (and no NPE) when the sink carries no connector session.
+        ConnectorTransaction sharedTx = ctx.getStatementContext() == null
+                ? null : ctx.getStatementContext().getRewriteSharedTransaction();
+        if (sharedTx != null && sink instanceof PluginDrivenTableSink) {
+            ConnectorSession sinkSession = ((PluginDrivenTableSink) sink).getConnectorSession();
+            if (sinkSession != null) {
+                sinkSession.setCurrentTransaction(sharedTx);
+            }
+        }
+        super.finalizeSink(fragment, sink, physicalSink);
     }
 
     @Override

@@ -128,6 +128,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     private volatile Transaction transaction;
     private volatile Table table;
 
+    // Begin-once guard. A normal single-statement write calls beginWrite exactly once. A distributed
+    // rewrite_data_files runs N per-group INSERT-SELECTs that SHARE this one transaction, and each group's
+    // plan-time sink planWrite calls beginWrite again — concurrently (the groups run on the transient task
+    // pool). Without this guard the shared SDK transaction (loaded.newTransaction()) would be rebuilt and the
+    // OCC anchor (startingSnapshotId) re-pinned on every call, racing across threads. The first call loads the
+    // table + pins the snapshot; the rest reuse it. Mirrors Trino's "begin the table-execute once at the
+    // coordinator, the distributed tasks only write" model. No effect on single-statement writes.
+    private final Object beginLock = new Object();
+    private volatile boolean writeStarted = false;
+
     // Op context captured at begin time, consumed by commit() (the volatile transaction write at the end of
     // beginWrite publishes these plain writes to the commit thread).
     private WriteOperation writeOperation = WriteOperation.INSERT;
@@ -178,21 +188,33 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
      * P6.6 docker on a Kerberized HMS).</p>
      */
     public void beginWrite(ConnectorSession session, String db, String tableName, IcebergWriteContext ctx) {
-        this.writeOperation = ctx.getWriteOperation();
-        this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
-        this.staticPartitionValues = ctx.getStaticPartitionValues();
-        this.zone = IcebergTimeUtils.resolveSessionZone(session);
-        try {
-            context.executeAuthenticated(() -> {
-                Table loaded = catalogOps.loadTable(db, tableName);
-                this.table = loaded;
-                applyBeginGuards(ctx, tableName);
-                this.transaction = loaded.newTransaction();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new DorisConnectorException(
-                    "Failed to begin write for iceberg table " + tableName + ": " + e.getMessage(), e);
+        synchronized (beginLock) {
+            if (writeStarted) {
+                // Already begun. A shared distributed-rewrite transaction is opened once by the first group's
+                // planWrite; subsequent concurrent group writes reuse the same loaded table + pinned OCC
+                // snapshot. Single-statement writes call beginWrite exactly once, so this is never reached
+                // for them (byte-identical to the pre-guard path).
+                return;
+            }
+            this.writeOperation = ctx.getWriteOperation();
+            this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
+            this.staticPartitionValues = ctx.getStaticPartitionValues();
+            this.zone = IcebergTimeUtils.resolveSessionZone(session);
+            try {
+                context.executeAuthenticated(() -> {
+                    Table loaded = catalogOps.loadTable(db, tableName);
+                    this.table = loaded;
+                    applyBeginGuards(ctx, tableName);
+                    this.transaction = loaded.newTransaction();
+                    return null;
+                });
+            } catch (Exception e) {
+                throw new DorisConnectorException(
+                        "Failed to begin write for iceberg table " + tableName + ": " + e.getMessage(), e);
+            }
+            // Only flip after a fully successful begin, so a failed load can be retried (writeStarted stays
+            // false) rather than wedging the transaction in a half-begun state.
+            writeStarted = true;
         }
     }
 
@@ -303,6 +325,13 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
     public void registerRewriteSourceFiles(Set<String> dataFilePaths) {
         if (dataFilePaths == null || dataFilePaths.isEmpty()) {
             return;
+        }
+        if (table == null) {
+            // The re-derive below scans the table at the pinned OCC snapshot, both of which beginWrite loads.
+            // The distributed rewrite driver must register the source files only after at least one group's
+            // write has begun the (shared) transaction. Fail loud rather than NPE on table.newScan().
+            throw new DorisConnectorException("registerRewriteSourceFiles called before the rewrite "
+                    + "transaction began (no group write has loaded the table yet)");
         }
         Set<String> wanted = new HashSet<>(dataFilePaths);
         Map<String, DataFile> matched = new HashMap<>();

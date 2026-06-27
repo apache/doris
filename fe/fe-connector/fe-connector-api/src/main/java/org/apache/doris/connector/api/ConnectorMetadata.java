@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Central metadata interface that a connector must implement.
@@ -100,6 +101,25 @@ public interface ConnectorMetadata extends
     default ConnectorTableHandle applySnapshot(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         return handle;  // default: connectors without time-travel ignore the pin
+    }
+
+    /**
+     * Threads a per-group rewrite file scope into the table handle BEFORE {@code planScan}, so the
+     * distributed {@code rewrite_data_files} driver can scope each per-group INSERT-SELECT scan to only the
+     * data files that group bin-packed (mirrors {@link #applySnapshot} / {@code applyFilter} handle-update
+     * pattern). {@code rawDataFilePaths} are the RAW file paths the connector's {@code planRewrite} emitted on
+     * its {@link org.apache.doris.connector.api.procedure.ConnectorRewriteGroup}s; the connector matches its
+     * re-enumerated scan tasks against the SAME raw paths (no normalization on either side — over-reading the
+     * full table would make each group rewrite far beyond its bin-pack set and produce duplicate rows under
+     * OCC).
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without distributed rewrite ignore the
+     * scope and scan the whole table. A {@code null}/empty set is also a no-op (no scope = full scan), so the
+     * pin is only applied when a real per-group path set is present.</p>
+     */
+    default ConnectorTableHandle applyRewriteFileScope(ConnectorSession session,
+            ConnectorTableHandle handle, Set<String> rawDataFilePaths) {
+        return handle;  // default: connectors without distributed rewrite ignore the scope
     }
 
     @Override

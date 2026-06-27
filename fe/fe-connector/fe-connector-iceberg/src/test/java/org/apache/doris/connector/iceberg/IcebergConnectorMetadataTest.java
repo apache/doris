@@ -35,9 +35,11 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Characterization tests for {@link IcebergConnectorMetadata}, pinning the read-path behavior after
@@ -89,6 +91,27 @@ public class IcebergConnectorMetadataTest {
         IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
         Assertions.assertTrue(metadata.supportsDelete(), "iceberg must declare DELETE support");
         Assertions.assertTrue(metadata.supportsMerge(), "iceberg must declare MERGE support");
+    }
+
+    @Test
+    public void applyRewriteFileScopeThreadsRawPathsOntoHandle() {
+        // The distributed rewrite scan-scope pin reaches the connector through the handle: the engine calls
+        // applyRewriteFileScope, the iceberg override threads the RAW paths onto an immutable handle copy that
+        // the scan provider filters its re-enumerated tasks against. MUTATION: dropping the override (return
+        // handle) -> the group scans the whole table -> each group rewrites far beyond its bin-pack set.
+        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        Assertions.assertNull(handle.getRewriteFileScope(), "a fresh handle has no rewrite scope");
+
+        Set<String> paths = new HashSet<>(Arrays.asList(
+                "s3://b/db1/t1/a.parquet", "s3://b/db1/t1/b.parquet"));
+        ConnectorTableHandle scoped = metadata.applyRewriteFileScope(null, handle, paths);
+        Assertions.assertEquals(paths, ((IcebergTableHandle) scoped).getRewriteFileScope(),
+                "override must thread the raw paths onto the handle's rewrite scope");
+
+        // null / empty -> handle unchanged (full scan), never an empty scope (which would scan nothing).
+        Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, null));
+        Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, Collections.emptySet()));
     }
 
     /** A metadata over a single table {@code db1.t1} carrying the given iceberg table properties. */

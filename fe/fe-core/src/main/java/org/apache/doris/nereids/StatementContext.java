@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -323,6 +324,16 @@ public class StatementContext implements Closeable {
     // For Iceberg rewrite operations: control whether to use GATHER distribution
     // When true, data will be collected to a single node to avoid generating too many small files
     private boolean useGatherForIcebergRewrite = false;
+    // Post-flip neutral counterpart of icebergRewriteFileScanTasks: the RAW data-file paths a distributed
+    // rewrite_data_files group must scope its scan to. PluginDrivenScanNode reads it and pins it onto the
+    // connector scan handle (metadata.applyRewriteFileScope), the engine-neutral path that replaces the
+    // iceberg-typed stash above. Left as a separate field so the legacy IcebergScanNode path is untouched.
+    private List<String> rewriteSourceFilePaths = null;
+    // Post-flip neutral counterpart of the legacy shared rewrite transaction: the one connector transaction a
+    // distributed rewrite_data_files driver opens and shares across the N per-group INSERT-SELECTs. The
+    // neutral rewrite executor (ConnectorRewriteExecutor) reads it here and binds it onto its sink session so
+    // the connector's planWrite resolves the SAME transaction (rather than each group opening its own).
+    private ConnectorTransaction rewriteSharedTransaction = null;
     private boolean hasNestedColumns;
     private boolean queryStatsRecorded = false;
 
@@ -1293,6 +1304,38 @@ public class StatementContext implements Closeable {
      */
     public boolean isUseGatherForIcebergRewrite() {
         return this.useGatherForIcebergRewrite;
+    }
+
+    /**
+     * Set the RAW data-file paths a distributed rewrite group must scope its scan to (post-flip neutral
+     * path, consumed by {@link org.apache.doris.datasource.PluginDrivenScanNode}).
+     */
+    public void setRewriteSourceFilePaths(List<String> paths) {
+        this.rewriteSourceFilePaths = paths;
+    }
+
+    /**
+     * Get the per-group rewrite scan scope. NON-consuming (unlike the legacy iceberg getAndClear): the pin is
+     * applied at several scan-side handle-consumption points within one statement and must read the same scope
+     * each time (mirrors the non-consuming MVCC snapshot pin); the per-group StatementContext is single-use, so
+     * there is no stale-reuse risk. Returns {@code null} when no scope is set (full-table scan).
+     */
+    public List<String> getRewriteSourceFilePaths() {
+        return this.rewriteSourceFilePaths;
+    }
+
+    /**
+     * Set the shared connector transaction a distributed rewrite group's sink must bind onto its session.
+     */
+    public void setRewriteSharedTransaction(ConnectorTransaction transaction) {
+        this.rewriteSharedTransaction = transaction;
+    }
+
+    /**
+     * Get the shared connector transaction for the current rewrite group (null outside a distributed rewrite).
+     */
+    public ConnectorTransaction getRewriteSharedTransaction() {
+        return this.rewriteSharedTransaction;
     }
 
     public boolean hasNestedColumns() {

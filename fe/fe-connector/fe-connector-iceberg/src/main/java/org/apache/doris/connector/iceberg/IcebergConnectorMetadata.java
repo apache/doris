@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link ConnectorMetadata} implementation for Iceberg catalogs.
@@ -723,6 +724,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return iceHandle;
         }
         return iceHandle.withSnapshot(snapshotId, ref, snapshot.getSchemaId());
+    }
+
+    /**
+     * Scopes a per-group rewrite scan to {@code rawDataFilePaths} by threading them onto an immutable handle
+     * copy ({@link IcebergTableHandle#withRewriteFileScope}); the scan provider ({@code
+     * IcebergScanPlanProvider.planScanInternal}) keeps only the re-enumerated tasks whose RAW {@code
+     * dataFile.path().toString()} is in the scope, matching the SAME raw paths {@code planRewrite} emitted. A
+     * {@code null}/empty set is a no-op (read the full table) — never scope to an empty set (that would scan
+     * nothing); {@link IcebergTableHandle#withRewriteFileScope} also rejects null elements via {@code
+     * ImmutableSet.copyOf}, so the empty/null guard here keeps it from being reached with a bad set.
+     */
+    @Override
+    public ConnectorTableHandle applyRewriteFileScope(ConnectorSession session,
+            ConnectorTableHandle handle, Set<String> rawDataFilePaths) {
+        if (rawDataFilePaths == null || rawDataFilePaths.isEmpty()) {
+            return handle;
+        }
+        return ((IcebergTableHandle) handle).withRewriteFileScope(rawDataFilePaths);
     }
 
     // ========== Internal helpers ==========

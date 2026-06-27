@@ -121,6 +121,15 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     }
 
     /**
+     * Whether this sink is a distributed {@code rewrite_data_files} (compaction) write. The neutral
+     * translator threads {@code WriteOperation.REWRITE} onto the connector write handle when set, and
+     * {@link #getRequirePhysicalProperties} short-circuits to GATHER.
+     */
+    public boolean isRewrite() {
+        return isRewrite;
+    }
+
+    /**
      * Get required physical properties for sink distribution. Generalizes the legacy
      * {@code PhysicalMaxComputeTableSink.getRequirePhysicalProperties()} 3-branch behavior, gated
      * by connector capabilities so non-partitioned connectors (JDBC, ES) keep the GATHER default:

@@ -1120,6 +1120,52 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void beginWriteIsBeginOnceForSharedRewriteTransaction() {
+        // A distributed rewrite runs N per-group writes that SHARE one transaction; each group's plan-time
+        // sink planWrite calls beginWrite again (concurrently). The begin-once guard must load the table +
+        // open the SDK transaction + pin the OCC snapshot EXACTLY ONCE; the rest are no-ops.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 3L)).commit();
+        Table reloaded = catalog.loadTable(id);
+        long expected = reloaded.currentSnapshot().snapshotId();
+        RecordingIcebergCatalogOps ops = opsReturning(reloaded);
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorTransaction txn = txnFor(ops, ctx);
+
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        Object firstSdkTxn = txn.getTransaction();
+        int authAfterFirst = ctx.authCount;
+        long loadsAfterFirst = ops.log.stream().filter("loadTable:db1.t1"::equals).count();
+
+        // Subsequent concurrent group writes must reuse the shared state, not rebuild it.
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+
+        Assertions.assertSame(firstSdkTxn, txn.getTransaction(), "shared SDK transaction must not be rebuilt");
+        Assertions.assertEquals(authAfterFirst, ctx.authCount, "begin-once: no extra auth-wrapped begins");
+        Assertions.assertEquals(loadsAfterFirst, ops.log.stream().filter("loadTable:db1.t1"::equals).count(),
+                "begin-once: the table must be loaded exactly once");
+        Assertions.assertEquals(expected, txn.getStartingSnapshotId(), "OCC anchor must stay pinned to S1");
+    }
+
+    @Test
+    public void registerRewriteSourceFilesBeforeBeginFailsLoud() {
+        // registerRewriteSourceFiles re-derives the source files from the table at the pinned snapshot, both
+        // loaded by beginWrite. The driver must register only AFTER a group's write began the transaction;
+        // calling it before begin must fail loud, not NPE on table.newScan().
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), SCHEMA, PartitionSpec.unpartitioned());
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList("s3://b/db1/t1/x.parquet"))));
+        Assertions.assertTrue(ex.getMessage().contains("before the rewrite transaction began"),
+                "must fail loud with the begin-ordering message, got: " + ex.getMessage());
+    }
+
+    @Test
     public void rewriteCommitsReplaceDeletingOldAddingNew() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
