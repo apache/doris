@@ -94,7 +94,7 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
                                                   int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnDateV2&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
-    for (size_t i = start; i < end; ++i) {
+    for (int64_t i = start; i < end; ++i) {
         auto daynr = col_data[i].daynr() - date_threshold;
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column, *array_builder));
@@ -145,7 +145,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
                                                 const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
-    for (size_t row_id = start; row_id < end; row_id++) {
+    for (int64_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
@@ -156,6 +156,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
 }
 
 Status DataTypeDateV2SerDe::read_column_from_orc(const std::string& timezone, IColumn& column,
+                                                 const orc::Type* orc_type,
                                                  const orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
                                                  const UInt8* filter) const {
@@ -193,7 +194,7 @@ void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& colum
 void DataTypeDateV2SerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                    ColumnString::Chars& chars,
                                                    int64_t row_num) const {
-    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_DATEV2);
+    const auto type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_DATEV2);
     const auto& data_ref =
             assert_cast<const ColumnVector<TYPE_DATEV2>&>(src_column).get_data_at(row_num);
 

@@ -41,6 +41,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
+class Type;
 struct ColumnVectorBatch;
 } // namespace orc
 
@@ -493,6 +494,7 @@ public:
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
     virtual Status read_column_from_orc(const std::string& timezone, IColumn& column,
+                                        const orc::Type* orc_type,
                                         const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
                                         int64_t end, const UInt8* filter) const {
         return Status::NotSupported("read_column_from_orc with type {}", get_name());

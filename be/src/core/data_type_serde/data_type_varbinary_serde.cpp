@@ -99,6 +99,7 @@ Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
 }
 
 Status DataTypeVarbinarySerDe::read_column_from_orc(const std::string& timezone, IColumn& column,
+                                                    const orc::Type* orc_type,
                                                     const orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
                                                     const UInt8* filter) const {

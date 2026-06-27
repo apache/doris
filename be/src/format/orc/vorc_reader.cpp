@@ -1748,8 +1748,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         if constexpr (is_filter) {
             filter_data = _filter->data();
         }
-        return data_type->get_serde()->read_column_from_orc(_ctz, *data_column, cvb, 0, num_values,
-                                                            filter_data);
+        return data_type->get_serde()->read_column_from_orc(_ctz, *data_column, orc_column_type,
+                                                            cvb, 0, num_values, filter_data);
     }
 
     if (logical_type == PrimitiveType::TYPE_ARRAY) {

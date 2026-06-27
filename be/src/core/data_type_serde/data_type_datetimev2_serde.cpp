@@ -380,7 +380,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
             std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
     const std::string& timezone = timestamp_type->timezone();
     const cctz::time_zone& real_ctz = timezone.empty() ? cctz::utc_time_zone() : ctz;
-    for (size_t i = start; i < end; ++i) {
+    for (int64_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(
                     checkArrowStatus(timestamp_builder.AppendNull(), column, *array_builder));
@@ -482,7 +482,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
     const auto& col_data = assert_cast<const ColumnDateTimeV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
 
-    for (size_t row_id = start; row_id < end; row_id++) {
+    for (int64_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
@@ -501,6 +501,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
 }
 
 Status DataTypeDateTimeV2SerDe::read_column_from_orc(const std::string& timezone, IColumn& column,
+                                                     const orc::Type* orc_type,
                                                      const orc::ColumnVectorBatch* orc_col_batch,
                                                      int64_t start, int64_t end,
                                                      const UInt8* filter) const {
