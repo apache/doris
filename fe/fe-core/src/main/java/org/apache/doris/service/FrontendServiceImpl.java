@@ -1046,7 +1046,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         SplitSource splitSource =
                 Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
         if (splitSource == null) {
-            throw new TException("Split source " + request.getSplitSourceId() + " is released");
+            // Return a structured error status instead of throwing a bare TException, so the BE
+            // receives a well-formed error (with a non-empty message) through the normal result
+            // path. Throwing here surfaces as a thrift transport exception on the BE side and,
+            // on the Arrow Flight path, may feed an empty/invalid error string into the gRPC
+            // status conversion. See https://github.com/apache/doris/issues/62259
+            LOG.warn("split source {} is released", request.getSplitSourceId());
+            result.status = new TStatus(TStatusCode.NOT_FOUND);
+            result.status.addToErrorMsgs("Split source " + request.getSplitSourceId() + " is released");
+            return result;
         }
         try {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
