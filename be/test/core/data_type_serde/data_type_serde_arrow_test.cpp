@@ -499,24 +499,57 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
-TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
-    std::string col_name = "big_string";
+TEST(DataTypeSerDeArrowTest, RejectOversizedUtf8PayloadByteSize) {
+    const std::string col_name = "oversized_utf8";
     auto block = std::make_shared<Block>();
     auto strcol = ColumnString::create();
-    // 2G, if > 4G report string column length is too large: total_length=4402341462
-    for (int i = 0; i < 20; ++i) {
-        std::string is(107374182, '0'); // 100M
-        strcol->insert_data(is.c_str(), is.size());
-    }
+    strcol->get_offsets().push_back(static_cast<uint32_t>(MAX_ARROW_UTF8));
     DataTypePtr data_type(std::make_shared<DataTypeString>());
     ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
     block->insert(type_and_name);
 
-    std::shared_ptr<arrow::RecordBatch> record_batch =
-            CommonDataTypeSerdeTest::serialize_arrow(block);
-    auto assert_block = std::make_shared<Block>(block->clone_empty());
-    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
-    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+    auto schema = arrow::schema({arrow::field(col_name, arrow::utf8())});
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    auto status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                         &record_batch, default_timezone);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    const auto status_msg = status.to_string();
+    EXPECT_NE(status_msg.find("supported limit"), std::string::npos);
+    EXPECT_NE(status_msg.find("payload_bytes=" + std::to_string(MAX_ARROW_UTF8)),
+              std::string::npos);
+    EXPECT_NE(status_msg.find("limit=" + std::to_string(MAX_ARROW_UTF8)), std::string::npos);
+    EXPECT_EQ(status_msg.find("2GB"), std::string::npos);
+    EXPECT_EQ(record_batch, nullptr);
+}
+
+TEST(DataTypeSerDeArrowTest, AllowNullableUtf8RowRangeUnderPayloadLimit) {
+    const std::string col_name = "nullable_utf8";
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->get_offsets().push_back(static_cast<uint32_t>(MAX_ARROW_UTF8));
+    strcol->get_offsets().push_back(static_cast<uint32_t>(MAX_ARROW_UTF8));
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(1);
+    null_map->insert_value(1);
+    auto nullable_col = ColumnNullable::create(std::move(strcol), std::move(null_map));
+    DataTypePtr data_type(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+    ColumnWithTypeAndName type_and_name(nullable_col->get_ptr(), data_type, col_name);
+    block->insert(type_and_name);
+
+    auto schema = arrow::schema({arrow::field(col_name, arrow::utf8())});
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    auto status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                         &record_batch, default_timezone, 1, 2);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(record_batch, nullptr);
+    ASSERT_EQ(record_batch->num_rows(), 1);
+    ASSERT_EQ(record_batch->num_columns(), 1);
+    EXPECT_TRUE(record_batch->column(0)->IsNull(0));
 }
 
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {

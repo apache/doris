@@ -33,12 +33,15 @@
 
 #include <ctime>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -51,6 +54,48 @@ class Array;
 } // namespace arrow
 
 namespace doris {
+
+namespace {
+
+size_t selected_string_payload_bytes(const ColumnString& string_column, size_t start, size_t rows) {
+    if (rows == 0) {
+        return 0;
+    }
+    const auto& offsets = string_column.get_offsets();
+    const size_t end = start + rows;
+    const size_t start_offset = start == 0 ? 0 : offsets[start - 1];
+    const size_t end_offset = offsets[end - 1];
+    return end_offset - start_offset;
+}
+
+std::optional<size_t> selected_arrow_utf8_payload_bytes(const IColumn& column, size_t start,
+                                                        size_t rows) {
+    if (const auto* string_column = check_and_get_column<ColumnString>(&column)) {
+        return selected_string_payload_bytes(*string_column, start, rows);
+    }
+
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(&column)) {
+        const auto* nested_string_column =
+                check_and_get_column<ColumnString>(&nullable_column->get_nested_column());
+        if (nested_string_column == nullptr) {
+            return std::nullopt;
+        }
+
+        size_t payload_bytes = 0;
+        const auto& null_map = nullable_column->get_null_map_data();
+        const auto end = start + rows;
+        for (size_t row = start; row < end; ++row) {
+            if (null_map[row] == 0) {
+                payload_bytes += nested_string_column->get_data_at(row).size;
+            }
+        }
+        return payload_bytes;
+    }
+
+    return std::nullopt;
+}
+
+} // namespace
 
 Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     int num_fields = _schema->num_fields();
@@ -80,8 +125,17 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         _cur_type = _block.get_by_position(idx).type;
         auto column = _cur_col->convert_to_full_column_if_const();
         auto arrow_type = _schema->field(idx)->type();
-        if (arrow_type->name() == "utf8" && column->byte_size() >= MAX_ARROW_UTF8) {
-            arrow_type = arrow::large_utf8();
+        if (arrow_type->id() == arrow::Type::STRING) {
+            const auto payload_bytes =
+                    selected_arrow_utf8_payload_bytes(*column, _cur_start, _cur_rows);
+            if (payload_bytes.has_value() && *payload_bytes >= MAX_ARROW_UTF8) {
+                return Status::InvalidArgument(
+                        "Arrow utf8 column payload byte size reaches the supported limit: "
+                        "column={}, payload_bytes={}, limit={}. "
+                        "Large utf8 conversion is not supported yet, "
+                        "please reduce batch_size.",
+                        _block.get_by_position(idx).name, *payload_bytes, MAX_ARROW_UTF8);
+            }
         }
         std::unique_ptr<arrow::ArrayBuilder> builder;
         auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
