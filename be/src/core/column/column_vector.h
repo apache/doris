@@ -338,15 +338,18 @@ public:
         data.push_back(value);
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
-                              IColumn* col_ptr) const override {
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        const auto values = immutable_data();
         Self* output = assert_cast<Self*>(col_ptr);
         auto& res_data = output->get_data();
         DCHECK(res_data.empty())
                 << "filter_by_selector requires the destination column to be empty";
         res_data.resize(sel_size);
         for (size_t i = 0; i < sel_size; i++) {
-            res_data[i] = data[sel[i]];
+            // A lazily decoded fixed-length column may still point at one external page. Read
+            // through immutable_data() so selector filtering has the same semantics before and
+            // after materialization.
+            res_data[i] = values[sel[i]];
         }
         return Status::OK();
     }
@@ -421,8 +424,6 @@ public:
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
-
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     StringRef get_raw_data() const override {
