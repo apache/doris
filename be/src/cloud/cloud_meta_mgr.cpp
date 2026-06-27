@@ -401,8 +401,10 @@ LoadRelatedRpc to_load_related_rpc(MetaServiceRPC rpc) {
     case MetaServiceRPC::PREPARE_ROWSET:
         return LoadRelatedRpc::PREPARE_ROWSET;
     case MetaServiceRPC::COMMIT_ROWSET:
+    case MetaServiceRPC::COMMIT_ROWSETS:
         return LoadRelatedRpc::COMMIT_ROWSET;
     case MetaServiceRPC::UPDATE_TMP_ROWSET:
+    case MetaServiceRPC::UPDATE_TMP_ROWSETS:
         return LoadRelatedRpc::UPDATE_TMP_ROWSET;
     case MetaServiceRPC::UPDATE_PACKED_FILE_INFO:
         return LoadRelatedRpc::UPDATE_PACKED_FILE_INFO;
@@ -1530,6 +1532,70 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     return st;
 }
 
+Status CloudMetaMgr::commit_rowsets(RowsetMeta& rs_meta, RowsetMeta& attach_row_binlog,
+                                    const std::string& job_id, int64_t table_id,
+                                    RowsetMetaSharedPtr* existed_rs_meta,
+                                    RowsetMetaSharedPtr* existed_attach_row_binlog) {
+    VLOG_DEBUG << "commit rowsets, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog.tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog.rowset_id()
+               << " txn_id: " << rs_meta.txn_id();
+    check_table_size_correctness(rs_meta);
+    check_table_size_correctness(attach_row_binlog);
+
+    CreateRowsetsRequest req;
+    CreateRowsetsResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
+    req.set_tablet_job_id(job_id);
+
+    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
+    doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
+    RowsetMetaPB attach_row_binlog_pb = attach_row_binlog.get_rowset_pb();
+    doris_rowset_meta_to_cloud(req.mutable_attach_row_binlog(),
+                               std::move(attach_row_binlog_pb));
+
+    Status st =
+            retry_rpc(MetaServiceRPC::COMMIT_ROWSETS, req, &resp, &MetaService_Stub::commit_rowsets,
+                      {
+                              .host_limiters = host_level_ms_rpc_rate_limiters_,
+                              .backpressure_handler = ms_backpressure_handler_,
+                              .table_id = table_id,
+                      });
+    if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
+        if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
+            RowsetMetaPB doris_rs_meta =
+                    cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
+            *existed_rs_meta = std::make_shared<RowsetMeta>();
+            (*existed_rs_meta)->init_from_pb(doris_rs_meta);
+        }
+        if (existed_attach_row_binlog != nullptr && resp.has_existed_attach_row_binlog()) {
+            RowsetMetaPB doris_attach_row_binlog = cloud_rowset_meta_to_doris(
+                    std::move(*resp.mutable_existed_attach_row_binlog()));
+            *existed_attach_row_binlog = std::make_shared<RowsetMeta>();
+            (*existed_attach_row_binlog)->init_from_pb(doris_attach_row_binlog);
+        }
+        return Status::AlreadyExist("failed to commit rowsets: {}", resp.status().msg());
+    }
+    int64_t timeout_ms = -1;
+    if (config::enable_compaction_delay_commit_for_warm_up && !job_id.empty()) {
+        const double speed_mbps = 100.0; // 100MB/s
+        const double safety_factor = 2.0;
+        timeout_ms = std::min(
+                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.total_disk_size()) /
+                                              (speed_mbps * 1024 * 1024) * safety_factor * 1000),
+                         config::warm_up_rowset_sync_wait_min_timeout_ms),
+                config::warm_up_rowset_sync_wait_max_timeout_ms);
+        LOG(INFO) << "warm up rowsets: " << rs_meta.version() << ", job_id: " << job_id
+                  << ", with timeout: " << timeout_ms << " ms";
+    }
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.warm_up_rowset(rs_meta, table_id, timeout_ms);
+    manager.warm_up_rowset(attach_row_binlog, table_id, timeout_ms);
+    return st;
+}
+
 void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
     // For load-generated rowsets (job_id is empty), add to pending rowset manager
     // so FE can notify BE to promote them later
@@ -1564,6 +1630,38 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_
                           });
     if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
+    }
+    return st;
+}
+
+Status CloudMetaMgr::update_tmp_rowsets(const RowsetMeta& rs_meta,
+                                        const RowsetMeta& attach_row_binlog, int64_t table_id) {
+    VLOG_DEBUG << "update committed rowsets, tablet_id: " << rs_meta.tablet_id()
+               << ", rowset_id: " << rs_meta.rowset_id()
+               << ", attach_row_binlog_tablet_id: " << attach_row_binlog.tablet_id()
+               << ", attach_row_binlog_rowset_id: " << attach_row_binlog.rowset_id();
+    CreateRowsetsRequest req;
+    CreateRowsetsResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+
+    DCHECK_EQ(rs_meta.tablet_schema()->num_variant_columns(),
+              attach_row_binlog.tablet_schema()->num_variant_columns());
+    bool skip_schema = rs_meta.tablet_schema()->num_variant_columns() == 0;
+    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
+    doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
+    RowsetMetaPB attach_row_binlog_pb = attach_row_binlog.get_rowset_pb(skip_schema);
+    doris_rowset_meta_to_cloud(req.mutable_attach_row_binlog(),
+                               std::move(attach_row_binlog_pb));
+
+    Status st = retry_rpc(MetaServiceRPC::UPDATE_TMP_ROWSETS, req, &resp,
+                          &MetaService_Stub::update_tmp_rowsets,
+                          {
+                                  .host_limiters = host_level_ms_rpc_rate_limiters_,
+                                  .backpressure_handler = ms_backpressure_handler_,
+                                  .table_id = table_id,
+                          });
+    if (!st.ok() && resp.status().code() == MetaServiceCode::ROWSET_META_NOT_FOUND) {
+        return Status::InternalError("failed to update committed rowsets: {}", resp.status().msg());
     }
     return st;
 }

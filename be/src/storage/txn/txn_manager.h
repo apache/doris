@@ -66,7 +66,7 @@ enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 // The row binlog rowset and its independent binlog tablet, carried through commit and publish.
 struct RowBinlogTxnInfo {
     RowsetSharedPtr rowset;
-    TabletSharedPtr tablet;
+    BaseTabletSPtr tablet;
     // Delete bitmap deltas that should be applied to the independent binlog tablet.
     DeleteBitmapPtr delete_bitmap;
 };

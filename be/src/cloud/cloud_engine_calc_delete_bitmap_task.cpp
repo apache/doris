@@ -158,6 +158,12 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
         return Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
                 "can't get tablet when calculate delete bitmap. tablet_id={}", _tablet_id);
     }
+    if (tablet->is_row_binlog_tablet()) {
+        VLOG_DEBUG << "skip calculating delete bitmap for row binlog tablet, tablet_id="
+                   << _tablet_id << ", txn_id=" << _transaction_id
+                   << ", it will be handled with its base tablet";
+        return Status::OK();
+    }
     // After https://github.com/apache/doris/pull/50417, there may be multiple calc delete bitmap tasks
     // with different signatures on the same (txn_id, tablet_id) load in same BE. We use _rowset_update_lock
     // to avoid them being executed concurrently to avoid correctness problem.
@@ -309,9 +315,10 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
     TxnPublishInfo previous_publish_info;
+    RowBinlogTxnInfo attach_row_binlog;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status, &previous_publish_info);
+            &partial_update_info, &publish_status, &previous_publish_info, &attach_row_binlog);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", " << txn_str
                      << ", status=" << status;
@@ -322,6 +329,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
     txn_info.delete_bitmap = delete_bitmap;
+    txn_info.attach_row_binlog = attach_row_binlog;
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;

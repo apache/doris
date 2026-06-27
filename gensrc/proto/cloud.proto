@@ -1358,6 +1358,21 @@ message CreateRowsetResponse {
     optional doris.RowsetMetaCloudPB existed_rowset_meta = 2;
 }
 
+message CreateRowsetsRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional doris.RowsetMetaCloudPB rowset_meta = 2;
+    optional doris.RowsetMetaCloudPB attach_row_binlog = 3;
+    optional int64 txn_id = 4;
+    optional string tablet_job_id = 5;
+    optional string request_ip = 6;
+}
+
+message CreateRowsetsResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional doris.RowsetMetaCloudPB existed_rowset_meta = 2;
+    optional doris.RowsetMetaCloudPB existed_attach_row_binlog = 3;
+}
+
 message GetRowsetRequest {
     enum SchemaOp {
         FILL_WITH_DICT = 0; // fill rowset schema with SchemaCloudDictionary value
@@ -2315,7 +2330,9 @@ service MetaService {
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc commit_rowsets(CreateRowsetsRequest) returns (CreateRowsetsResponse);
     rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc update_tmp_rowsets(CreateRowsetsRequest) returns (CreateRowsetsResponse);
     rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
     rpc get_schema_dict(GetSchemaDictRequest) returns (GetSchemaDictResponse);
     rpc prepare_index(IndexRequest) returns (IndexResponse);
