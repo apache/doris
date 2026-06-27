@@ -21,16 +21,20 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -46,6 +50,11 @@ import java.util.stream.Collectors;
 public class ConnectorRewriteDriverTest {
 
     private ConnectorRewriteDriver driverWith(ConnectorProcedureOps procedureOps, ConnectorMetadata metadata) {
+        return driverWith(procedureOps, metadata, null);
+    }
+
+    private ConnectorRewriteDriver driverWith(ConnectorProcedureOps procedureOps, ConnectorMetadata metadata,
+            ConnectorPredicate where) {
         return new ConnectorRewriteDriver(
                 Mockito.mock(ConnectContext.class),
                 Mockito.mock(ExternalTable.class),
@@ -56,7 +65,8 @@ public class ConnectorRewriteDriverTest {
                 Mockito.mock(ConnectorTableHandle.class),
                 "rewrite_data_files",
                 Collections.emptyMap(),
-                Collections.emptyList());
+                Collections.emptyList(),
+                where);
     }
 
     @Test
@@ -81,6 +91,23 @@ public class ConnectorRewriteDriverTest {
         // MUTATION: dropping the empty-groups early return is killed — no transaction may be opened, and no
         // group work scheduled, when there is nothing to rewrite.
         Mockito.verify(metadata, Mockito.never()).beginTransaction(Mockito.any());
+    }
+
+    @Test
+    public void whereConditionIsThreadedToPlanRewrite() throws Exception {
+        // The lowered WHERE must reach the connector's planRewrite as the 5th argument (the file-scope filter),
+        // not be dropped to null. MUTATION: passing null instead of whereCondition is killed here.
+        ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
+        Mockito.when(procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(Collections.emptyList());
+        ConnectorPredicate where = new ConnectorPredicate(new ConnectorColumnRef("a", ConnectorType.of("INT")));
+
+        driverWith(procedureOps, Mockito.mock(ConnectorMetadata.class), where).run();
+
+        ArgumentCaptor<ConnectorPredicate> captor = ArgumentCaptor.forClass(ConnectorPredicate.class);
+        Mockito.verify(procedureOps).planRewrite(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                captor.capture(), Mockito.any());
+        Assertions.assertSame(where, captor.getValue(), "the driver must pass the lowered WHERE through verbatim");
     }
 
     @Test

@@ -37,9 +37,11 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ConnectorColumnConverter;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.datasource.UnboundExpressionToConnectorPredicateConverter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.CommonResultSet;
@@ -115,12 +117,15 @@ public class ConnectorExecuteAction implements ExecuteAction {
             throw new DdlException("Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                     + ") does not support EXECUTE actions");
         }
-        // WHERE lowering is deferred (DV-T07-where). The only procedure that accepts a WHERE is
-        // rewrite_data_files; its WHERE -> ConnectorPredicate lowering is a later step, and the eight pure-SDK
-        // procedures reject any WHERE. Until lowering lands a present WHERE is rejected up-front (fail-loud over
-        // silently dropping it), BEFORE the connector is reached for any execution mode (pre-flip contract).
-        if (whereCondition.isPresent()) {
-            throw new DdlException("WHERE condition is not yet supported for connector EXECUTE actions");
+        // The execution mode (the connector decides; no instanceof Iceberg, no procedure name hard-coded in the
+        // engine) gates BOTH the WHERE handling and the dispatch arm.
+        ProcedureExecutionMode mode = procedureOps.getExecutionMode(actionType);
+
+        // WHERE handling is mode-split. Only a DISTRIBUTED rewrite (rewrite_data_files) scopes its work by a
+        // WHERE; the eight pure-SDK SINGLE_CALL procedures reject any WHERE (fail-loud over silently dropping a
+        // user predicate). The DISTRIBUTED arm lowers the WHERE to a neutral ConnectorPredicate below.
+        if (whereCondition.isPresent() && mode != ProcedureExecutionMode.DISTRIBUTED) {
+            throw new DdlException("WHERE condition is not supported for this EXECUTE action");
         }
 
         // Resolve the shared connector prerequisites — both dispatch arms (single-call and distributed) need
@@ -134,12 +139,17 @@ public class ConnectorExecuteAction implements ExecuteAction {
         List<String> partitionNames = partitionNamesInfo
                 .map(PartitionNamesInfo::getPartitionNames).orElse(Collections.emptyList());
 
-        // Route on the neutral execution-mode key (the connector decides; no instanceof Iceberg and no
-        // procedure name hard-coded in the engine). A DISTRIBUTED procedure (rewrite_data_files) cannot be
-        // expressed by the single-row execute() contract, so it goes to the distributed rewrite driver.
-        if (procedureOps.getExecutionMode(actionType) == ProcedureExecutionMode.DISTRIBUTED) {
+        // A DISTRIBUTED procedure (rewrite_data_files) cannot be expressed by the single-row execute() contract,
+        // so it goes to the distributed rewrite driver. Lower a present WHERE to a neutral ConnectorPredicate
+        // here (engine half, no iceberg types); the converter is fail-loud, so an unrepresentable WHERE throws
+        // rather than silently widening the rewrite scope.
+        if (mode == ProcedureExecutionMode.DISTRIBUTED) {
+            ConnectorPredicate loweredWhere = whereCondition.isPresent()
+                    ? UnboundExpressionToConnectorPredicateConverter.convert(whereCondition.get(), table)
+                    : null;
             ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ConnectContext.get(), table, catalog,
-                    metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames);
+                    metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames,
+                    loweredWhere);
             try {
                 return wrapResult(driver.run());
             } catch (DorisConnectorException e) {

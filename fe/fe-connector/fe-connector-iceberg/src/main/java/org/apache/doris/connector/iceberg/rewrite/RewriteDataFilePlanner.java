@@ -18,6 +18,8 @@
 package org.apache.doris.connector.iceberg.rewrite;
 
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.pushdown.ConnectorAnd;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.IcebergPredicateConverter;
 
@@ -117,12 +119,19 @@ public class RewriteDataFilePlanner {
 
         // Apply WHERE condition if specified. The engine-neutral ConnectorPredicate is lowered to iceberg
         // expressions by IcebergPredicateConverter (conflict mode); each pushable conjunct is applied as a
-        // separate scan.filter (iceberg ANDs them), mirroring IcebergScanPlanProvider.planScan. Unconvertible
-        // conjuncts are dropped -> the scan widens (DV-T05r-where; legacy IcebergNereidsUtils threw instead).
+        // separate scan.filter (iceberg ANDs them), mirroring IcebergScanPlanProvider.planScan. A rewrite WHERE
+        // is a user-authored data-scope filter: dropping a conjunct would WIDEN the set of files rewritten (at
+        // the limit, rewrite the whole table). So this is FAIL-LOUD -- if any top-level conjunct cannot be
+        // pushed to file pruning, throw rather than silently widen (restores the legacy live-rewrite behaviour,
+        // which threw; supersedes the earlier silent-drop DV-T05r-where for the rewrite path).
         if (parameters.hasWhereCondition()) {
+            ConnectorExpression where = parameters.getWhereCondition().getExpression();
             List<Expression> predicates = new IcebergPredicateConverter(
-                    icebergTable.schema(), sessionZone, true)
-                    .convert(parameters.getWhereCondition().getExpression());
+                    icebergTable.schema(), sessionZone, true).convert(where);
+            if (predicates.size() < countTopLevelConjuncts(where)) {
+                throw new DorisConnectorException(
+                        "WHERE condition for rewrite_data_files cannot be pushed down to file pruning: " + where);
+            }
             for (Expression predicate : predicates) {
                 tableScan = tableScan.filter(predicate);
             }
@@ -132,6 +141,16 @@ public class RewriteDataFilePlanner {
         tableScan = tableScan.ignoreResiduals();
 
         return tableScan.planFiles();
+    }
+
+    /**
+     * Number of top-level conjuncts in a neutral WHERE expression — a top-level {@link ConnectorAnd}'s conjunct
+     * count, else 1. The fully-pushable invariant compares this against the converter's output size:
+     * {@link IcebergPredicateConverter#convert} flattens a top-level AND and emits one iceberg expression per
+     * pushable conjunct, so {@code output.size() < topLevelConjuncts} means at least one conjunct was dropped.
+     */
+    private static int countTopLevelConjuncts(ConnectorExpression where) {
+        return where instanceof ConnectorAnd ? ((ConnectorAnd) where).getConjuncts().size() : 1;
     }
 
     /**

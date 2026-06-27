@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -78,6 +79,9 @@ public class ConnectorRewriteDriver {
     private final String procedureName;
     private final Map<String, String> properties;
     private final List<String> partitionNames;
+    // The engine-lowered WHERE restricting which files to rewrite, or null when there is no WHERE. Passed
+    // straight through to the connector's planRewrite (the connector scopes the rewrite to the matching files).
+    private final ConnectorPredicate whereCondition;
 
     /**
      * Builds a driver bound to one {@code ALTER TABLE ... EXECUTE rewrite_data_files} invocation; all of
@@ -86,7 +90,7 @@ public class ConnectorRewriteDriver {
     public ConnectorRewriteDriver(ConnectContext ctx, ExternalTable table, PluginDrivenExternalCatalog catalog,
             ConnectorMetadata metadata, ConnectorProcedureOps procedureOps, ConnectorSession session,
             ConnectorTableHandle tableHandle, String procedureName, Map<String, String> properties,
-            List<String> partitionNames) {
+            List<String> partitionNames, ConnectorPredicate whereCondition) {
         this.ctx = ctx;
         this.table = table;
         this.catalog = catalog;
@@ -97,16 +101,17 @@ public class ConnectorRewriteDriver {
         this.procedureName = procedureName;
         this.properties = properties;
         this.partitionNames = partitionNames;
+        this.whereCondition = whereCondition;
     }
 
     /**
      * Runs the distributed rewrite and returns the single-row result the engine wraps into a ResultSet.
      */
     public ConnectorProcedureResult run() throws UserException {
-        // STEP 0: ask the connector to plan the bin-packed groups (WHERE deferred -> null predicate).
+        // STEP 0: ask the connector to plan the bin-packed groups, scoped by the lowered WHERE (null = no WHERE).
         List<ConnectorRewriteGroup> groups;
         try {
-            groups = procedureOps.planRewrite(session, tableHandle, procedureName, properties, null,
+            groups = procedureOps.planRewrite(session, tableHandle, procedureName, properties, whereCondition,
                     partitionNames);
         } catch (DorisConnectorException e) {
             throw new UserException(e.getMessage(), e);

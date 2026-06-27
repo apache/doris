@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
@@ -33,6 +35,10 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.api.pushdown.ConnectorComparison;
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -40,13 +46,17 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ResultSet;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -173,17 +183,55 @@ public class ConnectorExecuteActionTest {
     }
 
     @Test
-    public void executeRejectsWhereConditionUntilLoweringLands() {
+    public void executeSingleCallActionRejectsWhereCondition() {
+        // The eight pure-SDK procedures are SINGLE_CALL and never accept a WHERE; it must be rejected fail-loud
+        // (only a DISTRIBUTED rewrite scopes its work by a WHERE). A bare mock Expression is enough — the reject
+        // happens on the mode check, before any lowering.
         Fixture f = new Fixture();
+        Mockito.when(f.procedureOps.getExecutionMode("rollback_to_snapshot"))
+                .thenReturn(ProcedureExecutionMode.SINGLE_CALL);
         Expression where = Mockito.mock(Expression.class);
         ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
                 f.props, Optional.empty(), Optional.of(where), f.table);
 
         DdlException e = Assertions.assertThrows(DdlException.class, () -> action.execute(f.table));
         Assertions.assertTrue(e.getMessage().contains("WHERE"),
-                "A present WHERE must be rejected (lowering deferred to the rewrite_data_files write-path RFC)");
-        // The connector must never be reached when WHERE is present.
-        Mockito.verifyNoInteractions(f.procedureOps);
+                "a SINGLE_CALL procedure must reject a WHERE (only DISTRIBUTED rewrite accepts one)");
+        // The connector body must never run for a rejected WHERE.
+        Mockito.verify(f.procedureOps, Mockito.never()).execute(Mockito.any(), Mockito.any(),
+                Mockito.anyString(), Mockito.anyMap(), Mockito.any(), Mockito.anyList());
+        Mockito.verify(f.procedureOps, Mockito.never()).planRewrite(Mockito.any(), Mockito.any(),
+                Mockito.anyString(), Mockito.anyMap(), Mockito.any(), Mockito.anyList());
+    }
+
+    @Test
+    public void executeDistributedActionLowersWhereAndThreadsItToPlanRewrite() throws Exception {
+        // The DISTRIBUTED arm lowers the (unbound) WHERE to a neutral ConnectorPredicate and threads it to the
+        // connector's planRewrite — it must NOT reject it, and it must NOT pass null. Stub planRewrite to return
+        // no groups so the driver returns the all-zero row without opening a transaction.
+        Fixture f = new Fixture();
+        Mockito.when(f.procedureOps.getExecutionMode("rewrite_data_files"))
+                .thenReturn(ProcedureExecutionMode.DISTRIBUTED);
+        Mockito.when(f.procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(Collections.emptyList());
+
+        Expression where = new GreaterThan(new UnboundSlot("a"), new IntegerLiteral(5));
+        ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
+                f.props, Optional.empty(), Optional.of(where), f.table);
+        ResultSet rs = action.execute(f.table);
+
+        ArgumentCaptor<ConnectorPredicate> captor = ArgumentCaptor.forClass(ConnectorPredicate.class);
+        Mockito.verify(f.procedureOps).planRewrite(Mockito.any(), Mockito.any(),
+                Mockito.eq("rewrite_data_files"), Mockito.anyMap(), captor.capture(), Mockito.anyList());
+        ConnectorPredicate lowered = captor.getValue();
+        Assertions.assertNotNull(lowered,
+                "the DISTRIBUTED arm must lower the WHERE and pass a non-null predicate, not drop it to null");
+        Assertions.assertInstanceOf(ConnectorComparison.class, lowered.getExpression());
+        Assertions.assertEquals("a", ((ConnectorColumnRef) ((ConnectorComparison) lowered.getExpression())
+                .getLeft()).getColumnName());
+        // No groups -> the legacy all-zero four-column rewrite result row.
+        Assertions.assertEquals(Collections.singletonList(Arrays.asList("0", "0", "0", "0")), rs.getResultRows());
     }
 
     @Test
@@ -358,7 +406,20 @@ public class ConnectorExecuteActionTest {
             @SuppressWarnings("unchecked")
             ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
             Mockito.when(db.getRemoteName()).thenReturn(REMOTE_DB);
-            this.table = new PluginDrivenExternalTable(1L, "local_tbl", REMOTE_TBL, catalog, db);
+            this.table = new SchemaPluginTable(1L, "local_tbl", REMOTE_TBL, catalog, db);
+        }
+    }
+
+    /** A plugin table with one resolvable column {@code a INT}, so the rewrite WHERE lowering can resolve it. */
+    private static final class SchemaPluginTable extends PluginDrivenExternalTable {
+        SchemaPluginTable(long id, String name, String remoteName, PluginDrivenExternalCatalog catalog,
+                ExternalDatabase<PluginDrivenExternalTable> db) {
+            super(id, name, remoteName, catalog, db);
+        }
+
+        @Override
+        public Column getColumn(String colName) {
+            return "a".equalsIgnoreCase(colName) ? new Column("a", ScalarType.INT) : null;
         }
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg.rewrite;
 
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorBetween;
 import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
@@ -322,10 +323,11 @@ public class RewriteDataFilePlannerTest {
     }
 
     @Test
-    public void unconvertibleCrossColumnOrWidensScan() {
-        // DV-T05r-where: a cross-column OR is unrepresentable in the conflict matrix, so the connector drops it
-        // (legacy IcebergNereidsUtils would have converted it). The dropped predicate widens the scan to the
-        // whole table instead of failing the rewrite -- the registered over-approximation.
+    public void unconvertibleCrossColumnOrThrows() {
+        // User-signed decision (WS-REWRITE R7): a rewrite WHERE is a user-authored data-scope filter, so it must
+        // be honored precisely or the rewrite fails. A cross-column OR is unrepresentable in the conflict matrix
+        // and cannot be pushed to file pruning; rather than silently widening the scan to the whole table (the
+        // earlier DV-T05r-where over-approximation), the planner now THROWS fail-loud.
         Table t = createPartitioned("t11");
         append(t, partFile("a", 100, 1), partFile("b", 100, 2));
 
@@ -335,11 +337,31 @@ public class RewriteDataFilePlannerTest {
                         new ConnectorColumnRef("name", ConnectorType.of("STRING")),
                         new ConnectorLiteral(ConnectorType.of("STRING"), "x"))));
 
-        List<RewriteDataGroup> groups = plan(t, rewriteAll(1_000_000L, where(crossColumnOr)));
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(t, rewriteAll(1_000_000L, where(crossColumnOr))));
+        Assertions.assertTrue(e.getMessage().contains("cannot be pushed down"),
+                "an un-pushable rewrite WHERE must fail loud, not silently widen the scan to the whole table");
+    }
 
-        // No filter applied -> both partitions are planned for rewrite.
-        Assertions.assertEquals(2, totalFiles(groups));
-        Assertions.assertEquals(new HashSet<>(Arrays.asList(1, 2)), partitionIds(groups));
+    @Test
+    public void partiallyPushableWhereThrows() {
+        // A top-level AND with one pushable conjunct (id=1) and one un-pushable (cross-column OR). Keeping only
+        // the pushable arm would widen the rewrite past the user's WHERE, so the planner fails when ANY top-level
+        // conjunct cannot be pushed -- not only when nothing pushes. Guards the size-vs-count check (a weaker
+        // "is anything pushable?" gate would wrongly let this through).
+        Table t = createPartitioned("t19");
+        append(t, partFile("a", 100, 1), partFile("b", 100, 2));
+
+        ConnectorExpression crossColumnOr = new ConnectorOr(Arrays.asList(
+                idEq(2),
+                new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef("name", ConnectorType.of("STRING")),
+                        new ConnectorLiteral(ConnectorType.of("STRING"), "x"))));
+        ConnectorExpression partial = new ConnectorAnd(Arrays.asList(idEq(1), crossColumnOr));
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(t, rewriteAll(1_000_000L, where(partial))));
+        Assertions.assertTrue(e.getMessage().contains("cannot be pushed down"));
     }
 
     @Test
