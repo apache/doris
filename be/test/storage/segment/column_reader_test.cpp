@@ -23,6 +23,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <thread>
@@ -86,6 +88,178 @@ TColumnAccessPath create_access_path(std::vector<std::string> path) {
     data_access_path.__set_path(std::move(path));
     access_path.__set_data_access_path(std::move(data_access_path));
     return access_path;
+}
+
+std::shared_ptr<ColumnReader> create_test_reader(
+        bool is_nullable = false, uint64_t num_rows = 0,
+        FieldType field_type = FieldType::OLAP_FIELD_TYPE_INT) {
+    auto reader = std::make_shared<ColumnReader>();
+    reader->_meta_is_nullable = is_nullable;
+    reader->_num_rows = num_rows;
+    reader->_meta_type = field_type;
+    return reader;
+}
+
+class TrackingColumnIterator final : public ColumnIterator {
+public:
+    Status seek_to_ordinal(ordinal_t ord) override {
+        seek_ordinals.emplace_back(ord);
+        _current_ordinal = ord;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        next_batch_sizes.emplace_back(*n);
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, *n);
+            if (has_null != nullptr) {
+                *has_null = false;
+            }
+            return Status::OK();
+        }
+
+        _recovery_from_place_holder_column(dst);
+        dst->insert_many_defaults(*n);
+        _current_ordinal += *n;
+        if (has_null != nullptr) {
+            *has_null = false;
+        }
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        read_by_rowids_batches.emplace_back(rowids, rowids + count);
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, count);
+            return Status::OK();
+        }
+
+        _recovery_from_place_holder_column(dst);
+        dst->insert_many_defaults(count);
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override {
+        record_collect_method(init_method);
+        prefetchers[init_method].emplace_back(prefetcher());
+    }
+
+    SegmentPrefetcher* prefetcher() const {
+        return reinterpret_cast<SegmentPrefetcher*>(const_cast<TrackingColumnIterator*>(this));
+    }
+
+    void clear_tracking() {
+        seek_ordinals.clear();
+        next_batch_sizes.clear();
+        read_by_rowids_batches.clear();
+        collect_methods.clear();
+    }
+
+    std::vector<ordinal_t> seek_ordinals;
+    std::vector<size_t> next_batch_sizes;
+    std::vector<std::vector<rowid_t>> read_by_rowids_batches;
+    std::vector<PrefetcherInitMethod> collect_methods;
+
+private:
+    void record_collect_method(PrefetcherInitMethod init_method) {
+        collect_methods.emplace_back(init_method);
+    }
+
+    ordinal_t _current_ordinal = 0;
+};
+
+class TrackingFileColumnIterator final : public FileColumnIterator {
+public:
+    explicit TrackingFileColumnIterator(std::shared_ptr<ColumnReader> reader)
+            : FileColumnIterator(std::move(reader)) {}
+
+    Status seek_to_ordinal(ordinal_t ord) override {
+        seek_ordinals.emplace_back(ord);
+        _current_ordinal = ord;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        next_batch_sizes.emplace_back(*n);
+        dst->insert_many_defaults(*n);
+        _current_ordinal += *n;
+        if (has_null != nullptr) {
+            *has_null = false;
+        }
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        read_by_rowids_batches.emplace_back(rowids, rowids + count);
+        dst->insert_many_defaults(count);
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override {
+        record_collect_method(init_method);
+        prefetchers[init_method].emplace_back(prefetcher());
+    }
+
+    SegmentPrefetcher* prefetcher() const {
+        return reinterpret_cast<SegmentPrefetcher*>(const_cast<TrackingFileColumnIterator*>(this));
+    }
+
+    std::vector<ordinal_t> seek_ordinals;
+    std::vector<size_t> next_batch_sizes;
+    std::vector<std::vector<rowid_t>> read_by_rowids_batches;
+    std::vector<PrefetcherInitMethod> collect_methods;
+
+private:
+    void record_collect_method(PrefetcherInitMethod init_method) {
+        collect_methods.emplace_back(init_method);
+    }
+
+    ordinal_t _current_ordinal = 0;
+};
+
+MutableColumnPtr create_int_struct_column(size_t field_count) {
+    Columns columns;
+    for (size_t i = 0; i < field_count; ++i) {
+        columns.emplace_back(ColumnInt32::create());
+    }
+    return ColumnStruct::create(std::move(columns));
+}
+
+MutableColumnPtr create_nullable_int_struct_column(size_t field_count) {
+    return ColumnNullable::create(create_int_struct_column(field_count), ColumnUInt8::create());
+}
+
+MutableColumnPtr create_nullable_int_array_column() {
+    return ColumnNullable::create(
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create()),
+            ColumnUInt8::create());
+}
+
+MutableColumnPtr create_nullable_int_map_column() {
+    return ColumnNullable::create(ColumnMap::create(ColumnInt32::create(), ColumnInt32::create(),
+                                                    ColumnArray::ColumnOffsets::create()),
+                                  ColumnUInt8::create());
+}
+
+struct TrackingOffsetIterator {
+    OffsetFileColumnIteratorUPtr iterator;
+    TrackingFileColumnIterator* tracker = nullptr;
+};
+
+TrackingOffsetIterator create_tracking_offset_iterator() {
+    auto file_iterator = std::make_unique<TrackingFileColumnIterator>(create_test_reader());
+    auto* tracker = file_iterator.get();
+    return {std::make_unique<OffsetFileColumnIterator>(std::move(file_iterator)), tracker};
 }
 } // namespace
 
@@ -1720,6 +1894,302 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     ASSERT_EQ(map_iter->_key_iterator->_read_requirement,
               ColumnIterator::ReadRequirement::LAZY_OUTPUT);
     ASSERT_EQ(map_iter->_val_iterator->_read_requirement, ColumnIterator::ReadRequirement::SKIP);
+}
+
+TEST_F(ColumnReaderTest, StructNextBatchAndReadByRowidsUseSequentialChildReads) {
+    std::vector<ColumnIteratorUPtr> sub_column_iterators;
+    auto first_child = std::make_unique<TrackingColumnIterator>();
+    auto* first_child_ptr = first_child.get();
+    auto second_child = std::make_unique<TrackingColumnIterator>();
+    auto* second_child_ptr = second_child.get();
+    sub_column_iterators.emplace_back(std::move(first_child));
+    sub_column_iterators.emplace_back(std::move(second_child));
+
+    StructFileColumnIterator struct_iterator(create_test_reader(), nullptr,
+                                             std::move(sub_column_iterators));
+
+    MutableColumnPtr dst = create_int_struct_column(2);
+    size_t rows = 3;
+    bool has_null = false;
+    auto st = struct_iterator.next_batch(&rows, dst, &has_null);
+    ASSERT_TRUE(st.ok()) << "struct next_batch failed: " << st.to_string();
+    EXPECT_EQ(3, rows);
+    EXPECT_EQ(3, dst->size());
+    EXPECT_THAT(first_child_ptr->next_batch_sizes, ::testing::ElementsAre(3));
+    EXPECT_THAT(second_child_ptr->next_batch_sizes, ::testing::ElementsAre(3));
+
+    first_child_ptr->clear_tracking();
+    second_child_ptr->clear_tracking();
+
+    const rowid_t rowids[] = {0, 1, 4, 5, 6};
+    st = struct_iterator.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "struct read_by_rowids failed: " << st.to_string();
+    EXPECT_EQ(8, dst->size());
+    EXPECT_THAT(first_child_ptr->seek_ordinals, ::testing::ElementsAre(0, 4));
+    EXPECT_THAT(second_child_ptr->seek_ordinals, ::testing::ElementsAre(0, 4));
+    EXPECT_THAT(first_child_ptr->next_batch_sizes, ::testing::ElementsAre(2, 3));
+    EXPECT_THAT(second_child_ptr->next_batch_sizes, ::testing::ElementsAre(2, 3));
+    EXPECT_TRUE(first_child_ptr->read_by_rowids_batches.empty());
+    EXPECT_TRUE(second_child_ptr->read_by_rowids_batches.empty());
+}
+
+TEST_F(ColumnReaderTest, StructNullMapOnlyNextBatchSkipsSubColumns) {
+    auto null_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* null_iterator_ptr = null_iterator.get();
+    std::vector<ColumnIteratorUPtr> sub_column_iterators;
+    auto child_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* child_iterator_ptr = child_iterator.get();
+    child_iterator->set_column_name("field");
+    sub_column_iterators.emplace_back(std::move(child_iterator));
+
+    StructFileColumnIterator struct_iterator(create_test_reader(true), std::move(null_iterator),
+                                             std::move(sub_column_iterators));
+    struct_iterator.set_column_name("s");
+
+    TColumnAccessPaths null_path {create_access_path({"s", ColumnIterator::ACCESS_NULL})};
+    auto st = struct_iterator.set_access_paths(null_path, null_path);
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+    EXPECT_TRUE(struct_iterator.read_null_map_only());
+    EXPECT_EQ(child_iterator_ptr->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+
+    MutableColumnPtr dst = create_nullable_int_struct_column(1);
+    size_t rows = 2;
+    bool has_null = false;
+    st = struct_iterator.next_batch(&rows, dst, &has_null);
+    ASSERT_TRUE(st.ok()) << "struct null-map-only next_batch failed: " << st.to_string();
+    EXPECT_TRUE(has_null);
+    EXPECT_EQ(2, dst->size());
+    EXPECT_THAT(null_iterator_ptr->next_batch_sizes, ::testing::ElementsAre(2));
+    EXPECT_TRUE(child_iterator_ptr->next_batch_sizes.empty());
+
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(*dst);
+    EXPECT_EQ(2, nullable_column.get_null_map_column().size());
+    const auto& nested_struct = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(
+            nullable_column.get_nested_column());
+    EXPECT_EQ(2, nested_struct.get_column(0).size());
+}
+
+TEST_F(ColumnReaderTest, ArrayNullMapOnlyNextBatchAndReadByRowidsSkipItems) {
+    auto null_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* null_iterator_ptr = null_iterator.get();
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_iterator_ptr = item_iterator.get();
+    auto offset_iterator = create_tracking_offset_iterator();
+
+    ArrayFileColumnIterator array_iterator(create_test_reader(true),
+                                           std::move(offset_iterator.iterator),
+                                           std::move(item_iterator), std::move(null_iterator));
+    array_iterator.set_column_name("a");
+
+    TColumnAccessPaths null_path {create_access_path({"a", ColumnIterator::ACCESS_NULL})};
+    auto st = array_iterator.set_access_paths(null_path, null_path);
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+    EXPECT_TRUE(array_iterator.read_null_map_only());
+    EXPECT_EQ(item_iterator_ptr->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+
+    MutableColumnPtr dst = create_nullable_int_array_column();
+    size_t rows = 3;
+    bool has_null = false;
+    st = array_iterator.next_batch(&rows, dst, &has_null);
+    ASSERT_TRUE(st.ok()) << "array null-map-only next_batch failed: " << st.to_string();
+    EXPECT_TRUE(has_null);
+    EXPECT_EQ(3, dst->size());
+    EXPECT_THAT(null_iterator_ptr->next_batch_sizes, ::testing::ElementsAre(3));
+    EXPECT_TRUE(item_iterator_ptr->next_batch_sizes.empty());
+    EXPECT_TRUE(offset_iterator.tracker->next_batch_sizes.empty());
+
+    null_iterator_ptr->clear_tracking();
+    item_iterator_ptr->clear_tracking();
+
+    const rowid_t rowids[] = {1, 3};
+    st = array_iterator.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "array null-map-only read_by_rowids failed: " << st.to_string();
+    EXPECT_EQ(5, dst->size());
+    EXPECT_THAT(null_iterator_ptr->seek_ordinals, ::testing::ElementsAre(1, 3));
+    EXPECT_THAT(null_iterator_ptr->next_batch_sizes, ::testing::ElementsAre(1, 1));
+    EXPECT_TRUE(item_iterator_ptr->next_batch_sizes.empty());
+    EXPECT_TRUE(offset_iterator.tracker->next_batch_sizes.empty());
+}
+
+TEST_F(ColumnReaderTest, MapNullMapOnlyNextBatchAndReadByRowidsSkipKeysAndValues) {
+    auto null_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* null_iterator_ptr = null_iterator.get();
+    auto key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* key_iterator_ptr = key_iterator.get();
+    auto value_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* value_iterator_ptr = value_iterator.get();
+    auto offset_iterator = create_tracking_offset_iterator();
+
+    MapFileColumnIterator map_iterator(create_test_reader(true, 4), std::move(null_iterator),
+                                       std::move(offset_iterator.iterator), std::move(key_iterator),
+                                       std::move(value_iterator));
+    map_iterator.set_column_name("m");
+
+    TColumnAccessPaths null_path {create_access_path({"m", ColumnIterator::ACCESS_NULL})};
+    auto st = map_iterator.set_access_paths(null_path, null_path);
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+    EXPECT_TRUE(map_iterator.read_null_map_only());
+    EXPECT_EQ(key_iterator_ptr->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+    EXPECT_EQ(value_iterator_ptr->read_requirement(), ColumnIterator::ReadRequirement::SKIP);
+
+    MutableColumnPtr dst = create_nullable_int_map_column();
+    size_t rows = 3;
+    bool has_null = false;
+    st = map_iterator.next_batch(&rows, dst, &has_null);
+    ASSERT_TRUE(st.ok()) << "map null-map-only next_batch failed: " << st.to_string();
+    EXPECT_TRUE(has_null);
+    EXPECT_EQ(3, dst->size());
+    EXPECT_THAT(null_iterator_ptr->next_batch_sizes, ::testing::ElementsAre(3));
+    EXPECT_TRUE(key_iterator_ptr->next_batch_sizes.empty());
+    EXPECT_TRUE(value_iterator_ptr->next_batch_sizes.empty());
+    EXPECT_TRUE(offset_iterator.tracker->next_batch_sizes.empty());
+
+    null_iterator_ptr->clear_tracking();
+    key_iterator_ptr->clear_tracking();
+    value_iterator_ptr->clear_tracking();
+
+    const rowid_t rowids[] = {1, 3};
+    st = map_iterator.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << "map null-map-only read_by_rowids failed: " << st.to_string();
+    EXPECT_EQ(5, dst->size());
+    ASSERT_EQ(1, null_iterator_ptr->read_by_rowids_batches.size());
+    EXPECT_THAT(null_iterator_ptr->read_by_rowids_batches[0], ::testing::ElementsAre(1, 3));
+    EXPECT_TRUE(key_iterator_ptr->next_batch_sizes.empty());
+    EXPECT_TRUE(value_iterator_ptr->next_batch_sizes.empty());
+    EXPECT_TRUE(offset_iterator.tracker->next_batch_sizes.empty());
+}
+
+TEST_F(ColumnReaderTest, CollectPrefetchersHonorsNestedReadRequirements) {
+    auto null_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* null_iterator_ptr = null_iterator.get();
+    std::vector<ColumnIteratorUPtr> sub_column_iterators;
+    auto predicate_child = std::make_unique<TrackingColumnIterator>();
+    auto* predicate_child_ptr = predicate_child.get();
+    auto lazy_child = std::make_unique<TrackingColumnIterator>();
+    auto* lazy_child_ptr = lazy_child.get();
+    sub_column_iterators.emplace_back(std::move(predicate_child));
+    sub_column_iterators.emplace_back(std::move(lazy_child));
+
+    StructFileColumnIterator struct_iterator(create_test_reader(true), std::move(null_iterator),
+                                             std::move(sub_column_iterators));
+    struct_iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
+    predicate_child_ptr->set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    lazy_child_ptr->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    struct_iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+    std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
+    struct_iterator.collect_prefetchers(prefetchers, PrefetcherInitMethod::FROM_ROWIDS);
+
+    EXPECT_THAT(null_iterator_ptr->collect_methods,
+                ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+    EXPECT_THAT(predicate_child_ptr->collect_methods,
+                ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+    EXPECT_TRUE(lazy_child_ptr->collect_methods.empty());
+    EXPECT_THAT(prefetchers[PrefetcherInitMethod::FROM_ROWIDS],
+                ::testing::ElementsAre(null_iterator_ptr->prefetcher(),
+                                       predicate_child_ptr->prefetcher()));
+
+    null_iterator_ptr->clear_tracking();
+    predicate_child_ptr->clear_tracking();
+    lazy_child_ptr->clear_tracking();
+    prefetchers.clear();
+
+    struct_iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    struct_iterator.collect_prefetchers(prefetchers, PrefetcherInitMethod::FROM_ROWIDS);
+
+    EXPECT_THAT(null_iterator_ptr->collect_methods,
+                ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+    EXPECT_TRUE(predicate_child_ptr->collect_methods.empty());
+    EXPECT_THAT(lazy_child_ptr->collect_methods,
+                ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+}
+
+TEST_F(ColumnReaderTest, ArrayAndMapCollectPrefetchersUseAllDataBlocksForNestedData) {
+    {
+        auto null_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* null_iterator_ptr = null_iterator.get();
+        auto item_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* item_iterator_ptr = item_iterator.get();
+        auto offset_iterator = create_tracking_offset_iterator();
+        auto* offset_iterator_ptr = offset_iterator.tracker;
+
+        ArrayFileColumnIterator array_iterator(create_test_reader(true),
+                                               std::move(offset_iterator.iterator),
+                                               std::move(item_iterator), std::move(null_iterator));
+        array_iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+        array_iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
+        array_iterator.collect_prefetchers(prefetchers, PrefetcherInitMethod::FROM_ROWIDS);
+
+        EXPECT_THAT(offset_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+        EXPECT_THAT(null_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+        EXPECT_THAT(item_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::ALL_DATA_BLOCKS));
+        EXPECT_THAT(prefetchers[PrefetcherInitMethod::ALL_DATA_BLOCKS],
+                    ::testing::ElementsAre(item_iterator_ptr->prefetcher()));
+    }
+
+    {
+        auto null_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* null_iterator_ptr = null_iterator.get();
+        auto key_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* key_iterator_ptr = key_iterator.get();
+        auto value_iterator = std::make_unique<TrackingColumnIterator>();
+        auto* value_iterator_ptr = value_iterator.get();
+        auto offset_iterator = create_tracking_offset_iterator();
+        auto* offset_iterator_ptr = offset_iterator.tracker;
+
+        MapFileColumnIterator map_iterator(create_test_reader(true), std::move(null_iterator),
+                                           std::move(offset_iterator.iterator),
+                                           std::move(key_iterator), std::move(value_iterator));
+        map_iterator.set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+        map_iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
+        map_iterator.collect_prefetchers(prefetchers, PrefetcherInitMethod::FROM_ROWIDS);
+
+        EXPECT_THAT(offset_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+        EXPECT_THAT(null_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::FROM_ROWIDS));
+        EXPECT_THAT(key_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::ALL_DATA_BLOCKS));
+        EXPECT_THAT(value_iterator_ptr->collect_methods,
+                    ::testing::ElementsAre(PrefetcherInitMethod::ALL_DATA_BLOCKS));
+        EXPECT_THAT(prefetchers[PrefetcherInitMethod::ALL_DATA_BLOCKS],
+                    ::testing::ElementsAre(key_iterator_ptr->prefetcher(),
+                                           value_iterator_ptr->prefetcher()));
+    }
+}
+
+TEST_F(ColumnReaderTest, MapPredicateAccessAllWithOffsetKeepsKeysReadable) {
+    auto map_reader = create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_MAP);
+    auto key_iter = std::make_unique<StringFileColumnIterator>(
+            create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRING));
+    key_iter->set_column_name("key");
+    auto* key_ptr = key_iter.get();
+    auto val_iter = std::make_unique<StringFileColumnIterator>(
+            create_test_reader(false, 0, FieldType::OLAP_FIELD_TYPE_STRING));
+    val_iter->set_column_name("value");
+    auto* val_ptr = val_iter.get();
+    auto offset_iterator = create_tracking_offset_iterator();
+
+    MapFileColumnIterator map_iter(map_reader, nullptr, std::move(offset_iterator.iterator),
+                                   std::move(key_iter), std::move(val_iter));
+    map_iter.set_column_name("map_col");
+
+    TColumnAccessPaths access_paths {create_access_path(
+            {"map_col", ColumnIterator::ACCESS_ALL, ColumnIterator::ACCESS_OFFSET})};
+    auto st = map_iter.set_access_paths(access_paths, access_paths);
+    ASSERT_TRUE(st.ok()) << "set_access_paths failed: " << st.to_string();
+
+    EXPECT_EQ(key_ptr->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_FALSE(key_ptr->read_offset_only());
+    EXPECT_EQ(val_ptr->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    EXPECT_TRUE(val_ptr->read_offset_only());
 }
 
 TEST_F(ColumnReaderTest, OffsetPeekUsesPageSentinelWhenNoRemaining) {

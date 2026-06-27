@@ -30,16 +30,31 @@ suite("nested_container_offset_pruning") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
     """
     sql """
-        INSERT INTO nested_container_offset_pruning_tbl VALUES (
-            1,
-            named_struct(
-                'arr', array(
-                    named_struct('str_field', 'hello', 'int_field', 10),
-                    named_struct('str_field', 'world', 'int_field', 20)
-                ),
-                'm', {'a': 'x', 'b': 'y'}
+        INSERT INTO nested_container_offset_pruning_tbl VALUES
+            (
+                1,
+                named_struct(
+                    'arr', array(
+                        named_struct('str_field', 'hello', 'int_field', 10),
+                        named_struct('str_field', 'world', 'int_field', 20)
+                    ),
+                    'm', {'a': 'x', 'b': 'y'}
+                )
+            ),
+            (
+                2,
+                named_struct(
+                    'arr', array(),
+                    'm', {'a': 'longer', 'c': ''}
+                )
+            ),
+            (
+                3,
+                named_struct(
+                    'arr', array(named_struct('str_field', 'empty', 'int_field', 30)),
+                    'm', {'b': 'only-b'}
+                )
             )
-        )
     """
 
     // cardinality(s.arr) needs array offsets, and element_at(...).int_field also needs array item
@@ -61,6 +76,26 @@ suite("nested_container_offset_pruning") {
         FROM nested_container_offset_pruning_tbl ORDER BY id
     """
 
+    // Predicate on array offsets + output from array item should keep both current-level metadata
+    // and child data paths across FE access-path construction and BE iterator routing.
+    order_qt_struct_root_arr_predicate_mixed """
+        SELECT id,
+               element_at(element_at(element_at(s, 'arr'), 1), 'str_field')
+        FROM nested_container_offset_pruning_tbl
+        WHERE cardinality(element_at(s, 'arr')) >= 1
+        ORDER BY id
+    """
+
+    // Predicate length(map['a']) needs KEYS + VALUES.OFFSET, while projecting map['a'] still needs
+    // the full value data for the same map branch.
+    order_qt_struct_root_map_predicate_mixed """
+        SELECT id,
+               element_at(element_at(s, 'm'), 'a')
+        FROM nested_container_offset_pruning_tbl
+        WHERE length(element_at(element_at(s, 'm'), 'a')) >= 1
+        ORDER BY id
+    """
+
     explain {
         sql """
             SELECT cardinality(element_at(s, 'arr')),
@@ -76,6 +111,27 @@ suite("nested_container_offset_pruning") {
             SELECT length(element_at(element_at(s, 'm'), 'a')),
                    element_at(map_values(element_at(s, 'm')), 1)
             FROM nested_container_offset_pruning_tbl
+        """
+        contains "s.m.KEYS"
+        contains "s.m.VALUES"
+        contains "s.m.VALUES.OFFSET"
+    }
+
+    explain {
+        sql """
+            SELECT element_at(element_at(element_at(s, 'arr'), 1), 'str_field')
+            FROM nested_container_offset_pruning_tbl
+            WHERE cardinality(element_at(s, 'arr')) >= 1
+        """
+        contains "s.arr.*.str_field"
+        contains "s.arr.OFFSET"
+    }
+
+    explain {
+        sql """
+            SELECT element_at(element_at(s, 'm'), 'a')
+            FROM nested_container_offset_pruning_tbl
+            WHERE length(element_at(element_at(s, 'm'), 'a')) >= 1
         """
         contains "s.m.KEYS"
         contains "s.m.VALUES"
