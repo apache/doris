@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
+import org.apache.doris.thrift.TIcebergWriteType;
 import org.apache.doris.thrift.TSortField;
 
 import com.google.common.collect.Maps;
@@ -184,6 +185,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             case MERGE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
                 dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes));
+                return new ConnectorSinkPlan(dataSink);
+            }
+            case REWRITE: {
+                // Compaction rewrite (ALTER TABLE ... EXECUTE rewrite_data_files): same TIcebergTableSink
+                // dialect as INSERT but tagged REWRITE so the BE routes to RewriteFiles semantics. The
+                // rewritableDeletes supply does not apply to rewrite (it deals with no position deletes), and
+                // is already evicted above.
+                TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
+                dataSink.setIcebergTableSink(buildRewriteSink(table, tableHandle, handle));
                 return new ConnectorSinkPlan(dataSink);
             }
             default:
@@ -348,6 +358,31 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setOverwrite(handle.isOverwrite());
         if (handle.isOverwrite() && handle.getWriteContext() != null && !handle.getWriteContext().isEmpty()) {
             tSink.setStaticPartitionValues(handle.getWriteContext());
+        }
+        return tSink;
+    }
+
+    /**
+     * Builds the {@code TIcebergTableSink} for a compaction REWRITE. Byte-identical to legacy
+     * {@code planner.IcebergTableSink.bindDataSink} under {@code isRewriting}: the INSERT baseline
+     * ({@link #buildSink}) plus exactly two deltas — {@code write_type = REWRITE} (the marker the BE uses to
+     * route to RewriteFiles semantics) and, at format-version&ge;3, the row-lineage fields appended to the
+     * schema-json (the BE rewrite writer expects {@code _row_id} / {@code _last_updated_sequence_number}).
+     * All other fields are inherited unchanged from the INSERT path.
+     */
+    private TIcebergTableSink buildRewriteSink(Table table, IcebergTableHandle tableHandle,
+            ConnectorWriteHandle handle) {
+        // A compaction REWRITE atomically replaces a file set; it is never a user INSERT OVERWRITE, and the
+        // BE writer does not accept the REWRITE write-type together with the overwrite flag.
+        if (handle.isOverwrite()) {
+            throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
+        }
+        TIcebergTableSink tSink = buildSink(table, tableHandle, handle);
+        tSink.setWriteType(TIcebergWriteType.REWRITE);
+        if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
+            // iceberg v3 format requires the row-lineage fields when rewriting data files.
+            tSink.setSchemaJson(SchemaParser.toJson(
+                    IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema())));
         }
         return tSink;
     }

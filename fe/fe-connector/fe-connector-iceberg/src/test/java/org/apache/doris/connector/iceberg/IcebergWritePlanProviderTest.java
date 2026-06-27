@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TIcebergDeleteSink;
 import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
+import org.apache.doris.thrift.TIcebergWriteType;
 import org.apache.doris.thrift.TSortField;
 import org.apache.doris.thrift.TSortInfo;
 
@@ -178,6 +179,57 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressionType());
         Assertions.assertFalse(sink.isOverwrite());
         Assertions.assertFalse(sink.isSetStaticPartitionValues());
+    }
+
+    // ───────────────────────────── REWRITE: compaction sink (TIcebergTableSink) ─────────────────────────────
+    //
+    // WHY: post-cutover rewrite_data_files reuses the INSERT TIcebergTableSink dialect with two deltas vs
+    // INSERT, byte-identical to legacy planner.IcebergTableSink.bindDataSink under isRewriting:
+    // write_type=REWRITE and (fv>=3) the row-lineage schema append. Dormant until a connector rewrite
+    // producer is wired, so these pin the sink dialect directly via planWrite.
+
+    @Test
+    public void planWriteRewriteSetsRewriteTypeAndKeepsInsertFields() {
+        // fv2 table: REWRITE reuses the INSERT baseline (db/tb/schema/partition/format) but stamps
+        // write_type=REWRITE; with no v3 row-lineage append the schema-json equals the plain table schema.
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.REWRITE));
+
+        Assertions.assertEquals(TIcebergWriteType.REWRITE, sink.getWriteType(),
+                "a REWRITE write must stamp write_type=REWRITE so the BE routes to RewriteFiles semantics");
+        Assertions.assertEquals("db1", sink.getDbName());
+        Assertions.assertEquals("t1", sink.getTbName());
+        Assertions.assertEquals(SchemaParser.toJson(table.schema()), sink.getSchemaJson(),
+                "a fv2 rewrite schema-json must equal the plain table schema (no v3 row-lineage append)");
+        Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecId());
+        Assertions.assertFalse(sink.isOverwrite());
+    }
+
+    @Test
+    public void planWriteRewriteFv3AppendsRowLineageSchema() {
+        Table table = formatVersionThreeTable(freshCatalog());
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "tv3")).writeOperation(WriteOperation.REWRITE));
+
+        Assertions.assertEquals(TIcebergWriteType.REWRITE, sink.getWriteType());
+        Assertions.assertTrue(sink.getSchemaJson().contains("_row_id"),
+                "fv3 rewrite schema-json must include the row-lineage _row_id field (legacy appendRowLineageFieldsForV3)");
+        Assertions.assertTrue(sink.getSchemaJson().contains("_last_updated_sequence_number"),
+                "fv3 rewrite schema-json must include the row-lineage _last_updated_sequence_number field");
+    }
+
+    @Test
+    public void planWriteRewriteRejectsOverwrite() {
+        // REWRITE is a compaction, never a user INSERT OVERWRITE; the BE writer rejects the pairing, so the
+        // connector fails loud rather than emit a sink with both REWRITE write-type and overwrite=true.
+        Table table = partitionedSortedTable(freshCatalog());
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithStorage(),
+                        new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                                .writeOperation(WriteOperation.REWRITE).overwrite(true)));
+        Assertions.assertTrue(ex.getMessage().contains("overwrite"),
+                "the rewrite-vs-overwrite rejection must name the offending overwrite flag");
     }
 
     @Test

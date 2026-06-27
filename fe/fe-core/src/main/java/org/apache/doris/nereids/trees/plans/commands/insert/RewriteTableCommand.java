@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
@@ -196,8 +198,18 @@ public class RewriteTableCommand extends Command implements NeedAuditEncryption,
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new IcebergRewriteExecutor(ctx, icebergExternalTable, label, planner,
                                 Optional.of(icebergInsertCtx), emptyInsert, jobId));
+            } else if (physicalSink instanceof PhysicalConnectorTableSink) {
+                // Neutral connector rewrite path (post-cutover). The rewrite marker rides on the sink
+                // (UnboundConnectorTableSink.isRewrite -> PhysicalConnectorTableSink.isRewrite), not on an
+                // insert context, so no setRewriting() is needed here; we only route to the neutral
+                // executor by the sink type (no instanceof Iceberg).
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                ExternalTable connectorTable = (ExternalTable) targetTableIf;
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new ConnectorRewriteExecutor(ctx, connectorTable, label, planner,
+                                insertCtx, emptyInsert, jobId));
             }
-            throw new AnalysisException("Rewrite only supports iceberg table");
+            throw new AnalysisException("Rewrite only supports iceberg and connector tables");
         } catch (Throwable t) {
             Throwables.throwIfInstanceOf(t, RuntimeException.class);
             throw new IllegalStateException(t.getMessage(), t);
