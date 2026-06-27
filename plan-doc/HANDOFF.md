@@ -5,36 +5,49 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **C5 / Batch B2 = P2 列演进 6 op（addColumn/addColumns/dropColumn/renameColumn/modifyColumn〔列COMMENT〕/reorderColumns）+ 引入 PluginDriven 共享 bookkeeping helper**
+# 🎯 下一个 session 的任务 = **C5 / Batch B2b = 扩中立 `ConnectorType`（逐字段 nullability+comment）+ 移植复杂类型 modifyColumn diff + 顺带闭 FU-nested-nullability**
 
-> **⚠️ 本 session = C5 Batch B1（P1 四核心 DDL）✅ 实现完成 + 已 commit（`b7203cf6a42`）。下个 session 从全新上下文做 B2（新上下文更稳）。动 B2 前先读 `P6.6-C5-ddl-spi-buildout.md` §5 移植表 + §4 helper + re-grep 锚点。**
+> **⚠️ 本 session = C5 Batch B2a（P2 列演进 6 op 标量分支 + helper）✅ 完成 + commit（`6afb08cefe9`）。下个 session 从全新上下文做 B2b（跨连接器大改，新上下文更稳）。动 B2b 前先读 `P6.6-C5-ddl-spi-buildout.md` §2/§4 + memory `iceberg-b2-complex-modify-decision` + re-grep 锚点。**
 
-> **🔥 B1 实测推翻 buildout 文档「B1 无新 SPI」**：① createTable 的 request→iceberg-Schema 转换**连接器侧本不存在**（新建 `IcebergSchemaBuilder` + `IcebergTypeMapping.toIcebergPrimitive`，字符串驱动移植 `DorisTypeToIcebergType`/`solveIcebergPartitionSpec`/`buildSortOrder`）；② sort-order(ORDER BY) 中立 request 无字段→静默丢=真回归→**新增 SPI** `ConnectorSortField`+`ConnectorCreateTableRequest.sortOrder`+转换器（用户签全量对齐）；③ HMS 托管目录清理连接器够不到 fe-core FileSystemFactory→**新增 SPI 钩子** `ConnectorContext.cleanupEmptyManagedLocation`（用户签全量对齐）。**教训重申**：动批前 re-grep 连接器能力完整度，别信文档「已有」。
+> **🔥 用户决策（2026-06-27 signed）= B2 modifyColumn 复杂类型选方案 B「现在就扩中立类型系统做全量」**（非 fail-loud+FU）。详 memory [[iceberg-b2-complex-modify-decision]]。B2a 里复杂类型 modifyColumn 连接器侧已 fail-loud 占位（`IcebergConnectorMetadata.modifyColumn` 的 `isComplexType` 分支抛 `DorisConnectorException`），B2b 替换为真 diff。
 
-> **用户决策（2026-06-27 signed）= 全量对齐**：18 个 op 全部翻闸前修。**实现主文档 = `plan-doc/tasks/designs/P6.6-C5-ddl-spi-buildout.md`**（B1 已标 ✅ DONE + 实情；B2–B5 待做）。
+> **🔥 B2a 又抓两个文档低估的 B1 类陷阱**（已按正确做法落地）：① `afterExternalDdl` helper 必须**显式做 editlog + `RefreshManager.refreshTableInternal`（按 REMOTE 名重解析）两件**——base `ExternalCatalog` 列 op 只发 editlog、缓存失效委托进 `metadataOps.refreshTable`，PluginDriven 无 metadataOps，照文档「复刻 base op」字面写会**静默丢缓存失效=真 bug**（已用 mutation `core-after-ddl-refresh` 锁）。② 连接器**无** update-schema seam + **无** 单列建 iceberg type 入口（加 `IcebergSchemaBuilder.buildColumnType`）+ `parseIcebergLiteral`（ADD COLUMN DEFAULT）是 fe-core 但零依赖照搬（`IcebergSchemaBuilder.parseDefaultLiteral`）。**教训重申**：动批前 re-grep 连接器能力完整度。
 
-**本 session 完成（B1）**：iceberg 连接器 createTable/dropTable/createDatabase/dropDatabase + `supportsCreateDatabase`（移植 legacy `IcebergMetadataOps`，对齐 paimon）；新 `IcebergSchemaBuilder`/`IcebergTypeMapping.toIcebergPrimitive`/`ConnectorSortField`/`ConnectorContext.cleanupEmptyManagedLocation` 钩子；seam `IcebergCatalogOps` 加 6 DDL/location 方法；fe-core `CreateTableInfo.pluginCatalogTypeToEngine` 加 `case "iceberg"`（字符串键、iron-law clean）+ 转换器 sort-order。**连接器 654 全绿 / fe-core 目标类全绿 / mutation 7/7 KILLED / iron-law clean / e2e flip-gated 未跑**。commit `b7203cf6a42`。**全程 dormant**（iceberg 仍走 legacy，pre-flip 零行为变更）。**P6.1–P6.5 ✅ / P6.6：C1–C3 ✅ / C4 R1–R7 ✅ / C5：B1 ✅ → B2–B5 + B类 + 持久化 + 视图 + C docker → 翻闸**。iceberg **仍不在** `SPI_READY_TYPES`。
+**本 session 完成（B2a）= commit `6afb08cefe9`**：iceberg 连接器 6 列演进 op（标量）翻闸全量对齐 + PluginDriven `afterExternalDdl` 共享 helper。
+- **SPI**：`ConnectorTableOps` 加 6 default-throw（addColumn/addColumns/dropColumn/renameColumn/modifyColumn/reorderColumns）；新中立 DTO `ConnectorColumnPosition`（FIRST|AFTER，无 BEFORE）。
+- **连接器**：`IcebergConnectorMetadata` 6 override（纯构建在 auth 外、seam commit 在 auth 内，对齐 B1）；`IcebergCatalogOps` seam 6 thin-delegation（`loadTable().updateSchema()...commit()`，modifyColumn seam 内做列存在+optional→required 校验）；`IcebergSchemaBuilder` 加 `buildColumnType`+`parseDefaultLiteral`；新 `IcebergColumnChange` 载体。
+- **fe-core**：`PluginDrivenExternalCatalog` 6 override + `afterExternalDdl` helper（见上陷阱①）；`ConnectorColumnConverter.toConnectorColumn` 补 isKey/isAutoInc/isAggregated 透传 + 新 `toConnectorColumns(List)`。
+- **验证**：连接器 689 全绿（+35）/ fe-core 54 全绿 / **mutation 11/11 KILLED** / iron-law clean / checkstyle 双模块 clean / e2e flip-gated 未跑。**全程 dormant**。
+- **⚠️ 复杂类型 modifyColumn 连接器侧仍 fail-loud（B2b 补）；ADD COLUMN <复杂类型> 可做（建表精度=FU-nested-nullability）。**
 
-## ⛳ 结论（一句话）：**还不能翻闸**。scan + 行级 DML + **P1 四核心 DDL（B1）** 已干净；剩 DDL/ALTER B2–B5（列演进/rename/branch-tag/分区演进+Alter 铁律）、B 类 SHOW/统计、持久化迁移、视图、C docker。
+**P6.1–P6.5 ✅ / P6.6：C1–C3 ✅ / C4 R1–R7 ✅ / C5：B1 ✅ B2a ✅ → B2b + B3–B5 + B类 + 持久化 + 视图 + C docker → 翻闸**。iceberg **仍不在** `SPI_READY_TYPES`。
+
+## ⛳ 结论（一句话）：**还不能翻闸**。scan + 行级 DML + **P1 四核心 DDL（B1）+ P2 列演进 6 op 标量（B2a）** 已干净；剩 B2b（复杂 modify+闭 FU-nested-nullability）、B3–B5（rename/branch-tag/分区演进+Alter 铁律）、B 类 SHOW/统计、持久化迁移、视图、C docker。
 
 ## ✅ 用户决策（2026-06-27 signed）
 - **[DEC-FLIP-2 重申] = 全量对齐**：DDL/ALTER 18 op + B 类 + 视图(A3/B6) 全部翻闸前修；仅 C 类（写路径正确性）归用户 docker，D 类翻闸后。
 - **[DEC-FLIP-1] = 方向一（GSON 迁移）**：`GsonUtils.registerCompatibleSubtype(PluginDrivenExternalCatalog.class, "Iceberg…")` 全 8 catalog 变体 + 库 + 表（跟 paimon `:389-411` 范式），重启自动升级。
 
-## 📖 起步必读（动 B2 前）
-1. **`plan-doc/tasks/designs/P6.6-C5-ddl-spi-buildout.md`**（**主**：§5 逐 op 移植表〔B2 = 列演进 6 个：addColumn:781/addColumns:800/dropColumn:817/renameColumn:831/modifyColumn:846〔含列 COMMENT :982〕/reorderColumns:1081〕 + §4 共享 helper；行号会漂，动码前 re-grep）。
-2. `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`（缺口全景 A/B/C/D + 决策）。
-3. memory `iceberg-ddl-connector-gap-flip`、`iceberg-b1-ddl-done`（B1 实现 + 新 infra）、`handoff-discipline-per-phase`。
-4. **B1 已建、B2+ 复用的 infra**：`IcebergSchemaBuilder`（列类型/嵌套 id 映射 — modifyColumn/addColumn 改列也要它）；`IcebergCatalogOps` seam（B2 加 `updateSchema`-类方法，照 B1 thin-delegation 范式）；`RecordingIcebergCatalogOps`/`RecordingConnectorContext`（测试录制 fake，B2 加方法即可）。**B2 参考**：legacy `IcebergMetadataOps.addColumn:781`(真 `UpdateSchema.commit`)…`modifyColumn:846`；paimon **无** P2 参考（须从零设计 SPI 方法，见 buildout §2）。
+## 📖 起步必读（动 B2b 前）
+1. memory `iceberg-b2-complex-modify-decision`（用户签方案 B + B2a/B2b 切分 + 两陷阱）、`iceberg-b1-ddl-done`、`handoff-discipline-per-phase`、`clean-room-adversarial-review-pref`。
+2. `plan-doc/tasks/designs/P6.6-C5-ddl-spi-buildout.md` §2/§3（SPI 表面 / 中立 DTO）、`P6.6-C5-flip-readiness.md`（缺口全景）。
+3. **B2b 的 legacy 锚点（动码前 re-grep，行号会漂）**：`IcebergMetadataOps.modifyColumn:846` 的复杂分支 → `validateForModifyComplexColumn:902`（用 fe-catalog `ColumnType.checkSupportSchemaChangeForComplexType` + fe-core `IcebergUtils.icebergTypeToDorisType`）+ `applyComplexTypeChange:944`/`applyStructChange:962`/`applyListChange:1012`/`applyMapChange:1036`（逐字段递归 diff：`getContainsNull()`/`getComment()`/path 化 `updateColumn`/`makeColumnOptional`/`addColumn(parent,name,...)`）。
+
+## 🧩 B2b 设计要点（本 session recon 已定，下个 session 实现）
+- **核心缺口**：复杂 modify 的逐字段 diff 需 NEW 类型的「逐 struct 子字段 nullability + comment」，但中立 `ConnectorType`（`fe-connector-api/.../ConnectorType.java`）只有 typeName/precision/scale/children/fieldNames，**无逐字段 nullable/comment**。这同时是 B1 登记的 `FU-nested-nullability`（建表复杂嵌套 NOT NULL→optional 静默丢，`ConnectorColumnConverter.toConnectorType:131` 处丢、`IcebergSchemaBuilder.convert:97` 一律 `ofOptional`）。
+- **B2b 工作集**：① `ConnectorType` **additive** 加逐字段 nullability+comment（STRUCT 子字段 / ARRAY 元素 / MAP 值；保留旧工厂 `of/arrayOf/mapOf/structOf` 不破 paimon，加带 nullable/comment 的重载或并行字段）。② fe-core `ConnectorColumnConverter.toConnectorType` 线程进（从 Doris `StructField.getContainsNull()/getComment()`、`ArrayType.getContainsNull()`、`MapType.getIsValueContainsNull()`）。③ 连接器 `IcebergSchemaBuilder.convert` 用逐字段 nullable（**顺带闭 createTable 的 FU-nested-nullability**）。④ 连接器移植复杂 diff：**diff = OLD iceberg type（连接器 loadTable 已有）vs NEW `ConnectorType`**（不需 Doris Type），把 `checkSupportSchemaChangeForComplexType` 的兼容规则 + `applyStruct/List/MapChange` 移进连接器（新 seam 方法或扩 `IcebergColumnChange`）；去掉 B2a 在 `IcebergConnectorMetadata.modifyColumn` 的 `isComplexType` fail-loud。⑤ **paimon 影响核**：`ConnectorType` 改 additive 不破 paimon createTable，但 paimon schema builder 是否用新逐字段 nullable 可独立决定（不在 B2b 必须）。
+- **B2a 已建、B2b 复用的 infra**：`IcebergColumnChange` 载体；`IcebergCatalogOps.modifyColumn` seam（B2b 可加复杂变体或让其消费扩展的 change）；`RecordingIcebergCatalogOps`（已录 6 op）；`CatalogBackedIcebergCatalogOpsColumnEvolutionTest`（真 InMemoryCatalog 往返，B2b 加复杂 modify 往返用例）；`scratchpad/mutate_b2.py`（mutation 范式，加复杂 diff 锚点）。
+- **测试**：连接器真 InMemoryCatalog 往返复杂 modify（struct 加子字段/改子字段类型/子字段 nullable 切换/MAP value 改），fe-core `ConnectorColumnConverterTest` 验逐字段 nullability+comment 往返；mutation 锁复杂 diff 分支 + nullability 透传。
 
 ## ✅ C4 R7（WHERE lowering）= 上一 session DONE（`5a1a0e25e16`，dormant）
 rewrite WHERE「无法精确下推就报错」两层 fail-loud（fe-core `UnboundExpressionToConnectorPredicateConverter` + 连接器 `RewriteDataFilePlanner` guard）。fe-core 28/0 + 连接器 19/0 + 6 变异全 KILLED + iron-law clean。**真 e2e 未跑（flip-gated）**。详 git log `5a1a0e25e16` + memory `r7-where-lowering-unbound-failloud`。R8（rewrite 真写 e2e）已归入 flip-readiness **C 类（用户 docker）**。
 
-## 🚦 C5 进度 — **B1 ✅ DONE，下一 = B2 列演进**（详 `P6.6-C5-ddl-spi-buildout.md`）
+## 🚦 C5 进度 — **B1 ✅ / B2a ✅，下一 = B2b 复杂 modify**（详 `P6.6-C5-ddl-spi-buildout.md` + 上「B2b 设计要点」）
 > **主文档 = `P6.6-C5-ddl-spi-buildout.md`**（DDL/ALTER 实现）；缺口全景 = `P6.6-C5-flip-readiness.md`。**最后才加 `SPI_READY_TYPES`**。
-- **B1 ✅（commit `b7203cf6a42`）= P1 四核心 DDL**：见上「本 session 完成」。新增 SPI（ConnectorSortField + sortOrder + cleanup 钩子）已落，B2+ 直接复用。
-- **B2（下一，列演进 6 + helper）**：`ConnectorTableOps` 加 6 个 default-throw（无 paimon 参考，从零设计签名，见 buildout §2）；`PluginDrivenExternalCatalog` 加 6 override + **引入 `afterExternalDdl` bookkeeping helper**（base `ExternalCatalog` 各列 op 的 editlog+cache 失效样板，PluginDriven 无 metadataOps 须自己做，13 op 会重复→抽 helper，buildout §4）；连接器 6 实现（`UpdateSchema` + `IcebergSchemaBuilder` 复用列类型转换；**modifyColumn 含列 COMMENT `:982` 最易漏，单独仔细测**）。seam 加 `applySchemaUpdate`-类方法（照 B1 thin-delegation）。
-- **后续批**：B3 rename(+constraintManager.renameTable+rename helper) → B4 branch/tag(4)+中立 DTO(BranchChange/TagChange/DropRefChange) → B5 分区演进(3)+中立 PartitionFieldChange DTO + **`Alter.java:433-456` 铁律修复（去 instanceof IcebergExternalTable/(IcebergExternalCatalog) cast，改走 `table.getCatalog().<op>` 中立路）**。逐 op 移植表见 buildout §5。
+- **B1 ✅（`b7203cf6a42`）= P1 四核心 DDL**；新 SPI（ConnectorSortField/sortOrder/cleanup 钩子）B2+ 复用。
+- **B2a ✅（`6afb08cefe9`）= P2 列演进 6 op 标量 + `afterExternalDdl` helper**：见上「本 session 完成」。复杂 modify 连接器 fail-loud 占位。
+- **B2b（下一，复杂 modify 全量 + 闭 FU-nested-nullability）**：扩 `ConnectorType` 逐字段 nullability+comment + 转换器线程 + `IcebergSchemaBuilder.convert` 用之 + 移植复杂 diff（去 B2a fail-loud）。详上「🧩 B2b 设计要点」。跨连接器 additive 改，**新 session 实现**（用户签方案 B）。
+- **后续批**：B3 rename(+constraintManager.renameTable + `afterExternalRename` helper〔与 afterExternalDdl 区别：rename 用 createForRenameTable editlog + unregisterTable+resetMetaCacheNames，非 refreshTableInternal〕) → B4 branch/tag(4)+中立 DTO(BranchChange/TagChange/DropRefChange) → B5 分区演进(3)+中立 PartitionFieldChange DTO + **`Alter.java:433-456` 铁律修复（去 instanceof IcebergExternalTable/(IcebergExternalCatalog) cast，改走 `table.getCatalog().<op>` 中立路）**。逐 op 移植表见 buildout §5。
 - **DDL/ALTER 全绿后**：flip-readiness B 类（SHOW/统计，多纯 fe-core）→ DEC-FLIP-1 持久化 GSON → A3/B6 视图 SPI → C 类 docker → 加 `SPI_READY_TYPES` + 删 legacy case + 用户二签。
 - **⚠️ 加 `SPI_READY_TYPES` 是最后一步**（A 全绿 + B 按 DEC-FLIP-2 取舍处理完之后），勿提前。
 - **⚠️ 每批起步先 `df -h /mnt/disk1`**（空间紧，B1 收尾时 ~84G free）；mutation 加 `-Dcheckstyle.skip=true`；mutation 后 `touch` 源或 clean 再终验（stale .class 坑）。
@@ -51,7 +64,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（C4 dead 
 > 5 commit-stream（C1 ✅ / C2 ✅ / C3 ✅ / **C4 R1–R7 ✅**（R8=rewrite e2e=C5 的 C 类 docker）/ **C5 进行中** / FLIP 待）。
 
 - **[C4 R1–R7 ✅]** rewrite_data_files 翻闸就绪（Option B 全对等）：executionMode SPI / scan path-set 作用域 / planRewrite SPI / sink-bind+GATHER / transaction rewrite SPI gap / 分布式 driver+CRUX stash 中立化+begin-once 护栏 / WHERE lowering 两层 fail-loud。**R8（flip rehearsal）= flip-gated，归 C5 的 C 类 docker 验证。** 详设计 §7。
-- **[C5 = 当前]** 翻闸就绪修复。**主块 = DDL/ALTER 18-op buildout（`P6.6-C5-ddl-spi-buildout.md`，批次 B1–B5）：B1 ✅（`b7203cf6a42`）→ 从 B2 起**；另含 flip-readiness B 类（SHOW/统计）+ DEC-FLIP-1 持久化 GSON + A3/B6 视图 SPI + C 类 docker。**详 `P6.6-C5-flip-readiness.md`**。B1 全程 dormant（无新 DV）。
+- **[C5 = 当前]** 翻闸就绪修复。**主块 = DDL/ALTER 18-op buildout（`P6.6-C5-ddl-spi-buildout.md`，批次 B1–B5）：B1 ✅（`b7203cf6a42`）/ B2a ✅（`6afb08cefe9`）→ 从 B2b 起**；另含 flip-readiness B 类（SHOW/统计）+ DEC-FLIP-1 持久化 GSON + A3/B6 视图 SPI + C 类 docker。**详 `P6.6-C5-flip-readiness.md`**。B1/B2a 全程 dormant（无新 DV）。
 - **[FLIP，不可逆 = C5 最后一步]** `SPI_READY_TYPES`+iceberg / 删 `CatalogFactory case:137-140`(legacy `IcebergExternalCatalogFactory`) / GSON 迁移 remap（DEC-FLIP-1） / capability 核。**FLIP 前须 DDL/ALTER 全绿 + B 类 + 视图 + C 用户 docker 全绿 + 用户二签。**
 
 ## 🆕 翻闸前置项（登记）
@@ -90,7 +103,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（C4 dead 
 # ⚠️ Commit 须知（任何 `git add` 前必读）
 
 - **path-whitelist `git add`，严禁 `git add -A`**（scrub `regression-test/conf/regression-conf.groovy` 明文 key + `*.bak` + scratch `.audit-scratch/`·`conf.cmy/`·`META-INF/`·`docker/...`·**仓根游离 `fe/IcebergScanPlanProvider.java`**〔真文件在 `fe/fe-connector/...`，勿提交〕·`plan-doc/reviews/P5-paimon-rereview3-*`）。
-- **C4：R1=`1bddf3426d6` / R2=`0a0d5b8de83` / R3=`a7c2732d984` / R4a=`a3d7210e892` / R4b=`12fe50ee88e` / R5=`e956f0edc45` / R6=`0735aac280e` / R7=`5a1a0e25e16`**。**C5：B1=`b7203cf6a42`**。HANDOFF 单独 commit。
+- **C4：R1=`1bddf3426d6` / R2=`0a0d5b8de83` / R3=`a7c2732d984` / R4a=`a3d7210e892` / R4b=`12fe50ee88e` / R5=`e956f0edc45` / R6=`0735aac280e` / R7=`5a1a0e25e16`**。**C5：B1=`b7203cf6a42` / B2a=`6afb08cefe9`**。HANDOFF 单独 commit。
 - commit message：见 `git log` 范式 + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`。PR base = `branch-catalog-spi`，squash。
 
 # 📦 阶段状态
