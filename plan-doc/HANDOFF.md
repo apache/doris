@@ -5,14 +5,22 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **C4 步骤 R8（wire + flip rehearsal，flip-gated，本地不 commit SPI_READY_TYPES）**
+# 🎯 下一个 session 的任务 = **C5 翻闸就绪修复（按 `P6.6-C5-flip-readiness.md` 的 A 类硬阻塞 + B 类应修；先做不依赖决策的小项）**
 
-**本 session = C4 R7（WHERE lowering — nereids Expression→ConnectorPredicate）= ✅ DONE（单提交 `5a1a0e25e16`，9 文件，dormant）**。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core+commit-bridge 全闭 ✅ → C4 进行中（R1–R7 ✅，R8 待）**。翻闸 = 5 commit-stream（C1/C2/C3 ✅ / C4 进行中 / C5 FLIP 不可逆待）。iceberg **仍不在** `SPI_READY_TYPES`。
+> **2026-06-27 翻闸就绪度审计（`wf_265f4359-47f`）改写了「下一步」**：原以为 R7 后即 R8（rewrite e2e），实测**翻闸前还有一批 fe-core 缺口**（翻闸后对真实 iceberg 表报错/错误结果，docker 写入测不到）。R8（rewrite 真写 e2e）只是其中**写路径**那一块 = **用户 docker 验证**（C 类）。**详见 `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`**（A/B/C/D 分类 + 2 项用户决策 + 推荐顺序）。
 
-## 📖 起步必读（动 R8 前）
-1. **`plan-doc/tasks/designs/P6.6-C4-ws-rewrite-design.md`** §7 R8 + §8 impl 期 OPEN（行号会漂，动码前 re-grep）。
-2. 本 HANDOFF「R7 完成」+「R8 起步」+ FU 清单（R8 rehearsal 会真触及 FU-rewrite-output-sizing / FU-flip-e2e）。
-3. memory `r6-rewrite-driver-beginwrite-once`（R6 两个正确性坑 + 完整分布式写工作集锚点，R8 真跑时对照）。
+**本 session = C4 R7（WHERE lowering）✅ DONE（`5a1a0e25e16`）+ 翻闸就绪度审计 ✅（落 `P6.6-C5-flip-readiness.md`）**。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core+commit-bridge 全闭 ✅ → C4 R1–R7 ✅（R8=rewrite e2e=用户 docker）→ C5 翻闸（A/B 缺口待修 + 2 决策待定）**。iceberg **仍不在** `SPI_READY_TYPES`。
+
+## ⛳ 审计结论（一句话）：**还不能翻闸**。scan + write-dispatch 面已干净（按 PluginDriven 类型/物理 sink 路由，非 iceberg cast）；剩缺口集中在 **DDL/SHOW 渲染、统计、优化器、分区演进、建表、视图、持久化迁移**。
+
+## ❓ 2 项用户决策待定（动 C5 修复前需用户定，已在审计文档 §决策）
+- **[DEC-FLIP-1] 持久化/混合舰队**：iceberg 缺 `GsonUtils.registerCompatibleSubtype→PluginDriven`（ES/JDBC/Trino/MaxCompute/Paimon 都有，`GsonUtils:389-411`）→只加列表不加 remap=重启后混合舰队。方向一（推荐，跟 paimon 加 remap）/ 方向二（接受混合舰队）。
+- **[DEC-FLIP-2] B 类 + 视图/分区演进取舍**：哪些翻闸前必修 / 哪些作已知限制（不用视图则 A3/B6 暂缓；不用分区演进则 A2 暂缓）。
+
+## 📖 起步必读（动 C5 修复前）
+1. **`plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`**（**主**：缺口清单 A/B/C/D + 2 决策 + 推荐顺序；动码前 re-grep 锚点）。
+2. 本 HANDOFF「R7 完成」+「2 项决策」+ FU 清单。
+3. memory `r7-where-lowering-unbound-failloud`、`r6-rewrite-driver-beginwrite-once`（C 类 rewrite 写半真跑时对照）。
 
 ## ✅ 本 session 完成（C4 R7，单提交 `5a1a0e25e16`，dormant）
 > recon = `wf_46e2c61c-ee2`（3 reader〔2 个因 StructuredOutput 重试上限失败〕+ synthesis + adversarial critic）；critic 实证挖出「连接器 conflict-mode 矩阵是 legacy 严格子集→fail-loud 须落两层」的 BLOCKER。**11 改 + 2 新**。
@@ -31,12 +39,13 @@
 - iron-law（3 fe-core 新/改文件无 instanceof Iceberg / IcebergUtils）+ 连接器 import gate **clean**。
 - **真分布式 WHERE rewrite e2e 未跑**（flip-gated）= R8 rehearsal 才触及（诚实标注，勿谎称）。
 
-## 🚦 R8 起步（wire + flip rehearsal，flip-gated；**SPI_READY_TYPES 改动留 C5，本地试跑不 commit**）
-> R8 = 第一次让**整条**分布式 rewrite 真路径端到端跑（pin/共享事务/OCC commit/GATHER/register/WHERE）。需 docker iceberg 环境。
-1. **本地（不 commit）** 把 iceberg 临时加进 `SPI_READY_TYPES`（`CatalogFactory:50-51`，现 = {jdbc,es,trino-connector,max_compute,paimon}），跑 docker `rewrite_data_files`（含 / 不含 WHERE）e2e。**跑完 revert**，勿提交该改动。
-2. 端到端验（FU-flip-e2e 清单）：旧删不复活 / operation·row_id BE 解析 / OCC / **每组只扫自己文件〔pin 3 注入点〕/ 共享事务跨组绑定 / 并发 begin-once / register 顺序 / GATHER 输出文件数 / register re-scan 路径匹配 / WHERE 真裁剪到匹配文件 / 不可下推 WHERE 真报错**。
-3. **R8 触及的 FU（rehearsal 前先看）**：**FU-rewrite-output-sizing**（target-file-size + 自适应并行度未线程，影响真 BE 写盘输出文件数/大组性能）；翻闸前须修。
-4. R8 暴露问题 → 回头补连接器/driver；R8 本身**不动 `SPI_READY_TYPES` 提交**（那是 C5）。
+## 🚦 C5 起步（翻闸就绪修复 → 最后才加 `SPI_READY_TYPES`）
+> **主清单 = `P6.6-C5-flip-readiness.md`**（A 硬阻塞 / B 应修 / C 用户 docker / D 可后做 + 推荐顺序）。下面是摘要：
+- **A 硬阻塞（翻闸前必修，docker 测不到）**：A1 不带 ENGINE 的 CREATE TABLE 报错（小，纯 fe-core，先确认连接器 createTable）；A2 ALTER 分区演进报错（需连接器中立 SPI）；A3 查询 iceberg 视图返错误结果（仅 `enable_query_iceberg_views` 时；需中立视图 SPI）；A4 翻闸开关 + 持久化迁移（DEC-FLIP-1）。
+- **B 应修（功能退化不报错；多纯 fe-core）**：B1 SHOW CREATE TABLE 丢 LOCATION/属性/排序/分区；B2 SHOW CREATE DATABASE 丢 LOCATION；B3 SHOW PARTITIONS 3→1 列；B4 自动统计停摆→CBO 退化；B5 Top-N 懒物化失效；B6 SHOW CREATE 视图 DDL 错（随 A3）。
+- **C 用户 docker 验证（含原 R8）**：C1 rewrite 写半真 e2e（pin/共享事务/OCC commit/GATHER/register/WHERE 真裁剪/不可下推真报错）；C2 输出文件大小+并行度未接线（FU-rewrite-output-sizing）；C3 BE 层（DV-041 / DV-038 可崩 BE）；C4 V3 行血缘列绑定 + WHERE 跨类型字面量。
+- **推荐顺序**：A1 → B 纯 fe-core（B1/B2/B4/B5）→（DEC-FLIP-1 定后）持久化 GSON 迁移 → A2 分区演进 / A3·B6 视图 SPI → C 用户 docker → 加 `SPI_READY_TYPES` + 删 legacy case + 用户二签。
+- **⚠️ 加 `SPI_READY_TYPES` 是最后一步**（A 全绿 + B 按 DEC-FLIP-2 取舍处理完之后），勿提前。
 
 ---
 
@@ -50,7 +59,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（C4 dead 
 > 5 commit-stream（C1 ✅ / C2 ✅ / C3 ✅ / **C4 进行中** / C5 FLIP 待）。
 
 - **[C4 进行中 = 当前]** rewrite_data_files 翻闸就绪（Option B 全对等）。**R1–R7 ✅（executionMode SPI / scan path-set 作用域 / planRewrite SPI / sink-bind+GATHER / transaction rewrite SPI gap / 分布式 driver+CRUX stash 中立化+begin-once 护栏 / WHERE lowering 两层 fail-loud）→ R8（flip rehearsal，flip-gated）**。详设计 §7。
-- **[C5 FLIP，不可逆]** `SPI_READY_TYPES`+iceberg / 删 `CatalogFactory case` / GSON compat / capability 核 / Show* parity。**C5 前须 C1–C4 全绿 + 用户二签。**
+- **[C5 FLIP，不可逆]** `SPI_READY_TYPES`+iceberg / 删 `CatalogFactory case:137-140` / **GSON 迁移 remap（已实证缺：iceberg 8 catalog 变体+库+表无 `registerCompatibleSubtype→PluginDriven`，`GsonUtils:375-383` vs paimon `:389-411`，DEC-FLIP-1）** / capability 核 / Show* parity（B 类）/ 建表引擎映射（A1）/ 分区演进·视图 SPI（A2/A3）。**详 `P6.6-C5-flip-readiness.md`**。**C5 前须 A 全绿 + B 按 DEC-FLIP-2 + C 用户 docker 全绿 + 用户二签。**
 
 ## 🆕 翻闸前置项（登记）
 - **[GAP-A → C5]** 翻闸后 iceberg 表类掉出 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES`→ lazy-top-N 静默失效。修须 capability/engine 判别。
