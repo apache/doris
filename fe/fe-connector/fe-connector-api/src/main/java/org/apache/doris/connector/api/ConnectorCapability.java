@@ -98,5 +98,28 @@ public enum ConnectorCapability {
      * {@code listPartitionNames}. This is distinct from {@link #SUPPORTS_STATISTICS}, which is
      * table-level statistics for the optimizer.</p>
      */
-    SUPPORTS_PARTITION_STATS
+    SUPPORTS_PARTITION_STATS,
+    /**
+     * Indicates the connector's tables support background per-column auto-analyze (NDV / min / max /
+     * null-count collection) through the generic {@code ExternalAnalysisTask} FULL path.
+     *
+     * <p>The statistics auto-collector admits a plugin-driven table into the background auto-analyze
+     * framework only when its connector declares this (replacing the legacy {@code instanceof
+     * IcebergExternalTable} whitelist), and then forces {@code AnalysisMethod.FULL} — sample analyze is
+     * unimplemented for external SQL-driven tables ({@code ExternalAnalysisTask.doSample} throws).
+     * Row/passthrough connectors that cannot serve per-column statistics (e.g. JDBC, ES) must NOT
+     * declare it so they stay excluded.</p>
+     */
+    SUPPORTS_COLUMN_AUTO_ANALYZE,
+    /**
+     * Indicates the connector's file-scan tables support Top-N lazy materialization: the scan first
+     * reads only the ordering/filter columns to locate the Top-N row ids, then materializes the
+     * remaining columns for just those rows (via the synthesized {@code GLOBAL_ROWID_COL}).
+     *
+     * <p>The nereids Top-N lazy-materialize probe enables the {@code LazyMaterializeTopN} post-processor
+     * for a plugin-driven table only when its connector declares this (replacing the legacy exact-class
+     * {@code SUPPORT_RELATION_TYPES} membership of {@code IcebergExternalTable}). Row/passthrough
+     * connectors (e.g. JDBC, ES) must NOT declare it.</p>
+     */
+    SUPPORTS_TOPN_LAZY_MATERIALIZE
 }

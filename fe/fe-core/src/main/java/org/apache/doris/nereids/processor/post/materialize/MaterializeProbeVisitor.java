@@ -20,6 +20,7 @@ package org.apache.doris.nereids.processor.post.materialize;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -124,7 +125,14 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     }
 
     boolean checkRelationTableSupportedType(PhysicalCatalogRelation relation) {
-        if (!SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass())) {
+        boolean supported = SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass());
+        if (!supported && relation.getTable() instanceof PluginDrivenExternalTable) {
+            // Post-flip iceberg becomes PluginDrivenMvccExternalTable (not in the legacy exact-class set);
+            // admit it via the connector capability instead of the legacy IcebergExternalTable.class member.
+            // Row/passthrough plugin connectors (jdbc/es) do not declare the capability, so they stay excluded.
+            supported = ((PluginDrivenExternalTable) relation.getTable()).supportsTopNLazyMaterialize();
+        }
+        if (!supported) {
             return false;
         }
 

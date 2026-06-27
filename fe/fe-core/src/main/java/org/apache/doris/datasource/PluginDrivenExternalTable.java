@@ -104,6 +104,35 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether the underlying connector's tables support background per-column auto-analyze.
+     * The statistics auto-collector consults this (in place of the legacy {@code instanceof
+     * IcebergExternalTable} whitelist) to admit a flipped plugin table into the auto-analyze framework
+     * and to force FULL analyze (sample analyze is unimplemented for external SQL-driven tables).
+     */
+    public boolean supportsColumnAutoAnalyze() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+    }
+
+    /**
+     * Returns whether the underlying connector's file-scan tables support Top-N lazy materialization.
+     * The nereids Top-N lazy-materialize probe consults this (in place of the legacy exact-class
+     * {@code SUPPORT_RELATION_TYPES} membership) to enable lazy materialization for a flipped plugin table.
+     */
+    public boolean supportsTopNLazyMaterialize() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+    }
+
+    /**
      * Returns whether the underlying connector requires dynamic-partition writes to be
      * hash-distributed by partition columns and locally sorted by them (e.g. MaxCompute Storage
      * API). Used by {@code PhysicalConnectorTableSink} to require that distribution + sort for

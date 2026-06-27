@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -36,8 +37,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Pins {@link PluginDrivenExternalTable#getFullSchema()} request-scoped synthetic-write-column injection
@@ -157,6 +160,56 @@ public class PluginDrivenExternalTableTest {
         Mockito.doReturn(true).when(table).needInternalHiddenColumns();
 
         Assertions.assertEquals(BASE_SCHEMA.size(), table.getFullSchema().size());
+    }
+
+    /**
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable whose connector declares exactly
+     * {@code capabilities}, to exercise the capability-helper methods over the real connector chain.
+     */
+    private static PluginDrivenExternalTable pluginTableWithCapabilities(Set<ConnectorCapability> capabilities) {
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getCapabilities()).thenReturn(capabilities);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        return table;
+    }
+
+    @Test
+    public void supportsColumnAutoAnalyzeReflectsConnectorCapability() {
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE)).supportsColumnAutoAnalyze());
+        // The two capabilities are independent: declaring auto-analyze must NOT enable lazy top-N.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE)).supportsTopNLazyMaterialize());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsColumnAutoAnalyze());
+    }
+
+    @Test
+    public void supportsTopNLazyMaterializeReflectsConnectorCapability() {
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsTopNLazyMaterialize());
+        // Independent the other way too: declaring lazy top-N must NOT enable auto-analyze.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsColumnAutoAnalyze());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsTopNLazyMaterialize());
+    }
+
+    @Test
+    public void capabilityHelpersReturnFalseWhenConnectorAbsent() {
+        // MUTATION: dropping the null-connector guard NPEs here — a catalog with no connector (read-only /
+        // not-yet-initialized) must degrade to "capability absent", never crash planning.
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(null);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Assertions.assertFalse(table.supportsColumnAutoAnalyze());
+        Assertions.assertFalse(table.supportsTopNLazyMaterialize());
     }
 
     @Test

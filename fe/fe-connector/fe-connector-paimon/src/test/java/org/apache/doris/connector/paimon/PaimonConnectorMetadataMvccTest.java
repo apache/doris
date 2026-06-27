@@ -1142,4 +1142,22 @@ public class PaimonConnectorMetadataMvccTest {
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TIME_TRAVEL),
                 "paimon must declare SUPPORTS_TIME_TRAVEL");
     }
+
+    @Test
+    public void connectorDeclaresColumnAutoAnalyzeButNotTopNLazyMaterialize() {
+        ConnectorContext ctx = new RecordingConnectorContext();
+        Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
+
+        // WHY: paimon tables are queryable via the generic SQL-driven ExternalAnalysisTask FULL path, so the
+        // flip wires them into background per-column auto-analyze (paimon was never in the legacy
+        // instanceof-based whitelist). MUTATION: dropping SUPPORTS_COLUMN_AUTO_ANALYZE -> paimon stays
+        // excluded from auto-analyze -> first assertion red.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                "paimon must declare SUPPORTS_COLUMN_AUTO_ANALYZE");
+        // Paimon was NEVER eligible for Top-N lazy materialization (legacy PaimonExternalTable was never in
+        // MaterializeProbeVisitor's supported set), so granting it would be a new unvalidated feature, not
+        // parity. MUTATION: declaring SUPPORTS_TOPN_LAZY_MATERIALIZE on paimon -> this assertion red.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                "paimon must NOT declare SUPPORTS_TOPN_LAZY_MATERIALIZE (parity: it was never eligible)");
+    }
 }

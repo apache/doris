@@ -132,4 +132,22 @@ public class IcebergConnectorTest {
                 "iceberg must declare SUPPORTS_PARALLEL_WRITE so post-flip INSERT keeps legacy random "
                         + "(parallel) distribution instead of degrading to GATHER");
     }
+
+    @Test
+    public void declaresColumnAutoAnalyzeAndTopNLazyMaterializeCapabilities() {
+        // WHY: legacy IcebergExternalTable is in StatisticsUtil.supportAutoAnalyze's whitelist and is forced to
+        // FULL analyze, and IcebergExternalTable.class is in MaterializeProbeVisitor's lazy-top-N supported set.
+        // Post-cutover the generic fe-core gates reproduce both ONLY when the connector declares these
+        // capabilities; omitting them silently regresses CBO stats quality (auto-analyze stalls) and Top-N
+        // latency (lazy materialization skipped). MUTATION: dropping either capability -> the corresponding
+        // fe-core gate excludes flipped iceberg -> red. (Inert pre-cutover; iceberg not yet in SPI_READY_TYPES.)
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Set<ConnectorCapability> caps = connector.getCapabilities();
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                "iceberg must declare SUPPORTS_COLUMN_AUTO_ANALYZE so post-flip background auto-analyze keeps "
+                        + "collecting per-column stats");
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                "iceberg must declare SUPPORTS_TOPN_LAZY_MATERIALIZE so post-flip Top-N queries keep lazy "
+                        + "materialization");
+    }
 }

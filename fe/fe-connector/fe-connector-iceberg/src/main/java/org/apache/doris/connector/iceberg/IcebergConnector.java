@@ -238,8 +238,17 @@ public class IcebergConnector implements Connector {
         // PhysicalConnectorTableSink reproduces that ONLY under this capability; without it it falls through
         // to GATHER (single writer), a parallelism regression. NOT SINK_REQUIRE_PARTITION_LOCAL_SORT: legacy
         // never sorts on write. Inert pre-cutover (P6.6).
+        // SUPPORTS_COLUMN_AUTO_ANALYZE: legacy IcebergExternalTable is in the auto-analyze whitelist and is
+        // forced to FULL analyze; the generic statistics collector reproduces both ONLY under this capability,
+        // so post-cutover iceberg keeps background per-column stats (CBO quality). Inert pre-cutover (P6.6).
+        // SUPPORTS_TOPN_LAZY_MATERIALIZE: legacy IcebergExternalTable.class is in MaterializeProbeVisitor's
+        // supported set; the generic probe reproduces that ONLY under this capability, so post-cutover iceberg
+        // keeps Top-N lazy materialization (query latency). The BE rowid plumbing is already generic. Inert
+        // pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
-                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE);
+                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
     }
 
     private Catalog getOrCreateCatalog() {
