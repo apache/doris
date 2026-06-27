@@ -48,21 +48,21 @@ start-history-server.sh
 # This approach can reduce the time from 150s to 40s.
 
 START_TIME1=$(date +%s)
-find /mnt/scripts/create_preinstalled_scripts/iceberg -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> iceberg_total.sql
+find /mnt/scripts/create_preinstalled_scripts/iceberg -name '*.sql' | sed 's|^|source |' | sed 's|$|;|'> iceberg_total.sql
 spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f iceberg_total.sql 
 END_TIME1=$(date +%s)
 EXECUTION_TIME1=$((END_TIME1 - START_TIME1))
 echo "Script iceberg total: {} executed in $EXECUTION_TIME1 seconds"
 
 START_TIME2=$(date +%s)
-find /mnt/scripts/create_preinstalled_scripts/paimon -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> paimon_total.sql
+find /mnt/scripts/create_preinstalled_scripts/paimon -name '*.sql' | sed 's|^|source |' | sed 's|$|;|'> paimon_total.sql
 spark-sql  --master  spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f paimon_total.sql
 END_TIME2=$(date +%s)
 EXECUTION_TIME2=$((END_TIME2 - START_TIME2))
 echo "Script paimon total: {} executed in $EXECUTION_TIME2 seconds"
 
 START_TIME3=$(date +%s)
-find /mnt/scripts/create_preinstalled_scripts/iceberg_load -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> iceberg_load_total.sql
+find /mnt/scripts/create_preinstalled_scripts/iceberg_load -name '*.sql' | sed 's|^|source |' | sed 's|$|;|'> iceberg_load_total.sql
 spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f iceberg_load_total.sql 
 END_TIME3=$(date +%s)
 EXECUTION_TIME3=$((END_TIME3 - START_TIME3))
