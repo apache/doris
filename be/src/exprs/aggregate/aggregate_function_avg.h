@@ -21,8 +21,8 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <string.h>
 
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <ostream>
@@ -59,6 +59,28 @@ struct AggregateFunctionAvgData {
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) = default;
+
+    void reset() {
+        sum = {};
+        count = 0;
+    }
+
+    template <PrimitiveType InputType>
+    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<InputType>::CppType value) {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
+        if constexpr (InputType == TYPE_DECIMALV2) {
+            sum += value;
+        } else if constexpr (is_decimal(InputType)) {
+            sum += value.value;
+        } else {
+            sum += static_cast<ResultType>(value);
+        }
+        ++count;
+    }
+
+    bool has_value() const { return count > 0; }
 
     template <typename ResultT>
     ResultT result(ResultType multiplier) const {

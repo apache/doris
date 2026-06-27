@@ -65,9 +65,7 @@ public:
 
     size_t get_number_of_arguments() const override { return Impl::_get_number_of_arguments(); }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return Impl::get_return_type(arguments);
-    }
+    bool skip_return_type_check() const override { return true; }
 };
 
 } // namespace doris

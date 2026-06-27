@@ -40,22 +40,6 @@ public:
 
     static size_t _get_number_of_arguments() { return 0; }
 
-    static DataTypePtr get_return_type(const DataTypes& arguments) {
-        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
-                << "first argument for function: array_join should be DataTypeArray"
-                << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
-                << "second argument for function: array_join should be DataTypeString"
-                << ", and arguments[1] is " << arguments[1]->get_name();
-        if (arguments.size() > 2) {
-            DCHECK(is_string_type(arguments[2]->get_primitive_type()))
-                    << "third argument for function: array_join should be DataTypeString"
-                    << ", and arguments[2] is " << arguments[2]->get_name();
-        }
-
-        return std::make_shared<DataTypeString>();
-    }
-
     static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           const DataTypeArray* data_type_array, const ColumnArray& array) {
         ColumnPtr src_column = block.get_by_position(arguments[0]).column;
