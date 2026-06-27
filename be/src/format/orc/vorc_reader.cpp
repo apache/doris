@@ -1744,6 +1744,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     auto logical_type = data_type->get_primitive_type();
     if (logical_type != PrimitiveType::TYPE_ARRAY && logical_type != PrimitiveType::TYPE_MAP &&
         logical_type != PrimitiveType::TYPE_STRUCT) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         const UInt8* filter_data = nullptr;
         if constexpr (is_filter) {
             filter_data = _filter->data();

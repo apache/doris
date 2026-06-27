@@ -52,7 +52,7 @@ Status read_flat_column(IColumn& column, const orc::ColumnVectorBatch* orc_col_b
                         int64_t end, const UInt8* filter) {
     const auto* data = dynamic_cast<const OrcColumnType*>(orc_col_batch);
     if (data == nullptr) {
-        return Status::InternalError("Wrong ORC data type for column {}, expected {}",
+        return Status::InternalError("Wrong ORC data type for column {}, actual {}",
                                      column.get_name(), orc_col_batch->toString());
     }
 
@@ -81,7 +81,7 @@ inline Status read_int32_column(IColumn& column, const orc::ColumnVectorBatch* o
 
     const auto* data = dynamic_cast<const orc::EncodedStringVectorBatch*>(orc_col_batch);
     if (data == nullptr) {
-        return Status::InternalError("Wrong ORC data type for int column {}, expected {}",
+        return Status::InternalError("Wrong ORC data type for int column {}, actual {}",
                                      column.get_name(), orc_col_batch->toString());
     }
 
@@ -108,7 +108,7 @@ Status read_explicit_decimal_column(IColumn& column, const orc::ColumnVectorBatc
     using NativeType = typename DecimalType::NativeType;
     const auto* data = dynamic_cast<const OrcColumnType*>(orc_col_batch);
     if (data == nullptr) {
-        return Status::InternalError("Wrong ORC data type for decimal column {}, expected {}",
+        return Status::InternalError("Wrong ORC data type for decimal column {}, actual {}",
                                      column.get_name(), orc_col_batch->toString());
     }
 
@@ -179,7 +179,7 @@ inline Status read_datev2_column(IColumn& column, const orc::ColumnVectorBatch* 
                                  int64_t start, int64_t end, const UInt8* filter) {
     const auto* data = dynamic_cast<const orc::LongVectorBatch*>(orc_col_batch);
     if (data == nullptr) {
-        return Status::InternalError("Wrong ORC data type for datev2 column {}, expected {}",
+        return Status::InternalError("Wrong ORC data type for datev2 column {}, actual {}",
                                      column.get_name(), orc_col_batch->toString());
     }
 
@@ -206,7 +206,7 @@ inline Status read_string_column(IColumn& column, const orc::ColumnVectorBatch* 
                                  int64_t start, int64_t end, bool is_char, const UInt8* filter) {
     const auto* data = dynamic_cast<const orc::EncodedStringVectorBatch*>(orc_col_batch);
     if (data == nullptr) {
-        return Status::InternalError("Wrong ORC data type for string column {}, expected {}",
+        return Status::InternalError("Wrong ORC data type for string column {}, actual {}",
                                      column.get_name(), orc_col_batch->toString());
     }
 

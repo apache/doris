@@ -32,6 +32,7 @@
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 class OrcReaderFillDataTest : public ::testing::Test {
@@ -110,6 +111,31 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
     for (size_t i = 0; i < values.size(); ++i) {
         ASSERT_EQ(column->get_int(i), values[i]);
     }
+}
+
+TEST_F(OrcReaderFillDataTest, PrimitiveDecodeUpdatesProfileDecodeValueTime) {
+    std::vector<int64_t> values(100000, 7);
+    auto batch = create_long_batch(values.size(), values);
+    auto column = ColumnInt64::create();
+    auto data_type = std::make_shared<DataTypeInt64>();
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::LONG);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    RuntimeProfile profile("orc_reader_fill_data_test");
+    auto reader = OrcReader::create_unique(&profile, nullptr, params, range, 4064, "", nullptr,
+                                           nullptr, true);
+
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    Status status = reader->_fill_doris_data_column<false>(
+            "test_long_profile", mutable_column, data_type, const_node, orc_type_ptr.get(),
+            batch.get(), values.size());
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    reader->collect_profile_before_close();
+    auto* decode_value_time = profile.get_counter("DecodeValueTime");
+    ASSERT_NE(decode_value_time, nullptr);
+    EXPECT_GT(decode_value_time->value(), 0);
 }
 
 TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
