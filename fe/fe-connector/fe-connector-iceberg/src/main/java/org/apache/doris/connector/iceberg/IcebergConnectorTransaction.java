@@ -50,6 +50,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -287,6 +288,46 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         synchronized (filesToDelete) {
             filesToDelete.addAll(originalFiles);
         }
+    }
+
+    /**
+     * Neutral SPI front for {@link #updateRewriteFiles}: the engine rewrite driver registers the source data
+     * files to replace by their RAW paths (it holds only neutral {@code String} paths from its bin-packed
+     * groups — fe-core cannot hand us iceberg {@code DataFile} objects across the connector wall). We re-derive
+     * the matching {@code DataFile}s from the table at the pinned OCC snapshot ({@link #startingSnapshotId},
+     * captured at {@link #beginWrite}), mirroring {@link #commitReplaceTxn}'s {@code planFiles()} re-scan and the
+     * commit-time re-derive used on the delete seam. Fails loud if any registered path is absent at the pinned
+     * snapshot (the plan is stale / the table moved since planning), so a rewrite never silently drops a file.
+     */
+    @Override
+    public void registerRewriteSourceFiles(Set<String> dataFilePaths) {
+        if (dataFilePaths == null || dataFilePaths.isEmpty()) {
+            return;
+        }
+        Set<String> wanted = new HashSet<>(dataFilePaths);
+        Map<String, DataFile> matched = new HashMap<>();
+        TableScan scan = table.newScan();
+        if (startingSnapshotId >= 0) {
+            scan = scan.useSnapshot(startingSnapshotId);
+        }
+        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+            for (FileScanTask task : tasks) {
+                DataFile file = task.file();
+                String path = file.path().toString();
+                if (wanted.contains(path)) {
+                    // planFiles() may split one data file across several tasks; dedupe by path.
+                    matched.putIfAbsent(path, file);
+                }
+            }
+        } catch (IOException e) {
+            throw new DorisConnectorException("Failed to resolve rewrite source files: " + e.getMessage(), e);
+        }
+        if (matched.size() != wanted.size()) {
+            throw new DorisConnectorException("Rewrite source file resolution mismatch: registered "
+                    + wanted.size() + " paths but matched " + matched.size() + " data files at snapshot "
+                    + startingSnapshotId + " (the table changed since planning?)");
+        }
+        updateRewriteFiles(new ArrayList<>(matched.values()));
     }
 
     /**
@@ -1042,6 +1083,14 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         synchronized (filesToAdd) {
             return filesToAdd.size();
         }
+    }
+
+    /** Neutral SPI accessor for the rewrite driver: the post-commit added-data-files count (legacy
+     *  {@code getFilesToAddCount}); the one rewrite-result statistic the engine cannot derive from its
+     *  planning groups (the others come from {@code ConnectorRewriteGroup}). Read only after {@code commit()}. */
+    @Override
+    public int getRewriteAddedDataFilesCount() {
+        return getFilesToAddCount();
     }
 
     /** Total byte size of the original data files to remove (legacy {@code getFilesToDeleteSize}). */

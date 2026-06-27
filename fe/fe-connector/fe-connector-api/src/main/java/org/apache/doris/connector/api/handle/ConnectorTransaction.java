@@ -20,6 +20,7 @@ package org.apache.doris.connector.api.handle;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 
 import java.io.Closeable;
+import java.util.Set;
 
 /**
  * A connector-managed transaction that scopes one or more write operations.
@@ -125,5 +126,32 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
      */
     default String profileLabel() {
         return "EXTERNAL";
+    }
+
+    /**
+     * Compaction rewrite ({@code rewrite_data_files}): registers the original data files this transaction
+     * will atomically replace, by their RAW file paths. The engine rewrite driver hands the connector the
+     * neutral {@code String} paths from its bin-packed groups (fe-core cannot traffic in connector-native
+     * file objects across the wall); the connector resolves them back to its own file objects — e.g. by
+     * re-deriving from the table at the transaction's pinned snapshot — and removes them at {@link #commit()}.
+     *
+     * <p>Default throws: only rewrite-capable connectors override it.</p>
+     *
+     * @param dataFilePaths the raw paths of the source data files to replace
+     */
+    default void registerRewriteSourceFiles(Set<String> dataFilePaths) {
+        throw new UnsupportedOperationException("rewrite source file registration not supported");
+    }
+
+    /**
+     * Compaction rewrite: the number of new compacted data files this transaction added, available only
+     * AFTER {@link #commit()} (the count is materialized from the BE-reported commit fragments during commit).
+     * Feeds the procedure's {@code added_data_files_count} result column — the one rewrite-result statistic
+     * the engine driver cannot compute from its planning groups.
+     *
+     * <p>Default throws: only rewrite-capable connectors override it.</p>
+     */
+    default int getRewriteAddedDataFilesCount() {
+        throw new UnsupportedOperationException("rewrite statistics not supported");
     }
 }

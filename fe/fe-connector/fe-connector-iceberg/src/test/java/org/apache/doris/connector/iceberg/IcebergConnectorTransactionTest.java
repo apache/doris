@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1322,6 +1323,96 @@ public class IcebergConnectorTransactionTest {
         txn.updateRewriteFiles(Collections.singletonList(files.get(0)));
         txn.updateRewriteFiles(Collections.singletonList(files.get(1)));
         Assertions.assertEquals(2, txn.getFilesToDeleteCount());
+    }
+
+    @Test
+    public void registerRewriteSourceFilesResolvesRawPathsToFilesToDelete() {
+        // The neutral SPI hands the connector only RAW String paths (fe-core cannot pass DataFile); the
+        // connector re-derives the matching DataFiles from the table at the pinned snapshot. Register a SUBSET
+        // (2 of 3 committed files) to prove it matches BY PATH, not "delete everything".
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L))
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/old2.parquet", 7L))
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/keep.parquet", 9L))
+                .commit();
+        Table reloaded = catalog.loadTable(id);
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList(
+                "s3://b/db1/t1/old1.parquet", "s3://b/db1/t1/old2.parquet")));
+
+        // Resolved exactly the two registered files (1024 bytes each), leaving keep.parquet untouched.
+        Assertions.assertEquals(2, txn.getFilesToDeleteCount());
+        Assertions.assertEquals(2048L, txn.getFilesToDeleteSize());
+    }
+
+    @Test
+    public void registerRewriteSourceFilesFailsLoudOnUnmatchedPath() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L)).commit();
+        Table reloaded = catalog.loadTable(id);
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        // A path absent at the pinned snapshot (stale plan / table moved since planning) must fail loud rather
+        // than silently delete fewer files than the engine intended.
+        Assertions.assertThrows(DorisConnectorException.class, () ->
+                txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList("s3://b/db1/t1/ghost.parquet"))));
+    }
+
+    @Test
+    public void registerRewriteSourceFilesEmptyIsNoOp() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L)).commit();
+        Table reloaded = catalog.loadTable(id);
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.registerRewriteSourceFiles(Collections.emptySet());
+        Assertions.assertEquals(0, txn.getFilesToDeleteCount(), "an empty registration is a no-op");
+    }
+
+    @Test
+    public void registerRewriteSourceFilesThenCommitReplacesAndReportsAddedCount() {
+        // End-to-end via the neutral SPI: register source paths -> re-derive -> commit RewriteFiles. Mirrors
+        // rewriteCommitsReplaceDeletingOldAddingNew but through registerRewriteSourceFiles, and asserts the
+        // neutral getRewriteAddedDataFilesCount() reports the BE-added file post-commit (the one rewrite stat
+        // the engine driver cannot compute from its planning groups).
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L))
+                .appendFile(dataFile(table.spec(), "s3://b/db1/t1/old2.parquet", 7L))
+                .commit();
+        Table reloaded = catalog.loadTable(id);
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(reloaded), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList(
+                "s3://b/db1/t1/old1.parquet", "s3://b/db1/t1/old2.parquet")));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/compacted.parquet", 12L, 4096L)));
+
+        txn.commit();
+
+        Snapshot snap = reloadCurrentSnapshot(catalog, id);
+        Assertions.assertEquals("replace", snap.operation());
+        Assertions.assertEquals("2", snap.summary().get("deleted-data-files"));
+        Assertions.assertEquals("1", snap.summary().get("added-data-files"));
+        Assertions.assertEquals(1, txn.getRewriteAddedDataFilesCount(),
+                "the neutral SPI reports the post-commit added-data-files count for the driver's result row");
     }
 
     /**
