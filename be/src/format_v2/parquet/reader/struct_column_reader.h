@@ -61,6 +61,7 @@ public:
     const std::vector<int16_t>& nested_repetition_levels() const override;
     int64_t nested_levels_written() const override;
     bool is_or_has_repeated_child() const override;
+    void advance_nested_build_level_cursor_past_parent(int16_t parent_repetition_level) override;
 
 private:
     // 选择提供 shape 信息的子 reader（第一个非空或包含 repeated 子节点的 reader）。

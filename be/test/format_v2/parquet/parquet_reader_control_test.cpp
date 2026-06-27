@@ -497,7 +497,7 @@ TEST(ParquetColumnReaderControlTest, PageFilteredRowsToSkipUsesOnlyFullSkippedRa
     EXPECT_EQ(ScalarColumnReaderTestAccess::page_filtered_rows_to_skip(reader, 5), 2);
 }
 
-TEST(ParquetColumnReaderControlTest, StructUsesFirstNonRepeatedShapeSourceAndBatchesPresentRows) {
+TEST(ParquetColumnReaderControlTest, StructSkipsNullParentForRepeatedChildAndBatchesPresentRows) {
     auto repeated_child = std::make_unique<ScriptedNestedReader>(
             nested_int64_schema("repeated_shape", 1, 2, 1),
             make_nullable(std::make_shared<DataTypeInt64>()), std::vector<int16_t> {2, 2, 2, 2},
@@ -530,7 +530,7 @@ TEST(ParquetColumnReaderControlTest, StructUsesFirstNonRepeatedShapeSourceAndBat
     EXPECT_TRUE(nullable_column.is_null_at(1));
     EXPECT_FALSE(nullable_column.is_null_at(2));
     EXPECT_FALSE(nullable_column.is_null_at(3));
-    EXPECT_EQ(repeated_child_ptr->build_lengths(), std::vector<int64_t>({1, 1, 2}));
+    EXPECT_EQ(repeated_child_ptr->build_lengths(), std::vector<int64_t>({1, 2}));
     EXPECT_EQ(scalar_child_ptr->nested_build_level_cursor(), 4);
 }
 

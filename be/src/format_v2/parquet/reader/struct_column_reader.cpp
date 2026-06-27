@@ -267,4 +267,13 @@ bool StructColumnReader::is_or_has_repeated_child() const {
     return shape_reader != nullptr && shape_reader->is_or_has_repeated_child();
 }
 
+void StructColumnReader::advance_nested_build_level_cursor_past_parent(
+        int16_t parent_repetition_level) {
+    ParquetColumnReader::advance_nested_build_level_cursor_past_parent(parent_repetition_level);
+    for (auto& child : _children) {
+        DORIS_CHECK(child != nullptr);
+        child->advance_nested_build_level_cursor_past_parent(parent_repetition_level);
+    }
+}
+
 } // namespace doris::format::parquet

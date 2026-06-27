@@ -139,13 +139,44 @@ Status ListColumnReader::build_nested_column(int64_t length_upper_bound, Mutable
     }
     set_nested_build_level_cursor(level_idx);
 
-    int64_t child_value_count = 0;
     uint64_t total_entries = 0;
-    for (const auto entry_count : entry_counts) {
-        total_entries += entry_count;
+    int64_t child_value_count = 0;
+    if (!_element_reader->is_or_has_repeated_child()) {
+        for (const auto entry_count : entry_counts) {
+            total_entries += entry_count;
+        }
+        RETURN_IF_ERROR(_element_reader->build_nested_column(static_cast<int64_t>(total_entries),
+                                                             nested_column, &child_value_count));
+    } else {
+        uint64_t pending_entries = 0;
+        auto flush_pending_entries = [&]() -> Status {
+            if (pending_entries == 0) {
+                return Status::OK();
+            }
+            int64_t span_child_value_count = 0;
+            RETURN_IF_ERROR(_element_reader->build_nested_column(
+                    static_cast<int64_t>(pending_entries), nested_column, &span_child_value_count));
+            if (span_child_value_count != static_cast<int64_t>(pending_entries)) {
+                return Status::Corruption(
+                        "Parquet LIST column {} built {} child values, expected {}", _name,
+                        span_child_value_count, pending_entries);
+            }
+            child_value_count += span_child_value_count;
+            pending_entries = 0;
+            return Status::OK();
+        };
+
+        for (const auto entry_count : entry_counts) {
+            total_entries += entry_count;
+            if (entry_count > 0) {
+                pending_entries += entry_count;
+                continue;
+            }
+            RETURN_IF_ERROR(flush_pending_entries());
+            _element_reader->advance_nested_build_level_cursor_past_parent(_repetition_level);
+        }
+        RETURN_IF_ERROR(flush_pending_entries());
     }
-    RETURN_IF_ERROR(_element_reader->build_nested_column(static_cast<int64_t>(total_entries),
-                                                         nested_column, &child_value_count));
     if (child_value_count != static_cast<int64_t>(total_entries)) {
         return Status::Corruption("Parquet LIST column {} built {} child values, expected {}",
                                   _name, child_value_count, total_entries);
@@ -173,6 +204,13 @@ int64_t ListColumnReader::nested_levels_written() const {
 
 bool ListColumnReader::is_or_has_repeated_child() const {
     return true;
+}
+
+void ListColumnReader::advance_nested_build_level_cursor_past_parent(
+        int16_t parent_repetition_level) {
+    DORIS_CHECK(_element_reader != nullptr);
+    ParquetColumnReader::advance_nested_build_level_cursor_past_parent(parent_repetition_level);
+    _element_reader->advance_nested_build_level_cursor_past_parent(parent_repetition_level);
 }
 
 } // namespace doris::format::parquet
