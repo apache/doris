@@ -179,16 +179,15 @@ void DorisFSDirectory::FSIndexInput::close() {
 }
 
 void DorisFSDirectory::FSIndexInput::setIoContext(const void* io_ctx) {
+    const bool is_index_data = _io_ctx.is_index_data;
     if (io_ctx) {
         const auto& ctx = static_cast<const io::IOContext*>(io_ctx);
-        _io_ctx.reader_type = ctx->reader_type;
-        _io_ctx.query_id = ctx->query_id;
-        _io_ctx.file_cache_stats = ctx->file_cache_stats;
+        _io_ctx = *ctx;
     } else {
-        _io_ctx.reader_type = ReaderType::UNKNOWN;
-        _io_ctx.query_id = nullptr;
-        _io_ctx.file_cache_stats = nullptr;
+        _io_ctx = io::IOContext {};
     }
+    _io_ctx.is_index_data = is_index_data;
+    _io_ctx.is_inverted_index = true;
 }
 
 const void* DorisFSDirectory::FSIndexInput::getIoContext() {
@@ -247,6 +246,10 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
 
     if (_io_ctx.file_cache_stats != nullptr) {
         _io_ctx.file_cache_stats->inverted_index_io_timer += inverted_index_io_timer;
+        _io_ctx.file_cache_stats->inverted_index_request_bytes += len;
+        _io_ctx.file_cache_stats->inverted_index_read_bytes += len;
+        ++_io_ctx.file_cache_stats->inverted_index_range_read_count;
+        ++_io_ctx.file_cache_stats->inverted_index_serial_read_rounds;
     }
 }
 

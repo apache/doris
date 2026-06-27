@@ -80,9 +80,22 @@ uint64_t DorisSniiFileWriter::bytes_written() const {
     return _writer == nullptr ? 0 : _writer->bytes_appended();
 }
 
+DorisSniiFileReader::DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx)
+        : _reader(std::move(reader)), _default_io_ctx(_make_index_io_context(io_ctx)) {}
+
+io::IOContext DorisSniiFileReader::_make_index_io_context(const io::IOContext* io_ctx) {
+    io::IOContext index_io_ctx;
+    if (io_ctx != nullptr) {
+        index_io_ctx = *io_ctx;
+    }
+    index_io_ctx.is_inverted_index = true;
+    index_io_ctx.is_index_data = true;
+    return index_io_ctx;
+}
+
 DorisSniiFileReader::ScopedIOContext::ScopedIOContext(const io::IOContext* io_ctx)
-        : _previous(_scoped_io_ctx) {
-    _scoped_io_ctx = io_ctx;
+        : _previous(_scoped_io_ctx), _io_ctx(DorisSniiFileReader::_make_index_io_context(io_ctx)) {
+    _scoped_io_ctx = &_io_ctx;
 }
 
 DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
@@ -90,7 +103,16 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
 }
 
 ::snii::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
-                                            std::vector<uint8_t>* out) {
+                                            std::vector<uint8_t>* const out) {
+    SNII_RETURN_IF_ERROR(_read_at(offset, len, out));
+    if (len > 0) {
+        _record_read_stats(cast_set<int64_t>(len), cast_set<int64_t>(len), 1, 1);
+    }
+    return ::snii::Status::OK();
+}
+
+::snii::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len,
+                                             std::vector<uint8_t>* const out) const {
     if (_reader == nullptr) {
         return ::snii::Status::InvalidArgument("doris reader is null");
     }
@@ -116,7 +138,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
 }
 
 ::snii::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges,
-                                               std::vector<std::vector<uint8_t>>* outs) {
+                                               std::vector<std::vector<uint8_t>>* const outs) {
     if (outs == nullptr) {
         return ::snii::Status::InvalidArgument("output buffers is null");
     }
@@ -131,10 +153,12 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
         size_t len = 0;
         size_t index = 0;
     };
+    int64_t request_bytes = 0;
     std::vector<IndexedRange> sorted;
     sorted.reserve(ranges.size());
     for (size_t i = 0; i < ranges.size(); ++i) {
         SNII_RETURN_IF_ERROR(_check_read_range(ranges[i].offset, ranges[i].len));
+        request_bytes += cast_set<int64_t>(ranges[i].len);
         if (ranges[i].len == 0) {
             continue;
         }
@@ -149,6 +173,8 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
 
     constexpr uint64_t max_coalesced_gap = 4096;
     constexpr uint64_t max_coalesced_read = 1ULL << 20;
+    int64_t read_bytes = 0;
+    int64_t range_read_count = 0;
     for (size_t begin = 0; begin < sorted.size();) {
         uint64_t read_offset = sorted[begin].offset;
         uint64_t read_end = sorted[begin].offset + sorted[begin].len;
@@ -165,8 +191,10 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
         }
 
         std::vector<uint8_t> bytes;
-        SNII_RETURN_IF_ERROR(
-                read_at(read_offset, cast_set<size_t>(read_end - read_offset), &bytes));
+        const size_t read_len = cast_set<size_t>(read_end - read_offset);
+        SNII_RETURN_IF_ERROR(_read_at(read_offset, read_len, &bytes));
+        read_bytes += cast_set<int64_t>(read_len);
+        ++range_read_count;
         for (size_t i = begin; i < end; ++i) {
             const uint64_t pos = sorted[i].offset - read_offset;
             auto& out = (*outs)[sorted[i].index];
@@ -175,6 +203,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
         }
         begin = end;
     }
+    _record_read_stats(request_bytes, read_bytes, range_read_count, range_read_count);
     return ::snii::Status::OK();
 }
 
@@ -183,7 +212,21 @@ uint64_t DorisSniiFileReader::size() const {
 }
 
 const io::IOContext* DorisSniiFileReader::_current_io_ctx() const {
-    return _scoped_io_ctx != nullptr ? _scoped_io_ctx : _default_io_ctx;
+    return _scoped_io_ctx != nullptr ? _scoped_io_ctx : &_default_io_ctx;
+}
+
+void DorisSniiFileReader::_record_read_stats(int64_t request_bytes, int64_t read_bytes,
+                                             int64_t range_read_count,
+                                             int64_t serial_read_rounds) const {
+    const auto* io_ctx = _current_io_ctx();
+    if (io_ctx->file_cache_stats == nullptr) {
+        return;
+    }
+    auto* stats = io_ctx->file_cache_stats;
+    stats->inverted_index_request_bytes += request_bytes;
+    stats->inverted_index_read_bytes += read_bytes;
+    stats->inverted_index_range_read_count += range_read_count;
+    stats->inverted_index_serial_read_rounds += serial_read_rounds;
 }
 
 ::snii::Status DorisSniiFileReader::_check_read_range(uint64_t offset, size_t len) const {

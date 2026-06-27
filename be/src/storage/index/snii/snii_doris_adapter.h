@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "io/io_common.h"
 #include "snii/common/status.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
@@ -57,22 +58,26 @@ public:
 
     private:
         const io::IOContext* _previous = nullptr;
+        io::IOContext _io_ctx;
     };
 
-    explicit DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx = nullptr)
-            : _reader(std::move(reader)), _default_io_ctx(io_ctx) {}
+    explicit DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx = nullptr);
 
-    ::snii::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    ::snii::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* const out) override;
     ::snii::Status read_batch(const std::vector<::snii::io::Range>& ranges,
-                              std::vector<std::vector<uint8_t>>* outs) override;
+                              std::vector<std::vector<uint8_t>>* const outs) override;
     uint64_t size() const override;
 
 private:
+    static io::IOContext _make_index_io_context(const io::IOContext* io_ctx);
     ::snii::Status _check_read_range(uint64_t offset, size_t len) const;
+    ::snii::Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* const out) const;
     const io::IOContext* _current_io_ctx() const;
+    void _record_read_stats(int64_t request_bytes, int64_t read_bytes, int64_t range_read_count,
+                            int64_t serial_read_rounds) const;
 
     io::FileReaderSPtr _reader;
-    const io::IOContext* _default_io_ctx = nullptr;
+    io::IOContext _default_io_ctx;
     static thread_local const io::IOContext* _scoped_io_ctx;
 };
 

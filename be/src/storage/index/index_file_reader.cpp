@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
@@ -148,6 +149,9 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     file_size = file_size == 0 ? -1 : file_size;
 
     io::FileReaderOptions opts;
+    opts.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                : io::FileCachePolicy::NO_CACHE;
+    opts.is_doris_table = true;
     opts.file_size = file_size;
     opts.tablet_id = _tablet_id;
     io::FileReaderSPtr reader;

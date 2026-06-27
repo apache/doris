@@ -52,6 +52,10 @@ io::FileCacheStatistics make_file_cache_stats(int64_t multiplier) {
     stats.inverted_index_remote_io_timer = multiplier * 26;
     stats.inverted_index_peer_io_timer = multiplier * 27;
     stats.inverted_index_io_timer = multiplier * 28;
+    stats.inverted_index_request_bytes = multiplier * 29;
+    stats.inverted_index_read_bytes = multiplier * 30;
+    stats.inverted_index_range_read_count = multiplier * 31;
+    stats.inverted_index_serial_read_rounds = multiplier * 32;
     return stats;
 }
 
@@ -89,6 +93,10 @@ void expect_file_cache_stats_eq(const io::FileCacheStatistics& actual,
     EXPECT_EQ(actual.inverted_index_remote_io_timer, expected.inverted_index_remote_io_timer);
     EXPECT_EQ(actual.inverted_index_peer_io_timer, expected.inverted_index_peer_io_timer);
     EXPECT_EQ(actual.inverted_index_io_timer, expected.inverted_index_io_timer);
+    EXPECT_EQ(actual.inverted_index_request_bytes, expected.inverted_index_request_bytes);
+    EXPECT_EQ(actual.inverted_index_read_bytes, expected.inverted_index_read_bytes);
+    EXPECT_EQ(actual.inverted_index_range_read_count, expected.inverted_index_range_read_count);
+    EXPECT_EQ(actual.inverted_index_serial_read_rounds, expected.inverted_index_serial_read_rounds);
 }
 
 } // namespace
@@ -134,6 +142,14 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
     EXPECT_EQ(profile->get_counter("CacheGetOrSetTimer")->value(),
               after_second_report.cache_get_or_set_timer);
     EXPECT_EQ(profile->get_counter("LockWaitTimer")->value(), after_second_report.lock_wait_timer);
+    EXPECT_EQ(profile->get_counter("InvertedIndexRequestBytes")->value(),
+              after_second_report.inverted_index_request_bytes);
+    EXPECT_EQ(profile->get_counter("InvertedIndexReadBytes")->value(),
+              after_second_report.inverted_index_read_bytes);
+    EXPECT_EQ(profile->get_counter("InvertedIndexRangeReadCount")->value(),
+              after_second_report.inverted_index_range_read_count);
+    EXPECT_EQ(profile->get_counter("InvertedIndexSerialReadRounds")->value(),
+              after_second_report.inverted_index_serial_read_rounds);
 }
 
 } // namespace doris

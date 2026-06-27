@@ -110,6 +110,10 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(inverted_index_remote_io_timer);
     SUBTRACT_FIELD(inverted_index_peer_io_timer);
     SUBTRACT_FIELD(inverted_index_io_timer);
+    SUBTRACT_FIELD(inverted_index_request_bytes);
+    SUBTRACT_FIELD(inverted_index_read_bytes);
+    SUBTRACT_FIELD(inverted_index_range_read_count);
+    SUBTRACT_FIELD(inverted_index_serial_read_rounds);
 
     SUBTRACT_FIELD(segment_footer_index_num_local_io_total);
     SUBTRACT_FIELD(segment_footer_index_num_remote_io_total);
@@ -178,6 +182,14 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexPeerIOUseTimer", cache_profile, 1);
     inverted_index_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
+    inverted_index_request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRequestBytes", TUnit::BYTES, cache_profile, 1);
+    inverted_index_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "InvertedIndexReadBytes",
+                                                             TUnit::BYTES, cache_profile, 1);
+    inverted_index_range_read_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRangeReadCount", TUnit::UNIT, cache_profile, 1);
+    inverted_index_serial_read_rounds = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexSerialReadRounds", TUnit::UNIT, cache_profile, 1);
 
     segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -255,6 +267,11 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
     COUNTER_UPDATE(inverted_index_peer_io_timer, statistics->inverted_index_peer_io_timer);
     COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
+    COUNTER_UPDATE(inverted_index_request_bytes, statistics->inverted_index_request_bytes);
+    COUNTER_UPDATE(inverted_index_read_bytes, statistics->inverted_index_read_bytes);
+    COUNTER_UPDATE(inverted_index_range_read_count, statistics->inverted_index_range_read_count);
+    COUNTER_UPDATE(inverted_index_serial_read_rounds,
+                   statistics->inverted_index_serial_read_rounds);
 
     COUNTER_UPDATE(segment_footer_index_num_local_io_total,
                    statistics->segment_footer_index_num_local_io_total);
