@@ -229,3 +229,6 @@ VALUES (1, NULL, 100.0),
     (3, '\\N', 300.0),
     (4, 'null', 400.0),
     (5, 'A', 500.0);
+
+-- Restore the session time zone for subsequent preinstalled Paimon scripts.
+SET TIME ZONE 'UTC';
