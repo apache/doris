@@ -376,6 +376,85 @@ Status BuildPositionSourcesForCandidates(
     return Status::OK();
 }
 
+class PosChunkDecoder {
+public:
+    void reset() {
+        chunk_ = nullptr;
+        offsets_by_prx_ordinal_ = false;
+    }
+
+    Status decode(const PosChunk& chunk) {
+        chunk_ = &chunk;
+        ByteSource ps(chunk.prx);
+        offsets_by_prx_ordinal_ = false;
+        if (chunk.prx_doc_ordinals.empty()) {
+            SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
+        } else if (should_decode_full_prx_window(chunk)) {
+            SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
+            offsets_by_prx_ordinal_ = true;
+        } else {
+            SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr_selective(
+                    &ps, chunk.prx_doc_ordinals, &pflat_, &poff_));
+        }
+        if (offsets_by_prx_ordinal_) {
+            if (poff_.size() != static_cast<size_t>(chunk.prx_doc_count) + 1) {
+                return Status::Corruption("phrase_query: full prx doc-count mismatch");
+            }
+        } else if (poff_.size() != chunk.docids.size() + 1) {
+            return Status::Corruption("phrase_query: selected prx/doc-count mismatch");
+        }
+        if (poff_.back() > pflat_.size()) {
+            return Status::Corruption("phrase_query: prx final offset out of range");
+        }
+        return Status::OK();
+    }
+
+    Status positions(size_t doc_index, std::pair<const uint32_t*, const uint32_t*>* out) const {
+        if (chunk_ == nullptr || doc_index >= chunk_->docids.size()) {
+            return Status::Corruption("phrase_query: decoded chunk doc index out of range");
+        }
+        const size_t pos_index =
+                offsets_by_prx_ordinal_ ? chunk_->prx_doc_ordinals[doc_index] : doc_index;
+        if (pos_index + 1 >= poff_.size()) {
+            return Status::Corruption("phrase_query: prx ordinal offset out of range");
+        }
+        const uint32_t begin = poff_[pos_index];
+        const uint32_t end = poff_[pos_index + 1];
+        if (begin == end) {
+            *out = {nullptr, nullptr};
+            return Status::OK();
+        }
+        if (end > pflat_.size()) {
+            return Status::Corruption("phrase_query: prx offset out of range");
+        }
+        *out = {pflat_.data() + begin, pflat_.data() + end};
+        return Status::OK();
+    }
+
+    inline __attribute__((always_inline)) std::pair<const uint32_t*, const uint32_t*>
+    positions_unchecked(size_t doc_index) const {
+        const size_t pos_index =
+                offsets_by_prx_ordinal_ ? chunk_->prx_doc_ordinals[doc_index] : doc_index;
+        const uint32_t begin = poff_[pos_index];
+        const uint32_t end = poff_[pos_index + 1];
+        if (begin == end) {
+            return {nullptr, nullptr};
+        }
+        return {pflat_.data() + begin, pflat_.data() + end};
+    }
+
+private:
+    static bool should_decode_full_prx_window(const PosChunk& chunk) {
+        return chunk.prx_doc_count != 0 &&
+               static_cast<uint64_t>(chunk.prx_doc_ordinals.size()) * 2 >= chunk.prx_doc_count;
+    }
+
+    const PosChunk* chunk_ = nullptr;
+    bool offsets_by_prx_ordinal_ = false;
+    std::vector<uint32_t> pflat_;
+    std::vector<uint32_t> poff_;
+};
+
 // Streaming position cursor over one term's retained chunks. It advances ONLY
 // forward (callers seek ascending candidate docids), decodes each chunk's
 // docids once (reused from the conjunction phase) and each chunk's positions at
@@ -392,7 +471,7 @@ public:
         ci_ = 0;
         li_ = 0;
         decoded_pos_chunk_ = kNoChunk;
-        offsets_by_prx_ordinal_ = false;
+        decoder_.reset();
     }
 
     // Positions the cursor at `target` (guaranteed present: candidates are the
@@ -421,42 +500,10 @@ public:
             return Status::Corruption("phrase_query: cursor positions out of range");
         }
         if (decoded_pos_chunk_ != ci_) {
-            ByteSource ps(src_->chunks[ci_].prx);
-            const PosChunk& chunk = src_->chunks[ci_];
-            offsets_by_prx_ordinal_ = false;
-            if (chunk.prx_doc_ordinals.empty()) {
-                SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
-            } else if (should_decode_full_prx_window(chunk)) {
-                SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
-                offsets_by_prx_ordinal_ = true;
-            } else {
-                SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr_selective(
-                        &ps, chunk.prx_doc_ordinals, &pflat_, &poff_));
-            }
-            if (offsets_by_prx_ordinal_) {
-                if (poff_.size() != static_cast<size_t>(chunk.prx_doc_count) + 1) {
-                    return Status::Corruption("phrase_query: full prx doc-count mismatch");
-                }
-            } else if (poff_.size() != chunk.docids.size() + 1) {
-                return Status::Corruption("phrase_query: selected prx/doc-count mismatch");
-            }
+            SNII_RETURN_IF_ERROR(decoder_.decode(src_->chunks[ci_]));
             decoded_pos_chunk_ = ci_;
         }
-        const size_t pos_index = position_offset_index();
-        if (pos_index + 1 >= poff_.size()) {
-            return Status::Corruption("phrase_query: prx ordinal offset out of range");
-        }
-        const uint32_t begin = poff_[pos_index];
-        const uint32_t end = poff_[pos_index + 1];
-        if (begin == end) {
-            *out = {nullptr, nullptr};
-            return Status::OK();
-        }
-        if (end > pflat_.size()) {
-            return Status::Corruption("phrase_query: prx offset out of range");
-        }
-        *out = {pflat_.data() + begin, pflat_.data() + end};
-        return Status::OK();
+        return decoder_.positions(li_, out);
     }
 
     Status next(uint32_t* docid, std::pair<const uint32_t*, const uint32_t*>* out) {
@@ -477,25 +524,49 @@ public:
 private:
     static constexpr size_t kNoChunk = static_cast<size_t>(-1);
 
-    static bool should_decode_full_prx_window(const PosChunk& chunk) {
-        return chunk.prx_doc_count != 0 &&
-               static_cast<uint64_t>(chunk.prx_doc_ordinals.size()) * 2 >= chunk.prx_doc_count;
-    }
-
-    size_t position_offset_index() const {
-        if (!offsets_by_prx_ordinal_) {
-            return li_;
-        }
-        return src_->chunks[ci_].prx_doc_ordinals[li_];
-    }
-
     const PosSource* src_ = nullptr;
     size_t ci_ = 0;                       // current chunk
     size_t li_ = 0;                       // current local doc index within the chunk
-    size_t decoded_pos_chunk_ = kNoChunk; // which chunk pflat_/poff_ currently hold
-    bool offsets_by_prx_ordinal_ = false;
-    std::vector<uint32_t> pflat_; // current chunk's flat positions (reused)
-    std::vector<uint32_t> poff_;  // current chunk's per-doc offsets (reused)
+    size_t decoded_pos_chunk_ = kNoChunk; // which chunk decoder_ currently holds
+    PosChunkDecoder decoder_;
+};
+
+class PhrasePositionLoader {
+public:
+    PhrasePositionLoader(size_t plan_count, std::vector<PosSource>& srcs)
+            : cursors_(plan_count), plan_spans_(plan_count), loaded_epoch_(plan_count, 0) {
+        for (size_t i = 0; i < plan_count; ++i) {
+            cursors_[i].init(&srcs[i]);
+        }
+    }
+
+    void begin_doc(uint32_t docid) {
+        docid_ = docid;
+        ++epoch_;
+        if (epoch_ == 0) {
+            std::ranges::fill(loaded_epoch_, 0);
+            epoch_ = 1;
+        }
+    }
+
+    Status positions_for_phrase_pos(const std::vector<size_t>& phrase_plan_index, size_t phrase_pos,
+                                    std::pair<const uint32_t*, const uint32_t*>* out) {
+        const size_t plan_index = phrase_plan_index[phrase_pos];
+        if (loaded_epoch_[plan_index] != epoch_) {
+            SNII_RETURN_IF_ERROR(cursors_[plan_index].seek(docid_));
+            SNII_RETURN_IF_ERROR(cursors_[plan_index].positions(&plan_spans_[plan_index]));
+            loaded_epoch_[plan_index] = epoch_;
+        }
+        *out = plan_spans_[plan_index];
+        return Status::OK();
+    }
+
+private:
+    std::vector<PostingCursor> cursors_;
+    std::vector<std::pair<const uint32_t*, const uint32_t*>> plan_spans_;
+    std::vector<uint32_t> loaded_epoch_;
+    uint32_t docid_ = 0;
+    uint32_t epoch_ = 0;
 };
 
 bool ContainsTwoTermPhrase(std::pair<const uint32_t*, const uint32_t*> left_span,
@@ -541,8 +612,8 @@ size_t SelectPhraseVerificationPair(const std::vector<TermPlan>& plans,
 void CollectTwoTermPhraseStarts(std::pair<const uint32_t*, const uint32_t*> left_span,
                                 std::pair<const uint32_t*, const uint32_t*> right_span,
                                 uint32_t right_delta, uint32_t left_offset,
-                                std::vector<uint32_t>* starts) {
-    starts->clear();
+                                std::vector<uint32_t>& starts) {
+    starts.clear();
     const uint32_t* left = left_span.first;
     const uint32_t* right = right_span.first;
     const uint32_t max_left = std::numeric_limits<uint32_t>::max() - right_delta;
@@ -558,7 +629,7 @@ void CollectTwoTermPhraseStarts(std::pair<const uint32_t*, const uint32_t*> left
             return;
         }
         if (*right == want && *left >= left_offset) {
-            starts->push_back(*left - left_offset);
+            starts.push_back(*left - left_offset);
         }
         ++left;
     }
@@ -611,6 +682,182 @@ Status EmitTwoTermPhraseStreaming(const std::vector<size_t>& phrase_plan_index,
     return Status::OK();
 }
 
+void EmitTwoTermPhraseChunkPair(const PosChunk& left, const PosChunk& right,
+                                const PosChunkDecoder& left_decoder,
+                                const PosChunkDecoder& right_decoder, uint32_t right_delta,
+                                std::vector<uint32_t>& docids) {
+    size_t li = static_cast<size_t>(
+            std::lower_bound(left.docids.begin(), left.docids.end(), right.docids.front()) -
+            left.docids.begin());
+    size_t ri = static_cast<size_t>(
+            std::lower_bound(right.docids.begin(), right.docids.end(), left.docids.front()) -
+            right.docids.begin());
+    while (li < left.docids.size() && ri < right.docids.size()) {
+        const uint32_t left_docid = left.docids[li];
+        const uint32_t right_docid = right.docids[ri];
+        if (left_docid < right_docid) {
+            ++li;
+            continue;
+        }
+        if (right_docid < left_docid) {
+            ++ri;
+            continue;
+        }
+
+        const std::pair<const uint32_t*, const uint32_t*> left_span =
+                left_decoder.positions_unchecked(li);
+        const std::pair<const uint32_t*, const uint32_t*> right_span =
+                right_decoder.positions_unchecked(ri);
+        if (ContainsTwoTermPhrase(left_span, right_span, right_delta)) {
+            docids.push_back(left_docid);
+        }
+        ++li;
+        ++ri;
+    }
+}
+
+Status EmitTwoTermPhraseChunkMerge(const std::vector<size_t>& phrase_plan_index,
+                                   const std::vector<uint32_t>& position_offsets,
+                                   std::vector<PosSource>& srcs,
+                                   std::vector<uint32_t>* const docids) {
+    const size_t left_plan = phrase_plan_index[0];
+    const size_t right_plan = phrase_plan_index[1];
+    const uint32_t right_delta = position_offsets[1] - position_offsets[0];
+    const PosSource& left_src = srcs[left_plan];
+    const PosSource& right_src = srcs[right_plan];
+
+    PosChunkDecoder left_decoder;
+    PosChunkDecoder right_decoder;
+    size_t decoded_left_chunk = static_cast<size_t>(-1);
+    size_t decoded_right_chunk = static_cast<size_t>(-1);
+    size_t left_chunk = 0;
+    size_t right_chunk = 0;
+    while (left_chunk < left_src.chunks.size() && right_chunk < right_src.chunks.size()) {
+        const PosChunk& left = left_src.chunks[left_chunk];
+        const PosChunk& right = right_src.chunks[right_chunk];
+        if (left.docids.empty()) {
+            ++left_chunk;
+            continue;
+        }
+        if (right.docids.empty()) {
+            ++right_chunk;
+            continue;
+        }
+        if (left.docids.back() < right.docids.front()) {
+            ++left_chunk;
+            continue;
+        }
+        if (right.docids.back() < left.docids.front()) {
+            ++right_chunk;
+            continue;
+        }
+
+        if (decoded_left_chunk != left_chunk) {
+            SNII_RETURN_IF_ERROR(left_decoder.decode(left));
+            decoded_left_chunk = left_chunk;
+        }
+        if (decoded_right_chunk != right_chunk) {
+            SNII_RETURN_IF_ERROR(right_decoder.decode(right));
+            decoded_right_chunk = right_chunk;
+        }
+
+        EmitTwoTermPhraseChunkPair(left, right, left_decoder, right_decoder, right_delta, *docids);
+
+        const uint32_t left_last = left.docids.back();
+        const uint32_t right_last = right.docids.back();
+        if (left_last <= right_last) {
+            ++left_chunk;
+        }
+        if (right_last <= left_last) {
+            ++right_chunk;
+        }
+    }
+    return Status::OK();
+}
+
+bool PhraseStartMatchesAllTerms(
+        uint32_t start, size_t phrase_len, size_t pair_left, size_t pair_right,
+        const std::vector<uint32_t>& position_offsets,
+        const std::vector<std::pair<const uint32_t*, const uint32_t*>>& span) {
+    for (size_t t = 0; t < phrase_len; ++t) {
+        if (t == pair_left || t == pair_right) {
+            continue;
+        }
+        uint32_t want = 0;
+        if (!internal::add_position_offset(start, position_offsets[t], &want)) {
+            return false;
+        }
+        if (!std::binary_search(span[t].first, span[t].second, want)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Status EmitSingleTermPhraseStreaming(const std::vector<size_t>& phrase_plan_index,
+                                     std::vector<PosSource>& srcs,
+                                     const std::vector<uint32_t>& candidates,
+                                     std::vector<uint32_t>* docids) {
+    PhrasePositionLoader loader(srcs.size(), srcs);
+    for (uint32_t d : candidates) {
+        loader.begin_doc(d);
+        std::pair<const uint32_t*, const uint32_t*> single_span;
+        SNII_RETURN_IF_ERROR(loader.positions_for_phrase_pos(phrase_plan_index, 0, &single_span));
+        if (single_span.first != single_span.second) {
+            docids->push_back(d);
+        }
+    }
+    return Status::OK();
+}
+
+Status EmitMultiTermPhraseStreaming(const std::vector<TermPlan>& plans,
+                                    const std::vector<size_t>& phrase_plan_index,
+                                    const std::vector<uint32_t>& position_offsets,
+                                    std::vector<PosSource>& srcs,
+                                    const std::vector<uint32_t>& candidates,
+                                    std::vector<uint32_t>* docids) {
+    const size_t phrase_len = phrase_plan_index.size();
+    PhrasePositionLoader loader(plans.size(), srcs);
+    std::vector<std::pair<const uint32_t*, const uint32_t*>> span(phrase_len);
+    std::vector<uint32_t> starts;
+    const size_t pair_left = SelectPhraseVerificationPair(plans, phrase_plan_index);
+    const size_t pair_right = pair_left + 1;
+    for (uint32_t d : candidates) {
+        loader.begin_doc(d);
+        std::pair<const uint32_t*, const uint32_t*> left_span;
+        std::pair<const uint32_t*, const uint32_t*> right_span;
+        SNII_RETURN_IF_ERROR(
+                loader.positions_for_phrase_pos(phrase_plan_index, pair_left, &left_span));
+        SNII_RETURN_IF_ERROR(
+                loader.positions_for_phrase_pos(phrase_plan_index, pair_right, &right_span));
+
+        CollectTwoTermPhraseStarts(left_span, right_span,
+                                   position_offsets[pair_right] - position_offsets[pair_left],
+                                   position_offsets[pair_left], starts);
+        if (starts.empty()) {
+            continue;
+        }
+
+        span[pair_left] = left_span;
+        span[pair_right] = right_span;
+        for (size_t pp = 0; pp < phrase_len; ++pp) {
+            if (pp == pair_left || pp == pair_right) {
+                continue;
+            }
+            SNII_RETURN_IF_ERROR(loader.positions_for_phrase_pos(phrase_plan_index, pp, &span[pp]));
+        }
+
+        for (uint32_t start : starts) {
+            if (PhraseStartMatchesAllTerms(start, phrase_len, pair_left, pair_right,
+                                           position_offsets, span)) {
+                docids->push_back(d);
+                break;
+            }
+        }
+    }
+    return Status::OK();
+}
+
 // Single streaming pass over the candidates: for each (ascending) candidate,
 // gather positions lazily, and test the consecutive-phrase predicate
 // (term[0]@p, term[1]@p+1, ...). Multi-term phrases first test the cheapest
@@ -625,94 +872,18 @@ Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
                            std::vector<PosSource>& srcs, const std::vector<uint32_t>& candidates,
                            std::vector<uint32_t>* docids) {
     const size_t phrase_len = phrase_plan_index.size();
+    if (phrase_len == 1) {
+        return EmitSingleTermPhraseStreaming(phrase_plan_index, srcs, candidates, docids);
+    }
     if (phrase_len == 2) {
+        if (phrase_plan_index[0] != phrase_plan_index[1]) {
+            return EmitTwoTermPhraseChunkMerge(phrase_plan_index, position_offsets, srcs, docids);
+        }
         return EmitTwoTermPhraseStreaming(phrase_plan_index, position_offsets, srcs, candidates,
                                           docids);
     }
-
-    std::vector<PostingCursor> cur(plans.size());
-    for (size_t i = 0; i < plans.size(); ++i) cur[i].init(&srcs[i]);
-
-    std::vector<std::pair<const uint32_t*, const uint32_t*>> plan_span(plans.size());
-    std::vector<uint32_t> loaded_epoch(plans.size(), 0);
-    const size_t pair_left =
-            phrase_len > 2 ? SelectPhraseVerificationPair(plans, phrase_plan_index) : 0;
-    const size_t pair_right = pair_left + 1;
-    std::vector<uint32_t> starts;
-    std::vector<std::pair<const uint32_t*, const uint32_t*>> span(phrase_len);
-    uint32_t epoch = 1;
-    for (uint32_t d : candidates) {
-        if (++epoch == 0) {
-            std::ranges::fill(loaded_epoch, 0);
-            epoch = 1;
-        }
-        auto positions_for_phrase_pos =
-                [&](size_t phrase_pos, std::pair<const uint32_t*, const uint32_t*>* out) -> Status {
-            const size_t plan_index = phrase_plan_index[phrase_pos];
-            if (loaded_epoch[plan_index] != epoch) {
-                SNII_RETURN_IF_ERROR(cur[plan_index].seek(d));
-                SNII_RETURN_IF_ERROR(cur[plan_index].positions(&plan_span[plan_index]));
-                loaded_epoch[plan_index] = epoch;
-            }
-            *out = plan_span[plan_index];
-            return Status::OK();
-        };
-
-        if (phrase_len == 1) {
-            std::pair<const uint32_t*, const uint32_t*> single_span;
-            SNII_RETURN_IF_ERROR(positions_for_phrase_pos(0, &single_span));
-            if (single_span.first != single_span.second) {
-                docids->push_back(d);
-            }
-            continue;
-        }
-
-        std::pair<const uint32_t*, const uint32_t*> left_span;
-        std::pair<const uint32_t*, const uint32_t*> right_span;
-        SNII_RETURN_IF_ERROR(positions_for_phrase_pos(pair_left, &left_span));
-        SNII_RETURN_IF_ERROR(positions_for_phrase_pos(pair_right, &right_span));
-
-        CollectTwoTermPhraseStarts(left_span, right_span,
-                                   position_offsets[pair_right] - position_offsets[pair_left],
-                                   position_offsets[pair_left], &starts);
-        if (starts.empty()) {
-            continue;
-        }
-
-        span[pair_left] = left_span;
-        span[pair_right] = right_span;
-        for (size_t pp = 0; pp < phrase_len; ++pp) {
-            if (pp == pair_left || pp == pair_right) {
-                continue;
-            }
-            SNII_RETURN_IF_ERROR(positions_for_phrase_pos(pp, &span[pp]));
-        }
-
-        bool match = false;
-        for (uint32_t start : starts) {
-            bool ok = true;
-            for (size_t t = 0; t < phrase_len; ++t) {
-                if (t == pair_left || t == pair_right) {
-                    continue;
-                }
-                uint32_t want = 0;
-                if (!internal::add_position_offset(start, position_offsets[t], &want)) {
-                    ok = false;
-                    break;
-                }
-                if (!std::binary_search(span[t].first, span[t].second, want)) {
-                    ok = false;
-                    break;
-                }
-            }
-            if (ok) {
-                match = true;
-                break;
-            }
-        }
-        if (match) docids->push_back(d);
-    }
-    return Status::OK();
+    return EmitMultiTermPhraseStreaming(plans, phrase_plan_index, position_offsets, srcs,
+                                        candidates, docids);
 }
 
 Status BuildPhraseExecutionState(const LogicalIndexReader& idx, snii::io::BatchRangeFetcher* round1,
