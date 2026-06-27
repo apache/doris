@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -496,6 +497,39 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     /**
+     * Routes {@code ALTER TABLE ... RENAME} through the SPI's {@code ConnectorTableOps.renameTable} instead of
+     * the base {@link ExternalCatalog#renameTable} (which throws on {@code metadataOps == null}).
+     *
+     * <p>Resolves the SOURCE table by REMOTE names (like {@link #dropTable}); {@code newTableName} is passed
+     * through as the target's name in the same remote database, mirroring legacy
+     * {@code IcebergMetadataOps.renameTableImpl} (which feeds the SQL name straight to
+     * {@code catalog.renameTable}) and createTable (which keeps the SQL name as the remote name). On success
+     * runs {@link #afterExternalRename} for the cache fix + constraint rename + editlog the base op delegated
+     * to {@code metadataOps}.</p>
+     */
+    @Override
+    public void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        makeSureInitialized();
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ExternalTable dorisTable = db.getTableNullable(oldTableName);
+        if (dorisTable == null) {
+            throw new DdlException("Failed to get table: '" + oldTableName + "' in database: " + dbName);
+        }
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
+        try {
+            metadata.renameTable(session, handle, newTableName);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalRename(dbName, oldTableName, newTableName);
+    }
+
+    /**
      * Routes {@code ALTER TABLE ... ADD/DROP/RENAME/MODIFY/REORDER COLUMN} through the SPI's
      * {@code ConnectorTableOps} column-evolution methods instead of the legacy {@code metadataOps} path used
      * by other {@link ExternalCatalog} subclasses (which PluginDriven never sets, so the base ops would
@@ -649,6 +683,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         getDbForReplay(externalTable.getRemoteDbName()).ifPresent(db ->
                 db.getTableForReplay(externalTable.getRemoteName()).ifPresent(tbl ->
                         Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, tbl, updateTime)));
+    }
+
+    /**
+     * Replays the base {@link ExternalCatalog#renameTable} bookkeeping for a connector-driven rename, since
+     * PluginDriven has no {@code metadataOps}: the table-name cache fix ({@code unregisterTable(old)} +
+     * {@code resetMetaCacheNames()}, mirroring legacy {@code IcebergMetadataOps.afterRenameTable}), the
+     * {@code constraintManager} rename, and the {@code createForRenameTable} editlog (whose replay,
+     * {@code RefreshManager.replayRefreshTable}, is already metadataOps-neutral). All use LOCAL names, matching
+     * the base op + the editlog payload, so followers replay consistently. Order mirrors the base op
+     * (cache &rarr; constraint &rarr; editlog).
+     */
+    protected void afterExternalRename(String dbName, String oldTableName, String newTableName) {
+        getDbForReplay(dbName).ifPresent(db -> {
+            db.unregisterTable(oldTableName);
+            db.resetMetaCacheNames();
+        });
+        Env.getCurrentEnv().getConstraintManager().renameTable(
+                new TableNameInfo(getName(), dbName, oldTableName),
+                new TableNameInfo(getName(), dbName, newTableName));
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
+                ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
     }
 
     @Override

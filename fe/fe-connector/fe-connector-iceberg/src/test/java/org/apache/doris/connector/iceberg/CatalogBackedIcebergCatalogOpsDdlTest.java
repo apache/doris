@@ -152,4 +152,23 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
         ops.dropTable("db1", "t1", true);
         Assertions.assertFalse(catalog.tableExists(TableIdentifier.of("db1", "t1")));
     }
+
+    @Test
+    public void testRenameTable() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", "t1", schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        ops.renameTable("db1", "t1", "t2");
+        Assertions.assertFalse(ops.tableExists("db1", "t1"));
+        Assertions.assertTrue(ops.tableExists("db1", "t2"));
+        // The renamed table keeps its schema (proves it's a real rename, not a recreate).
+        Assertions.assertEquals(Type.TypeID.LONG,
+                ops.loadTable("db1", "t2").schema().findField("id").type().typeId());
+    }
+
+    @Test
+    public void testRenameMissingTableFailsLoud() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        Assertions.assertThrows(Exception.class, () -> ops.renameTable("db1", "ghost", "t2"));
+    }
 }

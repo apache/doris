@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
@@ -70,6 +72,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     private MockedStatic<Env> mockedEnv;
     private EditLog mockEditLog;
     private RefreshManager mockRefreshManager;
+    private ConstraintManager mockConstraintManager;
     private Connector connector;
     private ConnectorMetadata metadata;
     private ConnectorSession session;
@@ -90,10 +93,12 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Env mockEnv = Mockito.mock(Env.class);
         mockEditLog = Mockito.mock(EditLog.class);
         mockRefreshManager = Mockito.mock(RefreshManager.class);
+        mockConstraintManager = Mockito.mock(ConstraintManager.class);
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
         Mockito.when(mockEnv.getEditLog()).thenReturn(mockEditLog);
         Mockito.when(mockEnv.getRefreshManager()).thenReturn(mockRefreshManager);
+        Mockito.when(mockEnv.getConstraintManager()).thenReturn(mockConstraintManager);
     }
 
     @AfterEach
@@ -396,6 +401,91 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         DdlException ex = Assertions.assertThrows(DdlException.class,
                 () -> catalog.dropTable("db1", "t1", false, false, false, false, false, false));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+    }
+
+    // ==================== RENAME TABLE ====================
+    // renameTable resolves the SOURCE by REMOTE names (like dropTable) and passes the new name through
+    // (legacy renameTableImpl parity); afterExternalRename does the cache fix (unregister old + reset names)
+    // + constraintManager rename + createForRenameTable editlog, all with LOCAL names for follower replay.
+
+    @Test
+    public void testRenameTableResolvesRemoteSourceRoutesAndFixesCache() throws Exception {
+        // local db1.t1 maps to remote DB1.TBL1 (name mapping enabled).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        // Distinct replay db: locks that the cache fix uses the getDbForReplay lookup (LOCAL name), not the
+        // resolution db.
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+
+        catalog.renameTable("db1", "t1", "t2");
+
+        // WHY: the connector must receive the REMOTE source names + the new name; a mutation passing the
+        // local "db1"/"t1" makes this verify red.
+        Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
+        Mockito.verify(metadata).renameTable(session, handle, "t2");
+        // WHY (Rule 9): cache fix + constraint + editlog MUST use LOCAL names (followers replay the
+        // createForRenameTable entry and the cache is keyed by local name). A mutation using remote names
+        // for the bookkeeping turns these red.
+        Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
+                "cache fix must look up the LOCAL db name");
+        Mockito.verify(replayDb).unregisterTable("t1");
+        Mockito.verify(replayDb).resetMetaCacheNames();
+        ArgumentCaptor<TableNameInfo> oldName = ArgumentCaptor.forClass(TableNameInfo.class);
+        ArgumentCaptor<TableNameInfo> newName = ArgumentCaptor.forClass(TableNameInfo.class);
+        Mockito.verify(mockConstraintManager).renameTable(oldName.capture(), newName.capture());
+        Assertions.assertEquals("t1", oldName.getValue().getTbl());
+        Assertions.assertEquals("t2", newName.getValue().getTbl());
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertEquals("t2", logCap.getValue().getNewTableName());
+    }
+
+    @Test
+    public void testRenameTableMissingDbThrows() {
+        catalog.dbNullableResult = null;
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.renameTable("missing", "t1", "t2"));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testRenameTableMissingTableThrows() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.doReturn(null).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.renameTable("db1", "t1", "t2"));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testRenameTableWrapsConnectorExceptionAndSkipsBookkeeping() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+        Mockito.doThrow(new DorisConnectorException("boom")).when(metadata).renameTable(session, handle, "t2");
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.renameTable("db1", "t1", "t2"));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // WHY: a remote rename failure must abort BEFORE any bookkeeping (no editlog, no constraint rename),
+        // so the FE cache + constraints stay consistent with the unchanged remote.
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+        Mockito.verifyNoInteractions(mockConstraintManager);
     }
 
     // ==================== CREATE TABLE ====================

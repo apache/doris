@@ -99,6 +99,9 @@ public interface IcebergCatalogOps {
     /** Drops {@code dbName.tableName}; {@code purge} requests deletion of the underlying data + metadata. */
     void dropTable(String dbName, String tableName, boolean purge);
 
+    /** Renames {@code dbName.oldName} to {@code dbName.newName} (same database). */
+    void renameTable(String dbName, String oldName, String newName);
+
     /** The table's storage location, or empty when blank — read BEFORE a drop to prune empty dirs. */
     Optional<String> loadTableLocation(String dbName, String tableName);
 
@@ -258,6 +261,11 @@ public interface IcebergCatalogOps {
         @Override
         public void dropTable(String dbName, String tableName, boolean purge) {
             catalog.dropTable(toTableIdentifier(dbName, tableName), purge);
+        }
+
+        @Override
+        public void renameTable(String dbName, String oldName, String newName) {
+            catalog.renameTable(toTableIdentifier(dbName, oldName), toTableIdentifier(dbName, newName));
         }
 
         @Override

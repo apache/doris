@@ -137,6 +137,13 @@ public interface ConnectorTableOps {
                 "DROP TABLE not supported");
     }
 
+    /** Renames the table identified by {@code handle} to {@code newName} within the same database. */
+    default void renameTable(ConnectorSession session,
+            ConnectorTableHandle handle, String newName) {
+        throw new DorisConnectorException(
+                "RENAME TABLE not supported");
+    }
+
     /**
      * Adds a column to the table at the given position.
      *

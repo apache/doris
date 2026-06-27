@@ -516,6 +516,27 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 context.cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
     }
 
+    /**
+     * Renames a table, mirroring legacy {@code IcebergMetadataOps.renameTableImpl}: a thin seam delegation
+     * ({@code catalog.renameTable}) inside the auth context. {@code newName} is the rename target's name in
+     * the same (remote) database — kept as-is as the new remote name, mirroring how {@code createTable} names
+     * a new table (iceberg has no separate remote-name mapping).
+     */
+    @Override
+    public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.renameTable(iceHandle.getDbName(), iceHandle.getTableName(), newName);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to rename Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + " to " + newName
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
     // ========== Column evolution (B2) — mirror legacy IcebergMetadataOps add/drop/rename/modify/reorder ==========
 
     /**

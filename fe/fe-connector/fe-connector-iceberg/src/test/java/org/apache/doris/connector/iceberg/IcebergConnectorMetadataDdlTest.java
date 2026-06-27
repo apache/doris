@@ -219,4 +219,30 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertEquals(Collections.singletonList("dropTable:db1.t1:purge=true"), ops.log);
         Assertions.assertTrue(ctx.cleanedLocations.isEmpty());
     }
+
+    // ---------- renameTable ----------
+
+    @Test
+    public void testRenameTableRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2");
+        Assertions.assertEquals(Collections.singletonList("renameTable:db1.t1->t2"), ops.log);
+        Assertions.assertEquals("db1", ops.lastRenameTableDb);
+        Assertions.assertEquals("t1", ops.lastRenameTableOld);
+        Assertions.assertEquals("t2", ops.lastRenameTableNew);
+        Assertions.assertEquals(1, ctx.authCount, "renameTable must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testRenameTableAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                        .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
 }

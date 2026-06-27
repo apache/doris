@@ -76,6 +76,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastDropTableDb;
     String lastDropTableName;
     boolean lastDropPurge;
+    String lastRenameTableDb;
+    String lastRenameTableOld;
+    String lastRenameTableNew;
     /** Canned location answers for the load-before-drop helpers (default: absent). */
     Optional<String> tableLocation = Optional.empty();
     Optional<String> namespaceLocation = Optional.empty();
@@ -159,6 +162,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastDropTableDb = dbName;
         lastDropTableName = tableName;
         lastDropPurge = purge;
+    }
+
+    @Override
+    public void renameTable(String dbName, String oldName, String newName) {
+        log.add("renameTable:" + dbName + "." + oldName + "->" + newName);
+        lastRenameTableDb = dbName;
+        lastRenameTableOld = oldName;
+        lastRenameTableNew = newName;
     }
 
     @Override
