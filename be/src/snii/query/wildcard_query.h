@@ -15,10 +15,11 @@
 namespace snii::query {
 
 Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                      std::vector<uint32_t>* docids);
+                      std::vector<uint32_t>* const docids, int32_t max_expansions = 0);
 Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                      std::vector<uint32_t>* docids, QueryProfile* profile);
+                      std::vector<uint32_t>* const docids, QueryProfile* profile,
+                      int32_t max_expansions = 0);
 Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                      DocIdSink* sink);
+                      DocIdSink* const sink, int32_t max_expansions = 0);
 
 } // namespace snii::query

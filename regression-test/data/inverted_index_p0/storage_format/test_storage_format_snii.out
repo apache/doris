@@ -11,3 +11,6 @@
 
 -- !null_bitmap --
 4
+
+-- !array_contains --
+1

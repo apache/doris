@@ -164,6 +164,11 @@ public class IndexDefinition {
                         "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
                                 + " merge-on-write enabled");
             }
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                    || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
+            }
             return;
         }
 
@@ -275,8 +280,10 @@ public class IndexDefinition {
                         "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
                                 + " merge-on-write enabled");
             }
-            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                throw new AnalysisException("ANN index is not supported in index format V1");
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                    || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
             }
             return;
         }
@@ -301,10 +308,6 @@ public class IndexDefinition {
                             "SNII inverted index storage format does not support BKD index on column: "
                                     + indexColName);
                 }
-            }
-
-            if (indexType == IndexType.ANN && !colType.isArrayType()) {
-                throw new AnalysisException("ANN index column must be array type");
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.

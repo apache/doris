@@ -10,18 +10,23 @@ namespace snii::query::internal {
 
 Status emit_expanded_docid_union(const snii::reader::LogicalIndexReader& idx,
                                  std::string_view enum_prefix, const TermMatcher& matches,
-                                 DocIdSink* sink) {
-    if (sink == nullptr) return Status::InvalidArgument("term_expansion: null sink");
-
-    std::vector<snii::reader::LogicalIndexReader::PrefixHit> hits;
-    SNII_RETURN_IF_ERROR(idx.prefix_terms(enum_prefix, &hits));
+                                 DocIdSink* const sink, int32_t max_expansions) {
+    if (sink == nullptr) {
+        return Status::InvalidArgument("term_expansion: null sink");
+    }
 
     std::vector<ResolvedDocidPosting> postings;
-    postings.reserve(hits.size());
-    for (snii::reader::LogicalIndexReader::PrefixHit& hit : hits) {
-        if (!matches(hit.term)) continue;
-        postings.push_back({std::move(hit.entry), hit.frq_base, hit.prx_base});
-    }
+    int32_t count = 0;
+    SNII_RETURN_IF_ERROR(idx.visit_prefix_terms(
+            enum_prefix, [&](snii::reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) {
+                if (!matches(hit.term)) {
+                    return Status::OK();
+                }
+                postings.push_back({std::move(hit.entry), hit.frq_base, hit.prx_base});
+                ++count;
+                *stop = max_expansions > 0 && count >= max_expansions;
+                return Status::OK();
+            }));
     return emit_docid_union(idx, postings, sink);
 }
 

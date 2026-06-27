@@ -105,8 +105,9 @@ Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletInde
 
 Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                                        std::vector<uint32_t> null_docids,
-                                       snii::writer::SpimiTermBuffer* term_buffer,
-                                       snii::format::IndexConfig index_config) {
+                                       snii::writer::SpimiTermBuffer* const term_buffer,
+                                       snii::format::IndexConfig index_config,
+                                       snii::writer::MemoryReporter* const mem_reporter) {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     DCHECK(index_meta != nullptr);
     DCHECK(term_buffer != nullptr);
@@ -127,9 +128,16 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.term_source = term_buffer;
+    input.mem_reporter = mem_reporter;
     RETURN_IF_ERROR(snii_doris::to_doris_status(_snii_compound_writer->add_logical_index(input)));
     ++_snii_index_count;
     return Status::OK();
+}
+
+void IndexFileWriter::retain_snii_memory_reporter(
+        std::unique_ptr<snii::writer::MemoryReporter> mem_reporter) {
+    DCHECK(mem_reporter != nullptr);
+    _snii_memory_reporters.push_back(std::move(mem_reporter));
 }
 
 Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string_view>
 
@@ -16,6 +17,6 @@ using TermMatcher = std::function<bool(std::string_view)>;
 // DictEntry and block bases, so callers avoid a second lookup per expanded term.
 Status emit_expanded_docid_union(const snii::reader::LogicalIndexReader& idx,
                                  std::string_view enum_prefix, const TermMatcher& matches,
-                                 DocIdSink* sink);
+                                 DocIdSink* const sink, int32_t max_expansions = 0);
 
 } // namespace snii::query::internal

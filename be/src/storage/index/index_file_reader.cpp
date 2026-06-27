@@ -139,7 +139,7 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
     return Status::OK();
 }
 
-Status IndexFileReader::_init_snii(const io::IOContext* /*io_ctx*/) {
+Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
     int64_t file_size = -1;
     if (_idx_file_info.has_index_size()) {
@@ -154,6 +154,7 @@ Status IndexFileReader::_init_snii(const io::IOContext* /*io_ctx*/) {
     RETURN_IF_ERROR(_fs->open_file(index_file_full_path, &reader, &opts));
     _snii_file_reader = std::make_shared<snii_doris::DorisSniiFileReader>(std::move(reader));
     _snii_segment_reader = std::make_unique<snii::reader::SniiSegmentReader>();
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(io_ctx);
     RETURN_IF_ERROR(snii_doris::to_doris_status(snii::reader::SniiSegmentReader::open(
             _snii_file_reader.get(), _snii_segment_reader.get())));
     return Status::OK();
@@ -309,7 +310,12 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
     } else if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
         auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
         RETURN_IF_ERROR(_fs->exists(index_file_path, res));
-        if (!*res || _snii_segment_reader == nullptr) {
+        if (!*res) {
+            return Status::OK();
+        }
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        if (_snii_segment_reader == nullptr) {
+            *res = false;
             return Status::OK();
         }
         auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();

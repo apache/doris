@@ -857,8 +857,10 @@ public class CreateTableInfo {
                 }
                 if (indexDef.getIndexType() == IndexType.ANN) {
                     if (invertedIndexFileStorageFormat != null
-                            && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                        throw new AnalysisException("ANN index is not supported in index format V1");
+                            && (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                            || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII)) {
+                        throw new AnalysisException("ANN index is not supported in index format "
+                                + invertedIndexFileStorageFormat);
                     }
                 }
                 for (String indexColName : indexDef.getColumnNames()) {

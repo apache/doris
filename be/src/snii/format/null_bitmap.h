@@ -76,6 +76,9 @@ public:
     // Number of distinct null docids in the bitmap.
     uint32_t null_count() const;
 
+    // Copies the decoded bitmap into the caller-owned Roaring object.
+    void copy_to(roaring::Roaring* out) const;
+
     // Total doc count of the logical index, as recorded by the writer.
     uint32_t doc_count() const { return doc_count_; }
 

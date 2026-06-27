@@ -338,6 +338,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
 
     if (_is_drop_op) {
         const auto& output_rs_tablet_schema = output_rowset_meta->tablet_schema();
+        if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::SNII) {
+            LOG(INFO) << "skip physical SNII inverted index rewrite for drop index. tablet_id="
+                      << _tablet->tablet_id()
+                      << " rowset_id=" << output_rowset_meta->rowset_id().to_string();
+            return Status::OK();
+        }
         if (output_rs_tablet_schema->get_inverted_index_storage_format() !=
             InvertedIndexStorageFormatPB::V1) {
             const auto& fs = output_rowset_meta->fs();

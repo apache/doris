@@ -565,11 +565,17 @@ Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
 } // namespace
 
 Status phrase_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                    std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return Status::InvalidArgument("phrase_query: null out");
+                    std::vector<uint32_t>* const docids) {
+    if (docids == nullptr) {
+        return Status::InvalidArgument("phrase_query: null out");
+    }
     docids->clear();
-    if (terms.empty()) return Status::OK();
-    if (terms.size() == 1) return term_query(idx, terms.front(), docids);
+    if (terms.empty()) {
+        return Status::OK();
+    }
+    if (terms.size() == 1) {
+        return term_query(idx, terms.front(), docids);
+    }
     if (!idx.has_positions()) {
         return Status::Unsupported("phrase_query: index has no positions");
     }
@@ -590,17 +596,23 @@ Status phrase_query(const LogicalIndexReader& idx, const std::vector<std::string
 }
 
 Status phrase_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                    std::vector<uint32_t>* docids, QueryProfile* profile) {
+                    std::vector<uint32_t>* const docids, QueryProfile* profile) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return phrase_query(idx, terms, docids);
 }
 
 Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                           std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return Status::InvalidArgument("phrase_prefix_query: null out");
+                           std::vector<uint32_t>* const docids, int32_t max_expansions) {
+    if (docids == nullptr) {
+        return Status::InvalidArgument("phrase_prefix_query: null out");
+    }
     docids->clear();
-    if (terms.empty()) return Status::OK();
-    if (terms.size() == 1) return prefix_query(idx, terms.front(), docids);
+    if (terms.empty()) {
+        return Status::OK();
+    }
+    if (terms.size() == 1) {
+        return prefix_query(idx, terms.front(), docids, max_expansions);
+    }
     if (!idx.has_positions()) {
         return Status::Unsupported("phrase_prefix_query: index has no positions");
     }
@@ -611,17 +623,23 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
         ResolvedQueryTerm resolved;
         bool found = false;
         SNII_RETURN_IF_ERROR(internal::resolve_query_term(idx, terms[i], &resolved, &found));
-        if (!found) return Status::OK();
+        if (!found) {
+            return Status::OK();
+        }
         exact_terms.push_back(std::move(resolved));
     }
 
     std::vector<LogicalIndexReader::PrefixHit> tail_hits;
-    SNII_RETURN_IF_ERROR(idx.prefix_terms(terms.back(), &tail_hits));
-    if (tail_hits.empty()) return Status::OK();
+    SNII_RETURN_IF_ERROR(idx.prefix_terms(terms.back(), &tail_hits, max_expansions));
+    if (tail_hits.empty()) {
+        return Status::OK();
+    }
 
     std::vector<ExpectedTailPositions> expected;
     SNII_RETURN_IF_ERROR(CollectExpectedTailPositions(idx, exact_terms, &expected));
-    if (expected.empty()) return Status::OK();
+    if (expected.empty()) {
+        return Status::OK();
+    }
 
     std::vector<uint32_t> acc;
     for (LogicalIndexReader::PrefixHit& hit : tail_hits) {
@@ -636,9 +654,10 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
 }
 
 Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                           std::vector<uint32_t>* docids, QueryProfile* profile) {
+                           std::vector<uint32_t>* const docids, QueryProfile* profile,
+                           int32_t max_expansions) {
     QueryProfileScope profile_scope(idx.reader(), profile);
-    return phrase_prefix_query(idx, terms, docids);
+    return phrase_prefix_query(idx, terms, docids, max_expansions);
 }
 
 } // namespace snii::query

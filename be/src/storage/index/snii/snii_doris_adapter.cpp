@@ -19,7 +19,15 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
+#include <cstddef>
+#include <limits>
+
+#include "common/cast_set.h"
+
 namespace doris::segment_v2::snii_doris {
+
+thread_local const io::IOContext* DorisSniiFileReader::_scoped_io_ctx = nullptr;
 
 Status to_doris_status(const ::snii::Status& status) {
     if (status.ok()) {
@@ -72,6 +80,15 @@ uint64_t DorisSniiFileWriter::bytes_written() const {
     return _writer == nullptr ? 0 : _writer->bytes_appended();
 }
 
+DorisSniiFileReader::ScopedIOContext::ScopedIOContext(const io::IOContext* io_ctx)
+        : _previous(_scoped_io_ctx) {
+    _scoped_io_ctx = io_ctx;
+}
+
+DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
+    _scoped_io_ctx = _previous;
+}
+
 ::snii::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
                                             std::vector<uint8_t>* out) {
     if (_reader == nullptr) {
@@ -80,9 +97,14 @@ uint64_t DorisSniiFileWriter::bytes_written() const {
     if (out == nullptr) {
         return ::snii::Status::InvalidArgument("output buffer is null");
     }
+    SNII_RETURN_IF_ERROR(_check_read_range(offset, len));
+    if (len == 0) {
+        out->clear();
+        return ::snii::Status::OK();
+    }
     out->resize(len);
     size_t bytes_read = 0;
-    auto status = _reader->read_at(offset, Slice(out->data(), len), &bytes_read, _io_ctx);
+    auto status = _reader->read_at(offset, Slice(out->data(), len), &bytes_read, _current_io_ctx());
     if (!status.ok()) {
         return to_snii_status(status);
     }
@@ -93,8 +115,92 @@ uint64_t DorisSniiFileWriter::bytes_written() const {
     return ::snii::Status::OK();
 }
 
+::snii::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges,
+                                               std::vector<std::vector<uint8_t>>* outs) {
+    if (outs == nullptr) {
+        return ::snii::Status::InvalidArgument("output buffers is null");
+    }
+    outs->clear();
+    outs->resize(ranges.size());
+    if (ranges.empty()) {
+        return ::snii::Status::OK();
+    }
+
+    struct IndexedRange {
+        uint64_t offset = 0;
+        size_t len = 0;
+        size_t index = 0;
+    };
+    std::vector<IndexedRange> sorted;
+    sorted.reserve(ranges.size());
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        SNII_RETURN_IF_ERROR(_check_read_range(ranges[i].offset, ranges[i].len));
+        if (ranges[i].len == 0) {
+            continue;
+        }
+        sorted.push_back({ranges[i].offset, ranges[i].len, i});
+    }
+    if (sorted.empty()) {
+        return ::snii::Status::OK();
+    }
+    std::sort(sorted.begin(), sorted.end(), [](const IndexedRange& lhs, const IndexedRange& rhs) {
+        return lhs.offset < rhs.offset;
+    });
+
+    constexpr uint64_t max_coalesced_gap = 4096;
+    constexpr uint64_t max_coalesced_read = 1ULL << 20;
+    for (size_t begin = 0; begin < sorted.size();) {
+        uint64_t read_offset = sorted[begin].offset;
+        uint64_t read_end = sorted[begin].offset + sorted[begin].len;
+        size_t end = begin + 1;
+        while (end < sorted.size()) {
+            const uint64_t next_end = sorted[end].offset + sorted[end].len;
+            if ((sorted[end].offset > read_end &&
+                 sorted[end].offset - read_end > max_coalesced_gap) ||
+                next_end - read_offset > max_coalesced_read) {
+                break;
+            }
+            read_end = std::max(read_end, next_end);
+            ++end;
+        }
+
+        std::vector<uint8_t> bytes;
+        SNII_RETURN_IF_ERROR(
+                read_at(read_offset, cast_set<size_t>(read_end - read_offset), &bytes));
+        for (size_t i = begin; i < end; ++i) {
+            const uint64_t pos = sorted[i].offset - read_offset;
+            auto& out = (*outs)[sorted[i].index];
+            out.assign(bytes.begin() + cast_set<ptrdiff_t>(pos),
+                       bytes.begin() + cast_set<ptrdiff_t>(pos + sorted[i].len));
+        }
+        begin = end;
+    }
+    return ::snii::Status::OK();
+}
+
 uint64_t DorisSniiFileReader::size() const {
     return _reader == nullptr ? 0 : _reader->size();
+}
+
+const io::IOContext* DorisSniiFileReader::_current_io_ctx() const {
+    return _scoped_io_ctx != nullptr ? _scoped_io_ctx : _default_io_ctx;
+}
+
+::snii::Status DorisSniiFileReader::_check_read_range(uint64_t offset, size_t len) const {
+    if (_reader == nullptr) {
+        return ::snii::Status::InvalidArgument("doris reader is null");
+    }
+    if (offset > std::numeric_limits<uint64_t>::max() - len) {
+        return ::snii::Status::Corruption(
+                fmt::format("read range overflows: offset {}, len {}", offset, len));
+    }
+    const uint64_t end = offset + len;
+    if (end > _reader->size()) {
+        return ::snii::Status::Corruption(
+                fmt::format("read range exceeds file size: offset {}, len {}, file size {}", offset,
+                            len, _reader->size()));
+    }
+    return ::snii::Status::OK();
 }
 
 } // namespace doris::segment_v2::snii_doris

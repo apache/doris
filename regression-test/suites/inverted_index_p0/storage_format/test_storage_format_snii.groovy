@@ -17,7 +17,11 @@
 
 suite("test_storage_format_snii", "p0, nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_storage_format_snii"
+    sql "DROP TABLE IF EXISTS test_storage_format_snii_array"
+    sql "DROP TABLE IF EXISTS test_storage_format_snii_add_index"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_bkd"
+    sql "DROP TABLE IF EXISTS test_storage_format_snii_array_bkd"
+    sql "DROP TABLE IF EXISTS test_storage_format_snii_ann"
 
     sql """
         CREATE TABLE test_storage_format_snii (
@@ -70,6 +74,87 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
         ORDER BY id
     """
 
+    sql """
+        CREATE TABLE test_storage_format_snii_array (
+          id INT NULL,
+          tags ARRAY<TEXT> NULL,
+          INDEX idx_tags (`tags`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "inverted_index_storage_format" = "SNII"
+        );
+    """
+
+    sql """
+        INSERT INTO test_storage_format_snii_array VALUES
+          (1, '["alpha", "beta"]'),
+          (2, '["gamma"]'),
+          (3, NULL);
+    """
+    sql "sync"
+
+    order_qt_array_contains """
+        SELECT id FROM test_storage_format_snii_array
+        WHERE array_contains(tags, 'alpha')
+        ORDER BY id
+    """
+
+    test {
+        if (isCloudMode()) {
+            sql "BUILD INDEX ON test_storage_format_snii"
+        } else {
+            sql "BUILD INDEX idx_body ON test_storage_format_snii"
+        }
+        exception "BUILD INDEX is not supported for SNII inverted index storage format yet"
+    }
+
+    sql """
+        CREATE TABLE test_storage_format_snii_add_index (
+          id INT NULL,
+          body TEXT NULL,
+          score INT NULL,
+          scores ARRAY<INT> NULL,
+          embedding ARRAY<FLOAT> NOT NULL,
+          INDEX idx_body_added_table (`body`) USING INVERTED COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "inverted_index_storage_format" = "SNII"
+        );
+    """
+
+    test {
+        sql """
+            ALTER TABLE test_storage_format_snii_add_index
+            ADD INDEX idx_score_added (`score`) USING INVERTED COMMENT ''
+        """
+        exception "SNII inverted index storage format"
+    }
+
+    test {
+        sql """
+            ALTER TABLE test_storage_format_snii_add_index
+            ADD INDEX idx_scores_added (`scores`) USING INVERTED COMMENT ''
+        """
+        exception "SNII inverted index storage format"
+    }
+
+    test {
+        sql """
+            CREATE INDEX idx_ann_added ON test_storage_format_snii_add_index (`embedding`) USING ANN PROPERTIES(
+              "index_type" = "hnsw",
+              "metric_type" = "l2_distance",
+              "dim" = "1"
+            )
+        """
+        exception "ANN index is not supported in index format SNII"
+    }
+
     test {
         sql """
             CREATE TABLE test_storage_format_snii_bkd (
@@ -85,5 +170,43 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
             );
         """
         exception "SNII inverted index storage format"
+    }
+
+    test {
+        sql """
+            CREATE TABLE test_storage_format_snii_array_bkd (
+              id INT NULL,
+              scores ARRAY<INT> NULL,
+              INDEX idx_scores (`scores`) USING INVERTED COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1",
+              "inverted_index_storage_format" = "SNII"
+            );
+        """
+        exception "SNII inverted index storage format"
+    }
+
+    test {
+        sql """
+            CREATE TABLE test_storage_format_snii_ann (
+              id INT NULL,
+              embedding ARRAY<FLOAT> NOT NULL,
+              INDEX idx_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type" = "hnsw",
+                "metric_type" = "l2_distance",
+                "dim" = "1"
+              )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1",
+              "inverted_index_storage_format" = "SNII"
+            );
+        """
+        exception "ANN index is not supported in index format SNII"
     }
 }

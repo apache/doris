@@ -17,6 +17,7 @@
 
 #include "storage/index/snii/snii_index_reader.h"
 
+#include <CLucene.h>
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -101,6 +102,21 @@ void parse_phrase_slop(std::string* query, InvertedIndexQueryInfo* query_info) {
     *query = query->substr(0, last_space_pos);
 }
 
+std::string build_snii_query_cache_value(const InvertedIndexQueryInfo& query_info) {
+    std::string cache_value;
+    for (const auto& term_info : query_info.term_infos) {
+        DCHECK(term_info.is_single_term());
+        const auto& term = term_info.get_single_term();
+        cache_value.append(std::to_string(term.size()));
+        cache_value.push_back(':');
+        cache_value.append(term);
+        cache_value.push_back('@');
+        cache_value.append(std::to_string(term_info.position));
+        cache_value.push_back(';');
+    }
+    return cache_value;
+}
+
 } // namespace
 
 Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
@@ -128,23 +144,39 @@ Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
         query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
         parse_phrase_slop(&search_str, query_info);
         SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-        query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                search_str, _index_meta.properties());
+        try {
+            query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    search_str, _index_meta.properties());
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "SNII analyze query failed: {}", e.what());
+        } catch (const Exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "SNII analyze query failed: {}", e.what());
+        }
         return Status::OK();
     }
 
     SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-    if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
-        query_info->term_infos.emplace_back(search_str);
-    } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
-        auto reader =
-                inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx->char_filter_map);
-        reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
-        query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                reader, analyzer_ctx->analyzer.get());
-    } else {
-        query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                search_str, _index_meta.properties());
+    try {
+        if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+            query_info->term_infos.emplace_back(search_str);
+        } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+            auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
+                    analyzer_ctx->char_filter_map);
+            reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
+            query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    reader, analyzer_ctx->analyzer.get());
+        } else {
+            query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    search_str, _index_meta.properties());
+        }
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII analyze query failed: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII analyze query failed: {}", e.what());
     }
     return Status::OK();
 }
@@ -186,10 +218,18 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
     }
 
     auto terms = to_terms(query_info);
-    std::string cache_value = query_info.generate_tokens_key();
+    const int32_t max_expansions =
+            context->runtime_state == nullptr
+                    ? 50
+                    : context->runtime_state->query_options().inverted_index_max_expansions;
+    std::string cache_value = build_snii_query_cache_value(query_info);
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
         cache_value += " " + std::to_string(query_info.slop);
         cache_value += " " + std::to_string(query_info.ordered);
+    } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
+               query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
+               query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
+        cache_value += " " + std::to_string(max_expansions);
     }
     auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -200,6 +240,7 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
         return Status::OK();
     }
 
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
     RETURN_IF_ERROR(
             _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
     auto logical_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
@@ -226,13 +267,13 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
                          : snii::query::phrase_query(*logical_reader, terms, &docids);
         break;
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
-        status = snii::query::phrase_prefix_query(*logical_reader, terms, &docids);
+        status = snii::query::phrase_prefix_query(*logical_reader, terms, &docids, max_expansions);
         break;
     case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
-        status = snii::query::regexp_query(*logical_reader, search_str, &docids);
+        status = snii::query::regexp_query(*logical_reader, search_str, &docids, max_expansions);
         break;
     case InvertedIndexQueryType::WILDCARD_QUERY:
-        status = snii::query::wildcard_query(*logical_reader, search_str, &docids);
+        status = snii::query::wildcard_query(*logical_reader, search_str, &docids, max_expansions);
         break;
     case InvertedIndexQueryType::LESS_THAN_QUERY:
     case InvertedIndexQueryType::LESS_EQUAL_QUERY:
@@ -269,6 +310,7 @@ Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
         return Status::OK();
     }
 
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
     RETURN_IF_ERROR(
             _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
     auto logical_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
@@ -281,11 +323,7 @@ Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
         snii::format::NullBitmapReader reader;
         RETURN_IF_ERROR(snii_doris::to_doris_status(
                 snii::format::NullBitmapReader::open(snii::Slice(bytes), &reader)));
-        for (uint32_t docid = 0; docid < reader.doc_count(); ++docid) {
-            if (reader.is_null(docid)) {
-                null_bitmap->add(docid);
-            }
-        }
+        reader.copy_to(null_bitmap.get());
         null_bitmap->runOptimize();
     }
     cache->insert(cache_key, null_bitmap, cache_handle);

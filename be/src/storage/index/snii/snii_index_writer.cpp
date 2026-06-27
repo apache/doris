@@ -46,7 +46,9 @@ Status SniiIndexColumnWriter::init() {
     _ignore_above = cast_set<uint32_t>(std::stoul(ignore_above_value));
     const auto spill_threshold =
             static_cast<size_t>(config::inverted_index_ram_buffer_size * 1024 * 1024);
-    _term_buffer = std::make_unique<snii::writer::SpimiTermBuffer>(_has_positions, spill_threshold);
+    _memory_reporter = std::make_unique<snii::writer::MemoryReporter>(nullptr, spill_threshold);
+    _term_buffer = std::make_unique<snii::writer::SpimiTermBuffer>(_has_positions, spill_threshold,
+                                                                   _memory_reporter.get());
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(_index_meta->properties()));
@@ -87,6 +89,9 @@ Status SniiIndexColumnWriter::_analyze(const Slice& value, std::vector<TermInfo>
         *terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(_char_string_reader,
                                                                            _analyzer.get());
     } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII analyze value failed: {}", e.what());
+    } catch (const Exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "SNII analyze value failed: {}", e.what());
     }
@@ -184,13 +189,15 @@ Status SniiIndexColumnWriter::finish() {
     }
     RETURN_IF_ERROR(_index_file_writer->add_snii_index(_index_meta, cast_set<uint32_t>(_rid),
                                                        std::move(_null_docids), _term_buffer.get(),
-                                                       _config));
+                                                       _config, _memory_reporter.get()));
+    _index_file_writer->retain_snii_memory_reporter(std::move(_memory_reporter));
     _term_buffer.reset();
     return Status::OK();
 }
 
 void SniiIndexColumnWriter::close_on_error() {
     _term_buffer.reset();
+    _memory_reporter.reset();
     _null_docids.clear();
 }
 

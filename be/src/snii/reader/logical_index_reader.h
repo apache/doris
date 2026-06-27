@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string_view>
 #include <vector>
 
@@ -61,13 +62,18 @@ public:
         uint64_t prx_base = 0;
     };
 
+    using PrefixHitVisitor = std::function<Status(PrefixHit&& hit, bool* stop)>;
+
     // Ordered term enumeration: every term with `prefix`, in lexicographic order,
     // by seeking the start DICT block via the SampledTermIndex and scanning
     // forward across contiguous blocks until the terms pass the prefix range.
     // Empty prefix enumerates all terms. This is the contiguous-DICT-block design
     // the term-anchor layout was built for (MATCH_PHRASE_PREFIX / prefix / range
-    // queries).
-    Status prefix_terms(std::string_view prefix, std::vector<PrefixHit>* out) const;
+    // queries). The visitor form avoids materializing all hits when callers only
+    // need a bounded expansion.
+    Status visit_prefix_terms(std::string_view prefix, const PrefixHitVisitor& visitor) const;
+    Status prefix_terms(std::string_view prefix, std::vector<PrefixHit>* const out,
+                        int32_t max_terms = 0) const;
 
     // Resolves a pod_ref entry's absolute .frq / .prx window byte range,
     // validating the locator against the posting_region length (defends against

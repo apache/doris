@@ -11,7 +11,9 @@
 
 namespace snii::format {
 
-NullBitmapWriter::NullBitmapWriter() : bitmap_(std::make_unique<roaring::Roaring>()) {}
+NullBitmapWriter::
+        NullBitmapWriter() // NOLINT(modernize-use-equals-default): roaring type is incomplete in the header.
+        : bitmap_(std::make_unique<roaring::Roaring>()) {}
 
 NullBitmapWriter::~NullBitmapWriter() = default;
 
@@ -39,7 +41,9 @@ void NullBitmapWriter::finish(uint32_t doc_count, ByteSink* sink) const {
     SectionFramer::write(*sink, kNullBitmapSectionType, payload.view());
 }
 
-NullBitmapReader::NullBitmapReader() : bitmap_(std::make_unique<roaring::Roaring>()) {}
+NullBitmapReader::
+        NullBitmapReader() // NOLINT(modernize-use-equals-default): roaring type is incomplete in the header.
+        : bitmap_(std::make_unique<roaring::Roaring>()) {}
 
 NullBitmapReader::~NullBitmapReader() = default;
 
@@ -94,6 +98,10 @@ bool NullBitmapReader::is_null(uint32_t docid) const {
 
 uint32_t NullBitmapReader::null_count() const {
     return static_cast<uint32_t>(bitmap_->cardinality());
+}
+
+void NullBitmapReader::copy_to(roaring::Roaring* out) const {
+    *out = *bitmap_;
 }
 
 } // namespace snii::format

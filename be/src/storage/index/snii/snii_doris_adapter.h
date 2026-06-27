@@ -47,15 +47,33 @@ private:
 
 class DorisSniiFileReader final : public ::snii::io::FileReader {
 public:
+    class ScopedIOContext {
+    public:
+        explicit ScopedIOContext(const io::IOContext* io_ctx);
+        ~ScopedIOContext();
+
+        ScopedIOContext(const ScopedIOContext&) = delete;
+        ScopedIOContext& operator=(const ScopedIOContext&) = delete;
+
+    private:
+        const io::IOContext* _previous = nullptr;
+    };
+
     explicit DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx = nullptr)
-            : _reader(std::move(reader)), _io_ctx(io_ctx) {}
+            : _reader(std::move(reader)), _default_io_ctx(io_ctx) {}
 
     ::snii::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    ::snii::Status read_batch(const std::vector<::snii::io::Range>& ranges,
+                              std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;
 
 private:
+    ::snii::Status _check_read_range(uint64_t offset, size_t len) const;
+    const io::IOContext* _current_io_ctx() const;
+
     io::FileReaderSPtr _reader;
-    const io::IOContext* _io_ctx = nullptr;
+    const io::IOContext* _default_io_ctx = nullptr;
+    static thread_local const io::IOContext* _scoped_io_ctx;
 };
 
 } // namespace doris::segment_v2::snii_doris

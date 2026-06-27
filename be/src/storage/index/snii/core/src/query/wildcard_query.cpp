@@ -15,7 +15,9 @@ namespace {
 std::string literal_prefix_for_wildcard(std::string_view pattern) {
     std::string out;
     for (char c : pattern) {
-        if (c == '*' || c == '?') break;
+        if (c == '*' || c == '?') {
+            break;
+        }
         out.push_back(c);
     }
     return out;
@@ -46,26 +48,32 @@ bool wildcard_match(std::string_view pattern, std::string_view text) {
 } // namespace
 
 Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                      std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return Status::InvalidArgument("wildcard_query: null out");
+                      std::vector<uint32_t>* const docids, int32_t max_expansions) {
+    if (docids == nullptr) {
+        return Status::InvalidArgument("wildcard_query: null out");
+    }
     docids->clear();
     VectorDocIdSink sink(*docids);
-    return wildcard_query(idx, pattern, &sink);
+    return wildcard_query(idx, pattern, &sink, max_expansions);
 }
 
 Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                      std::vector<uint32_t>* docids, QueryProfile* profile) {
+                      std::vector<uint32_t>* const docids, QueryProfile* profile,
+                      int32_t max_expansions) {
     QueryProfileScope profile_scope(idx.reader(), profile);
-    return wildcard_query(idx, pattern, docids);
+    return wildcard_query(idx, pattern, docids, max_expansions);
 }
 
 Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                      DocIdSink* sink) {
-    if (sink == nullptr) return Status::InvalidArgument("wildcard_query: null sink");
+                      DocIdSink* const sink, int32_t max_expansions) {
+    if (sink == nullptr) {
+        return Status::InvalidArgument("wildcard_query: null sink");
+    }
     const std::string enum_prefix = literal_prefix_for_wildcard(pattern);
     return internal::emit_expanded_docid_union(
             idx, enum_prefix,
-            [pattern](std::string_view term) { return wildcard_match(pattern, term); }, sink);
+            [pattern](std::string_view term) { return wildcard_match(pattern, term); }, sink,
+            max_expansions);
 }
 
 } // namespace snii::query
