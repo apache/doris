@@ -57,6 +57,7 @@ public:
 
     uint64_t bytes_written() const override { return data_.size(); }
 
+    // NOLINTBEGIN(readability-non-const-parameter): FileReader interface writes into out.
     Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
         if (offset > data_.size() || len > data_.size() - offset) {
             return Status::Corruption("memory file read past eof");
@@ -67,6 +68,7 @@ public:
         }
         return Status::OK();
     }
+    // NOLINTEND(readability-non-const-parameter)
 
     uint64_t size() const override { return data_.size(); }
     bool finalized() const { return finalized_; }
@@ -137,11 +139,14 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     auto failed_docs = docs_with_one_position(0, kDocCount, 0);
     auto order_docs = docs_with_one_position(0, kDocCount, 2);
     auto ordinal_docs = docs_with_one_position(0, kDocCount, 2);
+    auto driver_docs = docs_with_one_position(0, 8000, 0);
+    auto almost_docs = docs_with_one_position(0, kDocCount, 1);
     std::vector<PostingDoc> repeat_docs;
     repeat_docs.reserve(kDocCount);
     for (uint32_t docid = 0; docid < kDocCount; ++docid) {
         repeat_docs.push_back({docid, {0, 1, 2}});
     }
+    almost_docs.erase(almost_docs.begin() + 4000);
     failed_docs[8000].positions = {0, 4};
     for (PostingDoc& doc : order_docs) {
         if (doc.docid == 5000 || doc.docid == 7000) {
@@ -161,7 +166,9 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     input.index_suffix = "Body";
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = kDocCount;
-    input.terms = {make_term("failed", std::move(failed_docs)),
+    input.terms = {make_term("almost", std::move(almost_docs)),
+                   make_term("driver", std::move(driver_docs)),
+                   make_term("failed", std::move(failed_docs)),
                    make_term("order", std::move(order_docs)),
                    make_term("ordinal", std::move(ordinal_docs)),
                    make_term("repeat", std::move(repeat_docs))};
@@ -238,6 +245,38 @@ TEST(SniiPhraseQueryTest, RepeatedTermPhraseUsesCachedPostingSpan) {
 
     std::vector<uint32_t> expected(9000);
     std::iota(expected.begin(), expected.end(), 0);
+    EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, DenseTermWithMissingDocKeepsCandidateOrdinals) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<uint32_t> driver_docids;
+    assert_ok(term_query(index_reader, "driver", &driver_docids));
+    EXPECT_EQ(driver_docids.size(), 8000);
+
+    std::vector<uint32_t> almost_docids;
+    assert_ok(term_query(index_reader, "almost", &almost_docids));
+    EXPECT_EQ(almost_docids.size(), 8999);
+    ASSERT_GT(almost_docids.size(), 6144);
+    EXPECT_EQ(almost_docids[3999], 3999);
+    EXPECT_EQ(almost_docids[4000], 4001);
+    EXPECT_EQ(almost_docids[6143], 6144);
+    EXPECT_EQ(almost_docids[6144], 6145);
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(index_reader, {"driver", "almost"}, &docids));
+
+    std::vector<uint32_t> expected;
+    expected.reserve(7999);
+    for (uint32_t docid = 0; docid < 8000; ++docid) {
+        if (docid != 4000) {
+            expected.push_back(docid);
+        }
+    }
     EXPECT_EQ(docids, expected);
 }
 
