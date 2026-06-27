@@ -149,6 +149,21 @@ Status ParquetColumnReader::skip(int64_t rows) {
     return Status::NotSupported("Parquet column skip is not implemented, rows={}", rows);
 }
 
+void ParquetColumnReader::advance_nested_build_level_cursor_past_parent(
+        int16_t parent_repetition_level) {
+    int64_t child_cursor = nested_build_level_cursor();
+    const auto& child_rep_levels = nested_repetition_levels();
+    const int64_t child_levels_written = nested_levels_written();
+    while (child_cursor < child_levels_written) {
+        const int16_t child_rep_level = child_rep_levels[child_cursor];
+        ++child_cursor;
+        if (!is_or_has_repeated_child() || child_rep_level <= parent_repetition_level) {
+            break;
+        }
+    }
+    set_nested_build_level_cursor(child_cursor);
+}
+
 void ParquetColumnReader::update_reader_read_rows(int64_t rows) const {
     if (_profile.reader_read_rows != nullptr) {
         COUNTER_UPDATE(_profile.reader_read_rows, rows);

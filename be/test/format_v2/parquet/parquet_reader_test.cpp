@@ -731,7 +731,7 @@ TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {
     EXPECT_TRUE(struct_type->get_element(1)->is_nullable());
 }
 
-TEST_F(NewParquetReaderTest, GetSchemaKeepsInt96AsDateTimeV2WhenTimestampTzMappingEnabled) {
+TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappingEnabled) {
     write_int96_timestamp_parquet_file(_file_path);
     auto reader = create_reader(0, -1, nullptr, true);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -742,7 +742,7 @@ TEST_F(NewParquetReaderTest, GetSchemaKeepsInt96AsDateTimeV2WhenTimestampTzMappi
     ASSERT_EQ(schema.size(), 1);
     EXPECT_EQ(schema[0].name, "ts_tz");
     ASSERT_TRUE(schema[0].type->is_nullable());
-    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
     EXPECT_EQ(remove_nullable(schema[0].type)->get_scale(), 6);
 }
 

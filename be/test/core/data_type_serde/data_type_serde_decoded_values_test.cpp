@@ -886,12 +886,15 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadDateTimeV2Int96) {
     };
     std::vector<uint8_t> null_map = {0, 0, 1};
     auto view = make_fixed_view(DecodedValueKind::INT96, values, &null_map);
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", shanghai));
+    view.timezone = &shanghai;
 
     auto result = read_column(type, view);
 
     ASSERT_TRUE(result.status.ok()) << result.status;
     expect_column_strings(*type, *result.column,
-                          {"1970-01-01 00:00:00.000000", "1969-12-31 23:59:59.999999", "NULL"});
+                          {"1970-01-01 08:00:00.000000", "1970-01-01 07:59:59.999999", "NULL"});
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, ReadTimestampTzInt64AsUtcInstant) {
@@ -930,14 +933,19 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadTimestampTzInt64AsUtcInstant) {
               "2025-01-01 00:00:00.123456+08:00");
 }
 
-TEST(DataTypeSerDeDecodedValuesTest, TimestampTzRejectsInt96WithoutTimezoneSemantics) {
+TEST(DataTypeSerDeDecodedValuesTest, TimestampTzReadsInt96AsUtcInstant) {
     auto type = std::make_shared<DataTypeTimeStampTz>(6);
-    std::vector<TestInt96Timestamp> values = {{0, 2440588}};
+    std::vector<TestInt96Timestamp> values = {{0, 2440588}, {123456789000LL, 2440588}};
     auto view = make_fixed_view(DecodedValueKind::INT96, values);
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", shanghai));
 
     auto result = read_column(type, view);
 
-    expect_not_supported(result.status);
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    const auto& column = assert_cast<const ColumnTimeStampTz&>(*result.column);
+    EXPECT_EQ(column.get_element(0).to_string(shanghai, 6), "1970-01-01 08:00:00.000000+08:00");
+    EXPECT_EQ(column.get_element(1).to_string(shanghai, 6), "1970-01-01 08:02:03.456789+08:00");
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, DateTimeV2RejectsInvalidKind) {

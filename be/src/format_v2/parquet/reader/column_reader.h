@@ -133,6 +133,7 @@ public:
     virtual int64_t nested_levels_written() const;
     // 该 reader 自身或其子树中是否包含 repeated 子节点。
     virtual bool is_or_has_repeated_child() const;
+    virtual void advance_nested_build_level_cursor_past_parent(int16_t parent_repetition_level);
 
     // ========== 嵌套构建游标 ==========
     // 复杂 reader 在 build_nested_column 时分多轮调用子 reader，游标跟踪当前处理到的

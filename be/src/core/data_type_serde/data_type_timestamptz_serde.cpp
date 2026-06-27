@@ -30,6 +30,22 @@ namespace doris {
 
 namespace {
 
+#pragma pack(1)
+struct DecodedInt96Timestamp {
+    int64_t nanos_of_day;
+    int32_t julian_day;
+
+    int64_t to_timestamp_micros() const {
+        static constexpr int32_t JULIAN_EPOCH_OFFSET_DAYS = 2440588;
+        static constexpr int64_t MICROS_IN_DAY = 86400000000;
+        static constexpr int64_t NANOS_PER_MICROSECOND = 1000;
+        return (julian_day - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY +
+               nanos_of_day / NANOS_PER_MICROSECOND;
+    }
+};
+#pragma pack()
+static_assert(sizeof(DecodedInt96Timestamp) == 12);
+
 void append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
                                               int64_t timestamp_micros) {
     static constexpr int64_t MICROS_PER_SECOND = 1000000;
@@ -282,16 +298,28 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
 
 Status DataTypeTimeStampTzSerDe::read_column_from_decoded_values(
         IColumn& column, const DecodedColumnView& view) const {
-    if (view.value_kind != DecodedValueKind::INT64) {
+    if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
         return decoded_column_view_handle_conversion_failure(
                 column, view,
-                Status::NotSupported("TIMESTAMPTZ decoded reader expects INT64 source"));
+                Status::NotSupported("TIMESTAMPTZ decoded reader expects INT64 or INT96 source"));
     }
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
 
     auto& data = assert_cast<ColumnTimeStampTz&>(column).get_data();
+    if (view.value_kind == DecodedValueKind::INT96) {
+        const auto* values = reinterpret_cast<const DecodedInt96Timestamp*>(view.values);
+        for (int64_t row = 0; row < view.row_count; ++row) {
+            if (decoded_column_view_row_is_null(view, row)) {
+                data.push_back(TimestampTzValue());
+                continue;
+            }
+            append_timestamptz_from_utc_epoch_micros(data, values[row].to_timestamp_micros());
+        }
+        return Status::OK();
+    }
+
     const auto* values = reinterpret_cast<const int64_t*>(view.values);
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {

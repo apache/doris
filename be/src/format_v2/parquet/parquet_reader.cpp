@@ -158,7 +158,8 @@ int timestamp_tz_scale(const ParquetTypeDescriptor& type_descriptor) {
 
 bool should_map_to_timestamp_tz(const ParquetColumnSchema& column_schema) {
     const auto& type_descriptor = column_schema.type_descriptor;
-    return type_descriptor.is_timestamp && type_descriptor.timestamp_is_adjusted_to_utc;
+    return type_descriptor.physical_type == ::parquet::Type::INT96 ||
+           (type_descriptor.is_timestamp && type_descriptor.timestamp_is_adjusted_to_utc);
 }
 
 DataTypePtr apply_timestamp_tz_mapping(ParquetColumnSchema* column_schema) {

@@ -241,4 +241,13 @@ bool MapColumnReader::is_or_has_repeated_child() const {
     return true;
 }
 
+void MapColumnReader::advance_nested_build_level_cursor_past_parent(
+        int16_t parent_repetition_level) {
+    DORIS_CHECK(_key_reader != nullptr);
+    DORIS_CHECK(_value_reader != nullptr);
+    ParquetColumnReader::advance_nested_build_level_cursor_past_parent(parent_repetition_level);
+    _key_reader->advance_nested_build_level_cursor_past_parent(parent_repetition_level);
+    _value_reader->advance_nested_build_level_cursor_past_parent(parent_repetition_level);
+}
+
 } // namespace doris::format::parquet
