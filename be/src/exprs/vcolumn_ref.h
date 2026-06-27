@@ -91,14 +91,11 @@ public:
 
     const std::string& expr_name() const override { return _column_name; }
 
-    void set_gap(int gap) {
-        _gap = gap;
-        _gap_set = true;
-    }
+    void set_gap(int gap) { _gap = gap; }
 
     int get_gap() const { return _gap.load(); }
 
-    bool has_gap() const { return _gap_set.load(); }
+    bool has_gap() const { return _gap.load() >= 0; }
 
     std::string debug_string() const override {
         std::stringstream out;
@@ -111,33 +108,25 @@ public:
 
 private:
     int _get_column_position(VExprContext* context, const Block* block) const {
-        if (context != nullptr) {
-            const auto resolve_result =
-                    context->lambda_execution_context().resolve_column_position(_column_name);
-            if (resolve_result.found) {
-                return resolve_result.column_position;
-            }
-            if (resolve_result.searched_named_scope) {
-                return -1;
-            }
+        const auto resolve_result =
+                context->lambda_execution_context().resolve_column_position(_column_name);
+        if (resolve_result.found) {
+            return resolve_result.column_position;
+        }
+        if (resolve_result.searched_named_scope) {
+            return -1;
         }
         return _get_column_position_without_context(block);
     }
 
     int _get_column_position_without_context(const Block* block) const {
-        if (!_gap_set.load()) {
-            const int position_by_name = _find_column_position_by_name(block);
-            if (position_by_name >= 0) {
-                return position_by_name;
-            }
+        if (_gap.load() == -1) {
+            return _find_column_position_by_name(block);
         }
         return _column_id + _gap.load();
     }
 
     int _find_column_position_by_name(const Block* block) const {
-        if (block == nullptr) {
-            return -1;
-        }
         for (int position = block->columns() - 1; position >= 0; --position) {
             if (block->get_by_position(position).name == _column_name) {
                 return position;
@@ -147,8 +136,7 @@ private:
     }
 
     int _column_id;
-    std::atomic<int> _gap = 0;
-    std::atomic<bool> _gap_set = false;
+    std::atomic<int> _gap = -1;
     std::string _column_name;
 };
 } // namespace doris

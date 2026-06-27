@@ -703,6 +703,263 @@ TEST(ArrayMapFunctionTest,
               std::string::npos);
 }
 
+TEST(ArrayMapFunctionTest, NestedArraySortComparatorNestedLambdaCanShadowComparatorArgument) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto sort_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"x", "y"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"x"}));
+
+    // This mirrors:
+    //   array_sort((x, y) -> array_map(x -> x, [1, 2]), arr)
+    // The inner array_map argument named x shadows the array_sort comparator argument x.
+    auto inner_x = VColumnRef::create_shared(make_column_ref_node(0, "x", int_type));
+
+    inner_lambda->add_child(inner_x);
+    inner_call->add_child(inner_lambda);
+    inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
+                                                                array_int_type, "inner_array"));
+    sort_lambda->add_child(inner_call);
+    root->add_child(sort_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
+                                                     array_int_type, "arr"));
+
+    VExprContext context(root);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    auto status = root->prepare(&state, row_desc, &context);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST(ArrayMapFunctionTest,
+     NestedArraySortComparatorNestedLambdaCapturingNonComparatorColumnReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto sort_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"x", "y"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"z"}));
+    auto add = std::make_shared<MockAddExpr>(int_type);
+
+    // This mirrors:
+    //   array_sort((x, y) -> array_map(z -> z + outer_col, [1, 2]), arr)
+    // Only the nested lambda's own arguments are visible in nested lambda bodies.
+    auto inner_z = VColumnRef::create_shared(make_column_ref_node(0, "z", int_type));
+    auto outer_col = VColumnRef::create_shared(make_column_ref_node(2, "outer_col", int_type));
+
+    add->add_child(inner_z);
+    add->add_child(outer_col);
+    inner_lambda->add_child(add);
+    inner_call->add_child(inner_lambda);
+    inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
+                                                                array_int_type, "inner_array"));
+    sort_lambda->add_child(inner_call);
+    root->add_child(sort_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
+                                                     array_int_type, "arr"));
+
+    VExprContext context(root);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    auto status = root->prepare(&state, row_desc, &context);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "array_sort comparator only supports nested lambda arguments inside nested "
+                      "lambda bodies, but found captured column ref 'outer_col'"),
+              std::string::npos);
+}
+
+TEST(ArrayMapFunctionTest, NestedArraySortComparatorNestedLambdaCapturingSlotRefReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto sort_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"x", "y"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"z"}));
+    auto add = std::make_shared<MockAddExpr>(int_type);
+
+    // This mirrors:
+    //   array_sort((x, y) -> array_map(z -> z + k1, [1, 2]), arr)
+    // SlotRefs from outside the nested lambda are not available inside array_sort's comparator.
+    auto inner_z = VColumnRef::create_shared(make_column_ref_node(0, "z", int_type));
+    auto k1 = make_slot_ref(0, "k1", int_type);
+
+    add->add_child(inner_z);
+    add->add_child(k1);
+    inner_lambda->add_child(add);
+    inner_call->add_child(inner_lambda);
+    inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
+                                                                array_int_type, "inner_array"));
+    sort_lambda->add_child(inner_call);
+    root->add_child(sort_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
+                                                     array_int_type, "arr"));
+
+    VExprContext context(root);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    auto status = root->prepare(&state, row_desc, &context);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "array_sort comparator only supports nested lambda arguments inside nested "
+                      "lambda bodies, but found captured slot ref 'k1'"),
+              std::string::npos);
+}
+
+TEST(ArrayMapFunctionTest,
+     NestedArraySortComparatorNestedLambdaWithoutArgumentMetadataReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto sort_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"x", "y"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(
+            make_lambda_expr_node(int_type, {"z"}, false /*set_argument_names*/));
+
+    // This mirrors an old FE plan where the nested array_map lambda has no argument metadata.
+    auto inner_z = VColumnRef::create_shared(make_column_ref_node(0, "z", int_type));
+
+    inner_lambda->add_child(inner_z);
+    inner_call->add_child(inner_lambda);
+    inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
+                                                                array_int_type, "inner_array"));
+    sort_lambda->add_child(inner_call);
+    root->add_child(sort_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
+                                                     array_int_type, "arr"));
+
+    VExprContext context(root);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    auto status = root->prepare(&state, row_desc, &context);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "Cannot validate nested lambda capture in array_sort comparator without "
+                      "lambda metadata"),
+              std::string::npos);
+}
+
+TEST(ArrayMapFunctionTest,
+     NestedArraySortComparatorTwoLevelNestedLambdaCanCaptureOuterNestedArgument) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nested_array_int_type = std::make_shared<DataTypeArray>(array_int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto sort_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"x", "y"}));
+    auto outer_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(nested_array_int_type, 2));
+    auto outer_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(array_int_type, {"z"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"q"}));
+    auto add = std::make_shared<MockAddExpr>(int_type);
+
+    // This mirrors:
+    //   array_sort((x, y) -> array_map(z -> array_map(q -> q + z, [1, 2]), [3, 4]), arr)
+    // q is local to the inner array_map, while z is declared by the enclosing nested array_map.
+    auto inner_q = VColumnRef::create_shared(make_column_ref_node(0, "q", int_type));
+    auto outer_z = VColumnRef::create_shared(make_column_ref_node(0, "z", int_type));
+
+    add->add_child(inner_q);
+    add->add_child(outer_z);
+    inner_lambda->add_child(add);
+    inner_call->add_child(inner_lambda);
+    inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
+                                                                array_int_type, "inner_array"));
+    outer_lambda->add_child(inner_call);
+    outer_call->add_child(outer_lambda);
+    outer_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{3, 4}}),
+                                                                array_int_type, "outer_array"));
+    sort_lambda->add_child(outer_call);
+    root->add_child(sort_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
+                                                     array_int_type, "arr"));
+
+    VExprContext context(root);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    auto status = root->prepare(&state, row_desc, &context);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST(ArrayMapFunctionTest,
+     NestedArraySortComparatorNestedLambdaCallWithoutArgumentMetadataReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nested_array_int_type = std::make_shared<DataTypeArray>(array_int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto sort_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"x", "y"}));
+    auto outer_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(nested_array_int_type, 2));
+    auto outer_lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(array_int_type, {"z"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(
+            make_lambda_expr_node(int_type, {"q"}, false /*set_argument_names*/));
+    auto add = std::make_shared<MockAddExpr>(int_type);
+
+    // This mirrors an old FE plan where a nested lambda call under another nested lambda has no
+    // argument metadata.
+    auto inner_q = VColumnRef::create_shared(make_column_ref_node(0, "q", int_type));
+    auto outer_z = VColumnRef::create_shared(make_column_ref_node(0, "z", int_type));
+
+    add->add_child(inner_q);
+    add->add_child(outer_z);
+    inner_lambda->add_child(add);
+    inner_call->add_child(inner_lambda);
+    inner_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{1, 2}}),
+                                                                array_int_type, "inner_array"));
+    outer_lambda->add_child(inner_call);
+    outer_call->add_child(outer_lambda);
+    outer_call->add_child(std::make_shared<MockConstColumnExpr>(make_int_array_column({{3, 4}}),
+                                                                array_int_type, "outer_array"));
+    sort_lambda->add_child(outer_call);
+    root->add_child(sort_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{2, 1}, {4, 3}}),
+                                                     array_int_type, "arr"));
+
+    VExprContext context(root);
+    RuntimeState state;
+    RowDescriptor row_desc;
+    auto status = root->prepare(&state, row_desc, &context);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "Cannot validate nested lambda capture in array_sort comparator without "
+                      "lambda metadata"),
+              std::string::npos);
+}
+
 TEST(ArrayMapFunctionTest, NestedLambdaCapturesOuterSlotRefFromInnerBody) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto array_int_type = std::make_shared<DataTypeArray>(int_type);

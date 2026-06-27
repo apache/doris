@@ -47,9 +47,7 @@ class RowDescriptor;
 
 namespace doris {
 
-VExprContext::VExprContext(VExprSPtr expr)
-        : _root(std::move(expr)),
-          _lambda_execution_context(std::make_unique<LambdaExecutionContext>()) {}
+VExprContext::VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
 
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
@@ -66,6 +64,9 @@ VExprContext::~VExprContext() {
 }
 
 LambdaExecutionContext& VExprContext::lambda_execution_context() {
+    if (!_lambda_execution_context) {
+        _lambda_execution_context = std::make_unique<LambdaExecutionContext>();
+    }
     return *_lambda_execution_context;
 }
 

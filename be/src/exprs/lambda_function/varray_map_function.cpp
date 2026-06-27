@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -185,11 +186,10 @@ public:
         names.reserve(lambda_argument_base + arguments.size());
         data_types.reserve(lambda_argument_base + arguments.size());
         for (int column_id : required_input_column_ids) {
-            if (column_id < 0 || block == nullptr ||
-                static_cast<size_t>(column_id) >= block->columns()) {
+            if (column_id < 0 || static_cast<size_t>(column_id) >= block->columns()) {
                 return Status::InternalError(
                         "array_map lambda input column id {} is outside input block, block={}",
-                        column_id, block == nullptr ? "nullptr" : block->dump_structure());
+                        column_id, block->dump_structure());
             }
             materialized_input_columns[column_id] = true;
             names[column_id] = block->get_by_position(column_id).name;
@@ -407,16 +407,15 @@ private:
                                            size_t argument_size) const {
         if (expr->is_column_ref()) {
             auto* ref = static_cast<VColumnRef*>(expr.get());
-            if (ref->column_id() >= 0 && static_cast<size_t>(ref->column_id()) < argument_size) {
-                const int argument_index = ref->column_id();
-                ref->set_gap(lambda_argument_base + argument_index - ref->column_id());
+            DORIS_CHECK_GE(ref->column_id(), 0);
+            DORIS_CHECK_LT(static_cast<size_t>(ref->column_id()), argument_size);
+            const int argument_index = ref->column_id();
+            ref->set_gap(lambda_argument_base + argument_index - ref->column_id());
+        } else {
+            for (const auto& child : expr->children()) {
+                RETURN_IF_ERROR(_set_legacy_lambda_argument_gap(child, lambda_argument_base,
+                                                                argument_size));
             }
-            return Status::OK();
-        }
-
-        for (const auto& child : expr->children()) {
-            RETURN_IF_ERROR(
-                    _set_legacy_lambda_argument_gap(child, lambda_argument_base, argument_size));
         }
         return Status::OK();
     }
