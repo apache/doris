@@ -21,7 +21,7 @@
 
 #include <cstdint>
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 static_assert(sizeof(KmjFileHeader) == 32, "KmjFileHeader must be 32 bytes");
 static_assert(sizeof(WordEntry) == 12, "WordEntry must be 12 bytes");
@@ -45,4 +45,4 @@ TEST(KuromojiDictFormatTest, ConnectionCostIndexing) {
     EXPECT_EQ(connection_cost(cells, 2, /*forward*/ 1, /*backward*/ 2), 31);
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

@@ -27,7 +27,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 class KuromojiDictionaryTest : public ::testing::Test {
 protected:
@@ -112,4 +112,4 @@ TEST_F(KuromojiDictionaryTest, RejectsBadMagic) {
     EXPECT_FALSE(KuromojiDictionary::load(bad, &dict).ok());
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

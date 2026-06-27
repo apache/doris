@@ -35,7 +35,7 @@
 // End-to-end against the REAL IPADIC dictionary generated under be/dict/kuromoji.
 // Skips if the dictionary has not been generated on this host (e.g. plain CI),
 // so it is safe to keep in the suite.
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 static std::string real_dict_dir() {
     const char* home = std::getenv("DORIS_HOME");
@@ -170,4 +170,4 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
               toks.end()); // 住む (base form) present
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

@@ -21,7 +21,7 @@
 
 #include <string>
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 TEST(KuromojiNormalizeTest, FullWidthAsciiToAscii) {
     EXPECT_EQ(cjk_width_normalize("\xEF\xBC\xA1\xEF\xBC\xA2\xEF\xBC\xA3"), "ABC"); // ＡＢＣ
@@ -47,4 +47,4 @@ TEST(KuromojiNormalizeTest, PreservesOtherText) {
               "B");
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji
